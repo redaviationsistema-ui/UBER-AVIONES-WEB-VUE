@@ -1,9 +1,15 @@
 <script setup>
-import { computed, reactive } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import SiteFooter from '../components/SiteFooter.vue'
+import { createClientFlightRequest } from '../features/client/clientBookingApi'
+import { useUiStore } from '../stores/ui'
+import { useAuthStore } from '../stores/auth'
 
 const router = useRouter()
+const ui = useUiStore()
+const auth = useAuthStore()
+const saving = ref(false)
 
 
 const form = reactive({

@@ -370,39 +370,13 @@ function revealReturnTime() {
       </div>
     </div>
 
-    <aside class="booking-map">
-      <div class="summary-visual" aria-hidden="true"></div>
-      <div class="map-card">
-        <span>{{ summary.membership ? `Itinerario ${summary.membership}` : 'Itinerario' }}</span>
-        <strong>{{ summary.legs.length }} {{ summary.legs.length === 1 ? 'tramo' : 'tramos' }}</strong>
-        <div class="summary-lines">
-          <small v-if="tripType === 'Ida'">Ruta: {{ summary.legs[0]?.origin }} -> {{ summary.legs[0]?.destination }}</small>
-          <template v-else-if="tripType === 'Redondo'">
-            <small>Salida: {{ summary.legs[0]?.origin }} -> {{ summary.legs[0]?.destination }}</small>
-            <small>Regreso: {{ summary.legs[1]?.origin }} -> {{ summary.legs[1]?.destination }}</small>
-            <small>Dias en destino: {{ summary.days }}</small>
-          </template>
-          <template v-else>
-            <small>{{ summary.days }} dias de itinerario</small>
-            <small>{{ summary.passengers }} pasajeros</small>
-            <small>Preferencia: {{ summary.preference }}</small>
-          </template>
-          <small v-if="summary.cabin">Cabina sugerida: {{ summary.cabin }}</small>
-          <small v-if="summary.estimatedTime">Tiempo estimado: {{ summary.estimatedTime }}</small>
-          <small v-if="summary.estimatedTotal">Precio estimado: {{ summary.estimatedTotal }}</small>
-          <small v-if="summary.legs.length >= 4">Este viaje puede optimizarse con Concierge.</small>
-          <small v-if="summary.maxLegs && summary.legs.length > summary.maxLegs">Tu acceso requiere mas tramos disponibles.</small>
-        </div>
-      </div>
-    </aside>
   </section>
 </template>
 
 <style scoped>
 .flight-search-hero {
   display: grid;
-  grid-template-columns: minmax(0, 1.06fr) minmax(300px, 0.72fr);
-  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr);
   align-items: stretch;
 }
 
@@ -733,50 +707,6 @@ button {
   font-weight: 600;
 }
 
-.booking-map {
-  display: grid;
-  grid-template-rows: minmax(150px, 0.4fr) minmax(0, 0.6fr);
-  gap: 0;
-  min-height: 420px;
-  overflow: hidden;
-  border: 1px solid #e5e1d8;
-  border-radius: 8px;
-  background: #ffffff;
-}
-
-.summary-visual {
-  min-height: 160px;
-  background:
-    linear-gradient(180deg, rgba(9, 10, 12, 0.02), rgba(9, 10, 12, 0.36)),
-    url('https://images.unsplash.com/photo-1540962351504-03099e0a754b?auto=format&fit=crop&w=1200&q=80') center/cover;
-}
-
-.map-card {
-  display: grid;
-  gap: 0.55rem;
-  align-content: start;
-  padding: 1rem;
-  border-radius: 0;
-  background: #ffffff;
-}
-
-.map-card span,
-.map-card small {
-  color: #6a604f;
-  font-size: 0.82rem;
-  font-weight: 800;
-}
-
-.map-card strong {
-  color: #141414;
-  font-size: clamp(1.45rem, 3vw, 2.1rem);
-}
-
-.summary-lines {
-  display: grid;
-  gap: 0.35rem;
-}
-
 @media (max-width: 1080px) {
   .flight-search-hero,
   .preference-panel {
@@ -842,16 +772,6 @@ button {
     font-size: 0.72rem;
     padding: 0 0.6rem;
   }
-
-  .booking-map {
-    min-height: 0;
-    display: none;
-  }
-
-  .summary-visual {
-    min-height: 120px;
-  }
-
   .multi-leg-builder {
     padding-left: 0;
   }
