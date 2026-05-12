@@ -8,6 +8,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ProviderAircraftDocumentController extends Controller
 {
@@ -80,6 +81,41 @@ class ProviderAircraftDocumentController extends Controller
         ], 201);
     }
 
+    public function download(Request $request, int $aircraftId, int $documentId): StreamedResponse
+    {
+        $document = AircraftDocument::query()
+            ->where('aircraft_id', $aircraftId)
+            ->findOrFail($documentId);
+
+        return $this->downloadDocument($document);
+    }
+
+    public function downloadAdmin(Request $request, int $documentId): StreamedResponse
+    {
+        $document = AircraftDocument::query()->findOrFail($documentId);
+
+        return $this->downloadDocument($document);
+    }
+
+    private function downloadDocument(AircraftDocument $document): StreamedResponse
+    {
+        $user = Auth::user();
+        $providerId = $user?->provider_id;
+
+        if ($providerId) {
+            abort_unless((int) $document->provider_id === (int) $providerId, 403);
+        }
+
+        $disk = $this->documentDisk($document->file_path);
+
+        abort_unless($disk->exists($document->file_path), 404, 'Documento no encontrado.');
+
+        return $disk->download(
+            $document->file_path,
+            $document->file_name ?: $document->document_name
+        );
+    }
+
     private function extractFiles(Request $request): array
     {
         $files = [];
@@ -98,5 +134,22 @@ class ProviderAircraftDocumentController extends Controller
         }
 
         return $files;
+    }
+
+    private function documentDisk(string $path)
+    {
+        foreach ([config('filesystems.default'), 's3', 'public'] as $diskName) {
+            if (!$diskName) {
+                continue;
+            }
+
+            $disk = Storage::disk($diskName);
+
+            if ($disk->exists($path)) {
+                return $disk;
+            }
+        }
+
+        return Storage::disk(config('filesystems.default', 'public'));
     }
 }

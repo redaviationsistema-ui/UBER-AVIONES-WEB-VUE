@@ -77,3 +77,15 @@ No valida estado de aprobacion.
   ]
 }
 ```
+
+## Descargar documentos privados
+
+Si los documentos viven en S3 privado, no abras `file_url` directo en el navegador. S3 respondera `AccessDenied`.
+
+Agrega una ruta autenticada en Laravel:
+
+```php
+Route::get('/admin/aircraft-documents/{documentId}/download', [ProviderAircraftDocumentController::class, 'downloadAdmin']);
+```
+
+El frontend admin ya intenta esa ruta. Si aparece `route api/v1/... could not be found`, el backend desplegado todavia no tiene registrada la ruta de descarga.

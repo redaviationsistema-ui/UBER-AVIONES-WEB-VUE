@@ -4,7 +4,7 @@ defineEmits(['open'])
 
 <template>
   <button class="floating-concierge" type="button" @click="$emit('open')">
-    Concierge 24/7
+    Asesor privado
   </button>
 </template>
 
@@ -16,15 +16,16 @@ defineEmits(['open'])
   z-index: 30;
   width: auto;
   min-height: 3.1rem;
-  border: 1px solid rgba(255, 255, 255, 0.24);
-  border-radius: 8px;
-  padding: 0 1.1rem;
-  background: #111111;
+  border: 1px solid rgba(191, 151, 65, 0.42);
+  border-radius: 999px;
+  padding: 0 1.2rem;
+  background: linear-gradient(135deg, #111111, #2d2920);
   color: #ffffff;
-  box-shadow: 0 18px 38px rgba(0, 0, 0, 0.22);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.24);
   font-weight: 800;
   cursor: pointer;
 }
+
 
 @media (max-width: 720px) {
   .floating-concierge {
@@ -39,9 +40,12 @@ defineEmits(['open'])
   }
 
   .floating-concierge::before {
-    content: '💬';
+    content: 'A';
     font-size: 1rem;
     line-height: 1;
   }
 }
 </style>
+
+
+

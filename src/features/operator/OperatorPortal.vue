@@ -81,10 +81,11 @@ const companyForm = reactive({
 const aircraftForm = reactive({
   name: '',
   manufacturer: '',
+  category: '',
   registration: '',
   year: '',
   capacity: 1,
-  rangeKm: '',
+  speedKnots: '',
   amenities: '',
   base: '',
   coverage: '',
@@ -182,11 +183,13 @@ const requestPriorityFilter = ref('all')
 const selectedRequestId = ref(null)
 const aircraftWizardSteps = [
   { id: 1, label: 'General', description: 'Modelo, fabricante, matricula y base operativa.' },
-  { id: 2, label: 'Operacion', description: 'Capacidad, cobertura, rango y tarifas.' },
+  { id: 2, label: 'Operacion', description: 'Capacidad, cobertura y tarifas.' },
   { id: 3, label: 'Galeria', description: 'Imagen principal, cabina, asientos y amenidades.' },
   { id: 4, label: 'Documentacion', description: 'Seguro, vigencias y expediente tecnico.' },
   { id: 5, label: 'Revision', description: 'Resumen final antes de publicar o revisar.' },
 ]
+const coverageOptions = ['REGIONALES', 'NACIONALES', 'INTERNACIONALES']
+const aircraftCategoryOptions = ['Jet privado', 'Helicoptero', 'Ambulancia aerea', 'Carga']
 const aircraftDocumentTypes = [
   { id: 'maintenance_sticker', label: 'Sticker de mantenimiento', requiresExpiry: false, accepts: ['image', 'pdf'] },
   { id: 'flight_logbook', label: 'Bitacora de vuelo', requiresExpiry: false, accepts: ['image', 'pdf'] },
@@ -1196,10 +1199,13 @@ function normalizeAircraft(raw = {}, index = 0) {
     id: raw.id || index + 1,
     name: raw.model || raw.name || raw.aircraft_name || `Aeronave ${index + 1}`,
     manufacturer: raw.manufacturer || '',
+    category: raw.category || raw.aircraft_category || raw.type || '',
     registration: raw.registration || raw.matricula || '',
     year: raw.year || raw.model_year || '',
     capacity: Number(raw.capacity || raw.passenger_capacity || 0),
     rangeKm: Number(raw.range_km || raw.rangeKm || 0),
+    speedKmh: Number(raw.speed_kmh || raw.speedKmh || 0),
+    speedKnots: Number(raw.speed_knots || raw.speedKnots || kmhToKnots(raw.speed_kmh || raw.speedKmh) || 0),
     amenities: Array.isArray(raw.amenities) ? raw.amenities.join(', ') : raw.amenities || '',
     base: raw.base || raw.base_airport || raw.base_airport_code || '',
     coverage: Array.isArray(raw.coverage) ? raw.coverage.join(', ') : raw.coverage || '',
@@ -1223,7 +1229,6 @@ function normalizeAircraft(raw = {}, index = 0) {
     approved: Boolean(raw.approved_at || raw.approved || raw.is_approved),
     approvedAt: raw.approved_at || raw.approvedAt || null,
     mainImage,
-    category: raw.category || raw.aircraft_category || raw.type || '',
     images: normalizedImages,
     documents: normalizedDocuments,
     documentsValid:
@@ -1577,10 +1582,11 @@ function resetAircraftForm() {
   Object.assign(aircraftForm, {
     name: '',
     manufacturer: '',
+    category: '',
     registration: '',
     year: '',
     capacity: 1,
-    rangeKm: '',
+    speedKnots: '',
     amenities: '',
     base: '',
     coverage: '',
@@ -1592,6 +1598,43 @@ function resetAircraftForm() {
 
 function uppercaseText(value) {
   return String(value || '').toLocaleUpperCase('es-MX')
+}
+
+function nullableText(value) {
+  const normalized = String(value || '').trim()
+  return normalized === '' ? null : normalized
+}
+
+function knotsToKmh(value) {
+  const knots = Number(value || 0)
+  return knots > 0 ? Math.round(knots * 1.852) : 0
+}
+
+function kmhToKnots(value) {
+  const kmh = Number(value || 0)
+  return kmh > 0 ? Math.round(kmh / 1.852) : ''
+}
+
+function selectedCoverageValues() {
+  return String(aircraftForm.coverage || '')
+    .split(',')
+    .map((item) => item.trim().toLocaleUpperCase('es-MX'))
+    .filter(Boolean)
+}
+
+function isCoverageSelected(option) {
+  return selectedCoverageValues().includes(option)
+}
+
+function toggleCoverage(option) {
+  const selected = new Set(selectedCoverageValues())
+  if (selected.has(option)) {
+    selected.delete(option)
+  } else {
+    selected.add(option)
+  }
+
+  aircraftForm.coverage = coverageOptions.filter((item) => selected.has(item)).join(', ')
 }
 
 function uppercaseAircraftFormTextFields() {
@@ -1634,10 +1677,11 @@ function startEditingAircraft(item) {
   Object.assign(aircraftForm, {
     name: uppercaseText(item.name),
     manufacturer: uppercaseText(item.manufacturer),
+    category: item.category || '',
     registration: uppercaseText(item.registration),
     year: item.year || '',
     capacity: item.capacity || 1,
-    rangeKm: item.rangeKm || '',
+    speedKnots: item.speedKnots || '',
     amenities: uppercaseText(item.amenities),
     base: uppercaseText(item.base),
     coverage: uppercaseText(item.coverage),
@@ -1906,15 +1950,6 @@ function setAircraftImageField(field, value) {
   imageForm[field] = value
 }
 
-function setAircraftDocumentField(field, value) {
-  if (!(field in documentForm)) return
-  documentForm[field] = value
-
-  if (field === 'file') {
-    documentForm.fileName = value?.name || ''
-  }
-}
-
 function getAircraftDocumentTypeMeta(type) {
   return aircraftDocumentTypes.find((item) => item.id === type) || {
     id: type || 'documento',
@@ -2050,14 +2085,6 @@ async function removeStoredAircraftDocument(aircraftId, documentId) {
       error.message || 'El documento no pudo eliminarse del backend.',
     )
   }
-}
-
-function clearAircraftDocumentFiles() {
-  closeDocumentPreview()
-  revokeDocumentPreviewUrls()
-  documentForm.files = []
-  documentForm.file = null
-  documentForm.fileName = ''
 }
 
 function openDocumentPreview(item) {
@@ -2742,15 +2769,14 @@ async function sendCompanyToReview() {
 async function createAircraft() {
   clearFormFeedback('aircraft')
   uppercaseAircraftFormTextFields()
-  if (!aircraftForm.name || !aircraftForm.registration || !aircraftForm.base) {
+  if (!aircraftForm.name || !aircraftForm.base) {
     setFormErrors('aircraft', {
       ...(!aircraftForm.name ? { name: 'El modelo es obligatorio.' } : {}),
-      ...(!aircraftForm.registration ? { registration: 'La matricula es obligatoria.' } : {}),
       ...(!aircraftForm.base ? { base: 'La base es obligatoria.' } : {}),
     })
     return showError(
       'Campos incompletos',
-      'Completa modelo, matricula y base para crear la aeronave.',
+      'Completa modelo y base para crear la aeronave.',
     )
   }
 
@@ -2758,10 +2784,11 @@ async function createAircraft() {
     provider_id: providerId.value || undefined,
     model: aircraftForm.name,
     manufacturer: aircraftForm.manufacturer,
-    registration: aircraftForm.registration,
+    category: aircraftForm.category,
+    registration: nullableText(aircraftForm.registration),
     year: Number(aircraftForm.year || 0),
     capacity: Number(aircraftForm.capacity || 1),
-    range_km: Number(aircraftForm.rangeKm || 0),
+    speed_kmh: knotsToKmh(aircraftForm.speedKnots),
     amenities: aircraftForm.amenities
       .split(',')
       .map((item) => item.trim())
@@ -2813,10 +2840,10 @@ async function createAircraft() {
       {
         model: 'name',
         manufacturer: 'manufacturer',
+        category: 'category',
         registration: 'registration',
         year: 'year',
         capacity: 'capacity',
-        range_km: 'rangeKm',
         amenities: 'amenities',
         base_airport: 'base',
         coverage: 'coverage',
@@ -3064,25 +3091,25 @@ async function sendAircraftToReview(id) {
 async function saveAircraftEdits(id) {
   clearFormFeedback('aircraft')
   uppercaseAircraftFormTextFields()
-  if (!aircraftForm.name || !aircraftForm.registration || !aircraftForm.base) {
+  if (!aircraftForm.name || !aircraftForm.base) {
     setFormErrors('aircraft', {
       ...(!aircraftForm.name ? { name: 'El modelo es obligatorio.' } : {}),
-      ...(!aircraftForm.registration ? { registration: 'La matricula es obligatoria.' } : {}),
       ...(!aircraftForm.base ? { base: 'La base es obligatoria.' } : {}),
     })
     return showError(
       'Edicion incompleta',
-      'Modelo, matricula y base son obligatorios para guardar la aeronave.',
+      'Modelo y base son obligatorios para guardar la aeronave.',
     )
   }
 
   const payload = {
     model: aircraftForm.name,
     manufacturer: aircraftForm.manufacturer,
-    registration: aircraftForm.registration,
+    category: aircraftForm.category,
+    registration: nullableText(aircraftForm.registration),
     year: Number(aircraftForm.year || 0),
     capacity: Number(aircraftForm.capacity || 1),
-    range_km: Number(aircraftForm.rangeKm || 0),
+    speed_kmh: knotsToKmh(aircraftForm.speedKnots),
     amenities: aircraftForm.amenities
       .split(',')
       .map((item) => item.trim())
@@ -3123,10 +3150,10 @@ async function saveAircraftEdits(id) {
       {
         model: 'name',
         manufacturer: 'manufacturer',
+        category: 'category',
         registration: 'registration',
         year: 'year',
         capacity: 'capacity',
-        range_km: 'rangeKm',
         amenities: 'amenities',
         base_airport: 'base',
         coverage: 'coverage',
@@ -4598,7 +4625,23 @@ onMounted(() => {
                   }}</small>
                 </label>
                 <label>
-                  <span>Matricula</span>
+                  <span>Tipo de vuelo</span>
+                  <select
+                    v-model="aircraftForm.category"
+                    :disabled="aircraftWizardReadOnly"
+                    :class="{ 'input-error': formErrors.aircraft.category }"
+                  >
+                    <option value="">Selecciona</option>
+                    <option v-for="option in aircraftCategoryOptions" :key="option" :value="option">
+                      {{ option }}
+                    </option>
+                  </select>
+                  <small v-if="formErrors.aircraft.category" class="field-error">{{
+                    formErrors.aircraft.category
+                  }}</small>
+                </label>
+                <label>
+                  <span>Matricula <small>opcional</small></span>
                   <input
                     v-model="aircraftForm.registration"
                     type="text"
@@ -4662,31 +4705,35 @@ onMounted(() => {
                   }}</small>
                 </label>
                 <label>
-                  <span>Rango KM</span>
+                  <span>Velocidad crucero (knots)</span>
                   <input
-                    v-model="aircraftForm.rangeKm"
+                    v-model="aircraftForm.speedKnots"
                     type="number"
                     min="0"
                     :disabled="aircraftWizardReadOnly"
-                    :class="{ 'input-error': formErrors.aircraft.rangeKm }"
+                    :class="{ 'input-error': formErrors.aircraft.speedKnots }"
                   />
-                  <small v-if="formErrors.aircraft.rangeKm" class="field-error">{{
-                    formErrors.aircraft.rangeKm
+                  <small v-if="formErrors.aircraft.speedKnots" class="field-error">{{
+                    formErrors.aircraft.speedKnots
                   }}</small>
                 </label>
-                <label class="span-2">
+                <div class="span-2 coverage-field">
                   <span>Cobertura</span>
-                  <input
-                    v-model="aircraftForm.coverage"
-                    type="text"
-                    :disabled="aircraftWizardReadOnly"
-                    :class="{ 'input-error': formErrors.aircraft.coverage }"
-                    @input="setUppercaseAircraftField('coverage', $event.target.value)"
-                  />
+                  <div class="coverage-options" :class="{ 'input-error': formErrors.aircraft.coverage }">
+                    <label v-for="option in coverageOptions" :key="option" class="coverage-option">
+                      <input
+                        type="checkbox"
+                        :checked="isCoverageSelected(option)"
+                        :disabled="aircraftWizardReadOnly"
+                        @change="toggleCoverage(option)"
+                      />
+                      <span>{{ option }}</span>
+                    </label>
+                  </div>
                   <small v-if="formErrors.aircraft.coverage" class="field-error">{{
                     formErrors.aircraft.coverage
                   }}</small>
-                </label>
+                </div>
                 <label class="span-2">
                   <span>Servicios proporciona</span>
                   <input
@@ -4968,7 +5015,7 @@ onMounted(() => {
                   <span class="mini-label">Operacion</span>
                   <strong
                     >{{ aircraftForm.capacity || 0 }} pax ·
-                    {{ aircraftForm.rangeKm || 0 }} km</strong
+                    {{ aircraftForm.speedKnots || 0 }} kt</strong
                   >
                   <p class="muted">
                     {{ formatCurrency(aircraftForm.hourlyPrice) }} · Min
@@ -7257,6 +7304,7 @@ onMounted(() => {
 }
 
 .form-grid label,
+.coverage-field,
 .toggle-row {
   display: grid;
   gap: 0.35rem;
@@ -7280,6 +7328,36 @@ select {
 input.input-error,
 textarea.input-error,
 select.input-error {
+  border-color: #d92d20;
+  box-shadow: 0 0 0 1px rgba(217, 45, 32, 0.08);
+}
+
+.coverage-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.coverage-option {
+  min-height: 2.9rem;
+  display: flex !important;
+  align-items: center;
+  gap: 0.55rem !important;
+  border: 1px solid #dccfb9;
+  border-radius: 14px;
+  padding: 0 0.85rem;
+  background: #ffffff;
+  color: #111111;
+  font-weight: 800;
+}
+
+.coverage-option input {
+  width: 1rem;
+  min-height: 1rem;
+  accent-color: #111111;
+}
+
+.coverage-options.input-error .coverage-option {
   border-color: #d92d20;
   box-shadow: 0 0 0 1px rgba(217, 45, 32, 0.08);
 }

@@ -30,6 +30,11 @@ defineEmits(['logout', 'navigate', 'toggle-profile'])
       </button>
     </nav>
 
+    <button class="mobile-reserve-button" type="button" @click="$emit('navigate', 'reservar')">
+      <span aria-hidden="true">☰</span>
+      Reservar
+    </button>
+
     <div class="profile-menu">
       <button class="profile-button" type="button" @click="$emit('toggle-profile')">
         <span>{{ userFirstName.slice(0, 1).toUpperCase() }}</span>
@@ -97,6 +102,10 @@ defineEmits(['logout', 'navigate', 'toggle-profile'])
   position: relative;
 }
 
+.mobile-reserve-button {
+  display: none;
+}
+
 .profile-button {
   display: flex;
   gap: 0.55rem;
@@ -156,13 +165,28 @@ defineEmits(['logout', 'navigate', 'toggle-profile'])
 
 @media (max-width: 760px) {
   .client-top-nav {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto auto;
     min-height: 3.8rem;
     padding: 0.45rem 0.65rem;
   }
 
   .client-main-nav {
     display: none;
+  }
+
+  .mobile-reserve-button {
+    display: inline-flex;
+    gap: 0.35rem;
+    align-items: center;
+    justify-content: center;
+    min-height: 2.1rem;
+    border: 1px solid #dedbd2;
+    border-radius: 999px;
+    padding: 0 0.72rem;
+    background: #111111;
+    color: #ffffff;
+    font-size: 0.78rem;
+    font-weight: 800;
   }
 
   .client-brand :deep(img),

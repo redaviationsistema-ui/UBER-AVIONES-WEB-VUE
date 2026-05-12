@@ -9,6 +9,7 @@ import FlightSearchHero from './FlightSearchHero.vue'
 import MembershipBanner from './MembershipBanner.vue'
 import MembershipStatusBar from './MembershipStatusBar.vue'
 import {
+  createClientFlightRequest,
   getClientDestinations,
   getClientMembershipPlans,
   getClientTrips,
@@ -39,6 +40,7 @@ const membershipPlans = ref([])
 const aircraftOptions = ref([])
 const reservations = ref([])
 const submittedItinerary = ref(null)
+const activeResultFilter = ref('recommended')
 
 const searchForm = reactive({
   origin: '',
@@ -57,14 +59,11 @@ const searchForm = reactive({
 
 const topNavItems = [
   { label: 'Reservar', section: 'reservar' },
+  { label: 'Membresias', section: 'membresia' },
   { label: 'Mis vuelos', section: 'viajes' },
-  { label: 'Membresia', section: 'membresia' },
 ]
 const mobileNavItems = [
-  { label: 'Buscar', section: 'reservar' },
-  { label: 'Vuelos', section: 'viajes' },
-  { label: 'Membresia', section: 'membresia' },
-  { label: 'Perfil', section: 'perfil' },
+  { label: 'Reservar', section: 'reservar' },
 ]
 
 const activeMembership = computed(
@@ -96,7 +95,7 @@ const statusCards = computed(() => {
   ].filter(([, value]) => value !== '')
 })
 
-const trustSignals = ref(['Operadores verificados', 'Sin brokers', 'Concierge 24/7'])
+const trustSignals = ref(['Operadores verificados', 'Asesor privado', 'Reserva segura'])
 const timeline = computed(() => [])
 
 const selectedAircraft = computed(
@@ -209,6 +208,48 @@ const reservationsRemaining = computed(() =>
   Number(activeMembership.value?.remaining_reservations || 0),
 )
 const recommendedAircraftId = computed(() => String(aircraftOptions.value[0]?.id || ''))
+const resultFilterOptions = [
+  { key: 'economy', label: 'Económico' },
+  { key: 'fast', label: 'Rápido' },
+  { key: 'premium', label: 'Premium' },
+  { key: 'recommended', label: 'Recomendado' },
+]
+const filteredAircraftOptions = computed(() => {
+  const options = aircraftOptions.value.map((aircraft, index) => ({ aircraft, index }))
+
+  if (activeResultFilter.value === 'economy') {
+    return options
+      .sort(
+        (current, next) =>
+          aircraftPriceValue(current.aircraft) - aircraftPriceValue(next.aircraft) ||
+          current.index - next.index,
+      )
+      .map(({ aircraft }) => aircraft)
+  }
+
+  if (activeResultFilter.value === 'fast') {
+    return options
+      .sort(
+        (current, next) =>
+          aircraftTimeValue(current.aircraft) - aircraftTimeValue(next.aircraft) ||
+          current.index - next.index,
+      )
+      .map(({ aircraft }) => aircraft)
+  }
+
+  if (activeResultFilter.value === 'premium') {
+    return options
+      .sort(
+        (current, next) =>
+          aircraftPremiumValue(next.aircraft) - aircraftPremiumValue(current.aircraft) ||
+          aircraftPriceValue(current.aircraft) - aircraftPriceValue(next.aircraft) ||
+          current.index - next.index,
+      )
+      .map(({ aircraft }) => aircraft)
+  }
+
+  return options.map(({ aircraft }) => aircraft)
+})
 
 function aircraftVisualStyle(imageUrl) {
   if (!imageUrl) {
@@ -271,15 +312,106 @@ function recommendationBadge(aircraft, index) {
   if (index === 0) return 'Recomendado'
   if (aircraft.priority) return 'Prioridad'
   if (aircraft.response_time) return 'Respuesta rapida'
-  if (aircraft.capacity && Number(aircraft.capacity) >= 8) return 'Mas espacio'
+  if (aircraft.capacity && Number(aircraft.capacity) >= 8) return 'Premium'
   return 'Opcion verificada'
 }
 
 function recommendationNote(aircraft, index) {
-  if (index === 0) return 'Equilibrio ideal entre experiencia, disponibilidad y tiempo de respuesta.'
+  if (index === 0) return 'Equilibrio ideal entre cabina, disponibilidad y experiencia privada.'
   if (aircraft.response_time) return `Respuesta estimada ${aircraft.response_time}.`
-  if (aircraft.amenities?.length) return 'Cabina ejecutiva con amenidades visibles para este vuelo.'
-  return 'Disponibilidad sujeta a confirmacion operativa.'
+  if (aircraft.amenities?.length) return 'Cabina ejecutiva configurada para una experiencia privada.'
+  return 'Selección sujeta a confirmación ejecutiva.'
+}
+
+function aircraftPriceCopy(aircraft) {
+  if (aircraft.final_price) return `Desde ${aircraft.final_price}`
+  return 'Cotización inmediata'
+}
+
+function aircraftPriceValue(aircraft) {
+  const explicitPrice = Number(aircraft.total || aircraft.price || aircraft.estimated_price || 0)
+  if (explicitPrice) return explicitPrice
+
+  const rawPrice = String(aircraft.final_price || '').replace(/[^\d.,]/g, '')
+  if (!rawPrice) return Number.MAX_SAFE_INTEGER
+
+  const normalizedPrice = rawPrice.replace(/,/g, '')
+  const parsedPrice = Number(normalizedPrice)
+  return Number.isFinite(parsedPrice) ? parsedPrice : Number.MAX_SAFE_INTEGER
+}
+
+function aircraftTimeValue(aircraft) {
+  const explicitHours = Number(aircraft.estimated_hours || aircraft.billable_hours || 0)
+  if (explicitHours) return explicitHours
+
+  const rawTime = String(aircraft.time || aircraft.flight_time || '')
+  const hours = Number(rawTime.match(/(\d+(?:\.\d+)?)\s*h/i)?.[1] || 0)
+  const minutes = Number(rawTime.match(/(\d+(?:\.\d+)?)\s*m/i)?.[1] || 0)
+  const totalMinutes = hours * 60 + minutes
+  return totalMinutes || Number.MAX_SAFE_INTEGER
+}
+
+function aircraftPremiumValue(aircraft) {
+  const cabin = String(aircraft.cabin || aircraft.category || '').toLowerCase()
+  const capacity = Number(aircraft.capacity || 0)
+  const premiumCabin = ['premium', 'heavy', 'super midsize', 'large', 'long range', 'vip', 'elite'].some((term) =>
+    cabin.includes(term),
+  )
+
+  return capacity + (premiumCabin ? 20 : 0)
+}
+
+function aircraftShortMeta(aircraft) {
+  return [
+    aircraft.cabin || 'Jet privado',
+    aircraft.capacity ? `${aircraft.capacity} pasajeros` : '',
+    estimatedFlightTime(aircraft),
+  ].filter(Boolean)
+}
+
+function aircraftBenefits(aircraft) {
+  const amenities = Array.isArray(aircraft.amenities) ? aircraft.amenities : []
+  const defaults = ['WiFi', 'Cabina premium']
+  return [...amenities, ...defaults].filter(Boolean).slice(0, 2)
+}
+
+function optimizedDepartureCopy(aircraft) {
+  const origin = aircraft.source_origin || aircraft.queried_base_airport || activeItinerarySummary.value?.legs?.[0]?.origin || ''
+  if (!origin) return 'Salida optimizada para tu ruta'
+  return `Salida optimizada desde ${airportDisplayName(origin)}`
+}
+
+function availabilityStatus(aircraft, index) {
+  if (index === 0) {
+    return { label: 'Disponible hoy', tone: 'available' }
+  }
+  if (aircraft.response_time) {
+    return { label: `Confirmación ${aircraft.response_time}`, tone: 'soon' }
+  }
+  if (aircraft.capacity && Number(aircraft.capacity) >= 8) {
+    return { label: 'Alta demanda', tone: 'demand' }
+  }
+  return { label: 'Confirmación en 15 min', tone: 'soon' }
+}
+
+function estimatedFlightTime(aircraft) {
+  return aircraft.time || estimatedTime.value || '2h 15m'
+}
+
+function experienceLevel(aircraft, index) {
+  if (index === 0) return 'Premium'
+  if (aircraft.capacity && Number(aircraft.capacity) >= 9) return 'Elite'
+  return 'Business'
+}
+
+function compactRouteSummary(summary) {
+  const firstLeg = summary?.legs?.[0] || {}
+  return [
+    `${airportDisplayName(firstLeg.origin)} → ${airportDisplayName(firstLeg.destination)}`,
+    formatPassengerCopy(summary?.passengers),
+    firstLeg.date ? formatTravelDate(firstLeg.date, firstLeg.time).replace(/\s+de\s+\d{4}/, '') : '',
+    'Salida optimizada',
+  ].filter(Boolean).join(' • ')
 }
 
 function go(section, id = '') {
@@ -381,9 +513,50 @@ function resetSearchForm() {
   })
 }
 
+function validateSearchForm() {
+  const firstLeg = itineraryLegs.value[0] || {}
+
+  if (!firstLeg.origin || !firstLeg.destination || !firstLeg.date) {
+    serverSearchError.value = 'Completa origen, destino y fecha para ver opciones disponibles.'
+    ui.pushToast({
+      tone: 'warning',
+      title: 'Datos del viaje incompletos',
+      message: 'Necesitamos origen, destino y fecha para preparar opciones privadas.',
+    })
+    return false
+  }
+
+  if (tripType.value !== 'Ida' && itineraryLegs.value.length < 2) {
+    serverSearchError.value =
+      tripType.value === 'Redondo'
+        ? 'Completa fecha y hora de regreso para cotizar viaje redondo.'
+        : 'Agrega al menos dos tramos completos para cotizar multi-destino.'
+    ui.pushToast({
+      tone: 'warning',
+      title: 'Tramos incompletos',
+      message: serverSearchError.value,
+    })
+    return false
+  }
+
+  if (!Number(searchForm.passengers || 0)) {
+    serverSearchError.value = 'Indica cuántos pasajeros viajarán.'
+    ui.pushToast({
+      tone: 'warning',
+      title: 'Pasajeros pendientes',
+      message: 'Agrega el número de pasajeros para sugerir cabinas adecuadas.',
+    })
+    return false
+  }
+
+  return true
+}
+
 async function submitSearch() {
-  searching.value = true
   serverSearchError.value = ''
+  if (!validateSearchForm()) return
+
+  searching.value = true
   const quotePayload = {
     trip_type: tripTypeKey.value,
     trip_label: tripType.value,
@@ -405,13 +578,31 @@ async function submitSearch() {
   go('resultados')
 }
 
-function requestReservation() {
-  ui.pushToast({
-    tone: 'success',
-    title: 'Reserva solicitada',
-    message: 'Tu vuelo quedo en espera de confirmacion del operador verificado.',
-  })
-  go('viajes')
+async function requestReservation() {
+  if (!selectedAircraft.value) return
+
+  try {
+    await createClientFlightRequest({
+      trip_type: tripTypeKey.value,
+      trip_label: tripType.value,
+      passengers: activeItinerarySummary.value.passengers,
+      preference: selectedAircraft.value.cabin || selectedAircraft.value.aircraft,
+      legs: activeItinerarySummary.value.legs.map((leg) => ({ ...leg })),
+    })
+    reservations.value = await getClientTrips()
+    ui.pushToast({
+      tone: 'success',
+      title: 'Reserva solicitada',
+      message: 'Tu vuelo quedo en espera de confirmacion del operador verificado.',
+    })
+    go('viajes')
+  } catch {
+    ui.pushToast({
+      tone: 'error',
+      title: 'No se pudo solicitar la reserva',
+      message: 'Intenta de nuevo o contacta a tu asesor privado.',
+    })
+  }
 }
 
 async function sendSupport() {
@@ -517,6 +708,14 @@ onMounted(loadServerData)
               />
             </label>
             <label>
+              <span>Viaje</span>
+              <select :value="tripType" @change="tripType = $event.target.value">
+                <option>Ida</option>
+                <option>Redondo</option>
+                <option>Multi-destino</option>
+              </select>
+            </label>
+            <label>
               <span>Fecha</span>
               <input :value="searchForm.departureDate" type="date" @input="updateSearchField({ field: 'departureDate', value: $event.target.value })" />
             </label>
@@ -524,48 +723,43 @@ onMounted(loadServerData)
               <span>Pasajeros</span>
               <input :value="searchForm.passengers" min="1" type="number" @input="updateSearchField({ field: 'passengers', value: $event.target.value })" />
             </label>
-            <button type="submit">Actualizar busqueda</button>
+            <button type="submit">Buscar</button>
           </form>
 
           <div class="screen-head results-head">
-            <span class="eyebrow">Resultados verificados {{ routeId }}</span>
+            <span class="eyebrow">Resultados verificados para tu ruta</span>
             <h2>{{ itineraryHeadline(activeItinerarySummary) }}</h2>
             <p>{{ formatPassengerCopy(activeItinerarySummary.passengers) }} · {{ itineraryDateLine(activeItinerarySummary) }}</p>
           </div>
 
-          <article v-if="activeItinerarySummary.legs.length" class="itinerary-result">
-            <span class="tag">{{ activeItinerarySummary.tripType === 'Multi-destino' ? 'Itinerario premium' : 'Ruta activa' }}</span>
-            <h3>{{ itineraryHeadline(activeItinerarySummary) }}</h3>
-            <p class="itinerary-meta">
-              {{ itineraryDateLine(activeItinerarySummary) }} · {{ formatPassengerCopy(activeItinerarySummary.passengers) }} ·
-              Vuelo privado
-            </p>
-            <div class="leg-list itinerary-extra">
-              <span v-for="(leg, index) in activeItinerarySummary.legs" :key="`${leg.origin}-${leg.destination}-${index}`">
-                Tramo {{ index + 1 }}: {{ airportDisplayName(leg.origin) }} → {{ airportDisplayName(leg.destination) }}
-              </span>
-            </div>
-            <strong v-if="activeItinerarySummary.estimatedTotal">Precio total estimado: {{ activeItinerarySummary.estimatedTotal }}</strong>
+          <article v-if="activeItinerarySummary.legs.length" class="route-summary-bar">
+            <strong>{{ compactRouteSummary(activeItinerarySummary) }}</strong>
           </article>
 
           <div class="filter-row">
-            <button type="button">Mejor precio</button>
-            <button type="button">Mas rapido</button>
-            <button type="button">Mas espacio</button>
-            <button class="active-filter" type="button">Recomendado</button>
+            <button
+              v-for="filter in resultFilterOptions"
+              :key="filter.key"
+              :aria-pressed="activeResultFilter === filter.key"
+              :class="{ 'active-filter': activeResultFilter === filter.key }"
+              type="button"
+              @click="activeResultFilter = filter.key"
+            >
+              {{ filter.label }}
+            </button>
           </div>
 
           <div v-if="searching" class="loading-band">Haciendo match con operadores activos...</div>
           <div v-else-if="serverSearchError" class="empty-state">{{ serverSearchError }}</div>
 
-          <div v-if="aircraftOptions.length" class="results-recommendation">
+          <div v-if="filteredAircraftOptions.length" class="results-recommendation">
             <span class="eyebrow">Nuestra recomendacion</span>
-            <strong>{{ aircraftOptions[0].final_price || 'Precio bajo solicitud' }}</strong>
+            <strong>{{ aircraftPriceCopy(filteredAircraftOptions[0]) }}</strong>
           </div>
 
-          <div v-if="aircraftOptions.length" class="aircraft-list">
+          <div v-if="filteredAircraftOptions.length" class="aircraft-list">
             <article
-              v-for="(aircraft, index) in aircraftOptions"
+              v-for="(aircraft, index) in filteredAircraftOptions"
               :key="aircraft.id"
               class="aircraft-card"
               :class="{ 'aircraft-card--featured': String(aircraft.id) === recommendedAircraftId }"
@@ -581,34 +775,35 @@ onMounted(loadServerData)
                   :alt="aircraft.aircraft"
                   loading="lazy"
                 />
+                <span v-else class="aircraft-thumb__empty">Imagen en validación</span>
                 <span class="aircraft-thumb__badge">{{ aircraft.cabin || 'Cabina verificada' }}</span>
+                <span v-if="aircraft.image_url" class="aircraft-image-source">Cabina premium</span>
               </div>
               <div class="aircraft-copy">
                 <span class="tag">{{ recommendationBadge(aircraft, index) }}</span>
                 <h3>{{ aircraft.aircraft }}</h3>
-                <strong v-if="aircraft.model">{{ aircraft.model }}</strong>
+                <div class="aircraft-premium-meta">
+                  <span>{{ experienceLevel(aircraft, index) }}</span>
+                  <span v-for="item in aircraftShortMeta(aircraft)" :key="item">{{ item }}</span>
+                </div>
                 <p class="aircraft-price-line">
-                  <strong>{{ aircraft.final_price || 'Precio bajo solicitud' }}</strong>
-                  <span>Total estimado</span>
+                  <strong>{{ aircraftPriceCopy(aircraft) }}</strong>
+                  <span>{{ availabilityStatus(aircraft, index).label }}</span>
                 </p>
-                <p class="aircraft-meta">
-                  {{ aircraft.capacity ? `${aircraft.capacity} pasajeros` : formatPassengerCopy(activeItinerarySummary.passengers) }}
-                  <span v-if="activeItinerarySummary.tripType === 'Multi-destino' ? activeItinerarySummary.estimatedTime : aircraft.time">
-                    · {{ activeItinerarySummary.tripType === 'Multi-destino' ? activeItinerarySummary.estimatedTime : aircraft.time }}
-                  </span>
-                </p>
-                <p v-if="aircraft.amenities?.length">{{ aircraft.amenities.join(' / ') }}</p>
-                <p class="aircraft-note">{{ recommendationNote(aircraft, index) }}</p>
+                <div class="benefit-row">
+                  <span v-for="benefit in aircraftBenefits(aircraft)" :key="benefit">{{ benefit }}</span>
+                </div>
               </div>
               <div class="aircraft-facts">
-                <span class="verified-pill">Operador certificado Red Aviation</span>
-                <span v-if="aircraft.response_time">Respuesta {{ aircraft.response_time }}</span>
-                <span>Sin brokers</span>
-                <span>Concierge 24/7</span>
+                <span class="availability-pill" :class="`availability-pill--${availabilityStatus(aircraft, index).tone}`">
+                  {{ availabilityStatus(aircraft, index).label }}
+                </span>
+                <span class="fact-pill">{{ aircraft.capacity || activeItinerarySummary.passengers || 'Privado' }} pasajeros</span>
+                <span class="fact-pill">{{ estimatedFlightTime(aircraft) }}</span>
               </div>
               <div class="card-actions">
                 <button type="button" @click="go('aeronave', aircraft.id)">Ver detalles</button>
-                <button type="button" @click="go('paquete-vuelo', aircraft.id)">Reservar ahora</button>
+                <button type="button" @click="go('paquete-vuelo', aircraft.id)">Cotizar ahora</button>
               </div>
             </article>
           </div>
@@ -638,15 +833,23 @@ onMounted(loadServerData)
               </span>
               <span>Aeronave: {{ selectedAircraft.aircraft }}{{ selectedAircraft.model ? ` / ${selectedAircraft.model}` : '' }}</span>
               <span v-if="selectedAircraft.capacity">Capacidad: {{ selectedAircraft.capacity }}</span>
-              <span>Operador: oculto hasta confirmacion</span>
-              <span v-if="activeItinerarySummary.tripType === 'Multi-destino' ? activeItinerarySummary.estimatedTime : selectedAircraft.time">
-                Tiempo total: {{ activeItinerarySummary.tripType === 'Multi-destino' ? activeItinerarySummary.estimatedTime : selectedAircraft.time }}
+              <span v-if="selectedAircraft.source_database">
+                {{ optimizedDepartureCopy(selectedAircraft) }}
               </span>
-              <span v-if="selectedAircraft.final_price">Total: {{ selectedAircraft.final_price }}</span>
+              <span>Operador: oculto hasta confirmacion</span>
+              <span v-if="selectedAircraft.time || activeItinerarySummary.estimatedTime">
+                Tiempo total: {{ selectedAircraft.time || activeItinerarySummary.estimatedTime }}
+              </span>
+              <span>Total: {{ aircraftPriceCopy(selectedAircraft) }}</span>
               <span v-if="selectedAircraft.amenities?.length">Servicios incluidos: {{ selectedAircraft.amenities.join(' / ') }}</span>
               <span>Condiciones: contrato pendiente y pago pendiente.</span>
             </div>
-            <button type="button" @click="go('paquete-vuelo', selectedAircraft.id)">Continuar reserva</button>
+            <div v-if="selectedAircraft.images?.length > 1" class="aircraft-gallery">
+              <span v-for="image in selectedAircraft.images.slice(0, 4)" :key="image.id" class="aircraft-gallery-item">
+                <img :src="image.imageUrl" :alt="`${selectedAircraft.aircraft} ${image.title}`" loading="lazy" />
+              </span>
+            </div>
+            <button type="button" @click="go('paquete-vuelo', selectedAircraft.id)">Cotizar ahora</button>
           </div>
         </article>
         <div v-else-if="bookingStep === 'aeronave'" class="empty-state">El servidor no devolvio detalle para esta opcion.</div>
@@ -742,7 +945,7 @@ onMounted(loadServerData)
 
         <div class="support-grid">
           <article class="support-card">
-            <h3>Concierge 24/7</h3>
+            <h3>Asesor privado</h3>
             <textarea v-model="supportDraft" placeholder="Describe que necesitas"></textarea>
             <button type="button" @click="sendSupport">Enviar solicitud</button>
           </article>
@@ -863,7 +1066,8 @@ button {
 
 .filter-row button,
 .card-actions button:first-child {
-  background: #ece8df;
+  border: 1px solid #deded8;
+  background: #ffffff;
   color: #111111;
 }
 
@@ -872,14 +1076,14 @@ button {
   top: 5.4rem;
   z-index: 8;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
-  gap: 0.75rem;
-  padding: 0.85rem;
-  border: 1px solid rgba(139, 106, 36, 0.15);
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 18px 40px rgba(24, 24, 24, 0.08);
-  backdrop-filter: blur(14px);
+  grid-template-columns: repeat(5, minmax(0, 1fr)) auto;
+  gap: 0.85rem;
+  padding: 1rem;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 22px 60px rgba(17, 17, 17, 0.12);
+  backdrop-filter: blur(18px);
 }
 
 .results-search-bar label {
@@ -896,20 +1100,31 @@ button {
 }
 
 .results-search-bar input {
-  min-height: 3rem;
-  border: 1px solid #dfd6c6;
-  border-radius: 12px;
-  padding: 0 0.9rem;
-  background: #fcfbf8;
+  min-height: 3.35rem;
+  border: 1px solid #deded9;
+  border-radius: 16px;
+  padding: 0 1rem;
+  background: #fbfbfa;
+  color: #111111;
+  font: inherit;
+}
+
+.results-search-bar select {
+  min-height: 3.35rem;
+  border: 1px solid #deded9;
+  border-radius: 16px;
+  padding: 0 1rem;
+  background: #fbfbfa;
   color: #111111;
   font: inherit;
 }
 
 .results-search-bar button {
   align-self: end;
-  min-width: 12rem;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #111111, #2f2a22);
+  min-width: 10rem;
+  min-height: 3.35rem;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #111111, #2b2925);
 }
 
 .aircraft-list {
@@ -917,15 +1132,20 @@ button {
   gap: 1rem;
 }
 
-.itinerary-result {
-  display: grid;
-  gap: 0.65rem;
-  padding: 1.2rem;
-  border: 1px solid rgba(139, 106, 36, 0.18);
-  border-radius: 16px;
-  background:
-    radial-gradient(circle at top right, rgba(216, 180, 91, 0.08), transparent 34%),
-    #ffffff;
+.route-summary-bar {
+  display: flex;
+  align-items: center;
+  min-height: 3.1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid rgba(191, 151, 65, 0.22);
+  border-radius: 14px;
+  background: linear-gradient(135deg, #ffffff, #f8f6f0);
+}
+
+.route-summary-bar strong {
+  color: #171717;
+  font-size: 0.98rem;
+  line-height: 1.25;
 }
 
 .leg-list {
@@ -954,7 +1174,6 @@ button {
 }
 
 .aircraft-card,
-.itinerary-result,
 .plan-card,
 .support-card,
 .document-panel,
@@ -968,17 +1187,17 @@ button {
 
 .aircraft-card {
   display: grid;
-  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(180px, 240px) auto;
+  grid-template-columns: minmax(300px, 390px) minmax(0, 1fr) minmax(150px, 190px) minmax(150px, auto);
   gap: 1rem;
   align-items: center;
-  padding: 1rem;
-  border-radius: 18px;
-  box-shadow: 0 10px 26px rgba(15, 15, 15, 0.04);
+  padding: 0.9rem;
+  border-radius: 20px;
+  box-shadow: 0 16px 44px rgba(17, 17, 17, 0.08);
 }
 
 .aircraft-card--featured {
-  border-color: rgba(184, 145, 52, 0.45);
-  box-shadow: 0 18px 42px rgba(15, 15, 15, 0.08);
+  border-color: rgba(191, 151, 65, 0.5);
+  box-shadow: 0 24px 64px rgba(17, 17, 17, 0.12);
 }
 
 .aircraft-card > div {
@@ -988,11 +1207,9 @@ button {
 .aircraft-thumb {
   position: relative;
   overflow: hidden;
-  min-height: 180px;
-  border-radius: 12px;
-  background:
-    linear-gradient(135deg, rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.52)),
-    url('https://images.unsplash.com/photo-1540962351504-03099e0a754b?auto=format&fit=crop&w=1200&q=80') center/cover;
+  min-height: 250px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #242424, #0f0f0f);
 }
 
 .aircraft-thumb img,
@@ -1006,7 +1223,7 @@ button {
 
 .aircraft-thumb img {
   display: block;
-  min-height: 180px;
+  min-height: 250px;
 }
 
 .aircraft-thumb::after,
@@ -1036,29 +1253,89 @@ button {
   text-transform: uppercase;
 }
 
+.aircraft-thumb__empty {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 0.86rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.aircraft-image-source {
+  position: absolute;
+  right: 0.85rem;
+  bottom: 0.85rem;
+  z-index: 1;
+  max-width: calc(100% - 1.7rem);
+  overflow-wrap: anywhere;
+  padding: 0.32rem 0.62rem;
+  border-radius: 999px;
+  background: rgba(17, 17, 17, 0.78);
+  color: #ffffff;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .aircraft-thumb--placeholder,
 .aircraft-visual--placeholder {
-  background:
-    linear-gradient(135deg, rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.52)),
-    url('https://images.unsplash.com/photo-1540962351504-03099e0a754b?auto=format&fit=crop&w=1200&q=80') center/cover;
+  background: linear-gradient(135deg, #242424, #0f0f0f);
 }
 
 .aircraft-copy {
   display: grid;
-  gap: 0.45rem;
+  gap: 0.48rem;
+}
+
+.aircraft-model {
+  color: #5e5b55;
+  font-size: 0.94rem;
+  font-weight: 700;
+}
+
+.aircraft-premium-meta,
+.benefit-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.42rem;
+}
+
+.aircraft-premium-meta span,
+.benefit-row span,
+.fact-pill {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 1.7rem;
+  padding: 0.24rem 0.58rem;
+  border: 1px solid #e3e0d8;
+  border-radius: 999px;
+  background: #faf9f6;
+  color: #3d3a35;
+  font-size: 0.78rem;
+  font-weight: 700;
 }
 
 .aircraft-price-line {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.55rem;
-  align-items: baseline;
+  gap: 0.28rem;
+  flex-direction: column;
+  align-items: flex-start;
   margin: 0;
 }
 
 .aircraft-price-line strong {
   color: #111111;
-  font-size: clamp(1.35rem, 2vw, 1.85rem);
+  font-size: clamp(1.5rem, 2.2vw, 2rem);
   line-height: 1;
 }
 
@@ -1082,6 +1359,23 @@ button {
   color: #746652;
 }
 
+.aircraft-db-origin {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  padding: 0.52rem 0.78rem;
+  border: 1px solid rgba(191, 151, 65, 0.28);
+  border-radius: 999px;
+  background: #fffaf0;
+}
+
+.aircraft-db-origin span {
+  color: #7a5c1a;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
 .aircraft-card h3,
 .plan-card h3,
 .support-card h3 {
@@ -1095,6 +1389,10 @@ button {
   gap: 0.55rem;
 }
 
+.aircraft-facts {
+  align-content: center;
+}
+
 .verified-pill {
   display: inline-flex;
   align-items: center;
@@ -1105,6 +1403,32 @@ button {
   background: #edf6f0;
   color: #1e6a3b;
   font-weight: 600;
+}
+
+.availability-pill {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 2rem;
+  padding: 0.35rem 0.78rem;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.availability-pill--available {
+  background: #eaf6ef;
+  color: #17683a;
+}
+
+.availability-pill--soon {
+  background: #fff7df;
+  color: #87610d;
+}
+
+.availability-pill--demand {
+  background: #fff0ea;
+  color: #a34218;
 }
 
 .aircraft-detail {
@@ -1149,6 +1473,45 @@ button {
   display: grid;
   gap: 0.75rem;
   padding: 1rem;
+}
+
+.card-actions {
+  justify-content: end;
+}
+
+.card-actions button {
+  min-width: 9rem;
+}
+
+.card-actions button:first-child {
+  background: #ffffff;
+}
+
+.card-actions button:last-child {
+  min-width: 10rem;
+  background: linear-gradient(135deg, #111111, #2b2925);
+}
+
+.aircraft-gallery {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.aircraft-gallery-item {
+  position: relative;
+  overflow: hidden;
+  display: block;
+  aspect-ratio: 4 / 3;
+  border: 1px solid #e5e1d8;
+  border-radius: 8px;
+  background: #f1eee7;
+}
+
+.aircraft-gallery-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .plan-grid,
@@ -1295,6 +1658,13 @@ button {
     font-size: 0.88rem;
   }
 
+  .results-search-bar select {
+    min-height: 2.1rem;
+    padding: 0 0.5rem;
+    border-radius: 8px;
+    font-size: 0.88rem;
+  }
+
   .results-search-bar button {
     grid-column: 1 / -1;
     min-height: 2.2rem;
@@ -1376,25 +1746,15 @@ button {
     line-height: 1.2;
   }
 
-  .itinerary-result {
-    gap: 0.28rem;
-    padding: 0.6rem;
+  .route-summary-bar {
+    min-height: 2.4rem;
+    padding: 0.55rem 0.65rem;
     border-radius: 10px;
   }
 
-  .itinerary-result h3 {
-    font-size: 0.88rem;
-    line-height: 1.08;
-    font-weight: 600;
-  }
-
-  .itinerary-meta {
+  .route-summary-bar strong {
     font-size: 0.72rem;
     line-height: 1.2;
-  }
-
-  .itinerary-extra {
-    display: none;
   }
 
   .results-recommendation {
@@ -1418,6 +1778,16 @@ button {
   .aircraft-facts span {
     font-size: 0.72rem;
     line-height: 1.2;
+  }
+
+  .aircraft-db-origin {
+    width: 100%;
+    gap: 0.08rem;
+    padding: 0.35rem 0.45rem;
+  }
+
+  .aircraft-db-origin span {
+    font-size: 0.52rem;
   }
 
   .aircraft-list {
@@ -1445,7 +1815,7 @@ button {
   }
 
   .aircraft-card {
-    flex: 0 0 82%;
+    flex: 0 0 86%;
     gap: 0.45rem;
     border-radius: 12px;
     padding: 0.55rem;
@@ -1467,6 +1837,14 @@ button {
     min-height: 1.2rem;
     padding: 0.12rem 0.42rem;
     font-size: 0.52rem;
+  }
+
+  .aircraft-image-source {
+    right: 0.35rem;
+    bottom: 0.35rem;
+    max-width: calc(100% - 0.7rem);
+    padding: 0.12rem 0.36rem;
+    font-size: 0.48rem;
   }
 
   .aircraft-copy {
@@ -1519,43 +1897,27 @@ button {
     gap: 0.28rem;
   }
 
-  .card-actions button:first-child {
-    display: none;
-  }
-
   .card-actions button {
     min-height: 2rem;
     border-radius: 8px;
     font-size: 0.82rem;
   }
 
+  .aircraft-facts .fact-pill {
+    display: none;
+  }
+
   .aircraft-visual {
     min-height: 170px;
   }
 
-  .mobile-bottom-nav {
-    position: fixed;
-    right: 0.5rem;
-    bottom: 0.5rem;
-    left: 0.5rem;
-    z-index: 25;
-    display: grid !important;
-    grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
-    gap: 0.15rem;
-    padding: 0.22rem;
-    border: 1px solid #e5e1d8;
-    border-radius: 10px;
-    background: rgba(255, 255, 255, 0.96);
-    box-shadow: 0 10px 18px rgba(0, 0, 0, 0.1);
-    backdrop-filter: blur(14px);
+  .aircraft-gallery {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.35rem;
   }
 
-  .mobile-bottom-nav button {
-    min-height: 1.9rem;
-    padding: 0 0.12rem;
-    background: transparent;
-    color: #2a2a2a;
-    font-size: 0.62rem;
+  .mobile-bottom-nav {
+    display: none !important;
   }
 
   .mobile-bottom-nav button.active {
