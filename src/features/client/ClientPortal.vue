@@ -2,18 +2,16 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ActiveTrips from './ActiveTrips.vue'
+import ClientMembershipSection from './ClientMembershipSection.vue'
 import ClientTopNav from './ClientTopNav.vue'
 import ConciergeFloatingButton from './ConciergeFloatingButton.vue'
 import DestinationCards from './DestinationCards.vue'
 import FlightSearchHero from './FlightSearchHero.vue'
-import MembershipBanner from './MembershipBanner.vue'
-import MembershipStatusBar from './MembershipStatusBar.vue'
 import {
   createClientFlightRequest,
   getClientDestinations,
-  getClientMembershipPlans,
+  getClientFlightPackages,
   getClientTrips,
-  requestConcierge,
   searchClientFlights,
 } from './clientBookingApi'
 import { useAuthStore } from '../../stores/auth'
@@ -30,13 +28,13 @@ const ui = useUiStore()
 
 const tripType = ref('Ida')
 const selectedFlightPackage = ref('')
-const supportDraft = ref('')
 const profileMenuOpen = ref(false)
 const searching = ref(false)
 const loadingServerData = ref(false)
 const serverSearchError = ref('')
+const reserving = ref(false)
 const featuredDestinations = ref([])
-const membershipPlans = ref([])
+const flightPackages = ref([])
 const aircraftOptions = ref([])
 const reservations = ref([])
 const submittedItinerary = ref(null)
@@ -44,58 +42,40 @@ const activeResultFilter = ref('recommended')
 
 const searchForm = reactive({
   origin: '',
+  originAirport: null,
   destination: '',
+  destinationAirport: null,
   departureDate: '',
   departureTime: '',
   returnDate: '',
   returnTime: '',
   passengers: '',
+  pets: '',
+  specialBaggage: '',
+  catering: '',
+  scheduleFlexibility: '',
   preference: '',
   legs: [
-    { origin: '', destination: '', date: '', time: '' },
-    { origin: '', destination: '', date: '', time: '' },
+    { origin: '', originAirport: null, destination: '', destinationAirport: null, date: '', time: '' },
+    { origin: '', originAirport: null, destination: '', destinationAirport: null, date: '', time: '' },
   ],
 })
 
 const topNavItems = [
   { label: 'Reservar', section: 'reservar' },
-  { label: 'Membresias', section: 'membresia' },
   { label: 'Mis vuelos', section: 'viajes' },
+  { label: 'Perfil', section: 'perfil' },
+  { label: 'Membresia', section: 'membresia' },
 ]
 const mobileNavItems = [
-  { label: 'Reservar', section: 'reservar' },
+  { label: 'Buscar', section: 'reservar' },
+  { label: 'Vuelos', section: 'viajes' },
+  { label: 'Cuenta', section: 'perfil' },
+  { label: 'VIP', section: 'membresia' },
 ]
+const activePlan = computed(() => (auth.user?.company_name ? 'Business Club' : 'Sin membresia'))
 
-const activeMembership = computed(
-  () =>
-    auth.user?.membership ||
-    auth.user?.user_membership ||
-    auth.user?.active_membership ||
-    auth.user?.activeSuscripcion?.plan ||
-    auth.user?.active_suscripcion?.plan ||
-    auth.access?.subscription ||
-    null,
-)
-const activePlan = computed(
-  () =>
-    activeMembership.value?.name ||
-    activeMembership.value?.membership?.name ||
-    auth.user?.activeSuscripcion?.plan?.name ||
-    auth.user?.active_suscripcion?.plan?.name ||
-    '',
-)
-
-const statusCards = computed(() => {
-  if (!activeMembership.value) return []
-
-  return [
-    ['Tu acceso', activePlan.value || activeMembership.value.status || ''],
-    ['Beneficio disponible', activeMembership.value.remaining_itineraries || activeMembership.value.remaining_quotes || ''],
-    ['Siguiente paso', activeMembership.value.next_step || activeMembership.value.upsell_message || ''],
-  ].filter(([, value]) => value !== '')
-})
-
-const trustSignals = ref(['Operadores verificados', 'Asesor privado', 'Reserva segura'])
+const trustSignals = ref(['Aeropuertos verificados', 'Respuesta comercial agil', 'Control total del viaje'])
 const timeline = computed(() => [])
 
 const selectedAircraft = computed(
@@ -106,7 +86,9 @@ const itineraryLegs = computed(() => {
     return [
       {
         origin: searchForm.origin,
+        originAirport: searchForm.originAirport,
         destination: searchForm.destination,
+        destinationAirport: searchForm.destinationAirport,
         date: searchForm.departureDate,
         time: searchForm.departureTime,
       },
@@ -117,13 +99,17 @@ const itineraryLegs = computed(() => {
     return [
       {
         origin: searchForm.origin,
+        originAirport: searchForm.originAirport,
         destination: searchForm.destination,
+        destinationAirport: searchForm.destinationAirport,
         date: searchForm.departureDate,
         time: searchForm.departureTime,
       },
       {
         origin: searchForm.destination,
+        originAirport: searchForm.destinationAirport,
         destination: searchForm.origin,
+        destinationAirport: searchForm.originAirport,
         date: searchForm.returnDate,
         time: searchForm.returnTime,
       },
@@ -157,19 +143,22 @@ const itinerarySummary = computed(() => ({
   legs: itineraryLegs.value,
   days: itineraryDays.value,
   passengers: searchForm.passengers,
+  pets: searchForm.pets,
+  specialBaggage: searchForm.specialBaggage,
+  catering: searchForm.catering,
+  scheduleFlexibility: searchForm.scheduleFlexibility,
   preference: searchForm.preference,
   cabin: suggestedCabin.value,
   estimatedTime: estimatedTime.value,
   estimatedTotal: estimatedTotal.value,
-  membership: activePlan.value,
-  maxLegs: activeMembership.value?.max_legs || activeMembership.value?.membership?.max_legs || null,
+  flightPackage: selectedFlightPackage.value,
 }))
 const activeItinerarySummary = computed(() => submittedItinerary.value || itinerarySummary.value)
 const tripTypeKey = computed(() => {
   const keys = {
     Ida: 'one_way',
     Redondo: 'round_trip',
-    'Multi-destino': 'multi_city',
+    'Multi-destino': 'multi_leg',
   }
 
   return keys[tripType.value] || 'one_way'
@@ -180,8 +169,9 @@ const activeSection = computed(() => {
   if (['viajes', 'mis-vuelos', 'historial', 'contrato', 'pago', 'reserva-confirmada'].includes(props.section)) {
     return 'viajes'
   }
-  if (['membresia', 'comparar', 'soporte'].includes(props.section)) return 'membresia'
+  if (props.section === 'soporte') return 'viajes'
   if (props.section === 'perfil') return 'perfil'
+  if (props.section === 'membresia') return 'membresia'
   return 'reservar'
 })
 const bookingStep = computed(() => {
@@ -192,21 +182,10 @@ const userFirstName = computed(() => {
   const rawName = auth.user?.name || auth.user?.company_name || auth.userName || 'Kevin'
   return String(rawName).trim().split(/\s+/)[0] || 'Kevin'
 })
-const packageFee = computed(() => {
-  const selectedPlan = membershipPlans.value.find((plan) => plan.name === selectedFlightPackage.value)
-  return selectedPlan?.price || selectedPlan?.monthly_price || ''
-})
-const quotesRemaining = computed(() =>
-  Number(
-    activeMembership.value?.remaining_itineraries ||
-      activeMembership.value?.remaining_quotes ||
-      activeMembership.value?.max_requests ||
-      0,
-  ),
+const selectedFlightPackageMeta = computed(
+  () => flightPackages.value.find((item) => item.name === selectedFlightPackage.value) || null,
 )
-const reservationsRemaining = computed(() =>
-  Number(activeMembership.value?.remaining_reservations || 0),
-)
+const packageFee = computed(() => selectedFlightPackageMeta.value?.price || '')
 const recommendedAircraftId = computed(() => String(aircraftOptions.value[0]?.id || ''))
 const resultFilterOptions = [
   { key: 'economy', label: 'Económico' },
@@ -316,13 +295,6 @@ function recommendationBadge(aircraft, index) {
   return 'Opcion verificada'
 }
 
-function recommendationNote(aircraft, index) {
-  if (index === 0) return 'Equilibrio ideal entre cabina, disponibilidad y experiencia privada.'
-  if (aircraft.response_time) return `Respuesta estimada ${aircraft.response_time}.`
-  if (aircraft.amenities?.length) return 'Cabina ejecutiva configurada para una experiencia privada.'
-  return 'Selección sujeta a confirmación ejecutiva.'
-}
-
 function aircraftPriceCopy(aircraft) {
   if (aircraft.final_price) return `Desde ${aircraft.final_price}`
   return 'Cotización inmediata'
@@ -410,21 +382,14 @@ function compactRouteSummary(summary) {
     `${airportDisplayName(firstLeg.origin)} → ${airportDisplayName(firstLeg.destination)}`,
     formatPassengerCopy(summary?.passengers),
     firstLeg.date ? formatTravelDate(firstLeg.date, firstLeg.time).replace(/\s+de\s+\d{4}/, '') : '',
-    'Salida optimizada',
+    summary?.pets === 'Si' ? 'Mascotas a bordo' : '',
+    summary?.scheduleFlexibility ? `Flex ${summary.scheduleFlexibility}` : 'Salida optimizada',
   ].filter(Boolean).join(' • ')
 }
 
 function go(section, id = '') {
   profileMenuOpen.value = false
   router.push(id ? `/cliente/${section}/${id}` : `/cliente/${section}`)
-}
-
-function chooseMembership(plan) {
-  ui.pushToast({
-    tone: 'success',
-    title: 'Solicitud enviada',
-    message: plan.name ? `El servidor recibio tu interes por ${plan.name}.` : 'El servidor recibio tu solicitud.',
-  })
 }
 
 function selectDestination(destination) {
@@ -452,26 +417,93 @@ function selectDestination(destination) {
 function updateSearchField({ field, value }) {
   if (!Object.prototype.hasOwnProperty.call(searchForm, field)) return
   searchForm[field] = value
+
+  if (field === 'origin') {
+    searchForm.originAirport = null
+  }
+
+  if (field === 'destination') {
+    searchForm.destinationAirport = null
+  }
+}
+
+function syncMultiDestinationChain(startIndex = 1) {
+  for (let index = Math.max(startIndex, 1); index < searchForm.legs.length; index += 1) {
+    const previousLeg = searchForm.legs[index - 1]
+    const currentLeg = searchForm.legs[index]
+
+    if (!previousLeg || !currentLeg) continue
+
+    currentLeg.origin = previousLeg.destination || ''
+    currentLeg.originAirport = previousLeg.destinationAirport || null
+  }
 }
 
 function updateLegField({ index, field, value }) {
   if (!searchForm.legs[index] || !Object.prototype.hasOwnProperty.call(searchForm.legs[index], field)) return
   searchForm.legs[index][field] = value
+
+  if (field === 'origin' && Object.prototype.hasOwnProperty.call(searchForm.legs[index], 'originAirport')) {
+    searchForm.legs[index].originAirport = null
+  }
+
+  if (field === 'destination' && Object.prototype.hasOwnProperty.call(searchForm.legs[index], 'destinationAirport')) {
+    searchForm.legs[index].destinationAirport = null
+  }
+
+  if (tripType.value === 'Multi-destino' && field === 'destination') {
+    syncMultiDestinationChain(index + 1)
+  }
+}
+
+function selectFormAirport({ field, airport }) {
+  if (field === 'origin') {
+    searchForm.originAirport = airport
+  }
+
+  if (field === 'destination') {
+    searchForm.destinationAirport = airport
+  }
+}
+
+function selectLegAirport({ index, field, airport }) {
+  if (!searchForm.legs[index]) return
+
+  if (field === 'origin' && Object.prototype.hasOwnProperty.call(searchForm.legs[index], 'originAirport')) {
+    searchForm.legs[index].originAirport = airport
+  }
+
+  if (
+    field === 'destination' &&
+    Object.prototype.hasOwnProperty.call(searchForm.legs[index], 'destinationAirport')
+  ) {
+    searchForm.legs[index].destinationAirport = airport
+  }
+
+  if (tripType.value === 'Multi-destino' && field === 'destination') {
+    syncMultiDestinationChain(index + 1)
+  }
 }
 
 function addLeg() {
   const lastLeg = searchForm.legs[searchForm.legs.length - 1] || {}
   searchForm.legs.push({
     origin: lastLeg.destination || '',
+    originAirport: lastLeg.destinationAirport || null,
     destination: '',
+    destinationAirport: null,
     date: lastLeg.date || searchForm.departureDate,
     time: lastLeg.time || '09:00',
   })
+  syncMultiDestinationChain(searchForm.legs.length - 1)
 }
 
 function removeLeg(index) {
   if (searchForm.legs.length <= 2) return
   searchForm.legs.splice(index, 1)
+  if (tripType.value === 'Multi-destino') {
+    syncMultiDestinationChain(index)
+  }
 }
 
 function buildItinerarySummary(payload) {
@@ -487,30 +519,16 @@ function buildItinerarySummary(payload) {
     legs,
     days,
     passengers: payload.passengers,
+    pets: payload.pets || '',
+    specialBaggage: payload.special_baggage || '',
+    catering: payload.catering || '',
+    scheduleFlexibility: payload.schedule_flexibility || '',
     preference: payload.preference,
     cabin: '',
     estimatedTime: '',
     estimatedTotal: '',
-    membership: activePlan.value,
-    maxLegs: activeMembership.value?.max_legs || activeMembership.value?.membership?.max_legs || null,
+    flightPackage: payload.flight_package || '',
   }
-}
-
-function resetSearchForm() {
-  Object.assign(searchForm, {
-    origin: '',
-    destination: '',
-    departureDate: '',
-    departureTime: '',
-    returnDate: '',
-    returnTime: '',
-    passengers: '',
-    preference: '',
-    legs: [
-      { origin: '', destination: '', date: '', time: '' },
-      { origin: '', destination: '', date: '', time: '' },
-    ],
-  })
 }
 
 function validateSearchForm() {
@@ -561,14 +579,19 @@ async function submitSearch() {
     trip_type: tripTypeKey.value,
     trip_label: tripType.value,
     passengers: searchForm.passengers,
+    pets: searchForm.pets,
+    special_baggage: searchForm.specialBaggage,
+    catering: searchForm.catering,
+    schedule_flexibility: searchForm.scheduleFlexibility,
     preference: searchForm.preference,
+    flight_package: selectedFlightPackage.value,
     legs: itineraryLegs.value.map((leg) => ({ ...leg })),
   }
   submittedItinerary.value = buildItinerarySummary(quotePayload)
   ui.pushToast({
     tone: 'success',
     title: 'Cotizando itinerario',
-    message: 'Validando membresia, aeropuertos, tramos y operadores activos.',
+    message: 'Validando aeropuertos, tramos y operadores activos.',
   })
   aircraftOptions.value = await searchClientFlights(quotePayload)
   if (!aircraftOptions.value.length) {
@@ -579,42 +602,40 @@ async function submitSearch() {
 }
 
 async function requestReservation() {
-  if (!selectedAircraft.value) return
+  if (!selectedAircraft.value || reserving.value) return
 
   try {
-    await createClientFlightRequest({
+    reserving.value = true
+    const reservation = await createClientFlightRequest({
       trip_type: tripTypeKey.value,
       trip_label: tripType.value,
       passengers: activeItinerarySummary.value.passengers,
+      pets: activeItinerarySummary.value.pets,
+      special_baggage: activeItinerarySummary.value.specialBaggage,
+      catering: activeItinerarySummary.value.catering,
+      schedule_flexibility: activeItinerarySummary.value.scheduleFlexibility,
       preference: selectedAircraft.value.cabin || selectedAircraft.value.aircraft,
+      flight_package: selectedFlightPackage.value,
       legs: activeItinerarySummary.value.legs.map((leg) => ({ ...leg })),
     })
     reservations.value = await getClientTrips()
+    const createdReservationId =
+      reservation?.data?.id || reservation?.id || reservations.value[0]?.id || selectedTripId.value || ''
     ui.pushToast({
       tone: 'success',
-      title: 'Reserva solicitada',
-      message: 'Tu vuelo quedo en espera de confirmacion del operador verificado.',
+      title: 'Tu vuelo esta siendo confirmado por Red Aviation',
+      message: 'Tu reserva ya entro al flujo comercial y operativo.',
     })
-    go('viajes')
+    go('reserva-confirmada', createdReservationId)
   } catch {
     ui.pushToast({
       tone: 'error',
       title: 'No se pudo solicitar la reserva',
       message: 'Intenta de nuevo o contacta a tu asesor privado.',
     })
+  } finally {
+    reserving.value = false
   }
-}
-
-async function sendSupport() {
-  if (!supportDraft.value.trim()) return
-  await requestConcierge(supportDraft.value)
-
-  ui.pushToast({
-    tone: 'success',
-    title: 'Concierge activado',
-    message: 'El equipo recibio tu solicitud dentro del portal privado.',
-  })
-  supportDraft.value = ''
 }
 
 async function handleLogout() {
@@ -633,12 +654,12 @@ async function loadServerData() {
 
   const [destinations, plans, trips] = await Promise.all([
     getClientDestinations(),
-    getClientMembershipPlans(),
+    getClientFlightPackages(),
     getClientTrips(),
   ])
 
   featuredDestinations.value = destinations
-  membershipPlans.value = plans
+  flightPackages.value = plans
   reservations.value = trips
   loadingServerData.value = false
 }
@@ -661,17 +682,8 @@ onMounted(loadServerData)
 
     <main class="client-page">
       <div v-if="loadingServerData" class="loading-band">Cargando informacion del servidor...</div>
-      <MembershipStatusBar v-if="statusCards.length && bookingStep === 'reservar'" :cards="statusCards" />
 
       <section v-if="activeSection === 'reservar'" class="screen">
-        <MembershipBanner
-          v-if="activePlan && bookingStep === 'reservar'"
-          :plan="activePlan"
-          :quotes-remaining="quotesRemaining"
-          :reservations-remaining="reservationsRemaining"
-          @upgrade="go('membresia')"
-        />
-
         <FlightSearchHero
           v-if="bookingStep === 'reservar'"
           :form="searchForm"
@@ -681,6 +693,8 @@ onMounted(loadServerData)
           @add-leg="addLeg"
           @remove-leg="removeLeg"
           @submit="submitSearch"
+          @select-form-airport="selectFormAirport"
+          @select-leg-airport="selectLegAirport"
           @update-form-field="updateSearchField"
           @update-leg-field="updateLegField"
           @update-trip-type="tripType = $event"
@@ -694,42 +708,10 @@ onMounted(loadServerData)
         />
 
         <template v-else-if="bookingStep === 'resultados'">
-          <form class="results-search-bar" @submit.prevent="submitSearch">
-            <label>
-              <span>Origen</span>
-              <input :value="searchForm.origin" autocomplete="off" @input="updateSearchField({ field: 'origin', value: $event.target.value })" />
-            </label>
-            <label>
-              <span>Destino</span>
-              <input
-                :value="searchForm.destination"
-                autocomplete="off"
-                @input="updateSearchField({ field: 'destination', value: $event.target.value })"
-              />
-            </label>
-            <label>
-              <span>Viaje</span>
-              <select :value="tripType" @change="tripType = $event.target.value">
-                <option>Ida</option>
-                <option>Redondo</option>
-                <option>Multi-destino</option>
-              </select>
-            </label>
-            <label>
-              <span>Fecha</span>
-              <input :value="searchForm.departureDate" type="date" @input="updateSearchField({ field: 'departureDate', value: $event.target.value })" />
-            </label>
-            <label>
-              <span>Pasajeros</span>
-              <input :value="searchForm.passengers" min="1" type="number" @input="updateSearchField({ field: 'passengers', value: $event.target.value })" />
-            </label>
-            <button type="submit">Buscar</button>
-          </form>
-
-          <div class="screen-head results-head">
-            <span class="eyebrow">Resultados verificados para tu ruta</span>
-            <h2>{{ itineraryHeadline(activeItinerarySummary) }}</h2>
-            <p>{{ formatPassengerCopy(activeItinerarySummary.passengers) }} · {{ itineraryDateLine(activeItinerarySummary) }}</p>
+        <div class="screen-head results-head">
+          <span class="eyebrow">Resultados verificados para tu ruta</span>
+          <h2>{{ itineraryHeadline(activeItinerarySummary) }}</h2>
+          <p>{{ formatPassengerCopy(activeItinerarySummary.passengers) }} · {{ itineraryDateLine(activeItinerarySummary) }}</p>
           </div>
 
           <article v-if="activeItinerarySummary.legs.length" class="route-summary-bar">
@@ -803,7 +785,7 @@ onMounted(loadServerData)
               </div>
               <div class="card-actions">
                 <button type="button" @click="go('aeronave', aircraft.id)">Ver detalles</button>
-                <button type="button" @click="go('paquete-vuelo', aircraft.id)">Cotizar ahora</button>
+                <button type="button" @click="go('paquete-vuelo', aircraft.id)">Reservar ahora</button>
               </div>
             </article>
           </div>
@@ -824,9 +806,9 @@ onMounted(loadServerData)
             <span>{{ selectedAircraft.cabin }}</span>
           </div>
           <div class="detail-copy">
-            <span class="eyebrow">Cabina seleccionada</span>
-            <h2>Resumen del viaje</h2>
-            <p>Tramos, aeronave, precio, servicios incluidos y condiciones antes de contrato y pago.</p>
+            <span class="eyebrow">Detalle de reserva</span>
+            <h2>Todo listo para elegir</h2>
+            <p>Revisa cabina, precio final, tiempo estimado, amenidades y flexibilidad antes de reservar.</p>
             <div class="detail-grid">
               <span v-for="(leg, index) in activeItinerarySummary.legs" :key="`detail-${index}`">
                 Tramo {{ index + 1 }}: {{ leg.origin }} -> {{ leg.destination }} / {{ leg.date }} {{ leg.time }}
@@ -849,45 +831,60 @@ onMounted(loadServerData)
                 <img :src="image.imageUrl" :alt="`${selectedAircraft.aircraft} ${image.title}`" loading="lazy" />
               </span>
             </div>
-            <button type="button" @click="go('paquete-vuelo', selectedAircraft.id)">Cotizar ahora</button>
+            <button type="button" @click="go('paquete-vuelo', selectedAircraft.id)">Reservar ahora</button>
           </div>
         </article>
         <div v-else-if="bookingStep === 'aeronave'" class="empty-state">El servidor no devolvio detalle para esta opcion.</div>
 
         <template v-else-if="bookingStep === 'paquete-vuelo'">
           <div class="screen-head">
-            <span class="eyebrow">Membresia para este vuelo</span>
-            <h2>Elige el nivel de experiencia</h2>
+            <span class="eyebrow">Tipo de servicio</span>
+            <h2>Elige como quieres volar</h2>
+            <p>Selecciona la experiencia ideal para este vuelo. La membresia aparece despues, no bloquea tu reserva.</p>
           </div>
 
           <div class="plan-grid">
-            <article v-for="plan in membershipPlans" :key="plan.name" class="plan-card">
-              <span v-if="plan.badge" class="tag">{{ plan.badge }}</span>
-              <h3>{{ plan.name }}</h3>
-              <p v-if="plan.benefits?.length">{{ plan.benefits.join(' / ') }}</p>
-              <button type="button" @click="selectedFlightPackage = plan.name">
-                {{ selectedFlightPackage === plan.name ? 'Seleccionado' : `Elegir ${plan.name}` }}
+            <article
+              v-for="flightPackage in flightPackages"
+              :key="flightPackage.name"
+              class="plan-card"
+              :class="{ 'plan-card--selected': selectedFlightPackage === flightPackage.name }"
+            >
+              <span v-if="flightPackage.badge" class="tag">{{ flightPackage.badge }}</span>
+              <h3>{{ flightPackage.name }}</h3>
+              <strong v-if="flightPackage.price">{{ flightPackage.price }}</strong>
+              <p>{{ flightPackage.category }}</p>
+              <p v-if="flightPackage.benefits?.length">{{ flightPackage.benefits.join(' / ') }}</p>
+              <button type="button" @click="selectedFlightPackage = flightPackage.name">
+                {{ selectedFlightPackage === flightPackage.name ? 'Seleccionado' : `Elegir ${flightPackage.name}` }}
               </button>
             </article>
           </div>
 
           <div class="summary-band">
-            <span>Acceso de servicio</span>
+            <span>{{ selectedFlightPackageMeta ? `Servicio ${selectedFlightPackageMeta.name}` : 'Selecciona un tipo de servicio' }}</span>
             <strong v-if="packageFee">{{ packageFee }}</strong>
-            <button type="button" @click="go('reserva', routeId)">Continuar</button>
+            <button type="button" :disabled="!selectedFlightPackage" @click="go('reserva', routeId)">Continuar</button>
           </div>
         </template>
 
         <article v-else-if="selectedAircraft" class="reservation-summary">
-          <span class="eyebrow">Confirmacion</span>
-          <h2>Resumen del vuelo</h2>
+          <span class="eyebrow">Reservar ahora</span>
+          <h2>Completa tu reserva</h2>
           <span>Cabina: {{ selectedAircraft.aircraft }}</span>
           <span v-for="(leg, index) in activeItinerarySummary.legs" :key="`reserve-${index}`">
             Tramo {{ index + 1 }}: {{ leg.origin }} -> {{ leg.destination }} / {{ leg.date }} {{ leg.time }}
           </span>
           <span v-if="activeItinerarySummary.passengers">Pasajeros: {{ activeItinerarySummary.passengers }}</span>
+          <span v-if="activeItinerarySummary.pets">Mascotas: {{ activeItinerarySummary.pets }}</span>
+          <span v-if="activeItinerarySummary.specialBaggage">Equipaje especial: {{ activeItinerarySummary.specialBaggage }}</span>
+          <span v-if="activeItinerarySummary.catering">Catering: {{ activeItinerarySummary.catering }}</span>
+          <span v-if="activeItinerarySummary.scheduleFlexibility">Flexibilidad: {{ activeItinerarySummary.scheduleFlexibility }}</span>
+          <span v-if="selectedFlightPackage">Paquete: {{ selectedFlightPackage }}</span>
           <strong v-if="selectedAircraft.final_price">Precio final: {{ selectedAircraft.final_price }}</strong>
-          <button type="button" @click="requestReservation">Confirmar reserva</button>
+          <button type="button" :disabled="reserving" @click="requestReservation">
+            {{ reserving ? 'Confirmando...' : 'Reservar ahora' }}
+          </button>
         </article>
         <div v-else class="empty-state">El servidor no devolvio una opcion para reservar.</div>
       </section>
@@ -909,6 +906,23 @@ onMounted(loadServerData)
           <button type="button" @click="go('reserva-confirmada', routeId)">Pagar</button>
         </article>
 
+        <article v-else-if="props.section === 'reserva-confirmada'" class="document-panel confirmation-panel">
+          <span class="eyebrow">Reserva confirmada</span>
+          <h2>Tu vuelo esta siendo confirmado por Red Aviation</h2>
+          <p>
+            Ya puedes dar seguimiento desde Mis vuelos. Cuando la operacion quede cerrada veras
+            el estado como confirmado junto con terminal, tripulacion y tracking.
+          </p>
+          <div class="signature-box confirmation-box">
+            <strong>Estado actual</strong>
+            <span>Reserva registrada y seguimiento activado.</span>
+          </div>
+          <div class="confirmation-actions">
+            <button type="button" @click="go('viajes', routeId)">Ver mis vuelos</button>
+            <button class="secondary-button" type="button" @click="go('soporte')">Contactar asesor</button>
+          </div>
+        </article>
+
         <ActiveTrips
           v-else
           :reservations="reservations"
@@ -921,55 +935,48 @@ onMounted(loadServerData)
         />
       </section>
 
-      <section v-else-if="activeSection === 'membresia'" class="screen">
-        <div class="screen-head">
-          <span class="eyebrow">Membresia</span>
-          <h2>Explorer, Business o Elite segun tu ritmo.</h2>
-          <p>Menos administracion. Mas reserva, prioridad y control.</p>
-        </div>
-
-        <div class="plan-grid">
-          <article v-for="plan in membershipPlans" :key="plan.name" class="plan-card">
-            <span v-if="plan.badge" class="tag">{{ plan.badge }}</span>
-            <h3>{{ plan.name }}</h3>
-            <strong>{{ plan.price || plan.monthly_price }}</strong>
-            <ul>
-              <li v-for="benefit in plan.benefits || []" :key="benefit">{{ benefit }}</li>
-            </ul>
-            <button type="button" @click="chooseMembership(plan)">
-              {{ plan.action }}
-            </button>
-          </article>
-        </div>
-        <div v-if="!membershipPlans.length" class="empty-state">El servidor no devolvio membresias.</div>
-
-        <div class="support-grid">
-          <article class="support-card">
-            <h3>Asesor privado</h3>
-            <textarea v-model="supportDraft" placeholder="Describe que necesitas"></textarea>
-            <button type="button" @click="sendSupport">Enviar solicitud</button>
-          </article>
-          <article class="support-card">
-            <h3>Beneficios activos</h3>
-            <span>Operadores verificados</span>
-            <span>Firma digital</span>
-            <span>Pago protegido</span>
-          </article>
-        </div>
-      </section>
-
       <section v-else class="screen">
-        <div class="screen-head">
+        <div v-if="activeSection === 'perfil'" class="screen-head">
           <span class="eyebrow">Perfil</span>
-          <h2>Preferencias de vuelo</h2>
+          <h2>Tu cuenta vuela mejor cuando ya te conoce</h2>
+          <p>Guarda datos, viajeros frecuentes y preferencias para reservar en segundos la siguiente vez.</p>
         </div>
-        <form class="profile-form">
-          <label>Nombre<input :value="auth.user?.name || 'Miembro Red Aviation'" /></label>
-          <label>Telefono<input placeholder="+52 55 0000 0000" /></label>
-          <label>Empresa<input placeholder="Empresa" /></label>
-          <label>Correo<input :value="auth.user?.email || 'miembro@redaviation.test'" /></label>
-          <label class="wide">Preferencias<textarea placeholder="Catering, asiento, FBO, privacidad"></textarea></label>
-        </form>
+
+        <template v-if="activeSection === 'perfil'">
+          <div class="profile-cards">
+            <article class="profile-highlight-card">
+              <span class="eyebrow">Viajeros frecuentes</span>
+              <h3>CEO, familia o equipo ejecutivo</h3>
+              <p>Deja perfiles guardados para acelerar futuras reservas y reducir friccion operativa.</p>
+            </article>
+            <article class="profile-highlight-card">
+              <span class="eyebrow">Facturacion</span>
+              <h3>Pagos y datos listos</h3>
+              <p>Metodo de pago, razon social y datos de contacto siempre a mano dentro del mismo flujo.</p>
+            </article>
+          </div>
+
+          <form class="profile-form">
+            <label>Nombre<input :value="auth.user?.name || 'Miembro Red Aviation'" /></label>
+            <label>Telefono<input placeholder="+52 55 0000 0000" /></label>
+            <label>Empresa<input :value="auth.user?.company_name || ''" placeholder="Empresa" /></label>
+            <label>Correo<input :value="auth.user?.email || 'miembro@redaviation.test'" /></label>
+            <label>Pasaporte / ID<input placeholder="Documento principal" /></label>
+            <label>Metodo de pago<input placeholder="Tarjeta corporativa o transferencia" /></label>
+            <label>Facturacion<input placeholder="RFC / razon social" /></label>
+            <label>Seguridad<input placeholder="NDA, privacidad, requerimientos" /></label>
+            <label class="wide">Preferencias<textarea placeholder="Catering, mascotas, FBO, privacidad, asistencia especial"></textarea></label>
+          </form>
+        </template>
+
+        <ClientMembershipSection
+          v-else
+          :access="{ has_access: true, demo: { status: 'Activa' }, subscription: { status: activePlan } }"
+          @activate-access="go('reservar')"
+          @go-section="go"
+          @open-concierge="go('soporte')"
+          @select-plan="go('membresia')"
+        />
       </section>
     </main>
 
@@ -981,7 +988,7 @@ onMounted(loadServerData)
         :class="{ active: activeSection === item.section }"
         @click="go(item.section)"
       >
-        {{ item.section === 'membresia' ? 'Plan' : item.label }}
+        {{ item.label }}
       </button>
     </nav>
 
@@ -1475,6 +1482,12 @@ button {
   padding: 1rem;
 }
 
+.plan-card--selected {
+  border-color: rgba(191, 151, 65, 0.52);
+  box-shadow: 0 18px 44px rgba(17, 17, 17, 0.08);
+  background: linear-gradient(180deg, #fffdf8, #ffffff);
+}
+
 .card-actions {
   justify-content: end;
 }
@@ -1519,6 +1532,38 @@ button {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1rem;
+}
+
+.profile-cards,
+.confirmation-actions {
+  display: grid;
+  gap: 1rem;
+}
+
+.profile-cards {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.profile-highlight-card,
+.confirmation-box {
+  padding: 1rem;
+  border: 1px solid #e5e1d8;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.profile-highlight-card {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.confirmation-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.secondary-button {
+  background: #ece8df;
+  color: #111111;
 }
 
 .plan-card ul {
@@ -1596,7 +1641,7 @@ button {
 }
 
 .mobile-bottom-nav {
-  display: none !important;
+  display: none;
 }
 
 .active-filter {
@@ -1615,6 +1660,8 @@ button {
   .aircraft-card,
   .aircraft-detail,
   .plan-grid,
+  .profile-cards,
+  .confirmation-actions,
   .support-grid,
   .summary-band,
   .profile-form {
@@ -1917,7 +1964,28 @@ button {
   }
 
   .mobile-bottom-nav {
-    display: none !important;
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 35;
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.35rem;
+    padding: 0.55rem;
+    border-top: 1px solid #e5e1d8;
+    background: rgba(255, 255, 255, 0.96);
+    backdrop-filter: blur(16px);
+  }
+
+  .mobile-bottom-nav button {
+    min-height: 2.6rem;
+    padding: 0 0.35rem;
+    border-radius: 999px;
+    background: #f3efe7;
+    color: #111111;
+    font-size: 0.74rem;
+    font-weight: 800;
   }
 
   .mobile-bottom-nav button.active {

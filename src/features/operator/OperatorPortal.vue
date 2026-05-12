@@ -65,6 +65,8 @@ const incidents = ref([])
 const payments = ref([])
 const history = ref([])
 const editingAircraftId = ref(null)
+const selectedAvailabilityCalendarAircraftId = ref('all')
+const availabilityWeekAnchor = ref(startOfAvailabilityWeek(new Date()))
 
 const companyForm = reactive({
   legalName: '',
@@ -74,6 +76,9 @@ const companyForm = reactive({
   email: '',
   address: '',
   legalRepresentative: '',
+  jetAPrice: '',
+  marginPercent: '',
+  fixedFee: '',
   newDocumentFile: null,
   newDocumentName: '',
 })
@@ -92,6 +97,13 @@ const aircraftForm = reactive({
   hourlyPrice: '',
   minimumHours: '',
   operationalCost: '',
+  fuelBurnGallonsPerHour: '',
+  engineReserveRate: '',
+  insuranceRate: '',
+  maintenanceRate: '',
+  crewRate: '',
+  repositioningFee: '',
+  overnightFee: '',
 })
 
 const imageForm = reactive({
@@ -145,6 +157,13 @@ const crewForm = reactive({
   base: '',
   state: 'Disponible',
   certifications: '',
+  certificationExpiry: '',
+  flightHours: '',
+  authorizedAircraft: '',
+  validationStatus: 'Pendiente',
+  internalRating: '',
+  documentsCount: '',
+  lastUpdated: '',
   languages: '',
   availability: 'Inmediata',
   rating: '4.9/5',
@@ -232,6 +251,62 @@ const aircraftOptions = computed(() =>
 const selectedAvailabilityAircraft = computed(
   () => aircraft.value.find((item) => item.id === Number(availabilityForm.aircraftId)) || null,
 )
+const availabilityCalendarAircraftOptions = computed(() => [
+  { id: 'all', label: 'Toda la flota' },
+  ...aircraft.value.map((item) => ({
+    id: String(item.id),
+    label: `${item.name} · ${item.registration || 'Sin matricula'}`,
+  })),
+])
+const availabilityCalendarWeekDays = computed(() =>
+  Array.from({ length: 7 }, (_, offset) => {
+    const date = addDays(availabilityWeekAnchor.value, offset)
+    return {
+      key: date.toISOString(),
+      date,
+      shortLabel: new Intl.DateTimeFormat('es-MX', {
+        weekday: 'short',
+        timeZone: 'America/Mexico_City',
+      }).format(date),
+      dayNumber: new Intl.DateTimeFormat('es-MX', {
+        day: '2-digit',
+        timeZone: 'America/Mexico_City',
+      }).format(date),
+      monthLabel: new Intl.DateTimeFormat('es-MX', {
+        month: 'short',
+        timeZone: 'America/Mexico_City',
+      }).format(date),
+      isToday: isSameAvailabilityDay(date, new Date()),
+    }
+  }),
+)
+const availabilityCalendarRows = computed(() => {
+  const selectedAircraftId = selectedAvailabilityCalendarAircraftId.value
+  const visibleAircraft =
+    selectedAircraftId === 'all'
+      ? aircraft.value
+      : aircraft.value.filter((item) => String(item.id) === String(selectedAircraftId))
+
+  return visibleAircraft.map((plane) => ({
+    plane,
+    cells: availabilityCalendarWeekDays.value.map((day) =>
+      buildAvailabilityCalendarCell(plane, day.date, availability.value),
+    ),
+  }))
+})
+const availabilityCalendarWindowLabel = computed(() => {
+  const firstDay = availabilityCalendarWeekDays.value[0]?.date
+  const lastDay = availabilityCalendarWeekDays.value[availabilityCalendarWeekDays.value.length - 1]?.date
+  if (!firstDay || !lastDay) return 'Semana operativa'
+
+  const formatter = new Intl.DateTimeFormat('es-MX', {
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'America/Mexico_City',
+  })
+
+  return `${formatter.format(firstDay)} - ${formatter.format(lastDay)}`
+})
 const selectedImageAircraft = computed(
   () => aircraft.value.find((item) => item.id === Number(imageForm.aircraftId)) || null,
 )
@@ -254,6 +329,20 @@ const assignableCrewOptions = computed(() =>
     (member) => !['Suspendido', 'No disponible'].includes(member.state || member.availability),
   ),
 )
+const crewLastSyncLabel = computed(() => {
+  const latestTimestamp = crew.value
+    .map((item) => new Date(item.lastUpdated || ''))
+    .filter((date) => !Number.isNaN(date.getTime()))
+    .sort((first, second) => second.getTime() - first.getTime())[0]
+
+  if (latestTimestamp) {
+    return formatDateTimeDisplay(latestTimestamp.toISOString())
+  }
+
+  return loading.value ? 'Sincronizando...' : 'Sin registros'
+})
+const crewBackendStatus = computed(() => (loading.value ? 'Sincronizando backend' : 'Backend operativo'))
+const crewConnectedUsers = computed(() => Math.max(assignableCrewOptions.value.length, 1))
 const fleetGroupedByStatus = computed(() => ({
   aprobadas: aircraft.value.filter((item) => humanizeAircraftStatus(item.status) === 'Aprobada')
     .length,
@@ -989,6 +1078,9 @@ function createEmptyCompany() {
     email: '',
     address: '',
     legalRepresentative: '',
+    jetAPrice: '',
+    marginPercent: '',
+    fixedFee: '',
     status: 'pendiente',
     reviewStatus: 'Sin datos',
     adminNotes: '',
@@ -1004,6 +1096,9 @@ function syncCompanyForm() {
   companyForm.email = company.email
   companyForm.address = company.address
   companyForm.legalRepresentative = company.legalRepresentative
+  companyForm.jetAPrice = company.jetAPrice
+  companyForm.marginPercent = company.marginPercent
+  companyForm.fixedFee = company.fixedFee
   companyForm.newDocumentFile = null
   companyForm.newDocumentName = ''
 }
@@ -1144,6 +1239,10 @@ function normalizeCompany(raw = {}) {
     legalRepresentative:
       raw.legal_representative || raw.representante_legal || company.legalRepresentative,
     status: raw.status || company.status,
+    jetAPrice: raw.jet_a_price ?? raw.jetA ?? raw.precio_jet_a ?? company.jetAPrice,
+    marginPercent:
+      raw.margin_percent ?? raw.utility_percent ?? raw.porcentaje_utilidad ?? company.marginPercent,
+    fixedFee: raw.fixed_fee ?? raw.fee_fijo ?? company.fixedFee,
     reviewStatus:
       raw.validation_status || raw.review_status || raw.estado_validacion || company.reviewStatus,
     adminNotes: raw.admin_notes || raw.observations || raw.observaciones || company.adminNotes,
@@ -1211,6 +1310,13 @@ function normalizeAircraft(raw = {}, index = 0) {
     coverage: Array.isArray(raw.coverage) ? raw.coverage.join(', ') : raw.coverage || '',
     hourlyPrice: Number(raw.hourly_rate || raw.hourly_price || raw.price_per_hour || 0),
     minimumHours: Number(raw.minimum_hours || raw.min_hours || 0),
+    fuelBurnGallonsPerHour: Number(raw.fuel_burn_gph || raw.fuel_consumption_gph || 0),
+    engineReserveRate: Number(raw.engine_reserve_rate || raw.reserve_motor_rate || 0),
+    insuranceRate: Number(raw.insurance_rate || 0),
+    maintenanceRate: Number(raw.maintenance_rate || 0),
+    crewRate: Number(raw.crew_rate || 0),
+    repositioningFee: Number(raw.repositioning_fee || 0),
+    overnightFee: Number(raw.overnight_fee || 0),
     repositioningCost: Number(raw.repositioning_cost || 0),
     overnightCost: Number(raw.overnight_cost || 0),
     waitingCost: Number(raw.waiting_cost || 0),
@@ -1445,6 +1551,25 @@ function normalizePayment(raw = {}, index = 0) {
 function normalizeCrew(raw = {}, index = 0) {
   const normalizedRole = normalizeCrewRole(raw.role || raw.position || raw.rol || raw.tipo)
   const normalizedState = normalizeCrewState(raw.state || raw.status || raw.availability_status)
+  const certificationsArray = Array.isArray(raw.certifications)
+    ? raw.certifications
+    : Array.isArray(raw.licenses)
+      ? raw.licenses
+      : typeof raw.certifications === 'string'
+        ? raw.certifications.split(',').map((item) => item.trim()).filter(Boolean)
+        : []
+  const languagesArray = Array.isArray(raw.languages)
+    ? raw.languages
+    : typeof raw.languages === 'string'
+      ? raw.languages.split(',').map((item) => item.trim()).filter(Boolean)
+      : typeof raw.idiomas === 'string'
+        ? raw.idiomas.split(',').map((item) => item.trim()).filter(Boolean)
+        : []
+  const documents = Array.isArray(raw.documents)
+    ? raw.documents
+    : Array.isArray(raw.files)
+      ? raw.files
+      : []
 
   return {
     id: raw.id || index + 1,
@@ -1456,12 +1581,29 @@ function normalizeCrew(raw = {}, index = 0) {
     phone: raw.phone || '',
     note: raw.note || raw.notes || '',
     email: raw.email || '',
-    certifications: Array.isArray(raw.certifications)
-      ? raw.certifications.join(', ')
+    certifications: certificationsArray.length
+      ? certificationsArray.join(', ')
       : raw.certifications || raw.license || raw.licenses || '',
-    languages: Array.isArray(raw.languages)
-      ? raw.languages.join(', ')
-      : raw.languages || raw.idiomas || 'ES',
+    certificationsList: certificationsArray,
+    certificationExpiry:
+      raw.certification_expiry ||
+      raw.certifications_expire_at ||
+      raw.license_expiration ||
+      raw.expires_at ||
+      '',
+    flightHours: Number(raw.flight_hours || raw.hours_flown || raw.total_hours || 0),
+    authorizedAircraft:
+      Array.isArray(raw.authorized_aircraft)
+        ? raw.authorized_aircraft.join(', ')
+        : raw.authorized_aircraft || raw.aircraft_type_authorized || raw.fleet_authorization || '',
+    documents,
+    documentsCount: Number(raw.documents_count || documents.length || 0),
+    validationStatus:
+      raw.validation_status || raw.approval_status || raw.review_status || raw.status_label || 'Pendiente',
+    lastUpdated: raw.updated_at || raw.last_updated || raw.modified_at || raw.created_at || '',
+    internalRating: String(raw.internal_rating || raw.rating_internal || raw.score_internal || raw.rating || '4.9'),
+    languages: languagesArray.length ? languagesArray.join(', ') : raw.languages || raw.idiomas || 'ES',
+    languagesList: languagesArray,
     rating: String(raw.rating || raw.score || '4.9/5'),
   }
 }
@@ -1593,6 +1735,13 @@ function resetAircraftForm() {
     hourlyPrice: '',
     minimumHours: '',
     operationalCost: '',
+    fuelBurnGallonsPerHour: '',
+    engineReserveRate: '',
+    insuranceRate: '',
+    maintenanceRate: '',
+    crewRate: '',
+    repositioningFee: '',
+    overnightFee: '',
   })
 }
 
@@ -1688,6 +1837,13 @@ function startEditingAircraft(item) {
     hourlyPrice: item.hourlyPrice || '',
     minimumHours: item.minimumHours || '',
     operationalCost: item.operationalCost || '',
+    fuelBurnGallonsPerHour: item.fuelBurnGallonsPerHour || '',
+    engineReserveRate: item.engineReserveRate || '',
+    insuranceRate: item.insuranceRate || '',
+    maintenanceRate: item.maintenanceRate || '',
+    crewRate: item.crewRate || '',
+    repositioningFee: item.repositioningFee || '',
+    overnightFee: item.overnightFee || '',
   })
 }
 
@@ -2194,6 +2350,13 @@ function resetCrewForm() {
   crewForm.base = crewBases.value[0] || ''
   crewForm.state = 'Disponible'
   crewForm.certifications = ''
+  crewForm.certificationExpiry = ''
+  crewForm.flightHours = ''
+  crewForm.authorizedAircraft = ''
+  crewForm.validationStatus = 'Pendiente'
+  crewForm.internalRating = '4.9'
+  crewForm.documentsCount = ''
+  crewForm.lastUpdated = ''
   crewForm.languages = ''
   crewForm.availability = 'Inmediata'
   crewForm.rating = '4.9/5'
@@ -2210,6 +2373,13 @@ function populateCrewForm(member) {
   crewForm.base = member.base || crewBases.value[0] || ''
   crewForm.state = normalizeCrewState(member.state || member.availability)
   crewForm.certifications = member.certifications || ''
+  crewForm.certificationExpiry = member.certificationExpiry || ''
+  crewForm.flightHours = member.flightHours || ''
+  crewForm.authorizedAircraft = member.authorizedAircraft || ''
+  crewForm.validationStatus = member.validationStatus || 'Pendiente'
+  crewForm.internalRating = member.internalRating || '4.9'
+  crewForm.documentsCount = member.documentsCount || ''
+  crewForm.lastUpdated = member.lastUpdated || ''
   crewForm.languages = member.languages || ''
   crewForm.availability = member.availability || member.state || 'Inmediata'
   crewForm.rating = member.rating || '4.9/5'
@@ -2282,6 +2452,37 @@ function formatDateTimeRange(value = '') {
   return normalized.replace('T', ' ').slice(0, 16)
 }
 
+function startOfAvailabilityWeek(date = new Date()) {
+  const baseDate = new Date(date)
+  baseDate.setHours(0, 0, 0, 0)
+  const day = baseDate.getDay()
+  const diff = day === 0 ? -6 : 1 - day
+  baseDate.setDate(baseDate.getDate() + diff)
+  return baseDate
+}
+
+function addDays(date, amount) {
+  const nextDate = new Date(date)
+  nextDate.setDate(nextDate.getDate() + amount)
+  return nextDate
+}
+
+function startOfAvailabilityDay(date) {
+  const value = new Date(date)
+  value.setHours(0, 0, 0, 0)
+  return value
+}
+
+function endOfAvailabilityDay(date) {
+  const value = new Date(date)
+  value.setHours(23, 59, 59, 999)
+  return value
+}
+
+function isSameAvailabilityDay(firstDate, secondDate) {
+  return startOfAvailabilityDay(firstDate).getTime() === startOfAvailabilityDay(secondDate).getTime()
+}
+
 function formatDateTimeDisplay(value = '') {
   if (!value) return 'Sin fecha'
 
@@ -2333,6 +2534,67 @@ function normalizeAvailabilityStatusForBackend(status = '') {
   }
 
   return 'blocked'
+}
+
+function getAvailabilityEntriesForAircraft(plane, entries = []) {
+  return entries.filter((entry) => Number(entry.aircraftId) === Number(plane.id))
+}
+
+function buildAvailabilityCalendarCell(plane, date, entries = []) {
+  const dayStart = startOfAvailabilityDay(date)
+  const dayEnd = endOfAvailabilityDay(date)
+  const matchingEntries = getAvailabilityEntriesForAircraft(plane, entries).filter((entry) => {
+    const from = new Date(entry.from)
+    const to = new Date(entry.to)
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return false
+    return from <= dayEnd && to >= dayStart
+  })
+
+  const primaryEntry = matchingEntries[0] || null
+  const statusMeta = getAvailabilityStatusMeta(primaryEntry?.status || 'Disponible')
+
+  return {
+    key: `${plane.id}-${dayStart.toISOString()}`,
+    date: dayStart,
+    tone: primaryEntry ? statusMeta.tone : 'success',
+    label: primaryEntry ? statusMeta.short : 'Libre',
+    title: primaryEntry ? statusMeta.label : 'Disponible',
+    detail: primaryEntry ? primaryEntry.reason : 'Sin bloqueos registrados',
+    entries: matchingEntries,
+    primaryEntry,
+    isAvailable: !primaryEntry,
+  }
+}
+
+function moveAvailabilityWeek(offset) {
+  availabilityWeekAnchor.value = startOfAvailabilityWeek(addDays(availabilityWeekAnchor.value, offset * 7))
+}
+
+function jumpAvailabilityWeekToToday() {
+  availabilityWeekAnchor.value = startOfAvailabilityWeek(new Date())
+}
+
+function selectAvailabilityCalendarCell(plane, cell) {
+  availabilityForm.aircraftId = plane.id
+  selectedAvailabilityCalendarAircraftId.value = String(plane.id)
+
+  const startDate = startOfAvailabilityDay(cell.date)
+  startDate.setHours(9, 0, 0, 0)
+  const endDate = new Date(startDate)
+  endDate.setHours(18, 0, 0, 0)
+
+  availabilityForm.from = toDateTimeLocalValue(startDate)
+  availabilityForm.to = toDateTimeLocalValue(endDate)
+  availabilityForm.status = cell.primaryEntry?.status || 'No disponible'
+  availabilityForm.reason = cell.primaryEntry?.reason || 'Bloqueo manual'
+}
+
+function toDateTimeLocalValue(value) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+
+  const pad = (part) => String(part).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
 function getRequestRouteLabel(request) {
@@ -2699,6 +2961,9 @@ async function saveCompany() {
     email: companyForm.email,
     address: companyForm.address,
     legal_representative: companyForm.legalRepresentative,
+    jet_a_price: Number(companyForm.jetAPrice || 0),
+    margin_percent: Number(companyForm.marginPercent || 0),
+    fixed_fee: Number(companyForm.fixedFee || 0),
   }
 
   try {
@@ -2736,6 +3001,9 @@ async function saveCompany() {
         email: 'email',
         address: 'address',
         legal_representative: 'legalRepresentative',
+        jet_a_price: 'jetAPrice',
+        margin_percent: 'marginPercent',
+        fixed_fee: 'fixedFee',
         file: 'newDocumentFile',
         document_name: 'newDocumentName',
       },
@@ -2798,6 +3066,13 @@ async function createAircraft() {
     hourly_rate: Number(aircraftForm.hourlyPrice || 0),
     minimum_hours: Number(aircraftForm.minimumHours || 0),
     operational_cost: Number(aircraftForm.operationalCost || 0),
+    fuel_burn_gph: Number(aircraftForm.fuelBurnGallonsPerHour || 0),
+    engine_reserve_rate: Number(aircraftForm.engineReserveRate || 0),
+    insurance_rate: Number(aircraftForm.insuranceRate || 0),
+    maintenance_rate: Number(aircraftForm.maintenanceRate || 0),
+    crew_rate: Number(aircraftForm.crewRate || 0),
+    repositioning_fee: Number(aircraftForm.repositioningFee || 0),
+    overnight_fee: Number(aircraftForm.overnightFee || 0),
   }
 
   try {
@@ -2850,6 +3125,13 @@ async function createAircraft() {
         hourly_rate: 'hourlyPrice',
         minimum_hours: 'minimumHours',
         operational_cost: 'operationalCost',
+        fuel_burn_gph: 'fuelBurnGallonsPerHour',
+        engine_reserve_rate: 'engineReserveRate',
+        insurance_rate: 'insuranceRate',
+        maintenance_rate: 'maintenanceRate',
+        crew_rate: 'crewRate',
+        repositioning_fee: 'repositioningFee',
+        overnight_fee: 'overnightFee',
       },
       'La aeronave no pudo guardarse en la base de datos.',
     )
@@ -3119,6 +3401,13 @@ async function saveAircraftEdits(id) {
     hourly_rate: Number(aircraftForm.hourlyPrice || 0),
     minimum_hours: Number(aircraftForm.minimumHours || 0),
     operational_cost: Number(aircraftForm.operationalCost || 0),
+    fuel_burn_gph: Number(aircraftForm.fuelBurnGallonsPerHour || 0),
+    engine_reserve_rate: Number(aircraftForm.engineReserveRate || 0),
+    insurance_rate: Number(aircraftForm.insuranceRate || 0),
+    maintenance_rate: Number(aircraftForm.maintenanceRate || 0),
+    crew_rate: Number(aircraftForm.crewRate || 0),
+    repositioning_fee: Number(aircraftForm.repositioningFee || 0),
+    overnight_fee: Number(aircraftForm.overnightFee || 0),
   }
 
   try {
@@ -3160,6 +3449,13 @@ async function saveAircraftEdits(id) {
         hourly_rate: 'hourlyPrice',
         minimum_hours: 'minimumHours',
         operational_cost: 'operationalCost',
+        fuel_burn_gph: 'fuelBurnGallonsPerHour',
+        engine_reserve_rate: 'engineReserveRate',
+        insurance_rate: 'insuranceRate',
+        maintenance_rate: 'maintenanceRate',
+        crew_rate: 'crewRate',
+        repositioning_fee: 'repositioningFee',
+        overnight_fee: 'overnightFee',
       },
       'La aeronave no pudo actualizarse en la base de datos.',
     )
@@ -3264,6 +3560,16 @@ async function createOrUpdateCrew() {
       .map((item) => item.trim())
       .filter(Boolean),
     rating: crewForm.rating,
+    internal_rating: crewForm.internalRating,
+    validation_status: crewForm.validationStatus,
+    certification_expiry: crewForm.certificationExpiry || null,
+    flight_hours: Number(crewForm.flightHours || 0),
+    authorized_aircraft: crewForm.authorizedAircraft
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean),
+    documents_count: Number(crewForm.documentsCount || 0),
+    updated_at: crewForm.lastUpdated || null,
   }
 
   savingCrew.value = true
@@ -3333,6 +3639,12 @@ async function createOrUpdateCrew() {
         certifications: 'certifications',
         languages: 'languages',
         rating: 'rating',
+        internal_rating: 'internalRating',
+        validation_status: 'validationStatus',
+        certification_expiry: 'certificationExpiry',
+        flight_hours: 'flightHours',
+        authorized_aircraft: 'authorizedAircraft',
+        documents_count: 'documentsCount',
       },
       'La tripulacion no pudo guardarse en la base de datos.',
     )
@@ -3389,6 +3701,100 @@ async function suspendCrewMember(id) {
     tone: 'success',
     title: 'Tripulante suspendido',
     message: `${member.name} ya quedo suspendido dentro del proveedor.`,
+  })
+}
+
+async function activateCrewMember(id) {
+  const member = crew.value.find((item) => item.id === id)
+  if (!member) return
+
+  try {
+    await requestWithCandidates([
+      {
+        method: 'put',
+        path: `/proveedor/tripulacion/${id}`,
+        body: { status: 'Disponible', availability: 'Inmediata' },
+      },
+      {
+        method: 'put',
+        path: `/proveedor/sobrecargos/${id}`,
+        body: { status: 'Disponible', availability: 'Inmediata' },
+      },
+      {
+        method: 'put',
+        path: `/operator/crew/${id}`,
+        body: { status: 'Disponible', availability: 'Inmediata' },
+      },
+      {
+        method: 'put',
+        path: `/operator/tripulation/${id}`,
+        body: { status: 'Disponible', availability: 'Inmediata' },
+      },
+    ])
+  } catch (error) {
+    return showError(
+      'No se pudo activar',
+      error.message || 'El tripulante no pudo reactivarse en la base de datos.',
+    )
+  }
+
+  crew.value = crew.value.map((item) =>
+    item.id === id ? { ...item, state: 'Disponible', availability: 'Inmediata' } : item,
+  )
+
+  pushHistory('Tripulacion', `Tripulante #${id} reactivado`)
+  ui.pushToast({
+    tone: 'success',
+    title: 'Tripulante activado',
+    message: `${member.name} vuelve a estar disponible para operación.`,
+  })
+}
+
+function assignCrewMemberToFlight(member) {
+  const openOperation = operations.value.find((item) => !['Finalizada', 'Cancelada'].includes(item.status))
+  if (!openOperation) {
+    return ui.pushToast({
+      tone: 'warning',
+      title: 'Sin operación abierta',
+      message: 'No hay operaciones activas para asignar a este tripulante ahora mismo.',
+    })
+  }
+
+  const draft = getOperationCrewDraft(openOperation.id)
+  draft.crewId = member.id
+  draft.note = draft.note || `Asignación sugerida desde directorio: ${member.name}`
+  goToSection('operaciones')
+  ui.pushToast({
+    tone: 'info',
+    title: 'Asignación preparada',
+    message: `${member.name} quedó precargado en la operación #${openOperation.id}.`,
+  })
+}
+
+function viewCrewDocuments(member) {
+  ui.pushToast({
+    tone: 'info',
+    title: 'Documentos de tripulación',
+    message: `${member.name} registra ${member.documentsCount || 0} documento(s).`,
+  })
+}
+
+function viewCrewHistory(member) {
+  ui.pushToast({
+    tone: 'info',
+    title: 'Historial de vuelos',
+    message: `${member.name} tiene ${member.flightHours || 0} horas registradas.`,
+  })
+}
+
+function markCrewAvailability(member) {
+  populateCrewForm(member)
+  crewForm.state = 'Disponible'
+  crewForm.availability = 'Inmediata'
+  ui.pushToast({
+    tone: 'success',
+    title: 'Disponibilidad preparada',
+    message: `El perfil de ${member.name} quedó listo para actualizar su disponibilidad.`,
   })
 }
 
@@ -4204,6 +4610,57 @@ onMounted(() => {
           <section class="company-form-section">
             <div class="section-head compact-head">
               <div>
+                <p class="eyebrow">Pricing global</p>
+                <h3>Jet A, utilidad y fee fijo</h3>
+              </div>
+            </div>
+
+            <div class="form-grid">
+              <label>
+                <span>Jet A USD/gal</span>
+                <input
+                  v-model="companyForm.jetAPrice"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  :class="{ 'input-error': formErrors.company.jetAPrice }"
+                />
+                <small v-if="formErrors.company.jetAPrice" class="field-error">{{
+                  formErrors.company.jetAPrice
+                }}</small>
+              </label>
+              <label>
+                <span>Utilidad %</span>
+                <input
+                  v-model="companyForm.marginPercent"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  :class="{ 'input-error': formErrors.company.marginPercent }"
+                />
+                <small v-if="formErrors.company.marginPercent" class="field-error">{{
+                  formErrors.company.marginPercent
+                }}</small>
+              </label>
+              <label class="span-2">
+                <span>Fee fijo global USD</span>
+                <input
+                  v-model="companyForm.fixedFee"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  :class="{ 'input-error': formErrors.company.fixedFee }"
+                />
+                <small v-if="formErrors.company.fixedFee" class="field-error">{{
+                  formErrors.company.fixedFee
+                }}</small>
+              </label>
+            </div>
+          </section>
+
+          <section class="company-form-section">
+            <div class="section-head compact-head">
+              <div>
                 <p class="eyebrow">Documentacion</p>
                 <h3>Carga legal y respaldo</h3>
               </div>
@@ -4774,11 +5231,82 @@ onMounted(() => {
                     formErrors.aircraft.minimumHours
                   }}</small>
                 </label>
-                <!-- <label class="span-2">
-                  <span>Costo operativo</span>
-                  <input v-model="aircraftForm.operationalCost" type="number" min="0" :class="{ 'input-error': formErrors.aircraft.operationalCost }" />
-                  <small v-if="formErrors.aircraft.operationalCost" class="field-error">{{ formErrors.aircraft.operationalCost }}</small>
-                </label> -->
+                <label>
+                  <span>Consumo gal/hr</span>
+                  <input
+                    v-model="aircraftForm.fuelBurnGallonsPerHour"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                  />
+                </label>
+                <label>
+                  <span>Reserva motor/hr</span>
+                  <input
+                    v-model="aircraftForm.engineReserveRate"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                  />
+                </label>
+                <label>
+                  <span>Seguro/hr</span>
+                  <input
+                    v-model="aircraftForm.insuranceRate"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                  />
+                </label>
+                <label>
+                  <span>Mantenimiento/hr</span>
+                  <input
+                    v-model="aircraftForm.maintenanceRate"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                  />
+                </label>
+                <label>
+                  <span>Tripulacion/hr</span>
+                  <input
+                    v-model="aircraftForm.crewRate"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                  />
+                </label>
+                <label>
+                  <span>Posicionamiento</span>
+                  <input
+                    v-model="aircraftForm.repositioningFee"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                  />
+                </label>
+                <label>
+                  <span>Pernocta</span>
+                  <input
+                    v-model="aircraftForm.overnightFee"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                  />
+                </label>
+                <label>
+                  <span>Otros costos</span>
+                  <input
+                    v-model="aircraftForm.operationalCost"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    :class="{ 'input-error': formErrors.aircraft.operationalCost }"
+                  />
+                  <small v-if="formErrors.aircraft.operationalCost" class="field-error">{{
+                    formErrors.aircraft.operationalCost
+                  }}</small>
+                </label>
               </div>
             </div>
 
@@ -5356,34 +5884,86 @@ onMounted(() => {
           <article class="surface fleet-section-card">
             <div class="section-head">
               <div>
-                <p class="eyebrow">Heatmap semanal</p>
+                <p class="eyebrow">Calendario semanal</p>
                 <h2>Disponibilidad visual de la flota</h2>
               </div>
             </div>
 
-            <div v-if="aircraft.length" class="availability-heatmap">
-              <article v-for="plane in aircraft" :key="plane.id" class="availability-heatmap-row">
-                <div class="cell-stack">
-                  <strong>{{ plane.name }}</strong>
-                  <span class="muted"
-                    >{{ getAvailabilityOperationalStatus(plane).label }} ·
-                    {{ plane.base || 'Sin base' }}</span
-                  >
+            <div v-if="aircraft.length" class="availability-calendar-shell">
+              <div class="availability-calendar-toolbar">
+                <div>
+                  <strong>{{ availabilityCalendarWindowLabel }}</strong>
+                  <p class="muted">Haz click en una celda para precargar el bloqueo en el wizard.</p>
                 </div>
-                <div class="weekly-dots">
-                  <span
-                    v-for="slot in getAvailabilityWeeklyHeatmap(plane)"
-                    :key="slot.key"
-                    class="weekly-dot"
-                    :data-tone="slot.tone"
-                  >
-                    {{ slot.label }}
-                  </span>
+                <div class="availability-calendar-actions">
+                  <label class="availability-calendar-filter">
+                    <span>Aeronave</span>
+                    <select v-model="selectedAvailabilityCalendarAircraftId">
+                      <option
+                        v-for="option in availabilityCalendarAircraftOptions"
+                        :key="option.id"
+                        :value="option.id"
+                      >
+                        {{ option.label }}
+                      </option>
+                    </select>
+                  </label>
+                  <button type="button" class="ghost-button" @click="moveAvailabilityWeek(-1)">
+                    Semana previa
+                  </button>
+                  <button type="button" class="ghost-button" @click="jumpAvailabilityWeekToToday()">
+                    Hoy
+                  </button>
+                  <button type="button" class="ghost-button" @click="moveAvailabilityWeek(1)">
+                    Siguiente
+                  </button>
                 </div>
-              </article>
+              </div>
+
+              <div class="availability-calendar-grid">
+                <div class="availability-calendar-row availability-calendar-row--head">
+                  <div class="availability-calendar-aircraft-head">Flota</div>
+                  <div
+                    v-for="day in availabilityCalendarWeekDays"
+                    :key="day.key"
+                    class="availability-calendar-day-head"
+                    :class="{ 'is-today': day.isToday }"
+                  >
+                    <strong>{{ day.shortLabel }}</strong>
+                    <span>{{ day.dayNumber }} {{ day.monthLabel }}</span>
+                  </div>
+                </div>
+
+                <article
+                  v-for="row in availabilityCalendarRows"
+                  :key="row.plane.id"
+                  class="availability-calendar-row availability-calendar-row--body"
+                >
+                  <div class="availability-calendar-aircraft">
+                    <strong>{{ row.plane.name }}</strong>
+                    <span class="muted">
+                      {{ getAvailabilityOperationalStatus(row.plane).label }} ·
+                      {{ row.plane.base || 'Sin base' }}
+                    </span>
+                  </div>
+                  <button
+                    v-for="cell in row.cells"
+                    :key="cell.key"
+                    type="button"
+                    class="availability-calendar-cell"
+                    :data-tone="cell.tone"
+                    :class="{ 'is-available': cell.isAvailable }"
+                    :title="`${cell.title} · ${cell.detail}`"
+                    @click="selectAvailabilityCalendarCell(row.plane, cell)"
+                  >
+                    <strong>{{ cell.label }}</strong>
+                    <span>{{ cell.detail }}</span>
+                  </button>
+                </article>
+              </div>
             </div>
             <p v-else class="empty-state">
-              Sin aeronaves registradas para construir el mapa semanal.
+              Sin aeronaves registradas para construir el calendario.
             </p>
           </article>
         </div>
@@ -5836,13 +6416,22 @@ onMounted(() => {
         :crew-roles="crewRoleOptions"
         :crew-states="crewStateOptions"
         :crew-bases="crewBases"
+        :aircraft-options="aircraftOptions"
         :editing-crew-id="editingCrewId"
+        :loading="loading"
+        :backend-status="crewBackendStatus"
+        :last-sync-label="crewLastSyncLabel"
         :saving-crew="savingCrew"
         @update-field="updateCrewField"
+        @activate="activateCrewMember"
+        @assign-flight="assignCrewMemberToFlight"
         @create="createOrUpdateCrew"
+        @mark-availability="markCrewAvailability"
         @select-person="populateCrewForm"
         @suspend="suspendCrewMember"
         @reset-form="resetCrewForm"
+        @view-documents="viewCrewDocuments"
+        @view-history="viewCrewHistory"
       />
 
       <p v-if="formSuccess.crew" class="form-feedback form-feedback-success">
@@ -5853,19 +6442,55 @@ onMounted(() => {
         <div class="section-head">
           <div>
             <p class="eyebrow">Control</p>
-            <h2>Politica actual</h2>
+            <h2>Politica operacional</h2>
+          </div>
+        </div>
+
+        <div class="request-detail-grid">
+          <div class="status-list">
+            <div class="status-row">
+              <span>Horas maximas vuelo</span>
+              <strong>Segun rol, fatiga y operacion vigente</strong>
+            </div>
+            <div class="status-row">
+              <span>Descanso obligatorio</span>
+              <strong>Bloquear antes de reasignar tripulacion</strong>
+            </div>
+            <div class="status-row">
+              <span>Certificaciones requeridas</span>
+              <strong>Licencia, medico, visa, pasaporte y habilitacion</strong>
+            </div>
+            <div class="status-row">
+              <span>Reglas FAA / DGAC</span>
+              <strong>Aplican segun ruta y operador</strong>
+            </div>
+          </div>
+
+          <div class="status-list">
+            <div class="status-row">
+              <span>Modo de aprobacion</span>
+              <strong>{{
+                settings.crewApprovalMode === 'suggest_only'
+                  ? 'Proveedor sugiere / Admin confirma'
+                  : 'Proveedor confirma'
+              }}</strong>
+            </div>
+            <div class="status-row">
+              <span>Ultima sincronizacion</span>
+              <strong>{{ crewLastSyncLabel }}</strong>
+            </div>
+            <div class="status-row">
+              <span>Backend status</span>
+              <strong>{{ crewBackendStatus }}</strong>
+            </div>
+            <div class="status-row">
+              <span>Usuarios conectados</span>
+              <strong>{{ crewConnectedUsers }} operativo(s)</strong>
+            </div>
           </div>
         </div>
 
         <div class="status-list">
-          <div class="status-row">
-            <span>Modo de aprobacion</span>
-            <strong>{{
-              settings.crewApprovalMode === 'suggest_only'
-                ? 'Proveedor sugiere / Admin confirma'
-                : 'Proveedor confirma'
-            }}</strong>
-          </div>
           <div class="status-row">
             <span>Funcion del proveedor</span>
             <strong>Asignar piloto, copiloto y sobrecargo segun disponibilidad</strong>
@@ -7143,6 +7768,148 @@ onMounted(() => {
 .availability-records {
   display: grid;
   gap: 1rem;
+}
+
+.availability-calendar-shell {
+  display: grid;
+  gap: 1rem;
+}
+
+.availability-calendar-toolbar,
+.availability-calendar-actions,
+.availability-calendar-row,
+.availability-calendar-aircraft,
+.availability-calendar-day-head,
+.availability-calendar-cell,
+.availability-calendar-filter {
+  display: flex;
+}
+
+.availability-calendar-toolbar,
+.availability-calendar-actions {
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.availability-calendar-filter {
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 16rem;
+}
+
+.availability-calendar-filter span {
+  color: #6f6250;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.availability-calendar-grid {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.availability-calendar-row {
+  gap: 0.7rem;
+}
+
+.availability-calendar-row--head,
+.availability-calendar-row--body {
+  display: grid;
+  grid-template-columns: minmax(14rem, 1.1fr) repeat(7, minmax(7.5rem, 1fr));
+  align-items: stretch;
+}
+
+.availability-calendar-aircraft-head,
+.availability-calendar-day-head,
+.availability-calendar-aircraft,
+.availability-calendar-cell {
+  border: 1px solid #efe2ca;
+  border-radius: 18px;
+  background: #fffdfa;
+  min-height: 6.2rem;
+  padding: 0.9rem;
+}
+
+.availability-calendar-aircraft-head,
+.availability-calendar-day-head {
+  background: #faf4e8;
+}
+
+.availability-calendar-aircraft-head {
+  display: flex;
+  align-items: center;
+  font-weight: 800;
+  color: #5e4d2e;
+}
+
+.availability-calendar-day-head,
+.availability-calendar-aircraft,
+.availability-calendar-cell {
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 0.35rem;
+}
+
+.availability-calendar-day-head strong,
+.availability-calendar-cell strong {
+  text-transform: capitalize;
+}
+
+.availability-calendar-day-head.is-today {
+  border-color: #111111;
+  box-shadow: inset 0 0 0 1px rgba(17, 17, 17, 0.08);
+}
+
+.availability-calendar-cell {
+  cursor: pointer;
+  text-align: left;
+  transition:
+    transform 0.16s ease,
+    border-color 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.availability-calendar-cell:hover,
+.availability-calendar-cell:focus-visible {
+  border-color: #c8a96b;
+  box-shadow: 0 16px 30px rgba(28, 22, 12, 0.08);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.availability-calendar-cell span,
+.availability-calendar-day-head span {
+  color: #6d6151;
+  font-size: 0.82rem;
+  line-height: 1.3;
+}
+
+.availability-calendar-cell[data-tone='success'] {
+  background: linear-gradient(180deg, #f5fff8, #eefbf1);
+}
+
+.availability-calendar-cell[data-tone='warning'] {
+  background: linear-gradient(180deg, #fff8eb, #fff1d2);
+}
+
+.availability-calendar-cell[data-tone='danger'] {
+  background: linear-gradient(180deg, #fff1ef, #ffe0da);
+}
+
+.availability-calendar-cell[data-tone='info'] {
+  background: linear-gradient(180deg, #eff7ff, #dfeefe);
+}
+
+.availability-calendar-cell[data-tone='dark'] {
+  background: linear-gradient(180deg, #f0ede8, #e4ddd3);
+}
+
+.availability-calendar-cell.is-available strong {
+  color: #17663a;
 }
 
 .availability-heatmap-row,

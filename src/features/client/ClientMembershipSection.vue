@@ -7,68 +7,62 @@ const props = defineProps({
 
 const emit = defineEmits(['activate-access', 'open-concierge', 'go-section', 'select-plan'])
 
+const subscriptionLabel = computed(() => String(props.access?.subscription?.status || 'Sin membresia').trim())
+const hasMembership = computed(() => !['', 'Sin membresia'].includes(subscriptionLabel.value))
+
 const plans = computed(() => [
   {
-    name: 'Demo',
-    badge: 'Explorar',
-    description: 'Entrada inicial para validar la experiencia, entender el flujo y comenzar con apoyo concierge.',
-    price: 'Acceso inicial',
-    cta: props.access?.has_access ? 'Ir al dashboard' : 'Activar acceso',
-    target: props.access?.has_access ? 'dashboard' : 'activate',
-    items: ['Visibilidad basica', 'Primer contacto concierge', 'Ruta y seguimiento inicial'],
+    name: 'Sky Access',
+    badge: 'Opcional',
+    description: 'Ideal para ahorrar mas y mejorar tu experiencia despues de haber reservado.',
+    price: 'Mejor tarifa por vuelo',
+    cta: hasMembership.value ? 'Ir a reservar' : 'Ver beneficios',
+    target: hasMembership.value ? 'dashboard' : 'plan',
+    items: ['Tarifas preferentes', 'Acceso a empty legs', 'Menor fee y concierge inicial'],
   },
   {
-    name: 'Basic',
-    badge: 'Acceso privado',
-    description: 'Ideal para viajeros que necesitan movilidad premium con lectura clara y operacion ordenada.',
-    price: 'Uso recurrente',
-    cta: 'Ver reservas',
+    name: 'Business Club',
+    badge: 'Corporativo',
+    description: 'Pensado para clientes frecuentes y equipos que necesitan mejor flexibilidad.',
+    price: 'Beneficios corporativos',
+    cta: 'Ver beneficios',
     target: 'solicitudes',
-    items: ['Reservas protegidas', 'Concierge operativo', 'Soporte de salida'],
+    items: ['Mayor flexibilidad', 'Prioridad operativa', 'Ventajas para cuentas de empresa'],
   },
   {
-    name: 'Pro',
-    badge: 'Mas solicitado',
-    description: 'Pensado para clientes frecuentes, equipos y cuentas que requieren prioridad real en el proceso.',
-    price: 'Prioridad premium',
+    name: 'Elite Circle',
+    badge: 'Maxima prioridad',
+    description: 'La capa mas alta para clientes con operacion constante y gestion dedicada.',
+    price: 'Gestion dedicada',
     cta: 'Hablar con concierge',
     target: 'concierge',
-    items: ['Catering ejecutivo', 'Prioridad de atencion', 'Seguimiento reforzado'],
-  },
-  {
-    name: 'Elite',
-    badge: 'Enterprise',
-    description: 'Infraestructura premium para cuentas con administracion, multiples actores y control extendido.',
-    price: 'A medida',
-    cta: 'Solicitar configuracion',
-    target: 'plan',
-    items: ['Control administrativo', 'Prioridad total', 'Cobertura corporativa'],
+    items: ['Prioridad maxima', 'Concierge dedicado', 'Seguimiento total'],
   },
 ])
 
 const membershipSignals = computed(() => [
   {
-    label: 'Acceso',
-    value: props.access?.has_access ? 'Activo' : 'Inactivo',
+    label: 'Reserva',
+    value: 'Disponible',
   },
   {
-    label: 'Periodo',
-    value: props.access?.demo?.status || '',
+    label: 'Cuenta',
+    value: props.access?.has_access ? 'Activa' : 'Lista para usar',
   },
   {
-    label: 'Suscripcion',
-    value: props.access?.subscription?.status || 'Sin suscripcion',
+    label: 'Membresia',
+    value: subscriptionLabel.value,
   },
   {
     label: 'Operacion',
-    value: props.access?.has_access ? 'Lista para reservar' : 'Pendiente de activacion',
+    value: hasMembership.value ? 'Con beneficios premium' : 'Tarifa estandar activa',
   },
 ])
 
 const upgradeSteps = computed(() => [
   {
-    title: 'Activa tu capa de acceso',
-    description: 'Habilita el entorno cliente para consultar rutas, concierge y experiencias premium.',
+    title: 'Reserva sin friccion',
+    description: 'Busca rutas, compara opciones y solicita tu vuelo sin suscripcion obligatoria.',
     meta: 'Paso 01',
   },
   {
@@ -78,7 +72,7 @@ const upgradeSteps = computed(() => [
   },
   {
     title: 'Escala cuando tu operacion lo pida',
-    description: 'Sube de nivel si necesitas prioridad, acompanamiento reforzado o cobertura corporativa.',
+    description: 'Sube de nivel si necesitas prioridad, acompanamiento reforzado, empty legs o cobertura corporativa.',
     meta: 'Paso 03',
   },
 ])
@@ -86,13 +80,13 @@ const upgradeSteps = computed(() => [
 const accountHighlights = computed(() => [
   {
     title: 'Dashboard conectado',
-    description: 'Tu membresia conversa con reservas, aircraft preview y concierge desde una sola experiencia.',
+    description: 'Tu cuenta conecta reservas, aircraft preview y concierge desde una sola experiencia.',
     action: 'Ir al resumen',
     target: 'dashboard',
   },
   {
     title: 'Reservas protegidas',
-    description: 'Cada solicitud hereda el mismo nivel de visibilidad, orden y blindaje comercial.',
+    description: 'Cada solicitud hereda visibilidad, orden y blindaje comercial aunque todavia no tengas membresia.',
     action: 'Abrir solicitudes',
     target: 'solicitudes',
   },
@@ -131,6 +125,15 @@ function handleHighlightAction(item) {
 
   emit('go-section', item.target)
 }
+
+function handleHeroSecondaryAction() {
+  if (hasMembership.value) {
+    emit('open-concierge')
+    return
+  }
+
+  emit('select-plan', { name: 'Sky Access' })
+}
 </script>
 
 <template>
@@ -138,44 +141,44 @@ function handleHighlightAction(item) {
     <section class="dashboard-hero">
       <div class="hero-center">
         <p class="eyebrow dark-eyebrow">Cuenta cliente</p>
-        <h1>Administra tu membresia con el mismo nivel editorial del flujo cliente.</h1>
+        <h1>Reserva libremente y activa beneficios premium solo cuando te convenga.</h1>
         <p class="hero-subtitle">
-          Consulta estado, activa acceso, escala beneficios y conecta tu cuenta con reservas,
-          seguimiento y concierge desde una sola experiencia premium.
+          Tu cuenta ya puede cotizar, reservar y dar seguimiento. Sky Access aparece como upgrade
+          opcional para ahorrar mas, ganar prioridad y sumar concierge.
         </p>
 
         <div class="hero-membership-shell">
           <div class="hero-membership-main">
             <div class="hero-membership-copy">
               <span class="callout-label">Estado de cuenta</span>
-              <strong>{{ access.has_access ? 'La cuenta ya puede operar dentro del portal.' : 'La cuenta aun requiere activacion.' }}</strong>
+              <strong>{{ hasMembership ? 'La cuenta ya opera con beneficios premium.' : 'La cuenta ya puede reservar sin membresia.' }}</strong>
               <p>
                 {{
-                  access.has_access
-                    ? 'Tu acceso permite avanzar a dashboard, solicitudes y coordinacion protegida.'
-                    : 'Activa o renueva acceso para habilitar reservas, seguimiento y beneficios de membresia.'
+                  hasMembership
+                    ? 'Tu suscripcion agrega mejores tarifas, prioridad y coordinacion premium dentro del mismo portal.'
+                    : 'Reserva desde ahora con tarifa estandar. Cuando te convenga, puedes mejorar la experiencia con Sky Access.'
                 }}
               </p>
             </div>
 
             <div class="hero-kpis">
               <article class="hero-kpi-card">
-                <span>Estado</span>
-                <strong>{{ access.has_access ? 'Activo' : 'Inactivo' }}</strong>
+                <span>Reserva</span>
+                <strong>Siempre disponible</strong>
               </article>
               <article class="hero-kpi-card">
-                <span>Ruta del portal</span>
-                <strong>{{ access.has_access ? 'Lista para reservar' : 'Pendiente de activacion' }}</strong>
+                <span>Upgrade</span>
+                <strong>{{ hasMembership ? 'Sky Access activo' : 'Opcional cuando quieras' }}</strong>
               </article>
             </div>
           </div>
 
           <div class="hero-membership-actions">
-            <button class="hero-action" type="button" @click="$emit('activate-access')">
-              {{ access.has_access ? 'Renovar o refrescar acceso' : 'Activar acceso' }}
+            <button class="hero-action" type="button" @click="$emit('go-section', 'reservar')">
+              Reservar vuelo
             </button>
-            <button class="ghost-link-button" type="button" @click="$emit('open-concierge')">
-              Hablar con concierge
+            <button class="ghost-link-button" type="button" @click="handleHeroSecondaryAction">
+              {{ hasMembership ? 'Hablar con concierge' : 'Conocer beneficios premium' }}
             </button>
           </div>
         </div>
@@ -193,8 +196,8 @@ function handleHighlightAction(item) {
       <div class="editorial-heading">
         <h2>Como evoluciona tu cuenta dentro del ecosistema</h2>
         <p>
-          Repetimos la misma narrativa de producto del dashboard para que membresia, reservas y
-          seguimiento se sientan parte del mismo sistema.
+          La narrativa ya no empuja una barrera de entrada: primero reserva, despues escala a
+          beneficios premium dentro del mismo sistema.
         </p>
       </div>
 
@@ -215,13 +218,18 @@ function handleHighlightAction(item) {
       <div class="section-heading">
         <h2>Niveles de membresia listos para accionar</h2>
         <p>
-          Ya no se queda en informativo: cada tarjeta conecta con una accion real dentro del flujo
-          del cliente.
+          Cada tarjeta acompana el mismo modelo hibrido del negocio: entrada libre, upgrade opcional
+          y capa corporativa cuando el volumen lo pide.
         </p>
       </div>
 
       <div class="plans-grid refined-modes-grid">
-        <article v-for="plan in plans" :key="plan.name" class="plan-card mode-card" :class="{ featured: plan.name === 'Pro' }">
+        <article
+          v-for="plan in plans"
+          :key="plan.name"
+          class="plan-card mode-card"
+          :class="{ featured: plan.name === 'Business Club' }"
+        >
           <div class="mode-copy">
             <div class="plan-head">
               <span class="mode-label">{{ plan.badge }}</span>
@@ -249,8 +257,8 @@ function handleHighlightAction(item) {
       <div class="section-heading">
         <h2>Conecta tu cuenta con el resto del portal</h2>
         <p>
-          Los beneficios no viven aislados: ahora la seccion empuja al usuario a continuar dentro
-          del mismo flujo cliente.
+          Los beneficios no viven aislados: la reserva sigue abierta y los upgrades aparecen cuando
+          realmente ayudan a convertir mejor.
         </p>
       </div>
 

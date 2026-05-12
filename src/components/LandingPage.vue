@@ -10,7 +10,7 @@ const form = reactive({
   destination: 'Monterrey',
   date: '2026-05-02',
   passengers: 6,
-  program: 'Membresía Business',
+  program: 'Open Access',
 })
 
 const currentStep = ref(1)
@@ -32,9 +32,9 @@ const exploreCards = [
   },
   {
     title: 'Membresías',
-    description: 'Activa beneficios, prioridad operativa y acompañamiento concierge.',
+    description: 'Mejora tu experiencia con mejores tarifas, prioridad y beneficios opcionales.',
     link: '/membresias',
-    cta: 'Ver planes',
+    cta: 'Ver beneficios',
     icon: 'membership',
   },
   {
@@ -101,7 +101,7 @@ const platformHighlights = [
 const appCards = [
   {
     title: 'Abrir experiencia cliente',
-    description: 'Solicitudes, membresías y seguimiento desde tu cuenta.',
+    description: 'Solicitudes, reservas y beneficios premium desde tu cuenta.',
     link: '/cliente/reservar',
   },
   {
@@ -175,15 +175,15 @@ function openAvailability() {
     <section class="hero-section">
       <div class="hero-copy">
         <p class="eyebrow">Aviación privada premium</p>
-        <h1>Vuela donde quieras con Sky Group</h1>
+        <h1>Reserva tu vuelo primero. Mejora la experiencia después.</h1>
         <p class="hero-text">
-          Cotiza jets privados, activa membresías y coordina operación ejecutiva desde
-          una sola experiencia inspirada en producto, pero diseñada para vuelos premium.
+          Cotiza y reserva jets privados sin membresia obligatoria. Si vuelas mas seguido,
+          Sky Access agrega ahorros, empty legs, prioridad y concierge dentro del mismo flujo.
         </p>
 
         <div class="hero-tabs" aria-label="Accesos principales">
           <RouterLink to="/vuelos" class="tab-chip active">Reservar</RouterLink>
-          <RouterLink to="/membresias" class="tab-chip">Membresías</RouterLink>
+          <RouterLink to="/membresias" class="tab-chip">Sky Access</RouterLink>
           <RouterLink to="/plataforma" class="tab-chip">Plataforma</RouterLink>
         </div>
 
@@ -251,11 +251,11 @@ function openAvailability() {
               </select>
             </label>
             <label>
-              Programa
+              Beneficios
               <select v-model="form.program">
-                <option>Membresía Business</option>
-                <option>Charter</option>
-                <option>Corporativo</option>
+                <option>Open Access</option>
+                <option>Sky Access</option>
+                <option>Corporate</option>
               </select>
             </label>
           </div>
@@ -295,8 +295,8 @@ function openAvailability() {
             alt="Interior de jet ejecutivo"
           />
           <div class="hero-overlay">
-            <strong>Vuelo prioritario</strong>
-            <span>Cabina ejecutiva · Concierge activo · Salida 07:30</span>
+            <strong>Reserva abierta</strong>
+            <span>Cabina ejecutiva · Beneficios opcionales · Salida 07:30</span>
           </div>
         </div>
 
@@ -387,7 +387,7 @@ function openAvailability() {
       <div class="account-copy">
         <h2>Inicia sesión para revisar tu operación en detalle</h2>
         <p>
-          Visualiza solicitudes activas, membresías, documentos y seguimiento premium en
+          Visualiza solicitudes activas, beneficios premium, documentos y seguimiento en
           tu cuenta privada.
         </p>
         <div class="account-actions">

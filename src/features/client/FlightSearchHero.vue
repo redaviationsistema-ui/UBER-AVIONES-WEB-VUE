@@ -10,8 +10,11 @@ const activeAirportKey = ref('')
 const showDepartureTime = ref(false)
 const showReturnTime = ref(false)
 const airportTimers = {}
+const hourOptions = Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, '0'))
+const minuteOptions = Array.from({ length: 60 }, (_, index) => String(index).padStart(2, '0'))
+const periodOptions = ['AM', 'PM']
 
-defineProps({
+const props = defineProps({
   form: { type: Object, required: true },
   summary: { type: Object, required: true },
   tripType: { type: String, required: true },
@@ -22,6 +25,8 @@ const emit = defineEmits([
   'add-leg',
   'remove-leg',
   'submit',
+  'select-form-airport',
+  'select-leg-airport',
   'update-form-field',
   'update-leg-field',
   'update-trip-type',
@@ -59,6 +64,16 @@ function updateFormField(field, event) {
 
 function updateLegField(index, field, event) {
   emit('update-leg-field', { index, field, value: event.target.value })
+}
+
+function updateFormTime(field, part, value) {
+  const nextTime = buildTimeValue(part, value, splitTimeParts(props.form?.[field]))
+  emit('update-form-field', { field, value: nextTime })
+}
+
+function updateLegTime(index, part, value) {
+  const nextTime = buildTimeValue(part, value, splitTimeParts(props.form?.legs?.[index]?.time))
+  emit('update-leg-field', { index, field: 'time', value: nextTime })
 }
 
 function airportKey(scope, field, index = '') {
@@ -114,11 +129,13 @@ function updateLegAirport(index, field, event) {
 
 function chooseFormAirport(field, airport) {
   emit('update-form-field', { field, value: airportCode(airport) })
+  emit('select-form-airport', { field, airport })
   activeAirportKey.value = ''
 }
 
 function chooseLegAirport(index, field, airport) {
   emit('update-leg-field', { index, field, value: airportCode(airport) })
+  emit('select-leg-airport', { index, field, airport })
   activeAirportKey.value = ''
 }
 
@@ -129,14 +146,65 @@ function revealDepartureTime() {
 function revealReturnTime() {
   showReturnTime.value = true
 }
+
+function splitTimeParts(value = '') {
+  const normalized = String(value || '').trim()
+
+  if (!normalized || !normalized.includes(':')) {
+    return {
+      hour: '',
+      minute: '00',
+      period: 'AM',
+    }
+  }
+
+  const [hourRaw = '00', minuteRaw = '00'] = normalized.split(':')
+  const hours24 = Number(hourRaw)
+  const minutes = Number(minuteRaw)
+
+  if (!Number.isFinite(hours24) || !Number.isFinite(minutes)) {
+    return {
+      hour: '',
+      minute: '00',
+      period: 'AM',
+    }
+  }
+
+  return {
+    hour: String(hours24 % 12 || 12).padStart(2, '0'),
+    minute: String(minutes).padStart(2, '0'),
+    period: hours24 >= 12 ? 'PM' : 'AM',
+  }
+}
+
+function buildTimeValue(part, value, currentParts) {
+  const nextParts = {
+    hour: currentParts?.hour || '',
+    minute: currentParts?.minute || '00',
+    period: currentParts?.period || 'AM',
+  }
+
+  nextParts[part] = value
+
+  if (!nextParts.hour) {
+    return ''
+  }
+
+  let hours24 = Number(nextParts.hour) % 12
+  if (nextParts.period === 'PM') {
+    hours24 += 12
+  }
+
+  return `${String(hours24).padStart(2, '0')}:${nextParts.minute}`
+}
 </script>
 
 <template>
   <section class="flight-search-hero">
     <div class="search-copy">
       <span class="eyebrow">Planificador de aviacion privada</span>
-      <h1>Tu tiempo merece otra altitud.</h1>
-      <p>Cotiza, compara y reserva aviacion privada en minutos.</p>
+      <h1>Busca. Reserva. Vuela.</h1>
+      <p>Entra, elige y reserva tu vuelo privado con control total desde el primer paso.</p>
 
       <form class="flight-form" @submit.prevent="$emit('submit')">
         <div class="segmented-control">
@@ -157,7 +225,7 @@ function revealReturnTime() {
 
         <template v-if="tripType === 'Ida'">
           <label class="airport-field">
-            De
+            Origen
             <input
               :value="form.origin"
               autocomplete="off"
@@ -177,7 +245,7 @@ function revealReturnTime() {
             </div>
           </label>
           <label class="airport-field">
-            A
+            Destino
             <input
               :value="form.destination"
               autocomplete="off"
@@ -205,14 +273,28 @@ function revealReturnTime() {
           >
             Agregar hora especifica
           </button>
-          <label v-else class="time-field">Hora<input :value="form.departureTime" type="time" @input="updateFormField('departureTime', $event)" /></label>
+          <label v-else class="time-field">
+            Hora
+            <div class="time-parts">
+              <select :value="splitTimeParts(form.departureTime).hour" @change="updateFormTime('departureTime', 'hour', $event.target.value)">
+                <option value="">Hora</option>
+                <option v-for="hour in hourOptions" :key="`departure-hour-${hour}`" :value="hour">{{ hour }}</option>
+              </select>
+              <select :value="splitTimeParts(form.departureTime).minute" @change="updateFormTime('departureTime', 'minute', $event.target.value)">
+                <option v-for="minute in minuteOptions" :key="`departure-minute-${minute}`" :value="minute">{{ minute }}</option>
+              </select>
+              <select :value="splitTimeParts(form.departureTime).period" @change="updateFormTime('departureTime', 'period', $event.target.value)">
+                <option v-for="period in periodOptions" :key="`departure-period-${period}`" :value="period">{{ period }}</option>
+              </select>
+            </div>
+          </label>
           <label>Pasajeros<input :value="form.passengers" min="1" type="number" @input="updateFormField('passengers', $event)" /></label>
           <button class="primary-action" type="submit">Cotizar vuelo</button>
         </template>
 
         <template v-else-if="tripType === 'Redondo'">
           <label class="airport-field">
-            De
+            Origen
             <input
               :value="form.origin"
               autocomplete="off"
@@ -232,7 +314,7 @@ function revealReturnTime() {
             </div>
           </label>
           <label class="airport-field">
-            A
+            Destino
             <input
               :value="form.destination"
               autocomplete="off"
@@ -260,7 +342,21 @@ function revealReturnTime() {
           >
             Agregar hora salida
           </button>
-          <label v-else class="time-field">Hora salida<input :value="form.departureTime" type="time" @input="updateFormField('departureTime', $event)" /></label>
+          <label v-else class="time-field">
+            Hora salida
+            <div class="time-parts">
+              <select :value="splitTimeParts(form.departureTime).hour" @change="updateFormTime('departureTime', 'hour', $event.target.value)">
+                <option value="">Hora</option>
+                <option v-for="hour in hourOptions" :key="`round-departure-hour-${hour}`" :value="hour">{{ hour }}</option>
+              </select>
+              <select :value="splitTimeParts(form.departureTime).minute" @change="updateFormTime('departureTime', 'minute', $event.target.value)">
+                <option v-for="minute in minuteOptions" :key="`round-departure-minute-${minute}`" :value="minute">{{ minute }}</option>
+              </select>
+              <select :value="splitTimeParts(form.departureTime).period" @change="updateFormTime('departureTime', 'period', $event.target.value)">
+                <option v-for="period in periodOptions" :key="`round-departure-period-${period}`" :value="period">{{ period }}</option>
+              </select>
+            </div>
+          </label>
           <label class="date-field">Fecha regreso<input :value="form.returnDate" type="date" @input="updateFormField('returnDate', $event)" /></label>
           <button
             v-if="!showReturnTime && !form.returnTime"
@@ -270,9 +366,23 @@ function revealReturnTime() {
           >
             Agregar hora regreso
           </button>
-          <label v-else class="time-field">Hora regreso<input :value="form.returnTime" type="time" @input="updateFormField('returnTime', $event)" /></label>
+          <label v-else class="time-field">
+            Hora regreso
+            <div class="time-parts">
+              <select :value="splitTimeParts(form.returnTime).hour" @change="updateFormTime('returnTime', 'hour', $event.target.value)">
+                <option value="">Hora</option>
+                <option v-for="hour in hourOptions" :key="`return-hour-${hour}`" :value="hour">{{ hour }}</option>
+              </select>
+              <select :value="splitTimeParts(form.returnTime).minute" @change="updateFormTime('returnTime', 'minute', $event.target.value)">
+                <option v-for="minute in minuteOptions" :key="`return-minute-${minute}`" :value="minute">{{ minute }}</option>
+              </select>
+              <select :value="splitTimeParts(form.returnTime).period" @change="updateFormTime('returnTime', 'period', $event.target.value)">
+                <option v-for="period in periodOptions" :key="`return-period-${period}`" :value="period">{{ period }}</option>
+              </select>
+            </div>
+          </label>
           <label>Pasajeros<input :value="form.passengers" min="1" type="number" @input="updateFormField('passengers', $event)" /></label>
-          <button class="primary-action" type="submit">Cotizar redondo</button>
+          <button class="primary-action" type="submit">Cotizar vuelo</button>
         </template>
 
         <template v-else>
@@ -304,10 +414,12 @@ function revealReturnTime() {
                   <input
                     :value="leg.origin"
                     autocomplete="off"
-                    @focus="activeAirportKey = airportKey('leg', 'origin', index)"
+                    :readonly="index > 0"
+                    :placeholder="index > 0 ? 'Se llena con el destino anterior' : ''"
+                    @focus="index === 0 ? (activeAirportKey = airportKey('leg', 'origin', index)) : null"
                     @input="updateLegAirport(index, 'origin', $event)"
                   />
-                  <div v-if="activeAirportKey === airportKey('leg', 'origin', index)" class="airport-options">
+                  <div v-if="index === 0 && activeAirportKey === airportKey('leg', 'origin', index)" class="airport-options">
                     <span v-if="airportLoading[airportKey('leg', 'origin', index)]">Buscando...</span>
                     <button
                       v-for="airport in airportSuggestions[airportKey('leg', 'origin', index)] || []"
@@ -340,7 +452,21 @@ function revealReturnTime() {
                   </div>
                 </label>
                 <label class="date-field">Fecha<input :value="leg.date" type="date" @input="updateLegField(index, 'date', $event)" /></label>
-                <label class="time-field">Hora<input :value="leg.time" type="time" @input="updateLegField(index, 'time', $event)" /></label>
+                <label class="time-field">
+                  Hora
+                  <div class="time-parts">
+                    <select :value="splitTimeParts(leg.time).hour" @change="updateLegTime(index, 'hour', $event.target.value)">
+                      <option value="">Hora</option>
+                      <option v-for="hour in hourOptions" :key="`leg-${index}-hour-${hour}`" :value="hour">{{ hour }}</option>
+                    </select>
+                    <select :value="splitTimeParts(leg.time).minute" @change="updateLegTime(index, 'minute', $event.target.value)">
+                      <option v-for="minute in minuteOptions" :key="`leg-${index}-minute-${minute}`" :value="minute">{{ minute }}</option>
+                    </select>
+                    <select :value="splitTimeParts(leg.time).period" @change="updateLegTime(index, 'period', $event.target.value)">
+                      <option v-for="period in periodOptions" :key="`leg-${index}-period-${period}`" :value="period">{{ period }}</option>
+                    </select>
+                  </div>
+                </label>
                 <button v-if="form.legs.length > 2" type="button" @click="$emit('remove-leg', index)">Quitar destino</button>
               </div>
             </article>
@@ -361,8 +487,44 @@ function revealReturnTime() {
               </select>
             </label>
           </section>
-          <button class="primary-action" type="submit">Cotizar itinerario</button>
+          <button class="primary-action" type="submit">Cotizar vuelo</button>
         </template>
+
+        <div class="flight-extras">
+          <label>
+            Mascotas
+            <select :value="form.pets" @change="updateFormField('pets', $event)">
+              <option value="">Sin especificar</option>
+              <option value="No">No</option>
+              <option value="Si">Si</option>
+            </select>
+          </label>
+
+          <label>
+            Equipaje especial
+            <input :value="form.specialBaggage" placeholder="Golf, ski, arte..." @input="updateFormField('specialBaggage', $event)" />
+          </label>
+
+          <label>
+            Catering
+            <input :value="form.catering" placeholder="Snacks, ejecutivo, personalizado" @input="updateFormField('catering', $event)" />
+          </label>
+
+          <label>
+            Flexibilidad horaria
+            <select :value="form.scheduleFlexibility" @change="updateFormField('scheduleFlexibility', $event)">
+              <option value="">Sin flexibilidad</option>
+              <option value="1 hora">+/- 1 hora</option>
+              <option value="3 horas">+/- 3 horas</option>
+              <option value="Dia completo">Dia completo</option>
+            </select>
+          </label>
+
+          <label class="wide">
+            Preferencias del vuelo
+            <textarea :value="form.preference" placeholder="Cabina, privacidad, catering, asistencia especial" @input="updateFormField('preference', $event)"></textarea>
+          </label>
+        </div>
       </form>
 
       <div v-if="trustSignals.length" class="trust-badges" aria-label="Confianza">
@@ -452,6 +614,31 @@ p {
   background: #fbfaf7;
   color: #111111;
   font: inherit;
+}
+
+.flight-form textarea {
+  width: 100%;
+  min-height: 7rem;
+  border: 1px solid #d8d2c4;
+  border-radius: 8px;
+  padding: 0.85rem;
+  background: #fbfaf7;
+  color: #111111;
+  font: inherit;
+  resize: vertical;
+}
+
+.flight-extras {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem 0.7rem;
+}
+
+.time-parts {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr) minmax(0, 0.9fr);
+  gap: 0.55rem;
 }
 
 .airport-field {
@@ -746,8 +933,13 @@ button {
     overflow: visible;
   }
 
+  .flight-extras {
+    grid-template-columns: 1fr;
+  }
+
   .flight-form input,
-  .flight-form select {
+  .flight-form select,
+  .flight-form textarea {
     min-height: 2.8rem;
   }
 

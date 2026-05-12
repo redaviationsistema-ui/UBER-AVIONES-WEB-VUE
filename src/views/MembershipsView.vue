@@ -1,74 +1,74 @@
 <template>
   <main class="memberships-page">
     <section class="hero">
-      <span class="eyebrow">Sky Group Memberships</span>
-      <h1>Nuestro enfoque para membresías y paquetes de vuelo</h1>
+      <span class="eyebrow">Sky Access</span>
+      <h1>Primero reserva. Después pertenece.</h1>
       <p>
-        Paga únicamente por el nivel de acceso, operación y beneficios que tu movilidad aérea
-        necesita.
+        Cualquier cliente puede cotizar y reservar vuelos privados. La membresia aparece como una
+        mejora opcional para ahorrar, obtener prioridad y sumar concierge cuando ya existe confianza.
       </p>
     </section>
 
     <section class="benefits-section">
-      <h2>Accede a funciones avanzadas sin costos operativos innecesarios</h2>
+      <h2>El modelo recomendado para escalar con menos friccion</h2>
 
       <div class="benefits-grid">
         <article class="benefit-card">
           <div class="icon">▣</div>
-          <h3>Paquetes personalizables</h3>
+          <h3>Reserva libre desde el inicio</h3>
           <p>
-            Configura límites, frecuencia, cobertura, rutas y acceso según tu perfil, empresa o
-            necesidad operativa.
+            El cliente entra a buscar, cotizar y reservar sin pagar por entrar. Eso reduce abandono
+            y acelera la primera conversion.
           </p>
         </article>
 
         <article class="benefit-card">
           <div class="icon">✦</div>
-          <h3>Control administrativo</h3>
+          <h3>Membresia que agrega valor</h3>
           <p>
-            Sky Group centraliza uso, historial, prioridad, reservas y experiencia premium desde
-            una sola plataforma.
+            Sky Access mejora tarifa, prioridad, empty legs y concierge, pero nunca bloquea el
+            primer vuelo del usuario.
           </p>
         </article>
 
         <article class="benefit-card">
           <div class="icon">◈</div>
-          <h3>Opciones flexibles</h3>
+          <h3>Proveedor como motor SaaS</h3>
           <p>
-            Desde acceso ocasional hasta membresías elite con prioridad ejecutiva, concierge y
-            cobertura internacional.
+            Mientras el cliente entra facil, el proveedor monetiza con suscripcion por aeronave y
+            Red Aviation captura margen por vuelo.
           </p>
         </article>
       </div>
     </section>
 
     <section class="plans-section">
-  <span class="section-kicker">Paquetes Sky Group</span>
-  <h2>Elige el nivel de movilidad aérea que necesitas</h2>
+  <span class="section-kicker">Modelo hibrido</span>
+  <h2>Tu sistema queda en tres niveles claros</h2>
 
   <div class="plans">
     <article class="plan-card">
       <div class="plan-top">
-        <span class="plan-badge">Inicio</span>
-        <h3>Access</h3>
-        <p>Para clientes que quieren comenzar a cotizar y reservar vuelos privados.</p>
+        <span class="plan-badge">Open Market</span>
+        <h3>Reserva libre</h3>
+        <p>Para clientes ocasionales que quieren cotizar y reservar sin suscripcion.</p>
       </div>
 
       <div class="plan-price">
-        <strong>Acceso básico</strong>
-        <span>Ideal para vuelos ocasionales</span>
+        <strong>Tarifa estandar</strong>
+        <span>Menos friccion, mas conversion</span>
       </div>
 
       <ul>
-        <li>Cotización de vuelos privados</li>
+        <li>Buscar, cotizar y reservar vuelos privados</li>
         <li>Acceso a aeronaves disponibles</li>
-        <li>Soporte estándar</li>
-        <li>Reservas nacionales</li>
-        <li>Historial de solicitudes</li>
+        <li>Pago por vuelo sin compromiso anual</li>
+        <li>Soporte estandar y seguimiento comercial</li>
+        <li>Historial de solicitudes dentro del portal</li>
       </ul>
 
-      <RouterLink to="/membresias/registro" class="plan-button">
-        Comenzar
+      <RouterLink to="/vuelos" class="plan-button">
+        Cotizar ahora
       </RouterLink>
     </article>
 
@@ -76,53 +76,53 @@
       <div class="popular-label">Recomendado</div>
 
       <div class="plan-top">
-        <span class="plan-badge">Ejecutivo</span>
-        <h3>Business</h3>
-        <p>Para usuarios frecuentes, empresas pequeñas y movilidad ejecutiva.</p>
+        <span class="plan-badge">Member</span>
+        <h3>Sky Access</h3>
+        <p>Para usuarios frecuentes que quieren ahorrar mas y volar con prioridad.</p>
       </div>
 
       <div class="plan-price">
-        <strong>Prioridad operativa</strong>
-        <span>Mejor experiencia y seguimiento</span>
+        <strong>Beneficios premium</strong>
+        <span>La mejor experiencia sin bloquear la entrada</span>
       </div>
 
       <ul>
-        <li>Todo lo de Access</li>
-        <li>Prioridad en disponibilidad</li>
-        <li>Rutas preferentes</li>
-        <li>Soporte premium</li>
-        <li>Gestión para varios pasajeros</li>
-        <li>Atención por concierge</li>
+        <li>Mejor tarifa por vuelo</li>
+        <li>Acceso a empty legs y oportunidades tacticas</li>
+        <li>Prioridad en disponibilidad y respuesta</li>
+        <li>Menor fee y experiencia premium</li>
+        <li>Concierge para cambios y requerimientos especiales</li>
+        <li>Upgrade natural despues del primer uso</li>
       </ul>
 
       <RouterLink to="/membresias/comenzar" class="plan-button">
-        Elegir Business
+        Ver beneficios
       </RouterLink>
     </article>
 
     <article class="plan-card">
       <div class="plan-top">
-        <span class="plan-badge">Elite</span>
-        <h3>Black</h3>
-        <p>Para clientes premium, empresas y operación aérea de alto nivel.</p>
+        <span class="plan-badge">Corporate</span>
+        <h3>Corporate Jet</h3>
+        <p>Para empresas con ejecutivos frecuentes, control financiero y aprobaciones internas.</p>
       </div>
 
       <div class="plan-price">
-        <strong>Experiencia completa</strong>
-        <span>Máximo control y flexibilidad</span>
+        <strong>Operacion centralizada</strong>
+        <span>Credito, dashboard y facturacion consolidada</span>
       </div>
 
       <ul>
-        <li>Todo lo de Business</li>
-        <li>Concierge dedicado</li>
-        <li>Cobertura internacional</li>
-        <li>Preferencias de aeronave</li>
-        <li>Gestión corporativa</li>
-        <li>Atención prioritaria 24/7</li>
+        <li>Credito y aprobaciones por empresa</li>
+        <li>Dashboard corporativo y facturacion centralizada</li>
+        <li>Gestion de usuarios y ejecutivos frecuentes</li>
+        <li>Prioridad operativa y acompañamiento dedicado</li>
+        <li>Politicas de viaje y trazabilidad</li>
+        <li>Base para futuras jet cards o elite tiers</li>
       </ul>
 
       <RouterLink to="/membresias/contacto" class="plan-button">
-        Contactar ventas
+        Hablar con ventas
       </RouterLink>
     </article>
   </div>
@@ -133,36 +133,37 @@
 
       <div class="faq-list">
         <details open>
-          <summary>¿Qué incluye una membresía Sky Group?</summary>
+          <summary>¿Necesito membresia para reservar?</summary>
           <p>
-            Acceso a paquetes según nivel, beneficios operativos, prioridad y cobertura configurada.
+            No. El modelo recomendado deja que cualquier cliente cotice y reserve primero. La
+            membresia solo mejora precio, prioridad y experiencia.
           </p>
         </details>
 
         <details>
-          <summary>¿Puedo cambiar de paquete?</summary>
-          <p>Sí. Puedes escalar o ajustar tu nivel según uso, frecuencia y necesidades.</p>
+          <summary>¿Cuando conviene activar Sky Access?</summary>
+          <p>Despues de uno o varios vuelos, cuando el ahorro por tarifa, la prioridad y el concierge ya te generen valor real.</p>
         </details>
 
         <details>
-          <summary>¿Las membresías incluyen vuelos?</summary>
+          <summary>¿Que monetiza primero al negocio?</summary>
           <p>
-            La membresía habilita beneficios, prioridad y estructura; los vuelos dependen del uso y
-            operación.
+            Principalmente proveedor + margen por vuelo. Eso deja al cliente entrar facil y permite
+            vender membresia despues, con mas confianza.
           </p>
         </details>
 
         <details>
-          <summary>¿Existe membresía corporativa?</summary>
-          <p>Sí. Empresas pueden centralizar movilidad aérea con paquetes ejecutivos.</p>
+          <summary>¿Existe una opcion corporativa?</summary>
+          <p>Si. Empresas pueden centralizar credito, usuarios, viajes y facturacion en un mismo flujo.</p>
         </details>
       </div>
     </section>
 
     <section class="cta-section">
-      <h2>Tu movilidad aérea puede escalar más rápido</h2>
-      <p>Comienza con el paquete que mejor se adapte a tu operación.</p>
-      <RouterLink to="/membresias/comenzar" class="cta-button"> Comienza ahora </RouterLink>
+      <h2>La mejor UX empieza con una reserva, no con una barrera.</h2>
+      <p>Cotiza ahora y deja la membresia para el momento en que realmente agregue valor.</p>
+      <RouterLink to="/vuelos" class="cta-button"> Reservar vuelo </RouterLink>
     </section>
   </main>
 </template>

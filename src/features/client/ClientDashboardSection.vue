@@ -147,7 +147,7 @@ const experienceSignals = computed(() => [
   },
   {
     label: 'Concierge',
-    value: props.access?.has_access ? 'Disponible' : 'Pendiente de activacion',
+    value: props.access?.has_access ? 'Disponible' : 'Disponible bajo solicitud',
   },
 ])
 
@@ -174,14 +174,14 @@ const accountCards = computed(() => [
   },
   {
     label: 'Privacidad / NDA',
-    value: props.access?.has_access ? 'Perfil protegido' : 'Requiere activacion',
+    value: props.access?.has_access ? 'Perfil protegido' : 'Configurable al reservar',
   },
 ])
 
 const operationsFlow = computed(() => [
   {
     step: '01',
-    title: 'Registro y acceso',
+    title: 'Registro y reserva libre',
     description: 'Perfil unico con datos de contacto, empresa, preferencias y capa de privacidad.',
     status: props.access?.has_access ? 'Activo' : 'Pendiente',
   },
@@ -207,7 +207,7 @@ const operationsFlow = computed(() => [
     step: '05',
     title: 'Concierge privado',
     description: 'Canal protegido para catering, hotel, blindaje, cambios y transporte terrestre.',
-    status: props.access?.has_access ? 'Disponible' : 'Bloqueado',
+    status: props.access?.has_access ? 'Disponible' : 'Opcional',
   },
   {
     step: '06',
@@ -595,9 +595,9 @@ onBeforeUnmount(() => {
 
         <template v-else>
           <div class="inactive-shell">
-            <p>Activa tu acceso para operar solicitudes, concierge, facturacion y seguimiento desde la misma cuenta.</p>
+            <p>Tu cuenta ya puede reservar. Si necesitas mas apoyo, activa beneficios premium o continua por concierge.</p>
             <button class="hero-action" type="button" @click="$emit('activate-access')">
-              Activar acceso
+              Ver beneficios premium
             </button>
           </div>
         </template>

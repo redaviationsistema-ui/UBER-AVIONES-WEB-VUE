@@ -4,7 +4,7 @@ defineEmits(['open'])
 
 <template>
   <button class="floating-concierge" type="button" @click="$emit('open')">
-    Asesor privado
+    Contactar asesor
   </button>
 </template>
 
@@ -40,12 +40,11 @@ defineEmits(['open'])
   }
 
   .floating-concierge::before {
-    content: 'A';
+    content: 'VIP';
     font-size: 1rem;
     line-height: 1;
   }
 }
 </style>
-
 
 

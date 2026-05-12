@@ -1,92 +1,129 @@
 const WORKFLOW_ORDER = [
-  'created',
-  'validating',
+  'draft',
   'quoted',
-  'contract',
-  'paid',
-  'confirmed',
-  'operating',
+  'package_selected',
+  'reserved',
+  'provider_pending',
+  'provider_accepted',
+  'contract_pending',
+  'contract_signed',
+  'payment_pending',
+  'payment_confirmed',
+  'flight_confirmed',
+  'tracking_live',
   'completed',
   'rejected',
   'cancelled',
 ]
 
 const WORKFLOW_DEFINITIONS = {
-  created: {
-    label: 'Pendiente',
-    apiStatus: 'pending',
-    apiWorkflow: 'pendiente',
-    matches: ['pending', 'pendiente', 'nueva', 'nuevo', 'new', 'created', 'registrada', 'solicitada'],
-  },
-  validating: {
-    label: 'En validacion',
-    apiStatus: 'in_validation',
-    apiWorkflow: 'en validacion',
-    matches: [
-      'en validacion',
-      'validacion',
-      'revision',
-      'en revision',
-      'review',
-      'processing',
-      'proceso',
-      'matching',
-      'matching en proceso',
-      'revision operativa',
-      'slot internacional',
-    ],
+  draft: {
+    label: 'Cotizacion',
+    apiStatus: 'draft',
+    apiWorkflow: 'borrador',
+    matches: ['draft', 'borrador', 'created', 'new', 'nueva', 'nuevo'],
   },
   quoted: {
-    label: 'Cotizada',
+    label: 'Cotizacion',
     apiStatus: 'quoted',
     apiWorkflow: 'cotizada',
-    matches: ['quoted', 'cotizada', 'cotizado', 'quote', 'propuesta', 'tarifa bajo validacion'],
+    matches: ['quoted', 'cotizada', 'cotizado', 'quote', 'propuesta'],
   },
-  contract: {
-    label: 'En contrato',
-    apiStatus: 'in_contract',
-    apiWorkflow: 'en contrato',
-    matches: ['contract', 'contrato', 'firma', 'nda', 'documentos', 'en firma'],
+  package_selected: {
+    label: 'Pendiente',
+    apiStatus: 'package_selected',
+    apiWorkflow: 'paquete elegido',
+    matches: ['package_selected', 'paquete elegido', 'paquete seleccionado', 'service tier'],
   },
-  paid: {
-    label: 'Pagada',
-    apiStatus: 'paid',
-    apiWorkflow: 'pagada',
-    matches: ['paid', 'pagada', 'pagado', 'pago', 'payment'],
+  reserved: {
+    label: 'Pendiente',
+    apiStatus: 'reserved',
+    apiWorkflow: 'reserva solicitada',
+    matches: ['reserved', 'reserva', 'reservada', 'reservado', 'solicitada', 'pending', 'pendiente'],
   },
-  confirmed: {
-    label: 'Confirmada',
-    apiStatus: 'confirmed',
-    apiWorkflow: 'confirmada',
-    matches: ['approved', 'aprobada', 'aprobado', 'matched', 'confirmada', 'confirmado'],
-  },
-  operating: {
-    label: 'En operacion',
-    apiStatus: 'operating',
-    apiWorkflow: 'en operacion',
+  provider_pending: {
+    label: 'Pendiente',
+    apiStatus: 'provider_pending',
+    apiWorkflow: 'proveedor por confirmar',
     matches: [
-      'operacion',
-      'operacion confirmada',
-      'en operacion',
-      'asignada',
-      'asignado',
-      'briefing',
-      'boarding',
-      'en vuelo',
+      'provider_pending',
+      'buscando operador',
+      'buscando aeronave',
+      'matching',
+      'matching en proceso',
+      'in_validation',
+      'en validacion',
+      'revision operativa',
+    ],
+  },
+  provider_accepted: {
+    label: 'Confirmado',
+    apiStatus: 'provider_accepted',
+    apiWorkflow: 'proveedor aceptado',
+    matches: [
+      'provider_accepted',
+      'operador asignado',
+      'operador confirmado',
+      'approved',
+      'aprobada',
+      'aprobado',
+      'matched',
+      'confirmada',
+      'confirmado',
+    ],
+  },
+  contract_pending: {
+    label: 'Pendiente',
+    apiStatus: 'contract_pending',
+    apiWorkflow: 'contrato pendiente',
+    matches: ['contract_pending', 'contrato pendiente', 'in_contract', 'en contrato', 'firma pendiente'],
+  },
+  contract_signed: {
+    label: 'Pendiente',
+    apiStatus: 'contract_signed',
+    apiWorkflow: 'contrato firmado',
+    matches: ['contract_signed', 'contrato firmado', 'firma completada', 'signed'],
+  },
+  payment_pending: {
+    label: 'Pendiente',
+    apiStatus: 'payment_pending',
+    apiWorkflow: 'pago pendiente',
+    matches: ['payment_pending', 'pago pendiente', 'checkout', 'payment'],
+  },
+  payment_confirmed: {
+    label: 'Confirmado',
+    apiStatus: 'payment_confirmed',
+    apiWorkflow: 'pago confirmado',
+    matches: ['payment_confirmed', 'paid', 'pagada', 'pagado', 'pago aprobado'],
+  },
+  flight_confirmed: {
+    label: 'Vuelo confirmado',
+    apiStatus: 'flight_confirmed',
+    apiWorkflow: 'vuelo confirmado',
+    matches: ['flight_confirmed', 'vuelo confirmado', 'operacion confirmada'],
+  },
+  tracking_live: {
+    label: 'En operacion',
+    apiStatus: 'tracking_live',
+    apiWorkflow: 'tracking en vivo',
+    matches: [
+      'tracking_live',
       'tracking',
+      'en operacion',
+      'en vuelo',
+      'boarding',
+      'briefing',
       'concierge asignado',
-      'catering confirmado',
-      'mascota autorizada',
     ],
   },
   completed: {
-    label: 'Finalizada',
+    label: 'Completado',
     apiStatus: 'completed',
     apiWorkflow: 'finalizada',
     matches: ['completed', 'completada', 'finalizada', 'finalizado', 'cerrada', 'post-vuelo'],
   },
   rejected: {
-    label: 'Rechazada',
+    label: 'Cancelado',
     apiStatus: 'rejected',
     apiWorkflow: 'rechazada',
     matches: ['rejected', 'rechazada', 'rechazado', 'declined', 'no viable'],
@@ -111,7 +148,7 @@ export function resolveWorkflowState(value) {
   const normalized = normalizeTerm(value)
 
   if (!normalized) {
-    return { id: 'created', ...WORKFLOW_DEFINITIONS.created }
+    return { id: 'draft', ...WORKFLOW_DEFINITIONS.draft }
   }
 
   const match = Object.entries(WORKFLOW_DEFINITIONS).find(([, definition]) =>
@@ -122,10 +159,7 @@ export function resolveWorkflowState(value) {
     return { id: match[0], ...match[1] }
   }
 
-  return {
-    id: 'created',
-    ...WORKFLOW_DEFINITIONS.created,
-  }
+  return { id: 'draft', ...WORKFLOW_DEFINITIONS.draft }
 }
 
 export function normalizeWorkflowLabel(value) {
@@ -153,28 +187,28 @@ export function hasReachedWorkflowStage(value, stageId) {
 export function buildClientWorkflowTimeline(value, hasRequests = false) {
   return [
     {
-      title: 'Solicitud registrada',
-      description: 'Tu salida entra al flujo protegido con ruta, pasajeros y prioridad operativa.',
-      meta: 'Inicio del proceso',
-      done: hasRequests,
+      title: 'Buscar y cotizar',
+      description: 'Red Aviation valida ruta, cobertura, capacidad y opciones para entregarte alternativas claras.',
+      meta: 'Reservar',
+      done: hasRequests && hasReachedWorkflowStage(value, 'quoted'),
     },
     {
-      title: 'Matching y validacion',
-      description: 'Se revisan disponibilidad, tipo de cabina, restricciones y cobertura sugerida.',
-      meta: 'Filtro premium',
-      done: hasRequests && hasReachedWorkflowStage(value, 'validating'),
+      title: 'Elegir y reservar',
+      description: 'Seleccionas la mejor opcion, completas pasajeros y dejas tu vuelo listo para confirmacion.',
+      meta: 'Conversion',
+      done: hasRequests && hasReachedWorkflowStage(value, 'reserved'),
     },
     {
-      title: 'Cierre comercial',
-      description: 'Contrato, NDA, pago y confirmacion comercial antes de liberar la operacion.',
-      meta: 'Control comercial',
-      done: hasRequests && hasReachedWorkflowStage(value, 'contract'),
+      title: 'Tu vuelo esta siendo confirmado',
+      description: 'Contrato, pago y coordinacion comercial viven en un solo flujo hasta cerrar la operacion.',
+      meta: 'Control',
+      done: hasRequests && hasReachedWorkflowStage(value, 'flight_confirmed'),
     },
     {
-      title: 'Operacion confirmada',
-      description: 'La reserva avanza a asignacion, concierge, tracking y ejecucion final.',
-      meta: 'Ultima milla',
-      done: hasRequests && hasReachedWorkflowStage(value, 'confirmed'),
+      title: 'Volar con seguimiento total',
+      description: 'Tienes estado, terminal, tripulacion y tracking dentro de Mis vuelos hasta el cierre.',
+      meta: 'Seguimiento',
+      done: hasRequests && hasReachedWorkflowStage(value, 'tracking_live'),
     },
   ]
 }

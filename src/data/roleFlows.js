@@ -8,16 +8,15 @@ export const roleBasePaths = {
 export const roleSections = {
   client: [
     { id: 'reservar', label: 'Reservar', icon: 'jet' },
-    { id: 'viajes', label: 'Viajes', icon: 'calendar' },
-    { id: 'membresia', label: 'Membresia', icon: 'account' },
+    { id: 'viajes', label: 'Mis vuelos', icon: 'calendar' },
     { id: 'perfil', label: 'Perfil', icon: 'account' },
+    { id: 'membresia', label: 'Membresia', icon: 'wallet' },
     { id: 'dashboard', label: 'Reservar', icon: 'overview' },
     { id: 'buscar-vuelo', label: 'Reservar', icon: 'jet' },
-    { id: 'resultados', label: 'Opciones', icon: 'chart' },
-    { id: 'comparar', label: 'Mejorar membresia', icon: 'grid' },
-    { id: 'aeronave', label: 'Detalle aeronave', icon: 'jet' },
-    { id: 'paquete-vuelo', label: 'Membresia de vuelo', icon: 'wallet' },
-    { id: 'reserva', label: 'Reserva', icon: 'reservations' },
+    { id: 'resultados', label: 'Resultados', icon: 'chart' },
+    { id: 'aeronave', label: 'Detalle de reserva', icon: 'jet' },
+    { id: 'paquete-vuelo', label: 'Tipo de servicio', icon: 'wallet' },
+    { id: 'reserva', label: 'Reservar ahora', icon: 'reservations' },
     { id: 'contrato', label: 'Contrato', icon: 'link' },
     { id: 'pago', label: 'Pago', icon: 'wallet' },
     { id: 'reserva-confirmada', label: 'Confirmacion', icon: 'clipboard' },
@@ -75,9 +74,9 @@ export const roleSections = {
 export const roleSectionGroups = {
   client: [
     { label: 'Reservar', ids: ['reservar', 'dashboard', 'buscar-vuelo', 'resultados', 'aeronave', 'paquete-vuelo', 'reserva'] },
-    { label: 'Viajes', ids: ['viajes', 'contrato', 'pago', 'reserva-confirmada', 'historial'] },
-    { label: 'Membresia', ids: ['membresia', 'comparar', 'soporte'] },
+    { label: 'Mis vuelos', ids: ['viajes', 'contrato', 'pago', 'reserva-confirmada', 'historial', 'soporte'] },
     { label: 'Perfil', ids: ['perfil'] },
+    { label: 'Membresia', ids: ['membresia'] },
   ],
   crew: [
     { label: 'Operacion', ids: ['dashboard', 'asignaciones', 'calendario', 'disponibilidad'] },
@@ -134,6 +133,8 @@ export function resolveSection(role, section) {
       dashboard: 'reservar',
       'buscar-vuelo': 'reservar',
       'mis-vuelos': 'viajes',
+      vip: 'membresia',
+      comparar: 'reservar',
     },
     crew: {
       agenda: 'calendario',

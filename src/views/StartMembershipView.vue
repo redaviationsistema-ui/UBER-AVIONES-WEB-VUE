@@ -1,10 +1,10 @@
 <template>
   <main class="start-page">
     <section class="hero">
-      <h1>Hay 2 maneras de comenzar con Sky Group</h1>
+      <h1>Hay 2 maneras de crecer con Sky Group</h1>
       <p>
-        Elige si quieres iniciar con un paquete autoservicio o recibir una experiencia personalizada
-        para tu empresa o movilidad aérea.
+        Puedes reservar desde ahora sin suscripcion, o activar una capa premium cuando tu volumen,
+        tus ahorros o tu operacion ya lo justifiquen.
       </p>
     </section>
 
@@ -12,28 +12,28 @@
       <article class="option-card">
         <div class="visual visual-one"></div>
 
-        <h2>Un método autoservicio para comenzar de inmediato</h2>
+        <h2>Reserva libre para comenzar de inmediato</h2>
 
         <ul>
-          <li>Ideal para clientes con vuelos ocasionales o rutas nacionales.</li>
-          <li>Acceso rápido a paquetes Essential, Business y Elite.</li>
-          <li>Cotización inicial, beneficios base y seguimiento desde plataforma.</li>
-          <li>Perfecto para comenzar sin proceso comercial largo.</li>
+          <li>Ideal para clientes ocasionales o primeras reservas.</li>
+          <li>Cotiza, elige aeronave y solicita tu vuelo sin membresia obligatoria.</li>
+          <li>Seguimiento comercial, historial y experiencia digital desde plataforma.</li>
+          <li>Perfecto para probar el producto antes de comprometerte.</li>
         </ul>
 
-        <RouterLink to="/Login" class="primary-btn"> Regístrate ahora </RouterLink>
+        <RouterLink to="/vuelos" class="primary-btn"> Cotizar vuelo </RouterLink>
       </article>
 
       <article class="option-card">
         <div class="visual visual-two"></div>
 
-        <h2>Una experiencia personalizada para empresas</h2>
+        <h2>Una experiencia premium para clientes frecuentes y empresas</h2>
 
         <ul>
-          <li>Para empresas con viajes frecuentes o necesidades ejecutivas.</li>
-          <li>Gestión de múltiples usuarios, rutas, preferencias y aprobaciones.</li>
-          <li>Control de paquetes, prioridad operativa y concierge dedicado.</li>
-          <li>Ideal para movilidad aérea corporativa y clientes premium.</li>
+          <li>Para cuentas que necesitan prioridad, credito o facturacion centralizada.</li>
+          <li>Gestion de multiples usuarios, rutas, preferencias y aprobaciones.</li>
+          <li>Mejor tarifa, menor fee, concierge y control operativo reforzado.</li>
+          <li>Ideal para movilidad aerea corporativa y clientes premium recurrentes.</li>
         </ul>
 
         <RouterLink to="/membresias/contacto" class="primary-btn">
@@ -45,16 +45,16 @@
     <section class="resources">
       <h2>¿Necesitas más tiempo para comenzar?</h2>
       <p>
-        Consulta estos recursos para entender cómo Sky Group puede ayudarte a organizar vuelos
-        privados, membresías y operación aérea.
+        Consulta estos recursos para entender como Sky Group combina reserva libre,
+        membresia opcional y operacion aerea premium.
       </p>
 
       <div class="resources-grid">
         <article>
           <span>▣</span>
-          <h3>Guía de membresías</h3>
-          <p>Conoce cómo funcionan los paquetes de vuelo y qué beneficios incluye cada nivel.</p>
-          <RouterLink to="/membresias">Ver paquetes</RouterLink>
+          <h3>Guia Sky Access</h3>
+          <p>Conoce cuando conviene subir de nivel y que beneficios se activan despues de reservar.</p>
+          <RouterLink to="/membresias">Ver beneficios</RouterLink>
         </article>
 
         <article>
