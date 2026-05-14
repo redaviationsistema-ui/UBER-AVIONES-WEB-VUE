@@ -9,6 +9,12 @@ import DestinationCards from './DestinationCards.vue'
 import FlightSearchHero from './FlightSearchHero.vue'
 import { featuredAirports } from '../../utils/airports'
 import {
+  buildCommercialSnapshot,
+  buildFlightPricingFormula,
+  normalizeAttentionLevel,
+  normalizePackageCode,
+} from '../../utils/flightPricing'
+import {
   createClientFlightRequest,
   getClientDestinations,
   getClientFlightPackages,
@@ -53,8 +59,6 @@ const searchForm = reactive({
   passengers: '',
   pets: '',
   specialBaggage: '',
-  catering: '',
-  scheduleFlexibility: '',
   preference: '',
   legs: [
     { origin: '', originAirport: null, destination: '', destinationAirport: null, date: '', time: '' },
@@ -76,10 +80,10 @@ const mobileNavItems = [
 ]
 const activePlan = computed(() => (auth.user?.company_name ? 'Business Club' : 'Sin membresia'))
 const defaultPriorityConfig = {
-  empty_leg: { multiplier: 0.8, headline: 'Ahorro inteligente', description: 'Ruta flexible con ahorro real' },
-  essential: { multiplier: 1, headline: 'Precio base incluido', description: 'Incluido como precio estandar' },
-  business: { multiplier: 1.1, headline: 'Prioridad alta', description: 'Atencion premium + flexibilidad' },
-  elite: { multiplier: 1.2, headline: 'Prioridad maxima', description: 'Concierge dedicado' },
+  empty_leg: { multiplier: 0.95, headline: 'Ahorro inteligente', description: 'Ruta flexible con ahorro real' },
+  essential: { multiplier: 1.1, headline: 'Margen standard', description: 'Precio comercial base del marketplace' },
+  business: { multiplier: 1.2, headline: 'Margen priority', description: 'Atencion premium + flexibilidad' },
+  elite: { multiplier: 1.35, headline: 'Margen VIP', description: 'Concierge dedicado' },
 }
 
 const timeline = computed(() => [])
@@ -135,11 +139,9 @@ const itineraryDays = computed(() => {
   const last = dates[dates.length - 1]
   return Math.max(Math.round((last - first) / 86400000), 0)
 })
-const priorityOptions = computed(() =>
-  flightPackages.value.filter((item) => ['essential', 'business', 'elite'].includes(item.code)),
-)
 const estimatedTotal = computed(() => {
-  return aircraftOptions.value[0]?.final_price || ''
+  const pricing = aircraftPricingForType(aircraftOptions.value[0] || {}, selectedPriorityType.value)
+  return pricing.formattedFinalPrice || aircraftOptions.value[0]?.final_price || ''
 })
 const estimatedTime = computed(() => {
   return aircraftOptions.value[0]?.time || ''
@@ -154,8 +156,6 @@ const itinerarySummary = computed(() => ({
   passengers: searchForm.passengers,
   pets: searchForm.pets,
   specialBaggage: searchForm.specialBaggage,
-  catering: searchForm.catering,
-  scheduleFlexibility: searchForm.scheduleFlexibility,
   preference: searchForm.preference,
   cabin: suggestedCabin.value,
   estimatedTime: estimatedTime.value,
@@ -194,7 +194,7 @@ const userFirstName = computed(() => {
   return String(rawName).trim().split(/\s+/)[0] || 'Kevin'
 })
 const selectedPriorityMeta = computed(
-  () => priorityOptions.value.find((item) => item.code === selectedPriorityType.value) || priorityOptions.value[0] || null,
+  () => flightPackages.value.find((item) => item.code === selectedPriorityType.value) || null,
 )
 const recommendedAircraftId = computed(() => String(aircraftOptions.value[0]?.id || ''))
 const resultFilterOptions = [
@@ -275,10 +275,7 @@ function formatCurrency(value) {
 }
 
 function normalizePriorityCode(value = '') {
-  return String(value || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[\s-]+/g, '_')
+  return normalizePackageCode(value)
 }
 
 function airportDisplayName(code = '') {
@@ -358,14 +355,14 @@ function itineraryDateLine(summary) {
 }
 
 function aircraftPriceCopy(aircraft) {
-  const essentialPricing = aircraftPricingForType(aircraft, 'essential')
-  if (essentialPricing.finalPrice) return essentialPricing.formattedFinalPrice
+  const activePricing = aircraftPricingForType(aircraft, selectedPriorityType.value)
+  if (activePricing.finalPrice) return activePricing.formattedFinalPrice
   return 'Cotización inmediata'
 }
 
 function aircraftPriceValue(aircraft) {
-  const essentialPricing = aircraftPricingForType(aircraft, 'essential')
-  return essentialPricing.finalPrice || Number.MAX_SAFE_INTEGER
+  const activePricing = aircraftPricingForType(aircraft, selectedPriorityType.value)
+  return activePricing.finalPrice || Number.MAX_SAFE_INTEGER
 }
 
 function aircraftTimeValue(aircraft) {
@@ -443,14 +440,17 @@ function aircraftAvailabilityLabel(aircraft = {}, index = 0) {
 
 function aircraftIncludes(aircraft = {}) {
   const amenities = Array.isArray(aircraft.amenities) ? aircraft.amenities.filter(Boolean) : []
-  const defaults = ['WiFi', 'Catering', 'Equipaje', 'Traslado terrestre']
-  return [...new Set([...amenities, ...defaults])].slice(0, 4)
+  const hiddenAmenities = new Set(['wifi', 'catering', 'equipaje', 'traslado terrestre'])
+
+  return [...new Set(amenities)]
+    .filter((item) => !hiddenAmenities.has(String(item).trim().toLowerCase()))
+    .slice(0, 4)
 }
 
 
 function resolvePriorityOption(priorityType = 'essential') {
   const normalizedType = normalizePriorityCode(priorityType) || 'essential'
-  const serverOption = priorityOptions.value.find((item) => item.code === normalizedType)
+  const serverOption = flightPackages.value.find((item) => item.code === normalizedType)
   if (serverOption) return serverOption
 
   const fallback = defaultPriorityConfig[normalizedType] || defaultPriorityConfig.essential
@@ -494,6 +494,53 @@ function resolveAircraftOperationalFees(aircraft = {}) {
 }
 
 function aircraftPricingForType(aircraft = {}, priorityType = 'essential') {
+  const priorityMeta = resolvePriorityOption(priorityType)
+  const formula = buildFlightPricingFormula(aircraft, {
+    packageCode: priorityType,
+    attentionLevel: 'normal',
+    overnightNights: activeItinerarySummary.value?.days || 0,
+  })
+
+  if (formula.hasFormulaInputs) {
+    return {
+      basePrice: formula.baseCost,
+      operationalFees: formula.repositioning + formula.operationalCosts + formula.extraServices.total,
+      priorityMultiplier: formula.commercialMargin,
+      priorityPrice: Math.max(formula.finalPrice - formula.subtotalBeforeMultipliers, 0),
+      finalPrice: formula.finalPrice,
+      priorityType: priorityMeta.code,
+      priorityName: priorityMeta.name,
+      headline: 'Formula comercial aplicada',
+      description: 'Incluye operacion, logistica y servicio ejecutivo.',
+      savings: 0,
+      routeBand: formula.routeBand?.code || '',
+      routeMultiplier: formula.routeBand?.multiplier || 1,
+      reserveHours: formula.reserveHours,
+      rawFlightHours: formula.rawFlightHours,
+      billableHours: formula.billableHours,
+      realFlightHours: formula.realFlightHours,
+      minimumHours: formula.minimumHours,
+      repositioning: formula.repositioning,
+      operationalCostBreakdown: formula.operationalCosts,
+      extraServicesTotal: formula.extraServices.total,
+      expenseFee: formula.expenseFee,
+      ivaRate: formula.ivaRate,
+      ivaAmount: formula.ivaAmount,
+      dynamicMarketFloor: formula.dynamicMarketFloor,
+      commercialMargin: formula.commercialMargin,
+      attentionFactor: formula.priorityFactor,
+      subtotalBeforeMultipliers: formula.subtotalBeforeMultipliers,
+      formattedBasePrice: formatCurrency(formula.baseCost),
+      formattedPriorityPrice: formatCurrency(Math.max(formula.finalPrice - formula.subtotalBeforeMultipliers, 0)),
+      formattedOperationalFees: formatCurrency(
+        formula.repositioning + formula.operationalCosts + formula.extraServices.total,
+      ),
+      formattedFinalPrice: formatCurrency(formula.finalPrice),
+      formattedSavings: formatCurrency(0),
+      formattedSubtotalBeforeMultipliers: formatCurrency(formula.subtotalBeforeMultipliers),
+    }
+  }
+
   const displayedPrice = moneyValue(aircraft.final_price)
   const operationalFees = resolveAircraftOperationalFees(aircraft)
   const currentType = normalizePriorityCode(aircraft.priority_type || 'essential')
@@ -510,7 +557,6 @@ function aircraftPricingForType(aircraft = {}, priorityType = 'essential') {
     }
   }
 
-  const priorityMeta = resolvePriorityOption(priorityType)
   const pricing = calculatePriorityPricing(basePrice, operationalFees, Number(priorityMeta.multiplier || 1))
   const essentialPricing = calculatePriorityPricing(basePrice, operationalFees, 1)
   const savings = Math.max(essentialPricing.finalPrice - pricing.finalPrice, 0)
@@ -592,7 +638,10 @@ function selectPriority(flightPackage) {
 }
 
 function ensureDefaultPriority(packages = []) {
-  if (!packages.length) return
+  if (!packages.length) {
+    if (!selectedPriorityType.value) selectedPriorityType.value = 'essential'
+    return
+  }
   const hasCurrent = packages.some((item) => item.code === selectedPriorityType.value)
   if (hasCurrent) return
 
@@ -735,7 +784,11 @@ function buildItinerarySummary(payload) {
     pets: payload.pets || '',
     specialBaggage: payload.special_baggage || '',
     catering: payload.catering || '',
-    scheduleFlexibility: payload.schedule_flexibility || '',
+    groundTransport: payload.ground_transport || payload.groundTransport || 'none',
+    wifi: payload.wifi || 'none',
+    overnight: (Number(payload.overnight_nights || payload.days || 0) || 0) > 0 ? 'yes' : 'no',
+    attentionLevel: normalizeAttentionLevel(payload.attention_level || payload.priority_level || ''),
+    scheduleFlexibility: payload.schedule_flexibility || 'flexible',
     preference: payload.preference,
     cabin: '',
     estimatedTime: '',
@@ -789,31 +842,41 @@ async function submitSearch() {
   if (!validateSearchForm()) return
 
   searching.value = true
-  const quotePayload = {
-    trip_type: tripTypeKey.value,
-    trip_label: tripType.value,
-    passengers: searchForm.passengers,
-    pets: searchForm.pets,
-    special_baggage: searchForm.specialBaggage,
-    catering: searchForm.catering,
-    schedule_flexibility: searchForm.scheduleFlexibility,
-    preference: searchForm.preference,
-    flight_package: selectedPriorityMeta.value?.name || '',
-    priority_type: selectedPriorityType.value,
-    legs: itineraryLegs.value.map((leg) => ({ ...leg })),
+  aircraftOptions.value = []
+  try {
+    const quotePayload = {
+      trip_type: tripTypeKey.value,
+      trip_label: tripType.value,
+      passengers: searchForm.passengers,
+      pets: searchForm.pets,
+      special_baggage: searchForm.specialBaggage,
+      preference: searchForm.preference,
+      flight_package: selectedPriorityMeta.value?.name || '',
+      priority_type: selectedPriorityType.value,
+      legs: itineraryLegs.value.map((leg) => ({ ...leg })),
+    }
+    submittedItinerary.value = buildItinerarySummary(quotePayload)
+    ui.pushToast({
+      tone: 'success',
+      title: 'Cotizando itinerario',
+      message: 'Validando aeropuertos, tramos y operadores activos.',
+    })
+    go('resultados')
+    aircraftOptions.value = await searchClientFlights(quotePayload)
+    if (!aircraftOptions.value.length) {
+      serverSearchError.value = 'No fue posible generar una cotizacion real para este itinerario con la informacion actual.'
+    }
+  } catch {
+    aircraftOptions.value = []
+    serverSearchError.value = 'No fue posible consultar el cotizador en este momento. Intenta de nuevo.'
+    ui.pushToast({
+      tone: 'error',
+      title: 'Cotizador no disponible',
+      message: 'No pudimos consultar opciones en tiempo real para esta ruta.',
+    })
+  } finally {
+    searching.value = false
   }
-  submittedItinerary.value = buildItinerarySummary(quotePayload)
-  ui.pushToast({
-    tone: 'success',
-    title: 'Cotizando itinerario',
-    message: 'Validando aeropuertos, tramos y operadores activos.',
-  })
-  aircraftOptions.value = await searchClientFlights(quotePayload)
-  if (!aircraftOptions.value.length) {
-    serverSearchError.value = 'No fue posible generar una cotizacion real para este itinerario con la informacion actual.'
-  }
-  searching.value = false
-  go('resultados')
 }
 
 async function requestReservation(aircraft = selectedAircraft.value) {
@@ -822,14 +885,22 @@ async function requestReservation(aircraft = selectedAircraft.value) {
   try {
     reserving.value = true
     const pricing = aircraftPricingForType(aircraft, selectedPriorityType.value)
+    const pricingContext = buildCommercialSnapshot(
+      {
+        packageCode: pricing.priorityType,
+        priorityType: pricing.priorityType,
+        attentionLevel: 'normal',
+        overnightNights: activeItinerarySummary.value.days || 0,
+      },
+      pricing,
+      aircraft,
+    )
     const reservation = await createClientFlightRequest({
       trip_type: tripTypeKey.value,
       trip_label: tripType.value,
       passengers: activeItinerarySummary.value.passengers,
       pets: activeItinerarySummary.value.pets,
       special_baggage: activeItinerarySummary.value.specialBaggage,
-      catering: activeItinerarySummary.value.catering,
-      schedule_flexibility: activeItinerarySummary.value.scheduleFlexibility,
       preference: aircraft.cabin || aircraft.aircraft,
       flight_package: selectedPriorityMeta.value?.name || '',
       service_tier: selectedPriorityMeta.value?.name || '',
@@ -844,6 +915,16 @@ async function requestReservation(aircraft = selectedAircraft.value) {
       operational_fee: Number(pricing.operationalFees.toFixed(2)),
       priority_price: Number(pricing.priorityPrice.toFixed(2)),
       final_price: Number(pricing.finalPrice.toFixed(2)),
+      pricing_context: pricingContext,
+      pricing_formula_version: pricingContext.pricing_formula_version,
+      commercial_margin: pricingContext.commercial_margin,
+      priority_factor: pricingContext.priority_factor,
+      billable_hours: pricingContext.billable_hours,
+      real_flight_hours: pricingContext.real_flight_hours,
+      minimum_hours: pricingContext.minimum_hours,
+      subtotal_before_multipliers: pricingContext.subtotal_before_multipliers,
+      extra_services_total: pricingContext.extra_services_total,
+      aircraft_snapshot: aircraft,
       source_database: aircraft.source_database || null,
       source_table: aircraft.source_table || null,
       legs: activeItinerarySummary.value.legs.map((leg) => ({ ...leg })),
@@ -988,6 +1069,7 @@ onMounted(loadServerData)
               <h3>{{ featuredAircraft.aircraft }}</h3>
               <p class="hero-price-label">Tarifa estimada total</p>
               <strong class="hero-price">{{ aircraftPriceCopy(featuredAircraft) }}</strong>
+              <p class="hero-service-copy">Incluye operacion, logistica y servicio ejecutivo.</p>
               <div class="hero-includes">
                 <span v-for="item in aircraftIncludes(featuredAircraft)" :key="item">{{ item }}</span>
               </div>
@@ -1056,7 +1138,7 @@ onMounted(loadServerData)
           <span class="eyebrow">Pago {{ routeId }}</span>
           <h2>Checkout seguro</h2>
           <p>Pago protegido con tarjeta, transferencia, wire o wallet corporativa.</p>
-          <strong v-if="selectedAircraft?.final_price">{{ selectedAircraft.final_price }}</strong>
+          <strong v-if="selectedAircraftPricing?.formattedFinalPrice">{{ selectedAircraftPricing.formattedFinalPrice }}</strong>
           <button type="button" @click="go('reserva-confirmada', routeId)">Pagar</button>
         </article>
 
@@ -1669,6 +1751,12 @@ button {
   color: #111111;
   font-size: clamp(2rem, 2.8vw, 2.6rem);
   line-height: 0.95;
+}
+
+.hero-service-copy {
+  margin: 0;
+  color: #5f5f5f;
+  font-size: 0.95rem;
 }
 
 .hero-includes {

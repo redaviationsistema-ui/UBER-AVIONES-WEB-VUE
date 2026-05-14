@@ -288,7 +288,6 @@ function buildTimeValue(part, value, currentParts) {
             </div>
           </label>
           <label>Pasajeros<input :value="form.passengers" min="1" type="number" @input="updateFormField('passengers', $event)" /></label>
-          <button class="primary-action" type="submit">Cotizar vuelo</button>
         </template>
 
         <template v-else-if="tripType === 'Redondo'">
@@ -381,7 +380,6 @@ function buildTimeValue(part, value, currentParts) {
             </div>
           </label>
           <label>Pasajeros<input :value="form.passengers" min="1" type="number" @input="updateFormField('passengers', $event)" /></label>
-          <button class="primary-action" type="submit">Cotizar vuelo</button>
         </template>
 
         <template v-else>
@@ -477,18 +475,10 @@ function buildTimeValue(part, value, currentParts) {
 
           <section class="preference-panel">
             <label>Pasajeros<input :value="form.passengers" min="1" type="number" @input="updateFormField('passengers', $event)" /></label>
-            <label>
-              Preferencia
-              <select :value="form.preference" @change="updateFormField('preference', $event)">
-                <option>Mejor precio</option>
-                <option>Menor tiempo</option>
-                <option>Mayor confort</option>
-              </select>
-            </label>
           </section>
-          <button class="primary-action" type="submit">Cotizar vuelo</button>
         </template>
 
+        <button class="primary-action" type="submit">Cotizar vuelo</button>
       </form>
     </div>
 

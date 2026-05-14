@@ -1,5 +1,6 @@
 import { api } from '../../lib/api'
 import { featuredAirports } from '../../utils/airports'
+import { buildCommercialSnapshot, normalizeAttentionLevel, normalizePackageCode } from '../../utils/flightPricing'
 
 const configuredQuotesPreviewPath = String(import.meta.env.VITE_CLIENT_QUOTES_PREVIEW_PATH || '').trim()
 const configuredTripsPath = String(import.meta.env.VITE_CLIENT_TRIPS_PATH || '').trim()
@@ -68,7 +69,7 @@ const FALLBACK_FLIGHT_PACKAGES = [
     code: 'essential',
     name: 'Essential',
     badge: 'Base',
-    multiplier: 1,
+    multiplier: 1.1,
     category: 'Servicio privado',
     benefits: ['Coordinacion esencial', 'Cabina validada', 'Cierre comercial agil'],
     action: 'Elegir Essential',
@@ -78,7 +79,7 @@ const FALLBACK_FLIGHT_PACKAGES = [
     code: 'business',
     name: 'Business',
     badge: 'Ejecutivo',
-    multiplier: 1.1,
+    multiplier: 1.2,
     category: 'Operacion premium',
     benefits: ['Concierge operativo', 'Flexibilidad prioritaria', 'Seguimiento reforzado'],
     action: 'Elegir Business',
@@ -88,7 +89,7 @@ const FALLBACK_FLIGHT_PACKAGES = [
     code: 'elite',
     name: 'Elite',
     badge: 'Signature',
-    multiplier: 1.2,
+    multiplier: 1.35,
     category: 'Experiencia total',
     benefits: ['Concierge dedicado', 'Prioridad maxima', 'Tracking y soporte integral'],
     action: 'Elegir Elite',
@@ -120,14 +121,7 @@ function asNumber(value, fallback = 0) {
 }
 
 function normalizePriorityType(value = '') {
-  const normalized = String(value || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[\s-]+/g, '_')
-
-  if (normalized === 'emptyleg') return 'empty_leg'
-  if (['empty_leg', 'essential', 'business', 'elite'].includes(normalized)) return normalized
-  return 'essential'
+  return normalizePackageCode(value)
 }
 
 function normalizeTripType(value = '', label = '') {
@@ -381,6 +375,24 @@ function normalizeMatches(payload, itinerary = {}) {
         match.fuel_consumption_gph ||
         aircraftRecord?.fuel_burn_gph ||
         '',
+      speed_kmh: match.speed_kmh || match.speedKmh || aircraftRecord?.speed_kmh || aircraftRecord?.speedKmh || '',
+      speed_knots:
+        match.speed_knots || match.speedKnots || aircraftRecord?.speed_knots || aircraftRecord?.speedKnots || '',
+      minimum_hours: match.minimum_hours || match.min_hours || aircraftRecord?.minimum_hours || aircraftRecord?.min_hours || '',
+      trip_support_fee:
+        match.trip_support_fee || match.trip_support || aircraftRecord?.trip_support_fee || aircraftRecord?.trip_support || '',
+      permits_fee: match.permits_fee || match.permits || aircraftRecord?.permits_fee || aircraftRecord?.permits || '',
+      handling_fee:
+        match.handling_fee || match.handling_fees || aircraftRecord?.handling_fee || aircraftRecord?.handling_fees || '',
+      catering_fee: match.catering_fee || aircraftRecord?.catering_fee || '',
+      ground_transport_fee:
+        match.ground_transport_fee || match.ground_transfer_fee || aircraftRecord?.ground_transport_fee || '',
+      wifi_fee: match.wifi_fee || aircraftRecord?.wifi_fee || '',
+      urgent_schedule_fee: match.urgent_schedule_fee || match.rush_fee || aircraftRecord?.urgent_schedule_fee || '',
+      commercial_margin:
+        match.commercial_margin || match.margin_factor || aircraftRecord?.commercial_margin || aircraftRecord?.margin_factor || '',
+      priority_factor: match.priority_factor || aircraftRecord?.priority_factor || '',
+      attention_level: normalizeAttentionLevel(match.attention_level || match.priority_level || ''),
       engine_reserve_rate:
         pricing.engineReserveRate || match.engine_reserve_rate || match.reserve_motor_rate || '',
       insurance_rate: pricing.insuranceRate || match.insurance_rate || '',
@@ -750,11 +762,23 @@ function normalizeAircraftFromDatabase(raw = {}, index = 0, sourcePath = '') {
     hourly_rate: raw.hourly_rate || raw.hourly_price || raw.price_per_hour || '',
     minimum_hours: raw.minimum_hours || raw.min_hours || '',
     operational_cost: raw.operational_cost || raw.cost || '',
+    speed_kmh: raw.speed_kmh || raw.speedKmh || '',
+    speed_knots: raw.speed_knots || raw.speedKnots || '',
     fuel_burn_gph: raw.fuel_burn_gph || raw.fuel_consumption_gph || '',
     engine_reserve_rate: raw.engine_reserve_rate || raw.reserve_motor_rate || '',
     insurance_rate: raw.insurance_rate || '',
     maintenance_rate: raw.maintenance_rate || '',
     crew_rate: raw.crew_rate || '',
+    trip_support_fee: raw.trip_support_fee || raw.trip_support || '',
+    permits_fee: raw.permits_fee || raw.permits || '',
+    handling_fee: raw.handling_fee || raw.handling_fees || '',
+    catering_fee: raw.catering_fee || '',
+    ground_transport_fee: raw.ground_transport_fee || raw.ground_transfer_fee || '',
+    wifi_fee: raw.wifi_fee || '',
+    urgent_schedule_fee: raw.urgent_schedule_fee || raw.rush_fee || '',
+    commercial_margin: raw.commercial_margin || raw.margin_factor || '',
+    priority_factor: raw.priority_factor || '',
+    attention_level: normalizeAttentionLevel(raw.attention_level || raw.priority_level || ''),
     repositioning_fee: raw.repositioning_fee || '',
     overnight_fee: raw.overnight_fee || '',
     provider: raw.provider || null,
@@ -836,7 +860,7 @@ function filterAircraftByItinerary(aircraft = [], itinerary = {}) {
     })
 
   const exactBaseAirportMatches = filteredAircraft.filter((item) => item.base_airport_match)
-  if (hasOrigin) {
+  if (hasOrigin && exactBaseAirportMatches.length) {
     return exactBaseAirportMatches
   }
 
@@ -944,17 +968,60 @@ function normalizeTrip(request = {}) {
 }
 
 function buildFlightRequestPayload(itinerary = {}) {
-  const firstLeg = Array.isArray(itinerary.legs) ? itinerary.legs[0] || {} : {}
+  const normalizedLegs = Array.isArray(itinerary.legs)
+    ? itinerary.legs
+        .map((leg) => {
+          const date = String(leg?.date || '').trim()
+          const time = String(leg?.time || '09:00').trim() || '09:00'
+
+          return {
+            origin: leg?.origin || '',
+            destination: leg?.destination || '',
+            date,
+            time,
+            departure_datetime: date ? `${date} ${time}` : '',
+            passengers: Number(leg?.passengers || itinerary.passengers) || 1,
+          }
+        })
+        .filter((leg) => leg.origin && leg.destination)
+    : []
+  const firstLeg = normalizedLegs[0] || {}
   const departureDate = firstLeg.date || ''
   const departureTime = firstLeg.time || '09:00'
   const tripType = normalizeTripType(itinerary.trip_type, itinerary.trip_label)
   const flightPackage = String(itinerary.flight_package || itinerary.service_tier || '').trim()
   const priorityType = normalizePriorityType(itinerary.priority_type || flightPackage)
+  const attentionLevel = normalizeAttentionLevel(itinerary.attention_level || itinerary.priority_level || '')
   const priorityMultiplier = asNumber(itinerary.priority_multiplier || 1, 1)
   const basePrice = asNumber(itinerary.base_price || 0, 0)
   const operationalFee = asNumber(itinerary.operational_fee || 0, 0)
   const priorityPrice = asNumber(itinerary.priority_price || 0, 0)
   const finalPrice = asNumber(itinerary.final_price || 0, 0)
+  const pricingContext =
+    itinerary.pricing_context && typeof itinerary.pricing_context === 'object'
+      ? itinerary.pricing_context
+      : buildCommercialSnapshot(
+          {
+            packageCode: priorityType,
+            priorityType,
+            attentionLevel,
+            overnightNights: itinerary.overnight_nights || itinerary.days || 0,
+          },
+          {
+            billableHours: itinerary.billable_hours,
+            realFlightHours: itinerary.real_flight_hours,
+            minimumHours: itinerary.minimum_hours,
+            basePrice,
+            repositioning: itinerary.repositioning_cost || itinerary.repositioning_fee,
+            operationalCostBreakdown: operationalFee,
+            extraServicesTotal: itinerary.extra_services_total,
+            subtotalBeforeMultipliers: itinerary.subtotal_before_multipliers,
+            commercialMargin: itinerary.commercial_margin || priorityMultiplier,
+            attentionFactor: itinerary.priority_factor,
+            finalPrice,
+          },
+          itinerary.aircraft_snapshot || itinerary,
+        )
 
   return {
     origin: firstLeg.origin || itinerary.origin || '',
@@ -972,25 +1039,37 @@ function buildFlightRequestPayload(itinerary = {}) {
     flight_package: flightPackage || priorityType || null,
     service_tier: flightPackage || priorityType || null,
     priority_type: priorityType,
+    attention_level: attentionLevel || null,
     priority_multiplier: priorityMultiplier,
     base_price: basePrice || null,
     operational_fee: operationalFee || null,
     priority_price: priorityPrice,
     final_price: finalPrice || null,
+    pricing_formula_version: pricingContext.pricing_formula_version,
+    pricing_context: pricingContext,
+    commercial_margin: pricingContext.commercial_margin || null,
+    priority_factor: pricingContext.priority_factor || null,
+    billable_hours: pricingContext.billable_hours || null,
+    real_flight_hours: pricingContext.real_flight_hours || null,
+    minimum_hours: pricingContext.minimum_hours || null,
+    extra_services_total: pricingContext.extra_services_total || null,
+    subtotal_before_multipliers: pricingContext.subtotal_before_multipliers || null,
     source_database: itinerary.source_database || null,
     source_table: itinerary.source_table || null,
-    requirements: Array.isArray(itinerary.legs) && itinerary.legs.length > 1 ? itinerary.legs.slice(1) : [],
+    requirements: normalizedLegs.length > 1 ? normalizedLegs.slice(1) : [],
     pets: itinerary.pets || null,
     special_baggage: itinerary.special_baggage || itinerary.specialBaggage || null,
-    catering: itinerary.catering || null,
-    schedule_flexibility: itinerary.schedule_flexibility || itinerary.scheduleFlexibility || null,
+    overnight_nights: pricingContext.extras?.overnight_nights || itinerary.overnight_nights || itinerary.days || null,
     notes: [
       itinerary.trip_label || tripType || '',
       flightPackage || priorityType,
+      attentionLevel,
+      pricingContext.pricing_formula_version || '',
       itinerary.pets === 'Si' ? 'Mascotas a bordo' : '',
       itinerary.special_baggage || itinerary.specialBaggage || '',
-      itinerary.catering || '',
-      itinerary.schedule_flexibility || itinerary.scheduleFlexibility || '',
+      `Noches ${pricingContext.extras?.overnight_nights || itinerary.overnight_nights || itinerary.days || 0}`,
+      `Subtotal ${pricingContext.subtotal_before_multipliers || 0}`,
+      `Total ${pricingContext.final_price || finalPrice || 0}`,
     ]
       .filter(Boolean)
       .join(' · '),
