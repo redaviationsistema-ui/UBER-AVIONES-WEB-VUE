@@ -1,8 +1,8 @@
 export const roles = [
-  { id: 'client', label: 'Cliente', area: 'Portal premium', tone: 'Privado' },
-  { id: 'operator', label: 'Operador', area: 'Panel de flota', tone: 'Blindado' },
+  { id: 'client', label: 'Cliente', area: 'Experiencia Red Aviation', tone: 'Privado' },
+  { id: 'operator', label: 'Proveedor', area: 'Panel de flota y disponibilidad', tone: 'Blindado' },
   { id: 'crew', label: 'Sobrecargo', area: 'Portal operativo', tone: 'Operacional' },
-  { id: 'admin', label: 'Admin', area: 'Control Sky Group', tone: 'Ejecutivo' },
+  { id: 'admin', label: 'Admin', area: 'Control Red Aviation', tone: 'Ejecutivo' },
 ]
 
 export const packages = [
@@ -220,4 +220,3 @@ export const adminKpis = [
   ['Usuarios activos', '1,284', '+14%'],
   ['Riesgo de fuga', '7 alertas', 'Auditoria activa'],
 ]
-

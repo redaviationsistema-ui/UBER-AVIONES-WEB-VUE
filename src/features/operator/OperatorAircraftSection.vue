@@ -40,7 +40,7 @@ function onImageSelected(field, event) {
         <span class="eyebrow">Aeronaves del proveedor</span>
         <h3>Datos tecnicos, imagenes S3 y documentos para revision</h3>
         <p class="muted">
-          {{ providerName }} puede crear la aeronave con trial inmediato, cargar fotos visibles al cliente y separar la capa documental para validacion admin.
+          {{ providerName }} puede publicar su aeronave, cargar material comercial visible al cliente y separar la capa documental para validacion de Red Aviation.
         </p>
       </div>
     </div>
@@ -107,7 +107,7 @@ function onImageSelected(field, event) {
             <input :value="aircraftForm.base_airport" type="text" @input="$emit('update-aircraft-field', { field: 'base_airport', value: $event.target.value })" />
           </label>
           <label>
-            <span>Tarifa por hora USD</span>
+            <span>Costo base por hora USD</span>
             <input :value="aircraftForm.hourly_rate" type="number" min="0" @input="$emit('update-aircraft-field', { field: 'hourly_rate', value: $event.target.value })" />
           </label>
         </div>
@@ -148,7 +148,7 @@ function onImageSelected(field, event) {
           <strong>Visible al cliente</strong>
           <p>Modelo, tipo de cabina, capacidad, fotos y amenidades.</p>
           <strong>No visible al cliente</strong>
-          <p>Proveedor, matricula, documentos, tarifa interna y contacto.</p>
+          <p>Proveedor, matricula, documentos, costo interno, contacto y reglas comerciales.</p>
         </div>
       </section>
     </div>

@@ -36,20 +36,20 @@ const isSessionReady = computed(() => auth.initialized && auth.isAuthenticated)
 
 const roleInsights = {
   client: {
-    title: 'Gestion premium del viaje',
-    description: 'Reserva, confirma y sigue cada movimiento de tu operacion desde un solo panel.',
+    title: 'Reserva integral con Red Aviation',
+    description: 'Busca, compara, reserva, firma y paga sin salir del ecosistema Red Aviation.',
   },
   operator: {
-    title: 'Coordinacion de flota y disponibilidad',
-    description: 'Visualiza tus operaciones activas, asignaciones y respuesta comercial en tiempo real.',
+    title: 'Publicacion y respuesta operativa',
+    description: 'Publica aeronaves, abre disponibilidad y acepta o rechaza solicitudes sin contacto directo con el cliente.',
   },
   crew: {
     title: 'Agenda, cabina y servicio',
     description: 'Todo lo necesario para operar con orden, visibilidad y seguimiento claro.',
   },
   admin: {
-    title: 'Control central de la plataforma',
-    description: 'Supervisa usuarios, indicadores, alertas y operacion general desde una vista ejecutiva.',
+    title: 'Control total de Red Aviation',
+    description: 'Administra inventario, precios, reservas, soporte, margenes y reglas de negocio desde una vista central.',
   },
 }
 

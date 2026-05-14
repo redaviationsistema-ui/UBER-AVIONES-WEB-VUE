@@ -17,6 +17,7 @@ const ui = useUiStore()
 
 const loading = ref(false)
 const portalLoadSequence = ref(0)
+let portalLoadScheduled = false
 const companyId = ref(null)
 const settings = reactive({
   emailNotifications: false,
@@ -200,9 +201,14 @@ const requestSearch = ref('')
 const requestStatusFilter = ref('all')
 const requestPriorityFilter = ref('all')
 const selectedRequestId = ref(null)
+const requestInternalCommentDraft = ref('')
+const aircraftDecisionMode = ref('best_match')
+const aircraftFilterBase = ref('all')
+const aircraftFilterType = ref('all')
+const aircraftFilterSort = ref('compatibility')
 const aircraftWizardSteps = [
   { id: 1, label: 'General', description: 'Modelo, fabricante, matricula y base operativa.' },
-  { id: 2, label: 'Operacion', description: 'Capacidad, cobertura y tarifas.' },
+  { id: 2, label: 'Operacion', description: 'Capacidad, cobertura y costos base.' },
   { id: 3, label: 'Galeria', description: 'Imagen principal, cabina, asientos y amenidades.' },
   { id: 4, label: 'Documentacion', description: 'Seguro, vigencias y expediente tecnico.' },
   { id: 5, label: 'Revision', description: 'Resumen final antes de publicar o revisar.' },
@@ -752,12 +758,12 @@ const dashboardChecklist = computed(() => [
   {
     id: 'costos',
     icon: '💳',
-    label: 'Costos y tarifas',
+    label: 'Costos base',
     status: aircraftPricingRows.value.some((row) => Number(row.hourlyPrice || 0) > 0)
       ? 'warning'
       : 'pending',
     detail: aircraftPricingRows.value.some((row) => Number(row.hourlyPrice || 0) > 0)
-      ? 'Tarifas capturadas'
+      ? 'Costos capturados'
       : 'Falta configurar costos',
     cta: 'Configurar',
     section: 'costos',
@@ -897,13 +903,10 @@ const requestKpis = computed(() => {
   const pending = requests.value.filter(
     (request) => getRequestStatusMeta(request.status).queue === 'new',
   ).length
-  const coordination = requests.value.filter(
-    (request) => getRequestStatusMeta(request.status).queue === 'coordination',
-  ).length
-  const confirmed = requests.value.filter(
-    (request) => getRequestStatusMeta(request.status).queue === 'confirmed',
-  ).length
-  const today = requests.value.filter((request) => isRequestSameOperationalDay(request.date)).length
+  const multiLeg = requests.value.filter((request) => buildRequestLegs(request).length > 1).length
+  const activeProviders = new Set(requests.value.map((request) => request.providerId).filter(Boolean)).size
+  const readyAircraft = aircraft.value.filter((item) => getAircraftLiveStatus(item).label === 'Disponible').length
+  const pendingMargin = requests.value.filter((request) => !Number(request.priorityPrice || 0)).length
 
   return [
     {
@@ -913,24 +916,34 @@ const requestKpis = computed(() => {
       detail: pending ? 'Requieren respuesta operativa.' : 'Sin backlog nuevo en la bandeja.',
     },
     {
-      label: 'Urgentes',
+      label: 'SLA critico',
       value: urgent,
       tone: urgent ? 'danger' : 'success',
       detail: urgent ? 'Salen en menos de 4 horas.' : 'Sin salidas criticas inmediatas.',
     },
     {
-      label: 'Hoy',
-      value: today,
-      tone: today ? 'info' : 'neutral',
-      detail: today ? 'Solicitudes con salida hoy.' : 'No hay salidas calendarizadas para hoy.',
+      label: 'Multi-tramo',
+      value: multiLeg,
+      tone: multiLeg ? 'info' : 'neutral',
+      detail: multiLeg ? 'Operaciones compuestas por revisar.' : 'Sin solicitudes compuestas visibles.',
     },
     {
-      label: 'Coordinacion',
-      value: coordination + confirmed,
-      tone: coordination || confirmed ? 'info' : 'success',
-      detail: coordination
-        ? 'Hay casos moviendose a coordinacion.'
-        : 'Sin coordinaciones abiertas.',
+      label: 'Proveedores activos',
+      value: activeProviders,
+      tone: activeProviders ? 'info' : 'neutral',
+      detail: activeProviders ? 'Recibiendo solicitudes en cola.' : 'Sin proveedores activos.',
+    },
+    {
+      label: 'Aeronaves listas',
+      value: readyAircraft,
+      tone: readyAircraft ? 'success' : 'warning',
+      detail: readyAircraft ? 'Disponibles para armar propuesta.' : 'No hay disponibilidad inmediata.',
+    },
+    {
+      label: 'Margen pendiente',
+      value: pendingMargin,
+      tone: pendingMargin ? 'warning' : 'success',
+      detail: pendingMargin ? 'Solicitudes aun sin margen visible.' : 'Margen operativo visible en cola.',
     },
   ]
 })
@@ -1008,6 +1021,13 @@ const selectedRequest = computed(() => {
     filteredRequests.value[0]
   )
 })
+watch(
+  selectedRequest,
+  (request) => {
+    requestInternalCommentDraft.value = request?.internalComment || request?.specialRequirements || ''
+  },
+  { immediate: true },
+)
 const selectedRequestTimeline = computed(() => {
   if (!selectedRequest.value) return []
 
@@ -1068,6 +1088,28 @@ const requestOperationalAlerts = computed(() => {
 
   return alerts.slice(0, 3)
 })
+const selectedRequestLegs = computed(() => buildRequestLegs(selectedRequest.value))
+const selectedRequestValidationChecks = computed(() => buildRequestValidationChecks(selectedRequest.value))
+const selectedRequestInternalBreakdown = computed(() => buildRequestInternalBreakdown(selectedRequest.value))
+const selectedRequestAircraftComparison = computed(() => buildRequestAircraftComparison(selectedRequest.value))
+const selectedRequestValidationSummary = computed(() => summarizeRequestValidation(selectedRequestValidationChecks.value))
+const requestAircraftBaseOptions = computed(() => [
+  'all',
+  ...new Set(aircraft.value.map((item) => String(item.base || '').trim()).filter(Boolean)),
+])
+const requestAircraftTypeOptions = computed(() => [
+  'all',
+  ...new Set(aircraft.value.map((item) => String(item.category || '').trim()).filter(Boolean)),
+])
+const selectedRequestAircraftRows = computed(() =>
+  buildRequestAircraftRows(selectedRequest.value, {
+    base: aircraftFilterBase.value,
+    type: aircraftFilterType.value,
+    sort: aircraftFilterSort.value,
+    mode: aircraftDecisionMode.value,
+  }),
+)
+const selectedRequestRouteAssignments = computed(() => buildRequestRouteAssignments(selectedRequest.value))
 
 function createEmptyCompany() {
   return {
@@ -1186,7 +1228,15 @@ function applyAircraftResponse(payload) {
 }
 
 function applyRequestsResponse(payload) {
-  const collection = pickCollection(payload, ['requests', 'flight_requests', 'matches', 'data'])
+  const collection = pickCollection(payload, [
+    'requests',
+    'flight_requests',
+    'reservations',
+    'solicitudes',
+    'items',
+    'matches',
+    'data',
+  ])
   requests.value = collection.map(normalizeRequest)
 }
 
@@ -1452,11 +1502,74 @@ function normalizeClientLabel(rawClient) {
   return String(rawClient)
 }
 
+function pickPreferredRequestMatch(matches = []) {
+  if (!Array.isArray(matches) || !matches.length) return null
+
+  const normalizedMatches = matches.filter((item) => item && typeof item === 'object')
+  if (!normalizedMatches.length) return null
+
+  const acceptedMatch = normalizedMatches.find((item) =>
+    ['accepted', 'aceptada', 'approved'].includes(String(item.status || '').toLowerCase()),
+  )
+  if (acceptedMatch) return acceptedMatch
+
+  const sentMatch = normalizedMatches.find((item) =>
+    ['sent_to_provider', 'pending', 'pendiente'].includes(String(item.status || '').toLowerCase()),
+  )
+  if (sentMatch) return sentMatch
+
+  return normalizedMatches[0]
+}
+
+function resolveRequestAircraftLabel(raw = {}) {
+  const directAircraft = raw.aircraft_model || raw.aircraft || raw.assigned_aircraft || ''
+  if (String(directAircraft || '').trim()) return directAircraft
+
+  const preferredMatch = pickPreferredRequestMatch(raw.matches)
+  const matchAircraft = preferredMatch?.aircraft
+  const aircraftLabel =
+    matchAircraft?.model ||
+    matchAircraft?.name ||
+    preferredMatch?.visibility_payload?.aircraft_model ||
+    raw.visibility_payload?.aircraft_model ||
+    ''
+
+  return String(aircraftLabel || '').trim() || 'Por definir'
+}
+
+function resolveRequestQuoteValue(raw = {}) {
+  const directQuote = raw.quote_total || raw.quote || raw.total_price
+  if (directQuote !== null && directQuote !== undefined && directQuote !== '') return directQuote
+
+  const preferredMatch = pickPreferredRequestMatch(raw.matches)
+  return (
+    preferredMatch?.estimated_price ||
+    preferredMatch?.price ||
+    preferredMatch?.total_price ||
+    'Pendiente'
+  )
+}
+
+function resolveRequestResponseLimit(raw = {}) {
+  const directResponseLimit = raw.response_deadline || raw.response_limit || raw.expires_at
+  if (directResponseLimit) return directResponseLimit
+
+  const preferredMatch = pickPreferredRequestMatch(raw.matches)
+  return preferredMatch?.response_deadline || 'Sin limite informado'
+}
+
 function normalizeRequest(raw = {}, index = 0) {
   const origin = raw.origin || raw.origin_airport || raw.departure_airport || 'N/D'
   const destination = raw.destination || raw.destination_airport || raw.arrival_airport || 'N/D'
   const departureDateTime =
     raw.departure_datetime || raw.departure_date || raw.flight_date || raw.date || ''
+  const requirements = Array.isArray(raw.requirements)
+    ? raw.requirements
+    : Array.isArray(raw.legs)
+      ? raw.legs
+      : []
+  const serviceTier =
+    raw.service_tier || raw.flight_package || raw.package_name || raw.package || raw.priority_type || ''
 
   return {
     id: raw.id || index + 1,
@@ -1473,14 +1586,25 @@ function normalizeRequest(raw = {}, index = 0) {
       raw.departure_time ||
       (departureDateTime.includes('T') ? departureDateTime.slice(11, 16) : ''),
     passengers: Number(raw.passengers || raw.passenger_count || 0),
-    aircraft: raw.aircraft_model || raw.aircraft || raw.assigned_aircraft || 'Por definir',
-    quote: raw.quote_total || raw.quote || raw.total_price || 'Pendiente',
-    responseLimit:
-      raw.response_deadline || raw.response_limit || raw.expires_at || 'Sin limite informado',
+    aircraft: resolveRequestAircraftLabel(raw),
+    quote: resolveRequestQuoteValue(raw),
+    responseLimit: resolveRequestResponseLimit(raw),
     status: normalizeRequestStatus(raw.status || raw.workflow_status || raw.state),
     internalComment: raw.internal_comment || raw.notes || raw.comment || '',
     requestCode: raw.request_code || raw.code || '',
     tripType: raw.trip_type || raw.flight_type || '',
+    flightPackage: raw.flight_package || raw.package_name || raw.package || '',
+    serviceTier,
+    priorityType: raw.priority_type || '',
+    basePrice: Number(raw.base_price || 0),
+    operationalFee: Number(raw.operational_fee || 0),
+    priorityPrice: Number(raw.priority_price || 0),
+    finalPrice: Number(raw.final_price || 0),
+    overnightRequired: Boolean(raw.overnight_required || raw.requires_overnight),
+    waitingAtDestination: Boolean(raw.wait_at_destination || raw.destination_wait),
+    airportChange: Boolean(raw.airport_change_required || raw.change_airport),
+    specialRequest: Boolean(raw.special_request || raw.is_special_request),
+    requirements,
     rawStatus: raw.status || '',
     rawWorkflowStatus: raw.workflow_status || raw.state || '',
     specialRequirements:
@@ -2814,6 +2938,395 @@ function getRequestMatchHints(request = {}) {
   return hints.slice(0, 3)
 }
 
+function getRequestServiceTierLabel(request = {}) {
+  const raw = String(request.serviceTier || request.flightPackage || request.priorityType || '').trim()
+  if (!raw) return 'Essential'
+
+  const normalized = raw.toLowerCase().replace(/[\s-]+/g, '_')
+  if (normalized === 'business') return 'Business'
+  if (normalized === 'elite') return 'Elite'
+  if (normalized === 'empty_leg') return 'Empty Leg'
+  if (normalized === 'essential') return 'Essential'
+  return raw
+}
+
+function getRequestServiceTierTone(request = {}) {
+  const normalized = String(request.priorityType || request.serviceTier || request.flightPackage || '')
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_')
+
+  if (normalized === 'elite') return 'danger'
+  if (normalized === 'business') return 'warning'
+  return 'neutral'
+}
+
+function getRequestTripTypeLabel(request = {}) {
+  const normalized = String(request.tripType || '').toLowerCase().trim()
+  if (normalized === 'round_trip') return 'Round trip'
+  if (normalized === 'multi_leg' || normalized === 'multi_city') return 'Multi-destino'
+  if (normalized === 'one_way') return 'One way'
+  return request.tripType || 'One way'
+}
+
+function buildRequestLegs(request = {}) {
+  if (!request?.id) return []
+
+  const rawLegs = Array.isArray(request.requirements) ? request.requirements : []
+  const primaryLeg = {
+    id: `${request.id}-0`,
+    index: 1,
+    origin: request.origin,
+    destination: request.destination,
+    date: request.date,
+    passengers: request.passengers || 0,
+    status: getRequestSuggestedAircraft(request).available ? 'Disponible' : 'Revisar',
+    action: getRequestSuggestedAircraft(request).available ? 'Aceptar' : 'Proponer ajuste',
+    aircraft: getRequestSuggestedAircraft(request).label,
+    comments: request.internalComment || '',
+    operationalCost: request.finalPrice || request.quote || 0,
+  }
+
+  const extraLegs = rawLegs.map((leg, index) => {
+    const legDate = leg.departure_datetime || leg.date || leg.departure_date || request.date
+    const legPassengers = Number(leg.passengers || leg.passenger_count || request.passengers || 0)
+    const needsReview = !leg.origin || !leg.destination || !legDate
+
+    return {
+      id: `${request.id}-${index + 1}`,
+      index: index + 2,
+      origin: leg.origin || leg.base_airport || 'N/D',
+      destination: leg.destination || leg.arrival_airport || 'N/D',
+      date: legDate,
+      passengers: legPassengers,
+      status: needsReview ? 'Pendiente' : index % 2 === 0 ? 'Disponible' : 'Revisar',
+      action: needsReview ? 'Rechazar tramo' : index % 2 === 0 ? 'Aceptar' : 'Proponer ajuste',
+      aircraft: leg.aircraft || leg.assigned_aircraft || primaryLeg.aircraft,
+      comments: leg.comment || leg.notes || '',
+      operationalCost: Number(leg.operational_fee || leg.cost || 0),
+    }
+  })
+
+  return [primaryLeg, ...extraLegs]
+}
+
+function getLegStatusTone(status = '') {
+  if (status === 'Disponible') return 'success'
+  if (status === 'Revisar') return 'warning'
+  if (status === 'Pendiente') return 'neutral'
+  return 'info'
+}
+
+function buildRequestValidationChecks(request = {}) {
+  if (!request?.id) return []
+
+  const suggestedAircraft = getRequestSuggestedAircraft(request)
+  const passengerCapacity = Number(request.passengers || 0)
+  const routeReviewRequired = buildRequestLegs(request).length > 1 || request.airportChange || request.waitingAtDestination
+
+  return [
+    {
+      label: 'Cobertura de ruta',
+      state: routeReviewRequired ? 'review' : 'ok',
+      text: routeReviewRequired ? 'Requiere revisar tramos y cobertura completa.' : 'Ruta cubierta por la operacion actual.',
+    },
+    {
+      label: 'Disponibilidad de aeronave',
+      state: suggestedAircraft.available ? 'ok' : 'blocked',
+      text: suggestedAircraft.available ? 'Hay aeronave compatible disponible.' : 'No hay disponibilidad inmediata confirmada.',
+    },
+    {
+      label: 'Capacidad suficiente',
+      state: passengerCapacity > 0 && passengerCapacity <= 12 ? 'ok' : 'review',
+      text: passengerCapacity > 0 ? `${passengerCapacity} pax contemplados para esta operacion.` : 'Pasajeros por validar.',
+    },
+    {
+      label: 'Permisos requeridos',
+      state: buildRequestLegs(request).length > 1 ? 'review' : 'ok',
+      text: buildRequestLegs(request).length > 1 ? 'Validar permisos por operacion compuesta.' : 'Sin permisos extra visibles.',
+    },
+    {
+      label: 'Overnight requerido',
+      state: request.overnightRequired ? 'review' : 'ok',
+      text: request.overnightRequired ? 'Operacion con overnight potencial.' : 'No se detecta overnight obligatorio.',
+    },
+    {
+      label: 'FBO / handling',
+      state: buildRequestLegs(request).length > 2 ? 'review' : 'ok',
+      text: buildRequestLegs(request).length > 2 ? 'Coordinar handling en multiples escalas.' : 'Handling estandar estimado.',
+    },
+    {
+      label: 'Tripulacion disponible',
+      state: crew.value.length ? 'ok' : 'review',
+      text: crew.value.length ? 'Hay tripulacion cargada en portal.' : 'Revisar disponibilidad real de tripulacion.',
+    },
+    {
+      label: 'Slots / horarios restringidos',
+      state: getRequestPriorityMeta(request).key === 'urgent' ? 'review' : 'ok',
+      text: getRequestPriorityMeta(request).key === 'urgent' ? 'Salida cercana; revisar slots y tiempo de respuesta.' : 'Sin restriccion visible.',
+    },
+    {
+      label: 'Reposicionamiento necesario',
+      state: suggestedAircraft.available ? 'ok' : 'review',
+      text: suggestedAircraft.available ? 'No se detecta reposicionamiento critico.' : 'Puede requerir reposicionamiento.',
+    },
+  ]
+}
+
+function buildRequestInternalBreakdown(request = {}) {
+  if (!request?.id) return []
+
+  const quoteValue =
+    Number.isFinite(Number(request.quote)) ? Number(request.quote) : Number(request.finalPrice || 0)
+  const finalValue = Number(request.finalPrice || quoteValue || 0)
+  const baseValue = Number(request.basePrice || Math.max(finalValue - Number(request.operationalFee || 0), 0))
+  const operationalFee = Number(request.operationalFee || 0)
+  const repositioning = operationalFee ? operationalFee * 0.22 : 0
+  const overnight = request.overnightRequired ? Math.max(650, operationalFee * 0.16) : 0
+  const landingFees = operationalFee ? operationalFee * 0.18 : 0
+  const handling = operationalFee ? operationalFee * 0.14 : 0
+  const permits = buildRequestLegs(request).length > 1 ? Math.max(320, operationalFee * 0.1) : 0
+  const extraFuel = operationalFee ? operationalFee * 0.2 : 0
+  const redMargin = Number(request.priorityPrice || 0)
+  const estimatedHours = Math.max(buildRequestLegs(request).length * 1.7, 1.5)
+  const hourlyRate = estimatedHours ? baseValue / estimatedHours : 0
+
+  return [
+    { label: 'Horas de vuelo estimadas', value: `${estimatedHours.toFixed(1)} h` },
+    { label: 'Costo por hora', value: hourlyRate ? formatCurrency(hourlyRate) : 'Por definir' },
+    { label: 'Horas minimas', value: buildRequestLegs(request).length > 1 ? '2.0 h' : '1.5 h' },
+    { label: 'Reposicionamiento', value: repositioning ? formatCurrency(repositioning) : 'No visible' },
+    { label: 'Overnight', value: overnight ? formatCurrency(overnight) : 'No requerido' },
+    { label: 'Landing fees', value: landingFees ? formatCurrency(landingFees) : 'Pendiente' },
+    { label: 'FBO / handling', value: handling ? formatCurrency(handling) : 'Pendiente' },
+    { label: 'Permisos', value: permits ? formatCurrency(permits) : 'Estandar' },
+    { label: 'Combustible extra', value: extraFuel ? formatCurrency(extraFuel) : 'No visible' },
+    { label: 'Margen Red Aviation', value: redMargin ? formatCurrency(redMargin) : 'Pendiente' },
+    { label: 'Total estimado interno', value: finalValue ? formatCurrency(finalValue) : 'Cotizacion en proceso' },
+  ]
+}
+
+function buildRequestAircraftComparison(request = {}) {
+  const suggestedAircraft = getRequestSuggestedAircraft(request)
+  const alternatives = aircraft.value
+    .filter((item) => item.name && item.name !== suggestedAircraft.label)
+    .slice(0, 2)
+
+  return {
+    label: suggestedAircraft.label,
+    detail: suggestedAircraft.detail,
+    capacity: Number(request.passengers || 0) ? `${request.passengers} pax objetivo` : 'Capacidad por validar',
+    base: request.origin || 'Base por confirmar',
+    available: suggestedAircraft.available ? 'Si' : 'Revisar',
+    compatibility: suggestedAircraft.available ? '92%' : '74%',
+    risk: suggestedAircraft.available ? 'Bajo' : 'Medio',
+    alternatives: alternatives.map((item) => item.name || item.registration || 'Alternativa operativa'),
+  }
+}
+
+function getRequestPriorityDriver(request = {}) {
+  const tier = String(request.priorityType || request.serviceTier || request.flightPackage || '')
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_')
+
+  if (tier === 'elite') return 'premium'
+  if (tier === 'business') return 'fast'
+  return 'cost'
+}
+
+function computeAircraftCompatibilityScore(request = {}, plane = {}) {
+  let score = 70
+  const requestPax = Number(request.passengers || 0)
+  const capacity = Number(plane.capacity || 0)
+  const base = String(plane.base || '').trim().toUpperCase()
+  const origin = String(request.origin || '').trim().toUpperCase()
+  const liveStatus = getAircraftLiveStatus(plane).label
+
+  if (capacity && requestPax && capacity >= requestPax) score += 12
+  if (capacity && requestPax && capacity === requestPax) score += 4
+  if (base && origin && base === origin) score += 8
+  if (liveStatus === 'Disponible') score += 10
+  if (plane.documentsValid) score += 4
+  if (Number(plane.minimumHours || 0) <= 2) score += 2
+
+  return Math.max(45, Math.min(98, score))
+}
+
+function estimateAircraftOperationalQuote(request = {}, plane = {}) {
+  const legs = buildRequestLegs(request).length || 1
+  const baseHours = Math.max(1.5, legs * 1.6)
+  const hourly = Number(plane.hourlyPrice || 0)
+  const minimumHours = Math.max(Number(plane.minimumHours || 0), baseHours)
+  const core = hourly ? hourly * minimumHours : Number(plane.operationalCost || 0)
+  const extras =
+    Number(plane.repositioningFee || plane.repositioningCost || 0) +
+    Number(plane.overnightFee || plane.overnightCost || 0) +
+    Number(plane.fboCost || 0) +
+    Number(plane.permitsCost || 0)
+  return core + extras
+}
+
+function formatInternalCostBand(value = 0) {
+  if (!value) return '$$$'
+  if (value < 12000) return '$$$'
+  if (value < 22000) return '$$$$'
+  return '$$$$$'
+}
+
+function getOperationalRiskLabel(request = {}, plane = {}) {
+  const score = computeAircraftCompatibilityScore(request, plane)
+  if (score >= 92) return 'Bajo'
+  if (score >= 84) return 'Medio'
+  return 'Alto'
+}
+
+function getAvailabilitySymbol(plane = {}) {
+  const label = getAircraftLiveStatus(plane).label
+  if (label === 'Disponible') return 'Si'
+  if (label === 'Pendiente de confirmacion') return 'Revisar'
+  return 'No'
+}
+
+function buildRequestAircraftRows(request = {}, filters = {}) {
+  if (!request?.id) return []
+
+  const priorityDriver = filters.mode || getRequestPriorityDriver(request)
+  const rows = aircraft.value
+    .filter((plane) => Number(plane.capacity || 0) >= Number(request.passengers || 0))
+    .filter((plane) => filters.base === 'all' || String(plane.base || '') === String(filters.base || ''))
+    .filter((plane) => filters.type === 'all' || String(plane.category || '') === String(filters.type || ''))
+    .map((plane) => {
+      const compatibility = computeAircraftCompatibilityScore(request, plane)
+      const estimatedCost = estimateAircraftOperationalQuote(request, plane)
+      const marginProxy = Math.max(Math.round(estimatedCost * 0.12), 0)
+      const risk = getOperationalRiskLabel(request, plane)
+      const availability = getAvailabilitySymbol(plane)
+      const repositioning = String(plane.base || '').trim().toUpperCase() === String(request.origin || '').trim().toUpperCase() ? 0 : 1
+
+      return {
+        id: plane.id,
+        label: plane.name,
+        type: plane.category || 'Jet privado',
+        base: plane.base || 'Base',
+        pax: plane.capacity || 0,
+        compatibility,
+        estimatedCost,
+        costBand: formatInternalCostBand(estimatedCost),
+        risk,
+        availability,
+        marginProxy,
+        repositioning,
+        slaRank: availability === 'Si' ? 1 : availability === 'Revisar' ? 2 : 3,
+        action: availability === 'Si' ? 'Seleccionar' : availability === 'Revisar' ? 'Revisar' : 'No compatible',
+      }
+    })
+
+  const sort = filters.sort || 'compatibility'
+  rows.sort((left, right) => {
+    if (priorityDriver === 'fast') {
+      if (left.slaRank !== right.slaRank) return left.slaRank - right.slaRank
+      return right.compatibility - left.compatibility
+    }
+    if (priorityDriver === 'premium') {
+      if (right.compatibility !== left.compatibility) return right.compatibility - left.compatibility
+      return left.risk.localeCompare(right.risk)
+    }
+    if (priorityDriver === 'cost') {
+      if (left.estimatedCost !== right.estimatedCost) return left.estimatedCost - right.estimatedCost
+      return right.compatibility - left.compatibility
+    }
+
+    if (sort === 'cost') return left.estimatedCost - right.estimatedCost
+    if (sort === 'base') return left.repositioning - right.repositioning
+    if (sort === 'margin') return right.marginProxy - left.marginProxy
+    if (sort === 'sla') return left.slaRank - right.slaRank
+    return right.compatibility - left.compatibility
+  })
+
+  return rows
+}
+
+function summarizeRequestValidation(checks = []) {
+  const blocked = checks.filter((item) => item.state === 'blocked').length
+  const review = checks.filter((item) => item.state === 'review').length
+  if (blocked) {
+    return {
+      tone: 'danger',
+      label: 'No compatible',
+      icon: 'rojo',
+      detail: `${blocked} bloqueo(s) operativo(s) detectado(s).`,
+    }
+  }
+  if (review) {
+    return {
+      tone: 'warning',
+      label: 'Revision requerida',
+      icon: 'amarillo',
+      detail: `${review} validacion(es) necesitan confirmacion.`,
+    }
+  }
+  return {
+    tone: 'success',
+    label: 'Operacion viable',
+    icon: 'verde',
+    detail: 'Validaciones principales en verde.',
+  }
+}
+
+function buildRequestRouteAssignments(request = {}) {
+  const aircraftRows = buildRequestAircraftRows(request, {
+    base: 'all',
+    type: 'all',
+    sort: 'compatibility',
+    mode: aircraftDecisionMode.value,
+  })
+  return buildRequestLegs(request).map((leg, index) => ({
+    id: leg.id,
+    route: `${leg.origin} → ${leg.destination}`,
+    best: aircraftRows[index]?.label || aircraftRows[0]?.label || 'Por definir',
+    alternative: aircraftRows[index + 1]?.label || aircraftRows[1]?.label || 'Sin alternativa',
+    state: aircraftRows[index]?.availability === 'Si' ? 'ok' : 'review',
+  }))
+}
+
+function buildProposalSummary(request = {}) {
+  const rows = buildRequestAircraftRows(request, {
+    base: aircraftFilterBase.value,
+    type: aircraftFilterType.value,
+    sort: aircraftFilterSort.value,
+    mode: aircraftDecisionMode.value,
+  })
+  const selected = rows.slice(0, Math.max(buildRequestLegs(request).length, 1))
+  const total = selected.reduce((sum, item) => sum + Number(item.estimatedCost || 0), 0)
+  const margin = selected.reduce((sum, item) => sum + Number(item.marginProxy || 0), 0)
+  const adjustments = selected.filter((item) => item.availability !== 'Si').length
+  return { total, margin, adjustments }
+}
+
+function explainPartialAcceptance(request = {}) {
+  ui.pushToast({
+    tone: 'info',
+    title: 'Respuesta parcial lista',
+    message: `La solicitud #${request.id} ya se puede trabajar por tramo desde el itinerario operativo.`,
+  })
+}
+
+function explainAdjustmentFlow(request = {}) {
+  ui.pushToast({
+    tone: 'warning',
+    title: 'Propuesta de ajuste',
+    message: `Usa comentario interno y estados por tramo para proponer cambios a Red Aviation en la solicitud #${request.id}.`,
+  })
+}
+
+function buildOperationalProposal(request = {}) {
+  const summary = buildProposalSummary(request)
+  ui.pushToast({
+    tone: summary.adjustments ? 'warning' : 'success',
+    title: 'Propuesta operativa armada',
+    message: `Total estimado ${formatCurrency(summary.total)} · Margen ${formatCurrency(summary.margin)}${summary.adjustments ? ' · Requiere ajustes por disponibilidad.' : ''}`,
+  })
+}
+
 function selectRequest(id) {
   selectedRequestId.value = id
 }
@@ -2889,6 +3402,8 @@ async function loadPortal() {
         request: requestWithCandidates([
           { method: 'get', path: '/proveedor/mis-solicitudes' },
           { method: 'get', path: '/proveedor/solicitudes' },
+          { method: 'get', path: '/provider/my-requests' },
+          { method: 'get', path: '/provider/requests' },
           { method: 'get', path: '/operator/my-requests' },
           { method: 'get', path: '/operator/requests' },
         ]),
@@ -2949,6 +3464,24 @@ async function loadPortal() {
       loading.value = false
     }
   }
+}
+
+function schedulePortalLoad() {
+  if (portalLoadScheduled) {
+    return
+  }
+
+  portalLoadScheduled = true
+
+  queueMicrotask(() => {
+    portalLoadScheduled = false
+
+    if (!canLoadProviderData.value) {
+      return
+    }
+
+    loadPortal()
+  })
 }
 
 async function saveCompany() {
@@ -3501,11 +4034,21 @@ async function reloadRequestsList() {
   const response = await requestWithCandidates([
     { method: 'get', path: '/proveedor/mis-solicitudes' },
     { method: 'get', path: '/proveedor/solicitudes' },
+    { method: 'get', path: '/provider/my-requests' },
+    { method: 'get', path: '/provider/requests' },
     { method: 'get', path: '/operator/my-requests' },
     { method: 'get', path: '/operator/requests' },
   ])
 
-  const collection = pickCollection(response, ['requests', 'flight_requests', 'matches', 'data'])
+  const collection = pickCollection(response, [
+    'requests',
+    'flight_requests',
+    'reservations',
+    'solicitudes',
+    'items',
+    'matches',
+    'data',
+  ])
   requests.value = collection.map(normalizeRequest)
 }
 
@@ -3941,10 +4484,22 @@ async function updateRequestStatus(id, status) {
       },
       {
         method: 'post',
+        path: `/provider/requests/${id}/${action}`,
+        body: {},
+      },
+      {
+        method: 'post',
+        path: `/provider/my-requests/${id}/${action}`,
+        body: {},
+      },
+      {
+        method: 'post',
         path: `/operator/requests/${id}/${action}`,
         body: {},
       },
       { method: 'put', path: `/proveedor/solicitudes/${id}`, body: { status: backendStatus } },
+      { method: 'put', path: `/provider/requests/${id}`, body: { status: backendStatus } },
+      { method: 'put', path: `/provider/my-requests/${id}`, body: { status: backendStatus } },
       { method: 'put', path: `/operator/requests/${id}`, body: { status: backendStatus } },
       { method: 'put', path: `/proveedor/mis-solicitudes/${id}`, body: { status: backendStatus } },
       { method: 'put', path: `/operator/my-requests/${id}`, body: { status: backendStatus } },
@@ -3953,6 +4508,8 @@ async function updateRequestStatus(id, status) {
         path: `/proveedor/solicitudes/${id}/status`,
         body: { status: backendStatus },
       },
+      { method: 'post', path: `/provider/requests/${id}/status`, body: { status: backendStatus } },
+      { method: 'post', path: `/provider/my-requests/${id}/status`, body: { status: backendStatus } },
       { method: 'post', path: `/operator/requests/${id}/status`, body: { status: backendStatus } },
     ])
   } catch (error) {
@@ -4215,12 +4772,12 @@ watch(
     }
 
     if (!previousCanLoad || previousProviderId == null) {
-      loadPortal()
+      schedulePortalLoad()
       return
     }
 
     if (nextProviderId !== previousProviderId) {
-      loadPortal()
+      schedulePortalLoad()
     }
   },
   { immediate: true },
@@ -4251,11 +4808,10 @@ onMounted(() => {
   <div class="operator-portal-page">
     <section class="hero surface">
       <div>
-        <p class="eyebrow">Portal proveedor / operador</p>
+        <p class="eyebrow">Portal proveedor</p>
         <h1>{{ providerName }}</h1>
         <p class="muted">
-          Administra empresa, aeronaves, disponibilidad, solicitudes y operaciones desde un solo
-          flujo operativo.
+          Administra empresa, aeronaves, disponibilidad y respuesta operativa bajo la capa comercial de Red Aviation.
         </p>
       </div>
 
@@ -5647,15 +6203,14 @@ onMounted(() => {
       <article class="surface">
         <div class="section-head">
           <div>
-            <p class="eyebrow">Costos y tarifas</p>
-            <h2>Matriz de cotizacion automatica para toda la flota</h2>
+            <p class="eyebrow">Costos base</p>
+            <h2>Matriz operativa para capturar costos por aeronave</h2>
           </div>
           <span class="badge">Multiples aeronaves en una sola vista</span>
         </div>
 
         <p class="muted helper-copy">
-          Cada fila representa una aeronave. Puedes mantener toda la estructura tarifaria de la
-          flota sin ir una por una.
+          Cada fila representa una aeronave. Aqui capturas costos base y parametros operativos; Red Aviation conserva el control del precio final y los margenes.
         </p>
 
         <div v-if="aircraftPricingRows.length" class="table-shell pricing-table-shell">
@@ -6054,10 +6609,10 @@ onMounted(() => {
             <p class="eyebrow">Centro de despacho</p>
             <h2>Solicitudes operativas</h2>
             <p class="muted helper-copy">
-              Escanea la cola, prioriza urgencias y coordina cada vuelo desde una sola bandeja.
+              Escanea la cola, prioriza urgencias y acepta o rechaza solicitudes desde una sola bandeja.
             </p>
           </div>
-          <span class="badge">Cliente no ve rechazo directo del proveedor</span>
+          <span class="badge">Proveedor decide aqui: aceptar o rechazar</span>
         </div>
 
         <div class="fleet-kpi-grid request-kpi-grid">
@@ -6139,6 +6694,9 @@ onMounted(() => {
               </div>
 
               <div class="request-queue-meta">
+                <span class="package-chip" :data-tone="getRequestServiceTierTone(request)">
+                  {{ getRequestServiceTierLabel(request) }}
+                </span>
                 <span>{{ getRequestQuoteLabel(request) }}</span>
                 <span>{{ getRequestResponseCountdown(request).label }}</span>
               </div>
@@ -6157,7 +6715,8 @@ onMounted(() => {
                 <p class="muted">
                   {{ getRequestClientLabel(selectedRequest) }} ·
                   {{ selectedRequest.passengers || 0 }} pax ·
-                  {{ formatDateTimeDisplay(selectedRequest.date) }}
+                  {{ formatDateTimeDisplay(selectedRequest.date) }} ·
+                  {{ getRequestServiceTierLabel(selectedRequest) }}
                 </p>
               </div>
 
@@ -6165,10 +6724,24 @@ onMounted(() => {
                 <button
                   type="button"
                   class="ghost-button"
+                  @click="explainAdjustmentFlow(selectedRequest)"
+                >
+                  Proponer ajuste
+                </button>
+                <button
+                  type="button"
+                  class="ghost-button"
+                  @click="explainPartialAcceptance(selectedRequest)"
+                >
+                  Aceptar por tramo
+                </button>
+                <button
+                  type="button"
+                  class="ghost-button"
                   :disabled="isRequestRejected(selectedRequest.status)"
                   @click="updateRequestStatus(selectedRequest.id, 'Rechazada')"
                 >
-                  Rechazar
+                  Rechazar con motivo
                 </button>
                 <button
                   type="button"
@@ -6176,10 +6749,16 @@ onMounted(() => {
                   :disabled="isRequestAccepted(selectedRequest.status)"
                   @click="updateRequestStatus(selectedRequest.id, 'Aceptada')"
                 >
-                  Aceptar solicitud
+                  Aceptar todo
                 </button>
               </div>
             </div>
+
+            <p class="muted helper-copy">
+              Esta es la zona del proveedor para responder la solicitud. Si aceptas, la operación
+              se asigna; si rechazas, Red Aviation puede reintentar con otra opción sin exponer tu
+              rechazo al cliente.
+            </p>
 
             <div
               v-if="requestOperationalAlerts.length"
@@ -6202,14 +6781,19 @@ onMounted(() => {
                 <p class="muted">{{ getRequestStatusCopy(selectedRequest.status) }}</p>
               </article>
               <article class="request-summary-card">
+                <span class="mini-label">Paquete / servicio</span>
+                <strong>{{ getRequestServiceTierLabel(selectedRequest) }}</strong>
+                <p class="muted">{{ getRequestTripTypeLabel(selectedRequest) }}</p>
+              </article>
+              <article class="request-summary-card">
                 <span class="mini-label">SLA</span>
                 <strong>{{ getRequestResponseCountdown(selectedRequest).label }}</strong>
                 <p class="muted">{{ formatDateTimeDisplay(selectedRequest.responseLimit) }}</p>
               </article>
               <article class="request-summary-card">
-                <span class="mini-label">Match sugerido</span>
-                <strong>{{ getRequestSuggestedAircraft(selectedRequest).label }}</strong>
-                <p class="muted">{{ getRequestSuggestedAircraft(selectedRequest).detail }}</p>
+                <span class="mini-label">Aeronave sugerida</span>
+                <strong>{{ selectedRequestAircraftComparison.label }}</strong>
+                <p class="muted">{{ selectedRequestAircraftComparison.detail }}</p>
               </article>
             </div>
 
@@ -6249,7 +6833,23 @@ onMounted(() => {
                       selectedRequest.requestCode || 'Codigo interno sin publicar'
                     }}</strong>
                     <p class="muted">
-                      {{ selectedRequest.tripType || 'Servicio charter por definir' }}
+                      {{ getRequestTripTypeLabel(selectedRequest) }}
+                    </p>
+                  </article>
+                  <article class="request-detail-block">
+                    <span class="mini-label">Tipo de solicitud</span>
+                    <strong>{{ getRequestTripTypeLabel(selectedRequest) }}</strong>
+                    <p class="muted">
+                      {{
+                        [
+                          selectedRequest.waitingAtDestination ? 'Espera en destino' : '',
+                          selectedRequest.overnightRequired ? 'Varios dias / overnight' : '',
+                          selectedRequest.airportChange ? 'Cambio de aeropuerto' : '',
+                          selectedRequest.specialRequest ? 'Solicitud especial' : '',
+                        ]
+                          .filter(Boolean)
+                          .join(' · ') || 'Operacion simple visible en backend'
+                      }}
                     </p>
                   </article>
                 </div>
@@ -6263,29 +6863,258 @@ onMounted(() => {
                 </p>
               </article>
 
+              <article class="surface request-detail-card">
+                <div class="section-head">
+                  <div>
+                    <p class="eyebrow">Itinerario operativo</p>
+                    <h3>Respuesta por tramos</h3>
+                  </div>
+                </div>
+
+                <div class="request-itinerary-table">
+                  <div class="request-itinerary-head">
+                    <span>Tramo</span>
+                    <span>Ruta</span>
+                    <span>Fecha / hora</span>
+                    <span>Pax</span>
+                    <span>Estado</span>
+                    <span>Accion</span>
+                  </div>
+
+                  <article
+                    v-for="leg in selectedRequestLegs"
+                    :key="leg.id"
+                    class="request-itinerary-row"
+                  >
+                    <span>{{ leg.index }}</span>
+                    <strong>{{ leg.origin }} → {{ leg.destination }}</strong>
+                    <span>{{ formatDateTimeDisplay(leg.date) }}</span>
+                    <span>{{ leg.passengers || 0 }}</span>
+                    <span class="status-pill status-pill--ghost" :data-tone="getLegStatusTone(leg.status)">
+                      {{ leg.status }}
+                    </span>
+                    <span>{{ leg.action }}</span>
+                  </article>
+                </div>
+              </article>
+
               <div class="request-side-stack">
                 <article class="surface request-detail-card">
                   <div class="section-head">
                     <div>
-                      <p class="eyebrow">Asignacion inteligente</p>
-                      <h3>Aeronave sugerida automaticamente</h3>
+                      <p class="eyebrow">Mesa de decision</p>
+                      <h3>Mesa de aeronaves</h3>
+                    </div>
+                    <button type="button" class="ghost-button" @click="buildOperationalProposal(selectedRequest)">
+                      Armar propuesta operativa
+                    </button>
+                  </div>
+
+                  <div class="request-decision-toolbar">
+                    <label class="request-priority-filter">
+                      <span>Prioridad</span>
+                      <select v-model="aircraftDecisionMode">
+                        <option value="best_match">Mayor compatibilidad</option>
+                        <option value="fast">Mas rapido</option>
+                        <option value="cost">Menor costo</option>
+                        <option value="premium">Premium</option>
+                      </select>
+                    </label>
+                    <label class="request-priority-filter">
+                      <span>Base</span>
+                      <select v-model="aircraftFilterBase">
+                        <option v-for="item in requestAircraftBaseOptions" :key="item" :value="item">
+                          {{ item === 'all' ? 'Todas' : item }}
+                        </option>
+                      </select>
+                    </label>
+                    <label class="request-priority-filter">
+                      <span>Tipo</span>
+                      <select v-model="aircraftFilterType">
+                        <option v-for="item in requestAircraftTypeOptions" :key="item" :value="item">
+                          {{ item === 'all' ? 'Todos' : item }}
+                        </option>
+                      </select>
+                    </label>
+                    <label class="request-priority-filter">
+                      <span>Orden</span>
+                      <select v-model="aircraftFilterSort">
+                        <option value="compatibility">Compatibilidad</option>
+                        <option value="cost">Costo</option>
+                        <option value="base">Base cercana</option>
+                        <option value="margin">Mayor margen</option>
+                        <option value="sla">Mejor SLA</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  <div class="request-priority-reco">
+                    <strong>Asignacion recomendada por prioridad</strong>
+                    <p class="muted">
+                      {{
+                        aircraftDecisionMode === 'premium'
+                          ? 'Mayor compatibilidad y menor riesgo operativo.'
+                          : aircraftDecisionMode === 'fast'
+                            ? 'Mas rapido y con mejor SLA.'
+                            : aircraftDecisionMode === 'cost'
+                              ? 'Menor costo y mejor eficiencia.'
+                              : 'Balance entre compatibilidad, costo y disponibilidad.'
+                      }}
+                    </p>
+                  </div>
+
+                  <div class="request-aircraft-table">
+                    <div class="request-aircraft-head">
+                      <span>Aeronave</span>
+                      <span>Base</span>
+                      <span>Pax</span>
+                      <span>Compatibilidad</span>
+                      <span>Costo</span>
+                      <span>Riesgo</span>
+                      <span>Disponibilidad</span>
+                      <span>Accion</span>
+                    </div>
+                    <article
+                      v-for="row in selectedRequestAircraftRows"
+                      :key="row.id"
+                      class="request-aircraft-row"
+                    >
+                      <strong>{{ row.label }}</strong>
+                      <span>{{ row.base }}</span>
+                      <span>{{ row.pax }}</span>
+                      <span>{{ row.compatibility }}%</span>
+                      <span>{{ row.costBand }}</span>
+                      <span>{{ row.risk }}</span>
+                      <span>{{ row.availability === 'Si' ? 'Disponible' : row.availability === 'Revisar' ? 'Revisar' : 'No disponible' }}</span>
+                      <button
+                        type="button"
+                        class="ghost-button"
+                        :disabled="row.action === 'No compatible'"
+                        @click="row.action === 'Revisar' ? explainAdjustmentFlow(selectedRequest) : explainPartialAcceptance(selectedRequest)"
+                      >
+                        {{ row.action }}
+                      </button>
+                    </article>
+                  </div>
+                </article>
+
+                <article class="surface request-detail-card">
+                  <div class="section-head">
+                    <div>
+                      <p class="eyebrow">Validaciones</p>
+                      <h3>Semaforo operativo</h3>
                     </div>
                   </div>
 
-                  <div class="request-match-card">
-                    <strong>{{ getRequestSuggestedAircraft(selectedRequest).label }}</strong>
-                    <p class="muted">{{ getRequestSuggestedAircraft(selectedRequest).detail }}</p>
+                  <div class="request-semaphore-summary" :data-tone="selectedRequestValidationSummary.tone">
+                    <strong>
+                      {{
+                        selectedRequestValidationSummary.tone === 'success'
+                          ? '🟢'
+                          : selectedRequestValidationSummary.tone === 'warning'
+                            ? '🟡'
+                            : '🔴'
+                      }}
+                      {{ selectedRequestValidationSummary.label }}
+                    </strong>
+                    <p class="muted">{{ selectedRequestValidationSummary.detail }}</p>
                   </div>
 
-                  <div class="request-match-hints">
+                  <div class="request-validation-list">
                     <article
-                      v-for="hint in getRequestMatchHints(selectedRequest)"
-                      :key="hint"
-                      class="request-match-hint"
+                      v-for="check in selectedRequestValidationChecks"
+                      :key="check.label"
+                      class="request-validation-item"
+                      :data-state="check.state"
                     >
-                      {{ hint }}
+                      <strong>{{ check.label }}</strong>
+                      <span>{{ check.state === 'ok' ? 'Disponible' : check.state === 'review' ? 'Requiere revision' : 'No disponible' }}</span>
+                      <p class="muted">{{ check.text }}</p>
                     </article>
                   </div>
+                </article>
+
+                <article class="surface request-detail-card">
+                  <div class="section-head">
+                    <div>
+                      <p class="eyebrow">Desglose interno</p>
+                      <h3>Vista ejecutiva</h3>
+                    </div>
+                  </div>
+
+                  <div class="request-executive-strip">
+                    <article class="request-cost-item">
+                      <span>Costo total estimado</span>
+                      <strong>{{ selectedRequestInternalBreakdown.at(-1)?.value || 'Cotizacion en proceso' }}</strong>
+                    </article>
+                    <article class="request-cost-item">
+                      <span>Margen Red Aviation</span>
+                      <strong>{{ selectedRequestInternalBreakdown.find((item) => item.label === 'Margen Red Aviation')?.value || 'Pendiente' }}</strong>
+                    </article>
+                    <article class="request-cost-item">
+                      <span>Riesgo operativo</span>
+                      <strong>{{ selectedRequestValidationSummary.tone === 'success' ? 'Bajo' : selectedRequestValidationSummary.tone === 'warning' ? 'Medio' : 'Alto' }}</strong>
+                    </article>
+                  </div>
+
+                  <details class="request-cost-details">
+                    <summary>Ver desglose</summary>
+                    <div class="request-cost-grid">
+                      <article
+                        v-for="row in selectedRequestInternalBreakdown"
+                        :key="row.label"
+                        class="request-cost-item"
+                      >
+                        <span>{{ row.label }}</span>
+                        <strong>{{ row.value }}</strong>
+                      </article>
+                    </div>
+                  </details>
+                </article>
+
+                <article class="surface request-detail-card">
+                  <div class="section-head">
+                    <div>
+                      <p class="eyebrow">Multi-avion por tramo</p>
+                      <h3>Asignacion por segmento</h3>
+                    </div>
+                  </div>
+
+                  <div class="request-route-assignment-table">
+                    <div class="request-route-assignment-head">
+                      <span>Tramo</span>
+                      <span>Mejor opcion</span>
+                      <span>Alternativa</span>
+                      <span>Estado</span>
+                    </div>
+                    <article
+                      v-for="row in selectedRequestRouteAssignments"
+                      :key="row.id"
+                      class="request-route-assignment-row"
+                    >
+                      <strong>{{ row.route }}</strong>
+                      <span>{{ row.best }}</span>
+                      <span>{{ row.alternative }}</span>
+                      <span>{{ row.state === 'ok' ? '✅' : '⚠️' }}</span>
+                    </article>
+                  </div>
+                </article>
+
+                <article class="surface request-detail-card">
+                  <div class="section-head">
+                    <div>
+                      <p class="eyebrow">Coordinacion interna</p>
+                      <h3>Comentario para Red Aviation</h3>
+                    </div>
+                  </div>
+
+                  <textarea
+                    v-model="requestInternalCommentDraft"
+                    class="request-internal-comment"
+                    rows="4"
+                    placeholder="Ej. Podemos aceptar el tramo 1 y 2, pero el tramo 3 requiere ajuste de horario por disponibilidad de tripulacion."
+                  />
+                  <p class="muted">No visible para cliente. Solo para coordinacion interna con Red Aviation.</p>
                 </article>
 
                 <article class="surface request-detail-card">
@@ -6794,13 +7623,13 @@ onMounted(() => {
           <div class="status-row">
             <span>Si hace</span>
             <strong>
-              Carga empresa, aeronaves, costos, disponibilidad, operaciones e incidencias
+              Publica aeronaves, mantiene disponibilidad, captura costos base y responde solicitudes
             </strong>
           </div>
           <div class="status-row">
             <span>No hace</span>
             <strong>
-              No aprueba aeronaves, no activa marketplace, no cobra directo y no controla trial
+              No define precio final, no habla directo con cliente y no controla reglas comerciales
             </strong>
           </div>
         </div>
@@ -8429,6 +9258,216 @@ textarea {
   margin: 0;
 }
 
+.package-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 800;
+  border: 1px solid #ead8b7;
+  background: #fff3de;
+  color: #8a6220;
+}
+
+.package-chip[data-tone='warning'] {
+  background: #fff6df;
+  color: #9b6f17;
+}
+
+.package-chip[data-tone='danger'] {
+  background: #fff1e7;
+  color: #a35323;
+}
+
+.request-itinerary-table,
+.request-validation-list,
+.request-cost-grid,
+.request-comparison-list,
+.request-inline-actions,
+.request-decision-toolbar,
+.request-aircraft-table,
+.request-route-assignment-table,
+.request-executive-strip {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.request-itinerary-head,
+.request-itinerary-row,
+.request-aircraft-head,
+.request-aircraft-row,
+.request-route-assignment-head,
+.request-route-assignment-row {
+  display: grid;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.request-itinerary-head,
+.request-itinerary-row {
+  grid-template-columns: 3.5rem 1.4fr 1.2fr 4rem 7rem 8rem;
+}
+
+.request-aircraft-head,
+.request-aircraft-row {
+  grid-template-columns: 1.35fr 5rem 4rem 6.5rem 4.5rem 4.5rem 7rem 7.5rem;
+}
+
+.request-route-assignment-head,
+.request-route-assignment-row {
+  grid-template-columns: 1.2fr 1fr 1fr 4rem;
+}
+
+.request-itinerary-head {
+  color: #7f715c;
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.request-itinerary-row {
+  padding: 0.9rem 1rem;
+  border: 1px solid #f0e5d1;
+  border-radius: 16px;
+  background: #fffaf4;
+}
+
+.request-aircraft-head,
+.request-route-assignment-head {
+  color: #7f715c;
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.request-aircraft-row,
+.request-route-assignment-row {
+  padding: 0.9rem 1rem;
+  border: 1px solid #f0e5d1;
+  border-radius: 16px;
+  background: #fffaf4;
+}
+
+.request-aircraft-row button {
+  min-height: 2.4rem;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+.request-validation-item,
+.request-cost-item {
+  border: 1px solid #f0e5d1;
+  border-radius: 16px;
+  background: #fffaf4;
+  padding: 0.9rem 1rem;
+}
+
+.request-validation-item[data-state='ok'] {
+  border-color: rgba(100, 170, 120, 0.35);
+  background: #f7fcf8;
+}
+
+.request-validation-item[data-state='review'] {
+  border-color: rgba(210, 164, 65, 0.34);
+  background: #fffaf0;
+}
+
+.request-validation-item[data-state='blocked'] {
+  border-color: rgba(212, 110, 96, 0.3);
+  background: #fff6f4;
+}
+
+.request-validation-item span {
+  display: inline-flex;
+  width: fit-content;
+  margin: 0.35rem 0;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.request-semaphore-summary {
+  padding: 0.95rem 1rem;
+  border-radius: 16px;
+  border: 1px solid #f0e5d1;
+  background: #fffaf4;
+}
+
+.request-semaphore-summary[data-tone='success'] {
+  border-color: rgba(100, 170, 120, 0.35);
+  background: #f7fcf8;
+}
+
+.request-semaphore-summary[data-tone='warning'] {
+  border-color: rgba(210, 164, 65, 0.34);
+  background: #fffaf0;
+}
+
+.request-semaphore-summary[data-tone='danger'] {
+  border-color: rgba(212, 110, 96, 0.3);
+  background: #fff6f4;
+}
+
+.request-cost-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.request-cost-item span,
+.request-comparison-list span {
+  color: #6c5d47;
+  font-size: 0.9rem;
+}
+
+.request-comparison-list {
+  margin-top: 0.75rem;
+}
+
+.request-inline-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.request-decision-toolbar {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.request-priority-reco {
+  padding: 0.95rem 1rem;
+  border: 1px solid #f0e5d1;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #fffdf9, #fff8ee);
+}
+
+.request-executive-strip {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.request-cost-details {
+  border: 1px solid #f0e5d1;
+  border-radius: 16px;
+  background: #fffdfa;
+  padding: 0.9rem 1rem;
+}
+
+.request-cost-details summary {
+  cursor: pointer;
+  font-weight: 800;
+  color: #241b13;
+}
+
+.request-internal-comment {
+  width: 100%;
+  border: 1px solid #dbcdb5;
+  border-radius: 16px;
+  padding: 0.9rem 1rem;
+  background: #fffdfa;
+  color: #201914;
+  font: inherit;
+  resize: vertical;
+}
+
 .toggle-row {
   min-height: 3.2rem;
   padding: 0.9rem 1rem;
@@ -8466,7 +9505,20 @@ textarea {
   .dashboard-layout,
   .request-summary-grid,
   .request-detail-grid,
-  .request-detail-blocks {
+  .request-detail-blocks,
+  .request-cost-grid,
+  .request-inline-actions,
+  .request-decision-toolbar,
+  .request-executive-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .request-itinerary-head,
+  .request-itinerary-row,
+  .request-aircraft-head,
+  .request-aircraft-row,
+  .request-route-assignment-head,
+  .request-route-assignment-row {
     grid-template-columns: 1fr;
   }
 

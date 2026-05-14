@@ -4,7 +4,7 @@ defineEmits(['open'])
 
 <template>
   <button class="floating-concierge" type="button" @click="$emit('open')">
-    Contactar asesor
+    Concierge Ejecutivo 24/7
   </button>
 </template>
 
@@ -46,5 +46,3 @@ defineEmits(['open'])
   }
 }
 </style>
-
-

@@ -18,6 +18,7 @@ const form = reactive({
 
 const errorMessage = ref('')
 const currentStep = ref(1)
+const showPassword = ref(false)
 
 function continueToPassword() {
   errorMessage.value = ''
@@ -30,6 +31,7 @@ function continueToPassword() {
 function backToIdentifier() {
   errorMessage.value = ''
   currentStep.value = 1
+  showPassword.value = false
 }
 
 async function submit() {
@@ -92,13 +94,44 @@ async function submit() {
             <strong>{{ form.email }}</strong>
           </div>
 
-          <input
-            v-model="form.password"
-            type="password"
-            placeholder="Ingresa tu contraseña"
-            autocomplete="current-password"
-            required
-          />
+          <div class="password-field">
+            <input
+              v-model="form.password"
+              :type="showPassword ? 'text' : 'password'"
+              placeholder="Ingresa tu contraseña"
+              autocomplete="current-password"
+              required
+            />
+            <button
+              type="button"
+              class="password-toggle"
+              :aria-label="showPassword ? 'Ocultar contraseña' : 'Ver contraseña'"
+              @click="showPassword = !showPassword"
+            >
+              <svg
+                v-if="showPassword"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+                class="password-toggle-icon"
+              >
+                <path
+                  fill="currentColor"
+                  d="M3.28 2.22 2.22 3.28l4.01 4.01C4.1 8.78 2.55 10.8 2 12c1.73 3.76 5.48 6 10 6 1.93 0 3.71-.41 5.26-1.16l3.46 3.46 1.06-1.06L3.28 2.22zM12 16c-2.21 0-4-1.79-4-4 0-.73.2-1.41.54-1.99l1.55 1.55A2.5 2.5 0 0 0 12.5 14c.35 0 .69-.07.99-.2l1.7 1.7c-.89.32-1.84.5-2.86.5zm9.45-4c-.6-1.3-2.32-3.73-4.93-5.05L15.2 8.27A4 4 0 0 1 16 12c0 .46-.08.9-.22 1.31l2.57 2.57c1.43-1.07 2.53-2.47 3.1-3.88zM12 8c.5 0 .98.1 1.41.26l-1.9 1.9-1.67-1.67C10.47 8.18 11.21 8 12 8z"
+                />
+              </svg>
+              <svg
+                v-else
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+                class="password-toggle-icon"
+              >
+                <path
+                  fill="currentColor"
+                  d="M12 5c4.52 0 8.27 2.24 10 6-1.73 3.76-5.48 6-10 6S3.73 14.76 2 11c1.73-3.76 5.48-6 10-6zm0 2C8.69 7 5.85 8.82 4.39 11 5.85 13.18 8.69 15 12 15s6.15-1.82 7.61-4C18.15 8.82 15.31 7 12 7zm0 1.5A3.5 3.5 0 1 1 8.5 12 3.5 3.5 0 0 1 12 8.5zm0 2A1.5 1.5 0 1 0 13.5 12 1.5 1.5 0 0 0 12 10.5z"
+                />
+              </svg>
+            </button>
+          </div>
 
           <button type="submit" class="primary-button" :disabled="auth.loading">
             {{ auth.loading ? 'Continuando...' : 'Ingresar' }}
@@ -304,6 +337,32 @@ async function submit() {
   color: #111111;
   background: #ffffff;
   font-size: 1rem;
+}
+
+.password-field {
+  position: relative;
+}
+
+.password-field input {
+  padding-right: 5.4rem;
+}
+
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 0.9rem;
+  transform: translateY(-50%);
+  border: 0;
+  padding: 0;
+  color: #111111;
+  background: transparent;
+  cursor: pointer;
+  line-height: 0;
+}
+
+.password-toggle-icon {
+  width: 1.2rem;
+  height: 1.2rem;
 }
 
 .primary-button {

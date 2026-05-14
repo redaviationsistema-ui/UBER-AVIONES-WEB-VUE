@@ -1,7 +1,20 @@
 <template>
   <main :class="['app-shell', { 'app-shell-light': usesLightShell }]">
-    <TopNav v-if="showsTopNav" />
-    <RouterView />
+    <div v-if="shouldHoldInitialRender" class="app-boot-guard" aria-live="polite">
+      <div class="app-boot-card">
+        <div class="app-boot-mark">
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+        <p class="app-boot-title">Recuperando tu sesion</p>
+        <p class="app-boot-copy">Entrando al portal seguro de Sky Group...</p>
+      </div>
+    </div>
+    <template v-else>
+      <TopNav v-if="showsTopNav" />
+      <RouterView />
+    </template>
     <ToastStack />
   </main>
 </template>
@@ -11,13 +24,20 @@ import { computed, watchEffect } from 'vue'
 import { useRoute } from 'vue-router'
 import TopNav from './components/TopNav.vue'
 import ToastStack from './components/ToastStack.vue'
+import { useAuthStore } from './stores/auth'
 
 const route = useRoute()
+const auth = useAuthStore()
 const showsTopNav = computed(() => !route.meta.hideTopbar)
 const usesLightShell = computed(() =>
   ['servicios', 'plataforma', 'cliente', 'cliente-detalle', 'cliente-subdetalle', 'operador', 'crew'].includes(
     String(route.name || ''),
   ),
+)
+const shouldHoldInitialRender = computed(
+  () =>
+    !auth.initialized &&
+    Boolean(route.meta.requiresAuth || route.meta.guestOnly || route.meta.redirectAuthenticated),
 )
 
 watchEffect(() => {
@@ -95,6 +115,104 @@ p {
 
 .app-shell-light {
   background: #ffffff;
+}
+
+.app-boot-guard {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 2rem;
+}
+
+.app-boot-card {
+  width: min(100%, 24rem);
+  display: grid;
+  gap: 0.85rem;
+  justify-items: center;
+  padding: 2rem 1.6rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at top, rgba(216, 180, 91, 0.12), transparent 55%),
+    rgba(8, 10, 15, 0.9);
+  box-shadow:
+    0 26px 80px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  text-align: center;
+}
+
+.app-shell-light .app-boot-card {
+  border-color: rgba(17, 17, 17, 0.08);
+  background:
+    radial-gradient(circle at top, rgba(216, 180, 91, 0.14), transparent 55%),
+    rgba(255, 255, 255, 0.96);
+  box-shadow:
+    0 24px 70px rgba(19, 27, 38, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.app-boot-mark {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.4rem;
+}
+
+.app-boot-mark span {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--gold-1), var(--gold-2));
+  box-shadow: 0 0 18px rgba(216, 180, 91, 0.28);
+  animation: bootPulse 1.1s ease-in-out infinite;
+}
+
+.app-boot-mark span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.app-boot-mark span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+.app-boot-title,
+.app-boot-copy {
+  margin: 0;
+}
+
+.app-boot-title {
+  color: var(--text-primary);
+  font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+
+.app-shell-light .app-boot-title {
+  color: #111111;
+}
+
+.app-boot-copy {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+}
+
+.app-shell-light .app-boot-copy {
+  color: #5f6673;
+}
+
+@keyframes bootPulse {
+  0%,
+  80%,
+  100% {
+    transform: translateY(0) scale(0.92);
+    opacity: 0.45;
+  }
+
+  40% {
+    transform: translateY(-0.2rem) scale(1);
+    opacity: 1;
+  }
 }
 
 .eyebrow {

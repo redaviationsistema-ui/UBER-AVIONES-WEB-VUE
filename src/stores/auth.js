@@ -4,6 +4,64 @@ import { api, clearStoredToken, getStoredToken, setStoredToken } from '../lib/ap
 import { normalizeAuthRole, resolveDashboardPathByRole } from '../lib/authRouting'
 import { resolveProviderIdForUser } from '../lib/providerContext'
 
+const AUTH_SNAPSHOT_KEY = 'red_aviation_auth_snapshot'
+
+function canUseStorage(storageName) {
+  return typeof window !== 'undefined' && typeof window[storageName] !== 'undefined'
+}
+
+function readStoredAuthSnapshot() {
+  const storageSources = []
+
+  if (canUseStorage('sessionStorage')) {
+    storageSources.push(window.sessionStorage)
+  }
+
+  if (canUseStorage('localStorage')) {
+    storageSources.push(window.localStorage)
+  }
+
+  for (const storage of storageSources) {
+    const rawSnapshot = storage.getItem(AUTH_SNAPSHOT_KEY)
+
+    if (!rawSnapshot) {
+      continue
+    }
+
+    try {
+      const snapshot = JSON.parse(rawSnapshot)
+
+      if (snapshot && typeof snapshot === 'object') {
+        return snapshot
+      }
+    } catch {
+      storage.removeItem(AUTH_SNAPSHOT_KEY)
+    }
+  }
+
+  return null
+}
+
+function writeStoredAuthSnapshot(snapshot) {
+  const serializedSnapshot = snapshot ? JSON.stringify(snapshot) : null
+
+  if (canUseStorage('sessionStorage')) {
+    if (serializedSnapshot) {
+      window.sessionStorage.setItem(AUTH_SNAPSHOT_KEY, serializedSnapshot)
+    } else {
+      window.sessionStorage.removeItem(AUTH_SNAPSHOT_KEY)
+    }
+  }
+
+  if (canUseStorage('localStorage')) {
+    if (serializedSnapshot) {
+      window.localStorage.setItem(AUTH_SNAPSHOT_KEY, serializedSnapshot)
+    } else {
+      window.localStorage.removeItem(AUTH_SNAPSHOT_KEY)
+    }
+  }
+}
+
 function normalizeRoles(payload = {}) {
   const explicitRoles = [
     ...(Array.isArray(payload.login_context?.roles) ? payload.login_context.roles : []),
@@ -97,10 +155,26 @@ export const useAuthStore = defineStore('auth', () => {
     loginContext.value = resolvedPayload.login_context
     roles.value = normalizeRoles(resolvedPayload)
     setStoredToken(resolvedPayload.token)
+    writeStoredAuthSnapshot({
+      user: resolvedPayload.user,
+      access: resolvedPayload.access,
+      login_context: resolvedPayload.login_context,
+    })
 
     if (resolvedPayload.user) {
       initialized.value = true
     }
+  }
+
+  function applyStoredAuthSnapshot(snapshot = {}) {
+    user.value = snapshot.user || null
+    access.value = snapshot.access || null
+    loginContext.value = snapshot.login_context || null
+    roles.value = normalizeRoles({
+      user: user.value,
+      access: access.value,
+      login_context: loginContext.value,
+    })
   }
 
   function clearAuth() {
@@ -110,6 +184,7 @@ export const useAuthStore = defineStore('auth', () => {
     loginContext.value = null
     roles.value = []
     clearStoredToken()
+    writeStoredAuthSnapshot(null)
   }
 
   async function fetchMe() {
@@ -133,6 +208,13 @@ export const useAuthStore = defineStore('auth', () => {
         initialized.value = true
         initializePromise = null
         return
+      }
+
+      const storedSnapshot = readStoredAuthSnapshot()
+
+      if (storedSnapshot?.user) {
+        applyStoredAuthSnapshot(storedSnapshot)
+        initialized.value = true
       }
 
       try {

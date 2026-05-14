@@ -35,15 +35,15 @@ const routeToRole = {
 }
 
 const roleDescriptions = {
-  client: 'Gestion de reservas',
-  // operator: 'Centro de control operativo',
+  client: 'Reserva y seguimiento',
+  operator: 'Flota y disponibilidad',
   crew: 'Servicio y cabina',
-  admin: 'Supervision ejecutiva',
+  admin: 'Control de negocio',
 }
 
 const roleDisplayNames = {
-  client: 'Client',
-  operator: 'Operador',
+  client: 'Cliente',
+  operator: 'Proveedor',
   crew: 'Sobrecargo',
   admin: 'Admin',
 }

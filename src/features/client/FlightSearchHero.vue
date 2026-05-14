@@ -18,7 +18,6 @@ const props = defineProps({
   form: { type: Object, required: true },
   summary: { type: Object, required: true },
   tripType: { type: String, required: true },
-  trustSignals: { type: Array, required: true },
 })
 
 const emit = defineEmits([
@@ -490,46 +489,7 @@ function buildTimeValue(part, value, currentParts) {
           <button class="primary-action" type="submit">Cotizar vuelo</button>
         </template>
 
-        <div class="flight-extras">
-          <label>
-            Mascotas
-            <select :value="form.pets" @change="updateFormField('pets', $event)">
-              <option value="">Sin especificar</option>
-              <option value="No">No</option>
-              <option value="Si">Si</option>
-            </select>
-          </label>
-
-          <label>
-            Equipaje especial
-            <input :value="form.specialBaggage" placeholder="Golf, ski, arte..." @input="updateFormField('specialBaggage', $event)" />
-          </label>
-
-          <label>
-            Catering
-            <input :value="form.catering" placeholder="Snacks, ejecutivo, personalizado" @input="updateFormField('catering', $event)" />
-          </label>
-
-          <label>
-            Flexibilidad horaria
-            <select :value="form.scheduleFlexibility" @change="updateFormField('scheduleFlexibility', $event)">
-              <option value="">Sin flexibilidad</option>
-              <option value="1 hora">+/- 1 hora</option>
-              <option value="3 horas">+/- 3 horas</option>
-              <option value="Dia completo">Dia completo</option>
-            </select>
-          </label>
-
-          <label class="wide">
-            Preferencias del vuelo
-            <textarea :value="form.preference" placeholder="Cabina, privacidad, catering, asistencia especial" @input="updateFormField('preference', $event)"></textarea>
-          </label>
-        </div>
       </form>
-
-      <div v-if="trustSignals.length" class="trust-badges" aria-label="Confianza">
-        <span v-for="signal in trustSignals" :key="signal">{{ signal }}</span>
-      </div>
     </div>
 
   </section>

@@ -1,8 +1,8 @@
 <script setup>
 const portalCards = [
   {
-    title: 'Portal operador',
-    description: 'Disponibilidad, flota, validación y respuesta operativa.',
+    title: 'Portal proveedor',
+    description: 'Publica aeronaves, abre disponibilidad y responde solicitudes enviadas por Red Aviation.',
     role: 'provider',
   },
   {
@@ -12,7 +12,7 @@ const portalCards = [
   },
   {
     title: 'Panel administrativo',
-    description: 'Usuarios, indicadores, alertas y control ejecutivo.',
+    description: 'Inventario, pricing, reservas, soporte y control ejecutivo de Red Aviation.',
     role: 'admin',
   },
 ]
@@ -25,7 +25,7 @@ const portalCards = [
         <p class="eyebrow">Accesos por rol</p>
         <h1>Selecciona el portal al que quieres ingresar.</h1>
         <p>
-          Esta vista es exclusiva para operación interna. Elige tu acceso y continúa con
+          Esta vista es exclusiva para operación interna de Red Aviation y su red de proveedores. Elige tu acceso y continúa con
           correo y contraseña.
         </p>
       </div>

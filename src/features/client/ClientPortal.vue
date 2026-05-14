@@ -7,6 +7,7 @@ import ClientTopNav from './ClientTopNav.vue'
 import ConciergeFloatingButton from './ConciergeFloatingButton.vue'
 import DestinationCards from './DestinationCards.vue'
 import FlightSearchHero from './FlightSearchHero.vue'
+import { featuredAirports } from '../../utils/airports'
 import {
   createClientFlightRequest,
   getClientDestinations,
@@ -27,7 +28,7 @@ const auth = useAuthStore()
 const ui = useUiStore()
 
 const tripType = ref('Ida')
-const selectedFlightPackage = ref('')
+const selectedPriorityType = ref('essential')
 const profileMenuOpen = ref(false)
 const searching = ref(false)
 const loadingServerData = ref(false)
@@ -38,7 +39,7 @@ const flightPackages = ref([])
 const aircraftOptions = ref([])
 const reservations = ref([])
 const submittedItinerary = ref(null)
-const activeResultFilter = ref('recommended')
+const activeResultFilter = ref('best_value')
 
 const searchForm = reactive({
   origin: '',
@@ -74,8 +75,13 @@ const mobileNavItems = [
   { label: 'VIP', section: 'membresia' },
 ]
 const activePlan = computed(() => (auth.user?.company_name ? 'Business Club' : 'Sin membresia'))
+const defaultPriorityConfig = {
+  empty_leg: { multiplier: 0.8, headline: 'Ahorro inteligente', description: 'Ruta flexible con ahorro real' },
+  essential: { multiplier: 1, headline: 'Precio base incluido', description: 'Incluido como precio estandar' },
+  business: { multiplier: 1.1, headline: 'Prioridad alta', description: 'Atencion premium + flexibilidad' },
+  elite: { multiplier: 1.2, headline: 'Prioridad maxima', description: 'Concierge dedicado' },
+}
 
-const trustSignals = ref(['Aeropuertos verificados', 'Respuesta comercial agil', 'Control total del viaje'])
 const timeline = computed(() => [])
 
 const selectedAircraft = computed(
@@ -129,6 +135,9 @@ const itineraryDays = computed(() => {
   const last = dates[dates.length - 1]
   return Math.max(Math.round((last - first) / 86400000), 0)
 })
+const priorityOptions = computed(() =>
+  flightPackages.value.filter((item) => ['essential', 'business', 'elite'].includes(item.code)),
+)
 const estimatedTotal = computed(() => {
   return aircraftOptions.value[0]?.final_price || ''
 })
@@ -151,7 +160,8 @@ const itinerarySummary = computed(() => ({
   cabin: suggestedCabin.value,
   estimatedTime: estimatedTime.value,
   estimatedTotal: estimatedTotal.value,
-  flightPackage: selectedFlightPackage.value,
+  flightPackage: selectedPriorityMeta.value?.name || '',
+  priorityType: selectedPriorityType.value,
 }))
 const activeItinerarySummary = computed(() => submittedItinerary.value || itinerarySummary.value)
 const tripTypeKey = computed(() => {
@@ -175,28 +185,28 @@ const activeSection = computed(() => {
   return 'reservar'
 })
 const bookingStep = computed(() => {
-  if (['resultados', 'aeronave', 'paquete-vuelo', 'reserva'].includes(props.section)) return props.section
+  if (['paquete-vuelo', 'aeronave', 'reserva'].includes(props.section)) return 'resultados'
+  if (props.section === 'resultados') return 'resultados'
   return 'reservar'
 })
 const userFirstName = computed(() => {
   const rawName = auth.user?.name || auth.user?.company_name || auth.userName || 'Kevin'
   return String(rawName).trim().split(/\s+/)[0] || 'Kevin'
 })
-const selectedFlightPackageMeta = computed(
-  () => flightPackages.value.find((item) => item.name === selectedFlightPackage.value) || null,
+const selectedPriorityMeta = computed(
+  () => priorityOptions.value.find((item) => item.code === selectedPriorityType.value) || priorityOptions.value[0] || null,
 )
-const packageFee = computed(() => selectedFlightPackageMeta.value?.price || '')
 const recommendedAircraftId = computed(() => String(aircraftOptions.value[0]?.id || ''))
 const resultFilterOptions = [
-  { key: 'economy', label: 'Económico' },
-  { key: 'fast', label: 'Rápido' },
-  { key: 'premium', label: 'Premium' },
-  { key: 'recommended', label: 'Recomendado' },
+  { key: 'best_value', label: 'Recomendado por asesor' },
+  { key: 'price', label: 'Mejor inversion' },
+  { key: 'time', label: 'Salida mas rapida' },
+  { key: 'luxury', label: 'Mayor exclusividad' },
 ]
 const filteredAircraftOptions = computed(() => {
   const options = aircraftOptions.value.map((aircraft, index) => ({ aircraft, index }))
 
-  if (activeResultFilter.value === 'economy') {
+  if (activeResultFilter.value === 'price') {
     return options
       .sort(
         (current, next) =>
@@ -206,7 +216,7 @@ const filteredAircraftOptions = computed(() => {
       .map(({ aircraft }) => aircraft)
   }
 
-  if (activeResultFilter.value === 'fast') {
+  if (activeResultFilter.value === 'time') {
     return options
       .sort(
         (current, next) =>
@@ -216,7 +226,7 @@ const filteredAircraftOptions = computed(() => {
       .map(({ aircraft }) => aircraft)
   }
 
-  if (activeResultFilter.value === 'premium') {
+  if (activeResultFilter.value === 'luxury') {
     return options
       .sort(
         (current, next) =>
@@ -227,8 +237,16 @@ const filteredAircraftOptions = computed(() => {
       .map(({ aircraft }) => aircraft)
   }
 
-  return options.map(({ aircraft }) => aircraft)
+  return options
+    .sort(
+      (current, next) =>
+        aircraftDecisionScore(next.aircraft, next.index) - aircraftDecisionScore(current.aircraft, current.index) ||
+        current.index - next.index,
+    )
+    .map(({ aircraft }) => aircraft)
 })
+const featuredAircraft = computed(() => filteredAircraftOptions.value[0] || null)
+const secondaryAircraftOptions = computed(() => filteredAircraftOptions.value.slice(1))
 
 function aircraftVisualStyle(imageUrl) {
   if (!imageUrl) {
@@ -240,12 +258,41 @@ function aircraftVisualStyle(imageUrl) {
   }
 }
 
+function moneyValue(value) {
+  const raw = String(value ?? '')
+  if (!raw) return 0
+  const normalized = raw.replace(/[^\d.-]/g, '')
+  const parsed = Number(normalized)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function formatCurrency(value) {
+  return new Intl.NumberFormat('es-MX', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(Number(value || 0))
+}
+
+function normalizePriorityCode(value = '') {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_')
+}
+
 function airportDisplayName(code = '') {
   const normalizedCode = String(code || '').trim().toUpperCase()
   if (!normalizedCode) return 'Ruta por confirmar'
 
+  const catalogAirport = featuredAirports.find((item) =>
+    [item.code, item.iata].filter(Boolean).some((value) => String(value).trim().toUpperCase() === normalizedCode),
+  )
+  if (catalogAirport?.city) return catalogAirport.city
+
   const destination = featuredDestinations.value.find(
-    (item) => String(item.code || '').trim().toUpperCase() === normalizedCode,
+    (item) =>
+      [item.code, item.iata].filter(Boolean).some((value) => String(value).trim().toUpperCase() === normalizedCode),
   )
 
   return destination?.city || destination?.name || normalizedCode
@@ -273,43 +320,52 @@ function formatPassengerCopy(value) {
   return `${amount} ${amount === 1 ? 'pasajero' : 'pasajeros'}`
 }
 
+function formatTravelDateLabel(date = '', time = '') {
+  if (!date) return 'Fecha por confirmar'
+
+  const rawTime = time || '09:00'
+  const parsed = new Date(`${date}T${rawTime}`)
+  if (Number.isNaN(parsed.getTime())) return [date, time].filter(Boolean).join(' • ')
+
+  const dateLabel = new Intl.DateTimeFormat('es-MX', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  }).format(parsed)
+  const timeLabel = new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(parsed)
+
+  return `${dateLabel} • Salida ${timeLabel}`
+}
+
 function itineraryHeadline(summary) {
   const firstLeg = summary?.legs?.[0]
   if (!firstLeg) return 'Tu vuelo privado'
 
-  return `${airportDisplayName(firstLeg.origin)} → ${airportDisplayName(firstLeg.destination)}`
+  return `${firstLeg.originAirport?.city || airportDisplayName(firstLeg.origin)} → ${
+    firstLeg.destinationAirport?.city || airportDisplayName(firstLeg.destination)
+  }`
 }
 
 function itineraryDateLine(summary) {
   const firstLeg = summary?.legs?.[0]
   if (!firstLeg) return 'Fecha por confirmar'
 
-  return formatTravelDate(firstLeg.date, firstLeg.time)
-}
-
-function recommendationBadge(aircraft, index) {
-  if (index === 0) return 'Recomendado'
-  if (aircraft.priority) return 'Prioridad'
-  if (aircraft.response_time) return 'Respuesta rapida'
-  if (aircraft.capacity && Number(aircraft.capacity) >= 8) return 'Premium'
-  return 'Opcion verificada'
+  return `${formatPassengerCopy(summary?.passengers)} • ${formatTravelDateLabel(firstLeg.date, firstLeg.time)}`
 }
 
 function aircraftPriceCopy(aircraft) {
-  if (aircraft.final_price) return `Desde ${aircraft.final_price}`
+  const essentialPricing = aircraftPricingForType(aircraft, 'essential')
+  if (essentialPricing.finalPrice) return essentialPricing.formattedFinalPrice
   return 'Cotización inmediata'
 }
 
 function aircraftPriceValue(aircraft) {
-  const explicitPrice = Number(aircraft.total || aircraft.price || aircraft.estimated_price || 0)
-  if (explicitPrice) return explicitPrice
-
-  const rawPrice = String(aircraft.final_price || '').replace(/[^\d.,]/g, '')
-  if (!rawPrice) return Number.MAX_SAFE_INTEGER
-
-  const normalizedPrice = rawPrice.replace(/,/g, '')
-  const parsedPrice = Number(normalizedPrice)
-  return Number.isFinite(parsedPrice) ? parsedPrice : Number.MAX_SAFE_INTEGER
+  const essentialPricing = aircraftPricingForType(aircraft, 'essential')
+  return essentialPricing.finalPrice || Number.MAX_SAFE_INTEGER
 }
 
 function aircraftTimeValue(aircraft) {
@@ -333,58 +389,215 @@ function aircraftPremiumValue(aircraft) {
   return capacity + (premiumCabin ? 20 : 0)
 }
 
-function aircraftShortMeta(aircraft) {
-  return [
-    aircraft.cabin || 'Jet privado',
-    aircraft.capacity ? `${aircraft.capacity} pasajeros` : '',
-    estimatedFlightTime(aircraft),
-  ].filter(Boolean)
+function normalizeAmenityTerms(aircraft = {}) {
+  return (Array.isArray(aircraft.amenities) ? aircraft.amenities : [])
+    .filter(Boolean)
+    .map((item) => String(item).toLowerCase())
 }
 
-function aircraftBenefits(aircraft) {
-  const amenities = Array.isArray(aircraft.amenities) ? aircraft.amenities : []
-  const defaults = ['WiFi', 'Cabina premium']
-  return [...amenities, ...defaults].filter(Boolean).slice(0, 2)
+function aircraftDecisionScore(aircraft = {}, index = 0) {
+  const priceScore = 1 / Math.max(aircraftPriceValue(aircraft), 1)
+  const timeScore = 1 / Math.max(aircraftTimeValue(aircraft), 1)
+  const luxuryScore = aircraftPremiumValue(aircraft)
+  const amenityScore = normalizeAmenityTerms(aircraft).length ? 1 : 0
+  return luxuryScore * 12 + amenityScore * 8 + timeScore * 1500 + priceScore * 250000 + (index === 0 ? 24 : 0)
 }
 
-function optimizedDepartureCopy(aircraft) {
-  const origin = aircraft.source_origin || aircraft.queried_base_airport || activeItinerarySummary.value?.legs?.[0]?.origin || ''
-  if (!origin) return 'Salida optimizada para tu ruta'
-  return `Salida optimizada desde ${airportDisplayName(origin)}`
+function aircraftClassLabel(aircraft = {}) {
+  const normalized = String(aircraft.cabin || aircraft.category || '').toLowerCase()
+  if (normalized.includes('helic')) return 'Helicoptero ejecutivo'
+  if (normalized.includes('heavy') || normalized.includes('long')) return 'Heavy Jet'
+  if (normalized.includes('mid')) return 'Midsize Jet'
+  if (normalized.includes('light')) return 'Light Jet'
+  if (normalized.includes('turbo')) return 'Turbo Prop Ejecutivo'
+  return 'Jet ejecutivo'
 }
 
-function availabilityStatus(aircraft, index) {
-  if (index === 0) {
-    return { label: 'Disponible hoy', tone: 'available' }
+function aircraftDurationLabel(aircraft = {}) {
+  return String(aircraft.time || aircraft.flight_time || activeItinerarySummary.value?.estimatedTime || '42 min')
+}
+
+function aircraftCapacityLabel(aircraft = {}) {
+  const raw = String(aircraft.capacity || '').match(/(\d+(?:\.\d+)?)/)
+  const amount = Number(raw?.[1] || activeItinerarySummary.value?.passengers || 0)
+  return amount ? `${amount} pasajeros` : 'Cabina privada'
+}
+
+function itineraryDepartureLabel(summary = {}) {
+  const firstLeg = summary?.legs?.[0]
+  if (!firstLeg?.time) return 'Salida por confirmar'
+  const parsed = new Date(`${firstLeg.date || '2026-01-01'}T${firstLeg.time}`)
+  if (Number.isNaN(parsed.getTime())) return `Salida ${firstLeg.time}`
+  return `Salida ${new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).format(parsed)}`
+}
+
+function aircraftSpeedLine(aircraft = {}, summary = {}) {
+  return `${aircraftDurationLabel(aircraft)} • ${aircraftCapacityLabel(aircraft)} • ${itineraryDepartureLabel(summary)}`
+}
+
+function aircraftAvailabilityLabel(aircraft = {}, index = 0) {
+  if (aircraft.response_time) return `Salida en ${String(aircraft.response_time).replace(/^[-\s]+/, '')}`
+  if (index === 0) return 'Salida en 35 min'
+  return 'Prioridad Alta'
+}
+
+function aircraftIncludes(aircraft = {}) {
+  const amenities = Array.isArray(aircraft.amenities) ? aircraft.amenities.filter(Boolean) : []
+  const defaults = ['WiFi', 'Catering', 'Equipaje', 'Traslado terrestre']
+  return [...new Set([...amenities, ...defaults])].slice(0, 4)
+}
+
+
+function resolvePriorityOption(priorityType = 'essential') {
+  const normalizedType = normalizePriorityCode(priorityType) || 'essential'
+  const serverOption = priorityOptions.value.find((item) => item.code === normalizedType)
+  if (serverOption) return serverOption
+
+  const fallback = defaultPriorityConfig[normalizedType] || defaultPriorityConfig.essential
+  return {
+    code: normalizedType,
+    name:
+      normalizedType === 'empty_leg'
+        ? 'Empty Leg'
+        : normalizedType.charAt(0).toUpperCase() + normalizedType.slice(1),
+    multiplier: fallback.multiplier,
+    category: fallback.headline,
+    benefits: [fallback.description],
   }
-  if (aircraft.response_time) {
-    return { label: `Confirmación ${aircraft.response_time}`, tone: 'soon' }
+}
+
+function calculatePriorityPricing(basePrice = 0, operationalFees = 0, multiplier = 1) {
+  const normalizedBasePrice = Number(basePrice || 0)
+  const normalizedOperationalFees = Number(operationalFees || 0)
+  const normalizedMultiplier = Number(multiplier || 1)
+  const priorityPrice = normalizedBasePrice * (normalizedMultiplier - 1)
+  const finalPrice = normalizedBasePrice * normalizedMultiplier + normalizedOperationalFees
+
+  return {
+    basePrice: normalizedBasePrice,
+    operationalFees: normalizedOperationalFees,
+    priorityMultiplier: normalizedMultiplier,
+    priorityPrice,
+    finalPrice,
   }
-  if (aircraft.capacity && Number(aircraft.capacity) >= 8) {
-    return { label: 'Alta demanda', tone: 'demand' }
+}
+
+function resolveAircraftOperationalFees(aircraft = {}) {
+  const explicitFees =
+    Number(aircraft.landing_fees || 0) +
+    Number(aircraft.fbo_fees || 0) +
+    Number(aircraft.fuel_surcharge || 0) +
+    Number(aircraft.overnight_fees || 0) +
+    Number(aircraft.taxes || 0)
+
+  return explicitFees > 0 ? explicitFees : 0
+}
+
+function aircraftPricingForType(aircraft = {}, priorityType = 'essential') {
+  const displayedPrice = moneyValue(aircraft.final_price)
+  const operationalFees = resolveAircraftOperationalFees(aircraft)
+  const currentType = normalizePriorityCode(aircraft.priority_type || 'essential')
+  const currentMultiplier = Number(aircraft.priority_multiplier || 1) || 1
+  let basePrice = Number(aircraft.base_price || 0)
+
+  if (!basePrice) {
+    if (currentType === 'essential') {
+      basePrice = Math.max(displayedPrice - operationalFees, 0)
+    } else if (displayedPrice && currentMultiplier) {
+      basePrice = Math.max((displayedPrice - operationalFees) / currentMultiplier, 0)
+    } else {
+      basePrice = Number(aircraft.total || aircraft.subtotal || displayedPrice || 0)
+    }
   }
-  return { label: 'Confirmación en 15 min', tone: 'soon' }
+
+  const priorityMeta = resolvePriorityOption(priorityType)
+  const pricing = calculatePriorityPricing(basePrice, operationalFees, Number(priorityMeta.multiplier || 1))
+  const essentialPricing = calculatePriorityPricing(basePrice, operationalFees, 1)
+  const savings = Math.max(essentialPricing.finalPrice - pricing.finalPrice, 0)
+
+  return {
+    ...pricing,
+    priorityType: priorityMeta.code,
+    priorityName: priorityMeta.name,
+    headline: priorityMeta.category || '',
+    description: priorityMeta.benefits?.[0] || '',
+    savings,
+    formattedBasePrice: formatCurrency(pricing.basePrice),
+    formattedPriorityPrice: formatCurrency(pricing.priorityPrice),
+    formattedOperationalFees: formatCurrency(pricing.operationalFees),
+    formattedFinalPrice: formatCurrency(pricing.finalPrice),
+    formattedSavings: formatCurrency(savings),
+  }
 }
 
-function estimatedFlightTime(aircraft) {
-  return aircraft.time || estimatedTime.value || '2h 15m'
+const selectedAircraftPricing = computed(() => {
+  return aircraftPricingForType(selectedAircraft.value || {}, selectedPriorityType.value)
+})
+
+function packageFlowCopy(packageCode = '') {
+  const normalized = normalizePriorityCode(packageCode)
+
+  if (normalized === 'business') {
+    return {
+      priceLabel: 'Sin costo adicional',
+      headline: 'Atencion prioritaria, mayor flexibilidad y coordinacion mas agil.',
+      support: 'Ideal para respuesta rapida y mayor personalizacion.',
+      accent: '+ Prioridad + Flexibilidad',
+    }
+  }
+
+  if (normalized === 'elite') {
+    return {
+      priceLabel: 'Sin costo adicional',
+      headline: 'Prioridad maxima, concierge dedicado y gestion personalizada.',
+      support: 'Ideal para control total y asistencia premium.',
+      accent: '+ Concierge + Prioridad Maxima',
+    }
+  }
+
+  return {
+    priceLabel: 'Incluido en tu reserva',
+    headline: 'Proceso privado estandar con cotizacion, validacion y confirmacion.',
+    support: 'Ideal para una reserva clara y eficiente.',
+    accent: 'Incluido en tu reserva',
+  }
 }
 
-function experienceLevel(aircraft, index) {
-  if (index === 0) return 'Premium'
-  if (aircraft.capacity && Number(aircraft.capacity) >= 9) return 'Elite'
-  return 'Business'
+function packagePriceLabel(flightPackage) {
+  return packageFlowCopy(flightPackage?.code).priceLabel
 }
 
-function compactRouteSummary(summary) {
-  const firstLeg = summary?.legs?.[0] || {}
-  return [
-    `${airportDisplayName(firstLeg.origin)} → ${airportDisplayName(firstLeg.destination)}`,
-    formatPassengerCopy(summary?.passengers),
-    firstLeg.date ? formatTravelDate(firstLeg.date, firstLeg.time).replace(/\s+de\s+\d{4}/, '') : '',
-    summary?.pets === 'Si' ? 'Mascotas a bordo' : '',
-    summary?.scheduleFlexibility ? `Flex ${summary.scheduleFlexibility}` : 'Salida optimizada',
-  ].filter(Boolean).join(' • ')
+function packageButtonLabel(flightPackage) {
+  const normalized = normalizePriorityCode(flightPackage?.code)
+  const isSelected = selectedPriorityType.value === normalized
+
+  if (normalized === 'essential') {
+    return isSelected ? 'Plan Actual' : 'Elegir Essential'
+  }
+
+  if (normalized === 'business') {
+    return isSelected ? 'Seleccionado' : 'Mejorar a Business'
+  }
+
+  if (normalized === 'elite') {
+    return isSelected ? 'Seleccionado' : 'Acceder a Elite'
+  }
+
+  return isSelected ? 'Seleccionado' : `Elegir ${flightPackage?.name || 'plan'}`
+}
+
+function selectPriority(flightPackage) {
+  if (!flightPackage?.code) return
+  selectedPriorityType.value = flightPackage.code
+}
+
+function ensureDefaultPriority(packages = []) {
+  if (!packages.length) return
+  const hasCurrent = packages.some((item) => item.code === selectedPriorityType.value)
+  if (hasCurrent) return
+
+  const essentialPackage = packages.find((item) => item.code === 'essential')
+  selectedPriorityType.value = essentialPackage?.code || packages[0]?.code || 'essential'
 }
 
 function go(section, id = '') {
@@ -528,6 +741,7 @@ function buildItinerarySummary(payload) {
     estimatedTime: '',
     estimatedTotal: '',
     flightPackage: payload.flight_package || '',
+    priorityType: payload.priority_type || 'essential',
   }
 }
 
@@ -584,7 +798,8 @@ async function submitSearch() {
     catering: searchForm.catering,
     schedule_flexibility: searchForm.scheduleFlexibility,
     preference: searchForm.preference,
-    flight_package: selectedFlightPackage.value,
+    flight_package: selectedPriorityMeta.value?.name || '',
+    priority_type: selectedPriorityType.value,
     legs: itineraryLegs.value.map((leg) => ({ ...leg })),
   }
   submittedItinerary.value = buildItinerarySummary(quotePayload)
@@ -595,17 +810,18 @@ async function submitSearch() {
   })
   aircraftOptions.value = await searchClientFlights(quotePayload)
   if (!aircraftOptions.value.length) {
-    serverSearchError.value = 'El servidor no devolvio opciones para este itinerario.'
+    serverSearchError.value = 'No fue posible generar una cotizacion real para este itinerario con la informacion actual.'
   }
   searching.value = false
   go('resultados')
 }
 
-async function requestReservation() {
-  if (!selectedAircraft.value || reserving.value) return
+async function requestReservation(aircraft = selectedAircraft.value) {
+  if (!aircraft || reserving.value) return
 
   try {
     reserving.value = true
+    const pricing = aircraftPricingForType(aircraft, selectedPriorityType.value)
     const reservation = await createClientFlightRequest({
       trip_type: tripTypeKey.value,
       trip_label: tripType.value,
@@ -614,8 +830,22 @@ async function requestReservation() {
       special_baggage: activeItinerarySummary.value.specialBaggage,
       catering: activeItinerarySummary.value.catering,
       schedule_flexibility: activeItinerarySummary.value.scheduleFlexibility,
-      preference: selectedAircraft.value.cabin || selectedAircraft.value.aircraft,
-      flight_package: selectedFlightPackage.value,
+      preference: aircraft.cabin || aircraft.aircraft,
+      flight_package: selectedPriorityMeta.value?.name || '',
+      service_tier: selectedPriorityMeta.value?.name || '',
+      match_id: aircraft.match_id || aircraft.matched_option_id || aircraft.id || null,
+      matched_option_id:
+        aircraft.matched_option_id || aircraft.match_id || aircraft.id || null,
+      aircraft_id: aircraft.aircraft_id || aircraft.id || null,
+      provider_id: aircraft.provider_id || aircraft.provider?.id || null,
+      priority_type: pricing.priorityType,
+      priority_multiplier: pricing.priorityMultiplier,
+      base_price: Number(pricing.basePrice.toFixed(2)),
+      operational_fee: Number(pricing.operationalFees.toFixed(2)),
+      priority_price: Number(pricing.priorityPrice.toFixed(2)),
+      final_price: Number(pricing.finalPrice.toFixed(2)),
+      source_database: aircraft.source_database || null,
+      source_table: aircraft.source_table || null,
       legs: activeItinerarySummary.value.legs.map((leg) => ({ ...leg })),
     })
     reservations.value = await getClientTrips()
@@ -660,6 +890,7 @@ async function loadServerData() {
 
   featuredDestinations.value = destinations
   flightPackages.value = plans
+  ensureDefaultPriority(plans)
   reservations.value = trips
   loadingServerData.value = false
 }
@@ -689,7 +920,6 @@ onMounted(loadServerData)
           :form="searchForm"
           :summary="itinerarySummary"
           :trip-type="tripType"
-          :trust-signals="trustSignals"
           @add-leg="addLeg"
           @remove-leg="removeLeg"
           @submit="submitSearch"
@@ -708,43 +938,72 @@ onMounted(loadServerData)
         />
 
         <template v-else-if="bookingStep === 'resultados'">
-        <div class="screen-head results-head">
-          <span class="eyebrow">Resultados verificados para tu ruta</span>
+        <div class="screen-head results-head results-head-premium">
+          <span class="eyebrow">Luxury concierge selection</span>
           <h2>{{ itineraryHeadline(activeItinerarySummary) }}</h2>
-          <p>{{ formatPassengerCopy(activeItinerarySummary.passengers) }} · {{ itineraryDateLine(activeItinerarySummary) }}</p>
-          </div>
+          <p>{{ itineraryDateLine(activeItinerarySummary) }}</p>
+          <strong class="results-headline-hook">Tu asesor privado ha seleccionado las mejores opciones para esta ruta.</strong>
+          <span class="results-subhook">Opciones verificadas segun velocidad, costo y nivel de experiencia.</span>
+        </div>
 
-          <article v-if="activeItinerarySummary.legs.length" class="route-summary-bar">
-            <strong>{{ compactRouteSummary(activeItinerarySummary) }}</strong>
-          </article>
-
-          <div class="filter-row">
-            <button
-              v-for="filter in resultFilterOptions"
-              :key="filter.key"
-              :aria-pressed="activeResultFilter === filter.key"
-              :class="{ 'active-filter': activeResultFilter === filter.key }"
-              type="button"
-              @click="activeResultFilter = filter.key"
-            >
-              {{ filter.label }}
-            </button>
+          <div class="filter-toolbar">
+            <div class="filter-toolbar__copy">
+              <span>Comparar por</span>
+              <strong>Prioriza criterio experto, inversion, rapidez o exclusividad.</strong>
+            </div>
+            <div class="filter-row">
+              <button
+                v-for="filter in resultFilterOptions"
+                :key="filter.key"
+                :aria-pressed="activeResultFilter === filter.key"
+                :class="{ 'active-filter': activeResultFilter === filter.key }"
+                type="button"
+                @click="activeResultFilter = filter.key"
+              >
+                <strong>{{ filter.label }}</strong>
+              </button>
+            </div>
           </div>
 
           <div v-if="searching" class="loading-band">Haciendo match con operadores activos...</div>
           <div v-else-if="serverSearchError" class="empty-state">{{ serverSearchError }}</div>
 
-          <div v-if="filteredAircraftOptions.length" class="results-recommendation">
-            <span class="eyebrow">Nuestra recomendacion</span>
-            <strong>{{ aircraftPriceCopy(filteredAircraftOptions[0]) }}</strong>
-          </div>
+          <article v-if="featuredAircraft" class="aircraft-hero-card">
+            <div
+              class="aircraft-thumb aircraft-thumb-hero"
+              :class="{ 'aircraft-thumb--placeholder': !featuredAircraft.image_url }"
+              :style="aircraftVisualStyle(featuredAircraft.image_url)"
+            >
+              <img
+                v-if="featuredAircraft.image_url"
+                :src="featuredAircraft.image_url"
+                :alt="featuredAircraft.aircraft"
+                loading="lazy"
+              />
+              <span v-else class="aircraft-thumb__empty">Imagen en validación</span>
+              <span class="aircraft-thumb__badge">{{ aircraftClassLabel(featuredAircraft) }}</span>
+            </div>
 
-          <div v-if="filteredAircraftOptions.length" class="aircraft-list">
+            <div class="aircraft-hero-copy">
+              <h3>{{ featuredAircraft.aircraft }}</h3>
+              <p class="hero-price-label">Tarifa estimada total</p>
+              <strong class="hero-price">{{ aircraftPriceCopy(featuredAircraft) }}</strong>
+              <div class="hero-includes">
+                <span v-for="item in aircraftIncludes(featuredAircraft)" :key="item">{{ item }}</span>
+              </div>
+            </div>
+            <div class="hero-actions">
+              <button type="button" :disabled="reserving" @click="requestReservation(featuredAircraft)">
+                {{ reserving ? 'Reservando...' : 'Reservar' }}
+              </button>
+            </div>
+          </article>
+
+          <div v-if="secondaryAircraftOptions.length" class="aircraft-list aircraft-list-compact">
             <article
-              v-for="(aircraft, index) in filteredAircraftOptions"
+              v-for="(aircraft, index) in secondaryAircraftOptions"
               :key="aircraft.id"
-              class="aircraft-card"
-              :class="{ 'aircraft-card--featured': String(aircraft.id) === recommendedAircraftId }"
+              class="aircraft-card aircraft-card-compact"
             >
               <div
                 class="aircraft-thumb"
@@ -758,134 +1017,29 @@ onMounted(loadServerData)
                   loading="lazy"
                 />
                 <span v-else class="aircraft-thumb__empty">Imagen en validación</span>
-                <span class="aircraft-thumb__badge">{{ aircraft.cabin || 'Cabina verificada' }}</span>
-                <span v-if="aircraft.image_url" class="aircraft-image-source">Cabina premium</span>
+                <span class="aircraft-thumb__badge">{{ aircraftClassLabel(aircraft) }}</span>
               </div>
               <div class="aircraft-copy">
-                <span class="tag">{{ recommendationBadge(aircraft, index) }}</span>
-                <h3>{{ aircraft.aircraft }}</h3>
-                <div class="aircraft-premium-meta">
-                  <span>{{ experienceLevel(aircraft, index) }}</span>
-                  <span v-for="item in aircraftShortMeta(aircraft)" :key="item">{{ item }}</span>
+                <div class="aircraft-card-head">
+                  <div class="aircraft-card-head__copy">
+                    <span class="eyebrow">Opcion privada</span>
+                    <h3>{{ aircraft.aircraft }}</h3>
+                  </div>
                 </div>
                 <p class="aircraft-price-line">
+                  <span>Tarifa estimada total</span>
                   <strong>{{ aircraftPriceCopy(aircraft) }}</strong>
-                  <span>{{ availabilityStatus(aircraft, index).label }}</span>
                 </p>
-                <div class="benefit-row">
-                  <span v-for="benefit in aircraftBenefits(aircraft)" :key="benefit">{{ benefit }}</span>
-                </div>
-              </div>
-              <div class="aircraft-facts">
-                <span class="availability-pill" :class="`availability-pill--${availabilityStatus(aircraft, index).tone}`">
-                  {{ availabilityStatus(aircraft, index).label }}
-                </span>
-                <span class="fact-pill">{{ aircraft.capacity || activeItinerarySummary.passengers || 'Privado' }} pasajeros</span>
-                <span class="fact-pill">{{ estimatedFlightTime(aircraft) }}</span>
               </div>
               <div class="card-actions">
-                <button type="button" @click="go('aeronave', aircraft.id)">Ver detalles</button>
-                <button type="button" @click="go('paquete-vuelo', aircraft.id)">Reservar ahora</button>
+                <button type="button" :disabled="reserving" @click="requestReservation(aircraft)">
+                  {{ reserving ? 'Reservando...' : 'Reservar' }}
+                </button>
               </div>
             </article>
           </div>
         </template>
 
-        <article v-else-if="bookingStep === 'aeronave' && selectedAircraft" class="aircraft-detail">
-          <div
-            class="aircraft-visual"
-            :class="{ 'aircraft-visual--placeholder': !selectedAircraft.image_url }"
-            :style="aircraftVisualStyle(selectedAircraft.image_url)"
-          >
-            <img
-              v-if="selectedAircraft.image_url"
-              :src="selectedAircraft.image_url"
-              :alt="selectedAircraft.aircraft"
-              loading="lazy"
-            />
-            <span>{{ selectedAircraft.cabin }}</span>
-          </div>
-          <div class="detail-copy">
-            <span class="eyebrow">Detalle de reserva</span>
-            <h2>Todo listo para elegir</h2>
-            <p>Revisa cabina, precio final, tiempo estimado, amenidades y flexibilidad antes de reservar.</p>
-            <div class="detail-grid">
-              <span v-for="(leg, index) in activeItinerarySummary.legs" :key="`detail-${index}`">
-                Tramo {{ index + 1 }}: {{ leg.origin }} -> {{ leg.destination }} / {{ leg.date }} {{ leg.time }}
-              </span>
-              <span>Aeronave: {{ selectedAircraft.aircraft }}{{ selectedAircraft.model ? ` / ${selectedAircraft.model}` : '' }}</span>
-              <span v-if="selectedAircraft.capacity">Capacidad: {{ selectedAircraft.capacity }}</span>
-              <span v-if="selectedAircraft.source_database">
-                {{ optimizedDepartureCopy(selectedAircraft) }}
-              </span>
-              <span>Operador: oculto hasta confirmacion</span>
-              <span v-if="selectedAircraft.time || activeItinerarySummary.estimatedTime">
-                Tiempo total: {{ selectedAircraft.time || activeItinerarySummary.estimatedTime }}
-              </span>
-              <span>Total: {{ aircraftPriceCopy(selectedAircraft) }}</span>
-              <span v-if="selectedAircraft.amenities?.length">Servicios incluidos: {{ selectedAircraft.amenities.join(' / ') }}</span>
-              <span>Condiciones: contrato pendiente y pago pendiente.</span>
-            </div>
-            <div v-if="selectedAircraft.images?.length > 1" class="aircraft-gallery">
-              <span v-for="image in selectedAircraft.images.slice(0, 4)" :key="image.id" class="aircraft-gallery-item">
-                <img :src="image.imageUrl" :alt="`${selectedAircraft.aircraft} ${image.title}`" loading="lazy" />
-              </span>
-            </div>
-            <button type="button" @click="go('paquete-vuelo', selectedAircraft.id)">Reservar ahora</button>
-          </div>
-        </article>
-        <div v-else-if="bookingStep === 'aeronave'" class="empty-state">El servidor no devolvio detalle para esta opcion.</div>
-
-        <template v-else-if="bookingStep === 'paquete-vuelo'">
-          <div class="screen-head">
-            <span class="eyebrow">Tipo de servicio</span>
-            <h2>Elige como quieres volar</h2>
-            <p>Selecciona la experiencia ideal para este vuelo. La membresia aparece despues, no bloquea tu reserva.</p>
-          </div>
-
-          <div class="plan-grid">
-            <article
-              v-for="flightPackage in flightPackages"
-              :key="flightPackage.name"
-              class="plan-card"
-              :class="{ 'plan-card--selected': selectedFlightPackage === flightPackage.name }"
-            >
-              <span v-if="flightPackage.badge" class="tag">{{ flightPackage.badge }}</span>
-              <h3>{{ flightPackage.name }}</h3>
-              <strong v-if="flightPackage.price">{{ flightPackage.price }}</strong>
-              <p>{{ flightPackage.category }}</p>
-              <p v-if="flightPackage.benefits?.length">{{ flightPackage.benefits.join(' / ') }}</p>
-              <button type="button" @click="selectedFlightPackage = flightPackage.name">
-                {{ selectedFlightPackage === flightPackage.name ? 'Seleccionado' : `Elegir ${flightPackage.name}` }}
-              </button>
-            </article>
-          </div>
-
-          <div class="summary-band">
-            <span>{{ selectedFlightPackageMeta ? `Servicio ${selectedFlightPackageMeta.name}` : 'Selecciona un tipo de servicio' }}</span>
-            <strong v-if="packageFee">{{ packageFee }}</strong>
-            <button type="button" :disabled="!selectedFlightPackage" @click="go('reserva', routeId)">Continuar</button>
-          </div>
-        </template>
-
-        <article v-else-if="selectedAircraft" class="reservation-summary">
-          <span class="eyebrow">Reservar ahora</span>
-          <h2>Completa tu reserva</h2>
-          <span>Cabina: {{ selectedAircraft.aircraft }}</span>
-          <span v-for="(leg, index) in activeItinerarySummary.legs" :key="`reserve-${index}`">
-            Tramo {{ index + 1 }}: {{ leg.origin }} -> {{ leg.destination }} / {{ leg.date }} {{ leg.time }}
-          </span>
-          <span v-if="activeItinerarySummary.passengers">Pasajeros: {{ activeItinerarySummary.passengers }}</span>
-          <span v-if="activeItinerarySummary.pets">Mascotas: {{ activeItinerarySummary.pets }}</span>
-          <span v-if="activeItinerarySummary.specialBaggage">Equipaje especial: {{ activeItinerarySummary.specialBaggage }}</span>
-          <span v-if="activeItinerarySummary.catering">Catering: {{ activeItinerarySummary.catering }}</span>
-          <span v-if="activeItinerarySummary.scheduleFlexibility">Flexibilidad: {{ activeItinerarySummary.scheduleFlexibility }}</span>
-          <span v-if="selectedFlightPackage">Paquete: {{ selectedFlightPackage }}</span>
-          <strong v-if="selectedAircraft.final_price">Precio final: {{ selectedAircraft.final_price }}</strong>
-          <button type="button" :disabled="reserving" @click="requestReservation">
-            {{ reserving ? 'Confirmando...' : 'Reservar ahora' }}
-          </button>
-        </article>
         <div v-else class="empty-state">El servidor no devolvio una opcion para reservar.</div>
       </section>
 
@@ -919,7 +1073,7 @@ onMounted(loadServerData)
           </div>
           <div class="confirmation-actions">
             <button type="button" @click="go('viajes', routeId)">Ver mis vuelos</button>
-            <button class="secondary-button" type="button" @click="go('soporte')">Contactar asesor</button>
+            <button class="secondary-button" type="button" @click="go('soporte')">Asesor privado 24/7</button>
           </div>
         </article>
 
@@ -1194,10 +1348,10 @@ button {
 
 .aircraft-card {
   display: grid;
-  grid-template-columns: minmax(300px, 390px) minmax(0, 1fr) minmax(150px, 190px) minmax(150px, auto);
+  grid-template-columns: minmax(300px, 390px) minmax(0, 1fr) minmax(220px, 260px);
   gap: 1rem;
-  align-items: center;
-  padding: 0.9rem;
+  align-items: stretch;
+  padding: 1rem;
   border-radius: 20px;
   box-shadow: 0 16px 44px rgba(17, 17, 17, 0.08);
 }
@@ -1299,7 +1453,8 @@ button {
 
 .aircraft-copy {
   display: grid;
-  gap: 0.48rem;
+  gap: 0.72rem;
+  align-content: start;
 }
 
 .aircraft-model {
@@ -1308,48 +1463,33 @@ button {
   font-weight: 700;
 }
 
-.aircraft-premium-meta,
-.benefit-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.42rem;
-}
-
-.aircraft-premium-meta span,
-.benefit-row span,
-.fact-pill {
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  min-height: 1.7rem;
-  padding: 0.24rem 0.58rem;
-  border: 1px solid #e3e0d8;
-  border-radius: 999px;
-  background: #faf9f6;
-  color: #3d3a35;
-  font-size: 0.78rem;
-  font-weight: 700;
-}
-
 .aircraft-price-line {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.28rem;
+  gap: 0.18rem;
   flex-direction: column;
   align-items: flex-start;
   margin: 0;
 }
 
-.aircraft-price-line strong {
-  color: #111111;
-  font-size: clamp(1.5rem, 2.2vw, 2rem);
-  line-height: 1;
+.aircraft-price-line > span {
+  color: #7a6a53;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
 }
 
-.aircraft-price-line span {
+.aircraft-price-line strong {
+  color: #111111;
+  font-size: clamp(2rem, 2.8vw, 2.6rem);
+  line-height: 0.95;
+}
+
+.aircraft-price-line small {
   color: #6d6252;
   font-size: 0.92rem;
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .aircraft-meta,
@@ -1389,6 +1529,179 @@ button {
   margin: 0;
 }
 
+.results-head-premium {
+  gap: 0.8rem;
+}
+
+.results-headline-hook {
+  color: #171717;
+  font-size: 1.02rem;
+  font-weight: 800;
+}
+
+.results-subhook {
+  color: #746652;
+  font-size: 0.96rem;
+}
+
+.filter-toolbar__copy span {
+  margin: 0.18rem 0 0;
+  color: #63584a;
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.filter-toolbar {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem 1.05rem;
+  border: 1px solid #ece4d5;
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(255, 250, 242, 0.9), #ffffff);
+}
+
+.filter-toolbar__copy {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.filter-toolbar__copy span {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.filter-toolbar__copy strong {
+  color: #171717;
+  font-size: 1rem;
+}
+
+.filter-row button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 3.35rem;
+  padding: 0.75rem 1.1rem;
+  border: 1px solid #e5ddcf;
+  border-radius: 16px;
+  background: #fffdfa;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.filter-row button strong {
+  font-size: 0.88rem;
+  font-weight: 800;
+  color: #171717;
+  text-align: center;
+}
+
+.filter-row button:hover {
+  border-color: rgba(191, 151, 65, 0.38);
+  box-shadow: 0 10px 24px rgba(17, 17, 17, 0.06);
+  transform: translateY(-1px);
+}
+
+.aircraft-hero-card {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(190px, 230px);
+  gap: 0.8rem;
+  min-height: 320px;
+  padding: 0.8rem;
+  border: 1px solid rgba(191, 151, 65, 0.34);
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: 0 16px 44px rgba(17, 17, 17, 0.08);
+}
+
+.aircraft-thumb-hero {
+  min-height: 320px;
+}
+
+.aircraft-hero-copy {
+  display: grid;
+  gap: 0.72rem;
+  align-content: center;
+  min-height: 100%;
+}
+
+.aircraft-hero-copy h3,
+.aircraft-copy h3 {
+  margin: 0;
+  color: #111111;
+  font-size: clamp(1.4rem, 2.2vw, 2rem);
+  line-height: 1;
+}
+
+.hero-meta,
+.hero-availability,
+.hero-price-label {
+  margin: 0;
+}
+
+.hero-meta {
+  color: #42392d;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.hero-availability {
+  color: #8f6613;
+  font-size: 0.94rem;
+  font-weight: 800;
+}
+
+.hero-price-label {
+  color: #746652;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.hero-price {
+  color: #111111;
+  font-size: clamp(2rem, 2.8vw, 2.6rem);
+  line-height: 0.95;
+}
+
+.hero-includes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.hero-includes span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.9rem;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid #e4ddd1;
+  border-radius: 999px;
+  background: #faf8f3;
+  color: #40382d;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.hero-actions {
+  display: grid;
+  align-content: center;
+  justify-items: end;
+}
+
+.hero-actions button {
+  min-width: 12rem;
+  min-height: 3.25rem;
+  color: #ffffff;
+}
+
 .aircraft-facts,
 .detail-grid,
 .reservation-summary {
@@ -1400,15 +1713,29 @@ button {
   align-content: center;
 }
 
-.verified-pill {
-  display: inline-flex;
-  align-items: center;
-  min-height: 2rem;
-  width: fit-content;
-  padding: 0.35rem 0.8rem;
-  border-radius: 999px;
-  background: #edf6f0;
-  color: #1e6a3b;
+.aircraft-card-head {
+  display: flex;
+  gap: 0.8rem;
+  align-items: start;
+  justify-content: space-between;
+}
+
+.aircraft-card-head__copy {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.aircraft-trust-copy {
+  margin: 0;
+  color: #2f2821;
+  font-size: 0.96rem;
+  font-weight: 700;
+}
+
+.aircraft-quick-meta {
+  margin: 0;
+  color: #6d6252;
+  font-size: 0.9rem;
   font-weight: 600;
 }
 
@@ -1488,21 +1815,69 @@ button {
   background: linear-gradient(180deg, #fffdf8, #ffffff);
 }
 
+.price-stack {
+  display: grid;
+  gap: 0.22rem;
+}
+
+.price-stack small,
+.plan-card small {
+  color: #6d6252;
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.plan-accent {
+  color: #9a7322;
+  font-size: 0.9rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+
 .card-actions {
-  justify-content: end;
+  display: grid;
+  gap: 0.7rem;
+  align-content: center;
+  justify-items: end;
 }
 
 .card-actions button {
-  min-width: 9rem;
+  min-width: 12rem;
 }
 
 .card-actions button:first-child {
-  background: #ffffff;
+  min-height: 3.25rem;
+  background: linear-gradient(135deg, #111111, #2b2925);
+  color: #ffffff;
 }
 
-.card-actions button:last-child {
-  min-width: 10rem;
-  background: linear-gradient(135deg, #111111, #2b2925);
+.card-actions button:last-child:not(:only-child) {
+  min-height: 3rem;
+  background: #ffffff;
+  color: #111111;
+}
+
+.aircraft-list-compact {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.aircraft-card-compact {
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(190px, 230px);
+  min-height: 320px;
+  padding: 0.8rem;
+  border-radius: 18px;
+}
+
+.aircraft-card-compact .aircraft-thumb {
+  min-height: 320px;
+}
+
+.aircraft-card-compact .aircraft-copy {
+  display: grid;
+  align-content: center;
+  gap: 0.85rem;
+  min-height: 100%;
 }
 
 .aircraft-gallery {
@@ -1646,6 +2021,12 @@ button {
 
 .active-filter {
   background: #111111 !important;
+  border-color: #111111 !important;
+  color: #ffffff !important;
+  box-shadow: 0 14px 30px rgba(17, 17, 17, 0.14);
+}
+
+.active-filter strong {
   color: #ffffff !important;
 }
 
@@ -1667,6 +2048,7 @@ button {
   .profile-form {
     grid-template-columns: 1fr;
   }
+
 }
 
 @media (max-width: 760px) {
@@ -1786,11 +2168,25 @@ button {
     line-height: 1.08;
   }
 
+  .results-headline-hook {
+    font-size: 0.78rem;
+  }
+
   .screen-head p {
     display: block;
     margin-top: 0.16rem;
     font-size: 0.72rem;
     line-height: 1.2;
+  }
+
+  .filter-toolbar {
+    padding: 0.72rem;
+    border-radius: 12px;
+  }
+
+  .filter-toolbar__copy strong {
+    font-size: 0.76rem;
+    line-height: 1.3;
   }
 
   .route-summary-bar {
@@ -1869,6 +2265,11 @@ button {
     scroll-snap-align: start;
   }
 
+  .aircraft-card-head {
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
   .aircraft-thumb {
     min-height: 94px;
     border-radius: 8px;
@@ -1898,7 +2299,8 @@ button {
     gap: 0.12rem;
   }
 
-  .aircraft-copy h3 {
+  .aircraft-copy h3,
+  .aircraft-hero-copy h3 {
     font-size: 0.84rem;
     line-height: 1.05;
     font-weight: 600;
@@ -1921,8 +2323,15 @@ button {
     line-height: 1.05;
   }
 
-  .aircraft-price-line span {
+  .aircraft-price-line > span,
+  .aircraft-price-line small {
     font-size: 0.64rem;
+  }
+
+  .aircraft-trust-copy,
+  .aircraft-quick-meta {
+    font-size: 0.7rem;
+    line-height: 1.25;
   }
 
   .aircraft-facts {

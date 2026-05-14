@@ -7,7 +7,11 @@ const configuredFlightPackagesPath = String(
   import.meta.env.VITE_CLIENT_FLIGHT_PACKAGES_PATH || import.meta.env.VITE_CLIENT_MEMBERSHIPS_PATH || '',
 ).trim()
 const configuredAircraftPath = String(import.meta.env.VITE_CLIENT_AIRCRAFT_PATH || '').trim()
-const apiBaseUrl = String(import.meta.env.VITE_API_BASE_URL || 'https://uber-aviones.onrender.com/api/v1').trim()
+
+//
+//const apiBaseUrl = String(import.meta.env.VITE_API_BASE_URL || 'https://uber-aviones.onrender.com/api/v1').trim()
+const apiBaseUrl = String(import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api/v1').trim()
+
 const QUOTES_PREVIEW_PATH = configuredQuotesPreviewPath || '/client/quotes/preview'
 const CLIENT_TRIPS_PATH = configuredTripsPath || '/client/flight-requests'
 const CLIENT_FLIGHT_PACKAGES_PATH = configuredFlightPackagesPath || '/plans'
@@ -51,36 +55,40 @@ const FALLBACK_DESTINATIONS = [
 const FALLBACK_FLIGHT_PACKAGES = [
   {
     id: 'empty-leg',
+    code: 'empty_leg',
     name: 'Empty Leg',
     badge: 'Oportunidad',
-    price: '$18,000 USD',
+    multiplier: 0.8,
     category: 'Ahorro tactico',
     benefits: ['Precio preferente', 'Ruta sujeta a disponibilidad', 'Ideal para vuelos flexibles'],
     action: 'Elegir Empty Leg',
   },
   {
     id: 'essential',
+    code: 'essential',
     name: 'Essential',
     badge: 'Base',
-    price: '$28,000 USD',
+    multiplier: 1,
     category: 'Servicio privado',
     benefits: ['Coordinacion esencial', 'Cabina validada', 'Cierre comercial agil'],
     action: 'Elegir Essential',
   },
   {
     id: 'business',
+    code: 'business',
     name: 'Business',
     badge: 'Ejecutivo',
-    price: '$39,000 USD',
+    multiplier: 1.1,
     category: 'Operacion premium',
     benefits: ['Concierge operativo', 'Flexibilidad prioritaria', 'Seguimiento reforzado'],
     action: 'Elegir Business',
   },
   {
     id: 'elite',
+    code: 'elite',
     name: 'Elite',
     badge: 'Signature',
-    price: '$54,000 USD',
+    multiplier: 1.2,
     category: 'Experiencia total',
     benefits: ['Concierge dedicado', 'Prioridad maxima', 'Tracking y soporte integral'],
     action: 'Elegir Elite',
@@ -109,6 +117,17 @@ function asMoney(value) {
 function asNumber(value, fallback = 0) {
   const amount = Number(value)
   return Number.isFinite(amount) ? amount : fallback
+}
+
+function normalizePriorityType(value = '') {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_')
+
+  if (normalized === 'emptyleg') return 'empty_leg'
+  if (['empty_leg', 'essential', 'business', 'elite'].includes(normalized)) return normalized
+  return 'essential'
 }
 
 function normalizeTripType(value = '', label = '') {
@@ -304,7 +323,16 @@ function normalizeMatches(payload, itinerary = {}) {
 
     return {
       id: match.id || `match-${index}`,
+      match_id: match.match_id || match.matched_option_id || match.id || '',
+      matched_option_id: match.matched_option_id || match.match_id || match.id || '',
       aircraft_id: match.aircraft_id || match.aircraftId || aircraftRecord?.id || '',
+      provider_id:
+        match.provider_id ||
+        match.providerId ||
+        match.provider?.id ||
+        aircraftRecord?.provider_id ||
+        aircraftRecord?.provider?.id ||
+        '',
       aircraft:
         match.aircraft_name ||
         match.name ||
@@ -319,6 +347,15 @@ function normalizeMatches(payload, itinerary = {}) {
         match.price ||
         match.quoted_price ||
         (resolvedTotal ? asMoney(resolvedTotal) : asMoney(match.total || '')),
+      base_price: asNumber(match.base_price || aircraftRecord?.base_price || resolvedTotal || match.total || 0),
+      priority_type: normalizePriorityType(match.priority_type || match.service_tier || match.flight_package),
+      priority_multiplier: asNumber(match.priority_multiplier || match.service_multiplier || 1, 1),
+      priority_price: asNumber(match.priority_price || 0, 0),
+      landing_fees: asNumber(match.landing_fees || match.landing_fee || 0, 0),
+      fbo_fees: asNumber(match.fbo_fees || match.fbo || 0, 0),
+      fuel_surcharge: asNumber(match.fuel_surcharge || 0, 0),
+      overnight_fees: asNumber(match.overnight_fees || match.overnight_fee || 0, 0),
+      taxes: asNumber(match.taxes || match.tax || 0, 0),
       hidden_operator: match.hidden_operator ?? true,
       amenities: Array.isArray(match.amenities)
         ? match.amenities
@@ -629,7 +666,15 @@ function mergeMatchesWithCatalogImages(matches = [], catalog = []) {
 
     return {
       ...match,
+      match_id: match.match_id || match.matched_option_id || match.id || '',
+      matched_option_id: match.matched_option_id || match.match_id || match.id || '',
       aircraft_id: match.aircraft_id || catalogAircraft.aircraft_id || catalogAircraft.id,
+      provider_id:
+        match.provider_id ||
+        match.provider?.id ||
+        catalogAircraft.provider_id ||
+        catalogAircraft.provider?.id ||
+        '',
       aircraft: match.aircraft || catalogAircraft.aircraft,
       cabin: match.cabin || catalogAircraft.cabin,
       capacity: match.capacity || catalogAircraft.capacity,
@@ -676,11 +721,23 @@ function normalizeAircraftFromDatabase(raw = {}, index = 0, sourcePath = '') {
 
   return {
     id: raw.id || `aircraft-db-${index}`,
+    match_id: '',
+    matched_option_id: '',
     aircraft_id: raw.aircraft_id || raw.aircraftId || raw.id || '',
+    provider_id: raw.provider_id || raw.provider?.id || '',
     aircraft: aircraftName,
     cabin: raw.category || raw.aircraft_category || raw.type || raw.cabin || 'Cabina verificada',
     time: raw.estimated_time || raw.flight_time || '',
     final_price: asMoney(raw.final_price || raw.price || raw.quoted_price || hourlyRate),
+    base_price: asNumber(raw.base_price || raw.final_price || raw.price || raw.quoted_price || hourlyRate || 0),
+    priority_type: normalizePriorityType(raw.priority_type || raw.service_tier || raw.flight_package),
+    priority_multiplier: asNumber(raw.priority_multiplier || raw.service_multiplier || 1, 1),
+    priority_price: asNumber(raw.priority_price || 0, 0),
+    landing_fees: asNumber(raw.landing_fees || raw.landing_fee || 0, 0),
+    fbo_fees: asNumber(raw.fbo_fees || raw.fbo || 0, 0),
+    fuel_surcharge: asNumber(raw.fuel_surcharge || 0, 0),
+    overnight_fees: asNumber(raw.overnight_fees || raw.overnight_fee || 0, 0),
+    taxes: asNumber(raw.taxes || raw.tax || 0, 0),
     hidden_operator: true,
     amenities: normalizeAmenities(raw),
     response_time: raw.response_time || '',
@@ -799,10 +856,12 @@ function normalizeFlightPackage(flightPackage = {}, index = 0) {
 
   return {
     id: flightPackage.id || flightPackage.code || `package-${index}`,
+    code: normalizePriorityType(flightPackage.code || flightPackage.id || flightPackage.slug || flightPackage.name),
     name: flightPackage.name || flightPackage.title || `Paquete ${index + 1}`,
     badge: flightPackage.badge || flightPackage.code || '',
     category: flightPackage.category || flightPackage.segment || 'Servicio privado',
     price: flightPackage.price || asMoney(flightPackage.price_total || flightPackage.price_from || ''),
+    multiplier: asNumber(flightPackage.multiplier || flightPackage.priority_multiplier || flightPackage.factor || 1, 1),
     benefits,
     action: flightPackage.action || 'Elegir paquete',
   }
@@ -890,6 +949,12 @@ function buildFlightRequestPayload(itinerary = {}) {
   const departureTime = firstLeg.time || '09:00'
   const tripType = normalizeTripType(itinerary.trip_type, itinerary.trip_label)
   const flightPackage = String(itinerary.flight_package || itinerary.service_tier || '').trim()
+  const priorityType = normalizePriorityType(itinerary.priority_type || flightPackage)
+  const priorityMultiplier = asNumber(itinerary.priority_multiplier || 1, 1)
+  const basePrice = asNumber(itinerary.base_price || 0, 0)
+  const operationalFee = asNumber(itinerary.operational_fee || 0, 0)
+  const priorityPrice = asNumber(itinerary.priority_price || 0, 0)
+  const finalPrice = asNumber(itinerary.final_price || 0, 0)
 
   return {
     origin: firstLeg.origin || itinerary.origin || '',
@@ -900,8 +965,20 @@ function buildFlightRequestPayload(itinerary = {}) {
     trip_type: tripType,
     trip_label: itinerary.trip_label || 'Ida',
     aircraft_type: itinerary.preference || null,
-    flight_package: flightPackage || null,
-    service_tier: flightPackage || null,
+    aircraft_id: itinerary.aircraft_id || null,
+    provider_id: itinerary.provider_id || null,
+    match_id: itinerary.match_id || itinerary.matched_option_id || null,
+    matched_option_id: itinerary.matched_option_id || itinerary.match_id || null,
+    flight_package: flightPackage || priorityType || null,
+    service_tier: flightPackage || priorityType || null,
+    priority_type: priorityType,
+    priority_multiplier: priorityMultiplier,
+    base_price: basePrice || null,
+    operational_fee: operationalFee || null,
+    priority_price: priorityPrice,
+    final_price: finalPrice || null,
+    source_database: itinerary.source_database || null,
+    source_table: itinerary.source_table || null,
     requirements: Array.isArray(itinerary.legs) && itinerary.legs.length > 1 ? itinerary.legs.slice(1) : [],
     pets: itinerary.pets || null,
     special_baggage: itinerary.special_baggage || itinerary.specialBaggage || null,
@@ -909,7 +986,7 @@ function buildFlightRequestPayload(itinerary = {}) {
     schedule_flexibility: itinerary.schedule_flexibility || itinerary.scheduleFlexibility || null,
     notes: [
       itinerary.trip_label || tripType || '',
-      flightPackage,
+      flightPackage || priorityType,
       itinerary.pets === 'Si' ? 'Mascotas a bordo' : '',
       itinerary.special_baggage || itinerary.specialBaggage || '',
       itinerary.catering || '',
@@ -968,7 +1045,7 @@ export async function searchClientFlights(itinerary) {
     const payload = await api.post(QUOTES_PREVIEW_PATH, buildFlightRequestPayload(itinerary))
     matches = normalizeMatches(payload, itinerary)
   } catch {
-    // El preview no guarda solicitudes. Si falla, mostramos catalogo activo como respaldo visual.
+    // La vista de resultados solo debe mostrar cotizacion real calculada por backend.
   }
 
   const aircraft = await getAircraftFromDatabase(aircraftQuery)
@@ -976,7 +1053,7 @@ export async function searchClientFlights(itinerary) {
     return filterAircraftByItinerary(mergeMatchesWithCatalogImages(matches, aircraft), itinerary)
   }
 
-  return filterAircraftByItinerary(aircraft, itinerary)
+  return []
 }
 
 export async function createClientFlightRequest(itinerary) {

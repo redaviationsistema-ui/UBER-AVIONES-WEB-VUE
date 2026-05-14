@@ -69,9 +69,10 @@ Access-Control-Allow-Credentials: true
 ```
 
 Prueba con:
-
+http://127.0.0.1:8000/api/v1'
 ```bash
 curl -i -X OPTIONS "https://uber-aviones.onrender.com/api/v1/auth/login" ^
+
   -H "Origin: http://localhost:5173" ^
   -H "Access-Control-Request-Method: POST" ^
   -H "Access-Control-Request-Headers: content-type"

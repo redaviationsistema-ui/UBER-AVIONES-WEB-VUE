@@ -42,7 +42,7 @@ const WORKFLOW_DEFINITIONS = {
     matches: ['reserved', 'reserva', 'reservada', 'reservado', 'solicitada', 'pending', 'pendiente'],
   },
   provider_pending: {
-    label: 'Pendiente',
+    label: 'Esperando proveedor',
     apiStatus: 'provider_pending',
     apiWorkflow: 'proveedor por confirmar',
     matches: [
@@ -57,7 +57,7 @@ const WORKFLOW_DEFINITIONS = {
     ],
   },
   provider_accepted: {
-    label: 'Confirmado',
+    label: 'Proveedor confirmado',
     apiStatus: 'provider_accepted',
     apiWorkflow: 'proveedor aceptado',
     matches: [
@@ -123,7 +123,7 @@ const WORKFLOW_DEFINITIONS = {
     matches: ['completed', 'completada', 'finalizada', 'finalizado', 'cerrada', 'post-vuelo'],
   },
   rejected: {
-    label: 'Cancelado',
+    label: 'No disponible',
     apiStatus: 'rejected',
     apiWorkflow: 'rechazada',
     matches: ['rejected', 'rechazada', 'rechazado', 'declined', 'no viable'],
@@ -197,6 +197,12 @@ export function buildClientWorkflowTimeline(value, hasRequests = false) {
       description: 'Seleccionas la mejor opcion, completas pasajeros y dejas tu vuelo listo para confirmacion.',
       meta: 'Conversion',
       done: hasRequests && hasReachedWorkflowStage(value, 'reserved'),
+    },
+    {
+      title: 'Proveedor responde la solicitud',
+      description: 'Red Aviation coordina con el proveedor la aceptacion o rechazo operativo sin exponer contacto directo.',
+      meta: 'Proveedor',
+      done: hasRequests && hasReachedWorkflowStage(value, 'provider_accepted'),
     },
     {
       title: 'Tu vuelo esta siendo confirmado',

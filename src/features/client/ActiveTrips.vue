@@ -14,7 +14,7 @@ defineEmits(['open-contract', 'open-detail', 'open-payment', 'open-concierge'])
 const PROGRESS_STEPS = [
   { key: 'quote', label: 'Cotizacion' },
   { key: 'booking', label: 'Reserva' },
-  { key: 'provider', label: 'Proveedor' },
+  { key: 'provider', label: 'Respuesta proveedor' },
   { key: 'contract', label: 'Contrato' },
   { key: 'payment', label: 'Pago' },
   { key: 'flight', label: 'Vuelo' },
@@ -210,7 +210,7 @@ function nextAction(status = '') {
 
   if (meta.step === 'quote') return 'Siguiente paso: validacion de cotizacion'
   if (meta.step === 'booking') return 'Siguiente paso: cierre de reserva'
-  if (meta.step === 'provider') return 'Siguiente paso: aceptacion del proveedor'
+  if (meta.step === 'provider') return 'Siguiente paso: respuesta del proveedor'
   if (meta.step === 'contract') return 'Siguiente paso: firma de contrato'
   if (meta.step === 'payment') return 'Siguiente paso: confirmacion de pago'
   if (meta.step === 'flight') return 'Siguiente paso: confirmacion de vuelo'
