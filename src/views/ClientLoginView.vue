@@ -1,14 +1,16 @@
 <script setup>
-import { reactive, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import BrandLogo from '../components/BrandLogo.vue'
 import { useSocialAuth } from '../composables/useSocialAuth'
 import { sanitizePostLoginRedirect } from '../lib/authRouting'
 import { useAuthStore } from '../stores/auth'
+import { useUiStore } from '../stores/ui'
 
 const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
+const ui = useUiStore()
 const { googleAuthUrl, appleAuthUrl } = useSocialAuth()
 
 const form = reactive({
@@ -19,6 +21,16 @@ const form = reactive({
 const errorMessage = ref('')
 const currentStep = ref(1)
 const showPassword = ref(false)
+
+onMounted(() => {
+  if (route.query.session === 'expired') {
+    ui.pushToast({
+      tone: 'error',
+      title: 'Sesion expirada',
+      message: 'Tu sesion vencio. Inicia sesion de nuevo para continuar.',
+    })
+  }
+})
 
 function continueToPassword() {
   errorMessage.value = ''

@@ -250,7 +250,10 @@ function routePreview(origin = '', destination = '') {
               @focus="activeAirportKey = airportKey('form', 'origin')"
               @input="updateFormAirport('origin', $event)"
             />
-            <div v-if="activeAirportKey === airportKey('form', 'origin')" class="airport-options">
+            <div
+              v-if="activeAirportKey === airportKey('form', 'origin') && (airportLoading[airportKey('form', 'origin')] || (airportSuggestions[airportKey('form', 'origin')] || []).length)"
+              class="airport-options"
+            >
               <span v-if="airportLoading[airportKey('form', 'origin')]">Buscando...</span>
               <button
                 v-for="airport in airportSuggestions[airportKey('form', 'origin')] || []"
@@ -270,7 +273,10 @@ function routePreview(origin = '', destination = '') {
               @focus="activeAirportKey = airportKey('form', 'destination')"
               @input="updateFormAirport('destination', $event)"
             />
-            <div v-if="activeAirportKey === airportKey('form', 'destination')" class="airport-options">
+            <div
+              v-if="activeAirportKey === airportKey('form', 'destination') && (airportLoading[airportKey('form', 'destination')] || (airportSuggestions[airportKey('form', 'destination')] || []).length)"
+              class="airport-options"
+            >
               <span v-if="airportLoading[airportKey('form', 'destination')]">Buscando...</span>
               <button
                 v-for="airport in airportSuggestions[airportKey('form', 'destination')] || []"
@@ -325,7 +331,10 @@ function routePreview(origin = '', destination = '') {
                     @focus="activeAirportKey = airportKey('form', 'origin')"
                     @input="updateFormAirport('origin', $event)"
                   />
-                  <div v-if="activeAirportKey === airportKey('form', 'origin')" class="airport-options">
+                  <div
+                    v-if="activeAirportKey === airportKey('form', 'origin') && (airportLoading[airportKey('form', 'origin')] || (airportSuggestions[airportKey('form', 'origin')] || []).length)"
+                    class="airport-options"
+                  >
                     <span v-if="airportLoading[airportKey('form', 'origin')]">Buscando...</span>
                     <button
                       v-for="airport in airportSuggestions[airportKey('form', 'origin')] || []"
@@ -345,7 +354,10 @@ function routePreview(origin = '', destination = '') {
                     @focus="activeAirportKey = airportKey('form', 'destination')"
                     @input="updateFormAirport('destination', $event)"
                   />
-                  <div v-if="activeAirportKey === airportKey('form', 'destination')" class="airport-options">
+                  <div
+                    v-if="activeAirportKey === airportKey('form', 'destination') && (airportLoading[airportKey('form', 'destination')] || (airportSuggestions[airportKey('form', 'destination')] || []).length)"
+                    class="airport-options"
+                  >
                     <span v-if="airportLoading[airportKey('form', 'destination')]">Buscando...</span>
                     <button
                       v-for="airport in airportSuggestions[airportKey('form', 'destination')] || []"
@@ -458,7 +470,10 @@ function routePreview(origin = '', destination = '') {
                     @focus="index === 0 ? (activeAirportKey = airportKey('leg', 'origin', index)) : null"
                     @input="updateLegAirport(index, 'origin', $event)"
                   />
-                  <div v-if="index === 0 && activeAirportKey === airportKey('leg', 'origin', index)" class="airport-options">
+                  <div
+                    v-if="index === 0 && activeAirportKey === airportKey('leg', 'origin', index) && (airportLoading[airportKey('leg', 'origin', index)] || (airportSuggestions[airportKey('leg', 'origin', index)] || []).length)"
+                    class="airport-options"
+                  >
                     <span v-if="airportLoading[airportKey('leg', 'origin', index)]">Buscando...</span>
                     <button
                       v-for="airport in airportSuggestions[airportKey('leg', 'origin', index)] || []"
@@ -478,7 +493,10 @@ function routePreview(origin = '', destination = '') {
                     @focus="activeAirportKey = airportKey('leg', 'destination', index)"
                     @input="updateLegAirport(index, 'destination', $event)"
                   />
-                  <div v-if="activeAirportKey === airportKey('leg', 'destination', index)" class="airport-options">
+                  <div
+                    v-if="activeAirportKey === airportKey('leg', 'destination', index) && (airportLoading[airportKey('leg', 'destination', index)] || (airportSuggestions[airportKey('leg', 'destination', index)] || []).length)"
+                    class="airport-options"
+                  >
                     <span v-if="airportLoading[airportKey('leg', 'destination', index)]">Buscando...</span>
                     <button
                       v-for="airport in airportSuggestions[airportKey('leg', 'destination', index)] || []"

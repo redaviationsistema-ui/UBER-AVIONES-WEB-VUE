@@ -1,17 +1,17 @@
 import { api } from './api'
-import { mapAirportPayload } from '../utils/airports'
+import { mapAirportPayload, searchFeaturedAirports } from '../utils/airports'
 
 const configuredPath = String(import.meta.env.VITE_AIRPORT_SEARCH_PATH || '').trim()
 
-const candidatePaths = [
+const candidatePaths = [...new Set([
   configuredPath,
+  '/search',
   '/airports/search',
-  '/airports',
   '/public/airports/search',
-  '/public/airports',
-].filter(Boolean)
+].filter(Boolean))]
 
 let resolvedAirportPath = ''
+const unavailableAirportPaths = new Set()
 
 function normalizeAirportList(payload) {
   const rawList = payload?.airports || payload?.data || payload?.results || payload?.items || []
@@ -49,41 +49,54 @@ async function fetchByPath(path, query) {
 
 export async function searchAirports(query, limit = 6) {
   const trimmedQuery = String(query || '').trim()
+  const fallbackItems = searchFeaturedAirports(trimmedQuery, limit)
 
   if (!trimmedQuery) {
     return {
-      items: [],
-      source: 'remote',
+      items: fallbackItems,
+      source: 'local',
     }
   }
 
   if (resolvedAirportPath) {
     try {
       const remoteItems = await fetchByPath(resolvedAirportPath, trimmedQuery)
+      const mergedItems = mergeUniqueAirports([...remoteItems, ...fallbackItems], limit)
       return {
-        items: mergeUniqueAirports(remoteItems, limit),
-        source: 'remote',
+        items: mergedItems,
+        source: remoteItems.length ? 'remote' : 'local',
       }
-    } catch {
+    } catch (error) {
+      if ([404, 405].includes(Number(error?.status))) {
+        unavailableAirportPaths.add(resolvedAirportPath)
+      }
       resolvedAirportPath = ''
     }
   }
 
   for (const path of candidatePaths) {
+    if (unavailableAirportPaths.has(path)) {
+      continue
+    }
+
     try {
       const remoteItems = await fetchByPath(path, trimmedQuery)
       resolvedAirportPath = path
+      const mergedItems = mergeUniqueAirports([...remoteItems, ...fallbackItems], limit)
       return {
-        items: mergeUniqueAirports(remoteItems, limit),
-        source: 'remote',
+        items: mergedItems,
+        source: remoteItems.length ? 'remote' : 'local',
       }
-    } catch {
+    } catch (error) {
+      if ([404, 405].includes(Number(error?.status))) {
+        unavailableAirportPaths.add(path)
+      }
       continue
     }
   }
 
   return {
-    items: [],
-    source: 'remote',
+    items: fallbackItems,
+    source: 'local',
   }
 }

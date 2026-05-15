@@ -146,10 +146,10 @@ const itineraryDays = computed(() => {
 })
 const estimatedTotal = computed(() => {
   const pricing = aircraftPricingForType(aircraftOptions.value[0] || {}, selectedPriorityType.value)
-  return pricing.formattedFinalPrice || aircraftOptions.value[0]?.final_price || ''
+  return pricing.formattedFinalPrice || ''
 })
 const estimatedTime = computed(() => {
-  return aircraftOptions.value[0]?.time || ''
+  return aircraftDurationLabel(aircraftOptions.value[0] || {})
 })
 const suggestedCabin = computed(() => {
   return aircraftOptions.value[0]?.cabin || ''
@@ -494,8 +494,58 @@ function routeDistanceKmForAircraft(aircraft = {}) {
   )
 }
 
+function aircraftPricingContext() {
+  return {
+    packageCode: selectedPriorityType.value,
+    attentionLevel: 'normal',
+    tripType: activeItinerarySummary.value?.tripType || activeItinerarySummary.value?.trip_type || '',
+    segmentCount: Array.isArray(activeItinerarySummary.value?.legs) ? activeItinerarySummary.value.legs.length : 0,
+    overnightNights: activeItinerarySummary.value?.days || 0,
+    legs: activeItinerarySummary.value?.legs || [],
+    catering: activeItinerarySummary.value?.catering || '',
+    wifi: activeItinerarySummary.value?.wifi || 'none',
+    groundTransport: activeItinerarySummary.value?.groundTransport || 'none',
+    pets: activeItinerarySummary.value?.pets || '',
+    specialBaggage: activeItinerarySummary.value?.specialBaggage || '',
+  }
+}
+
+function aircraftOperationalFlightHours(aircraft = {}) {
+  const formula = buildFlightPricingFormula(aircraft, aircraftPricingContext())
+  const operationalHours = formula.realFlightHours
+
+  if (Number.isFinite(operationalHours) && operationalHours > 0) {
+    return operationalHours
+  }
+
+  return 0
+}
+
+function aircraftDisplayFlightHours(aircraft = {}) {
+  const operationalHours = aircraftOperationalFlightHours(aircraft)
+  if (operationalHours > 0) return operationalHours
+
+  const explicitVisibleHours = Number(aircraft.real_flight_hours || aircraft.flight_hours || 0)
+  if (Number.isFinite(explicitVisibleHours) && explicitVisibleHours > 0) return explicitVisibleHours
+
+  const distanceKm = routeDistanceKmForAircraft(aircraft)
+  const speedKmh = Number(aircraft.speed_kmh || aircraft.speedKmh || 0)
+  const climbDescentHours =
+    Number(aircraft.climb_descent_hours || 0) ||
+    Number(aircraft.climb_descent_minutes || aircraft.pricing_context?.climb_descent_minutes || 0) / 60
+
+  if (distanceKm > 0 && speedKmh > 0) {
+    return distanceKm / speedKmh + climbDescentHours
+  }
+
+  const estimatedHours = Number(aircraft.estimated_hours || 0)
+  if (Number.isFinite(estimatedHours) && estimatedHours > 0) return estimatedHours
+
+  return 0
+}
+
 function aircraftTimeValue(aircraft) {
-  const explicitHours = Number(aircraft.estimated_hours || aircraft.billable_hours || 0)
+  const explicitHours = aircraftDisplayFlightHours(aircraft)
   if (explicitHours) return explicitHours
 
   const rawTime = String(aircraft.time || aircraft.flight_time || '')
@@ -565,21 +615,21 @@ function formatDurationFromHours(hours = 0) {
 }
 
 function inferredFlightWindowHours(aircraft = {}) {
-  const directHours = Number(aircraft.estimated_hours || aircraft.real_flight_hours || 0)
+  const directHours = aircraftDisplayFlightHours(aircraft)
   if (!Number.isFinite(directHours) || directHours <= 0) return null
 
   const cabin = String(aircraft.cabin || aircraft.category || '').toLowerCase()
-  let upperHours = directHours
+  let spreadHours = 0.05
 
-  if (cabin.includes('helic')) upperHours += 0.18
-  else if (cabin.includes('turbo')) upperHours += 0.22
-  else if (cabin.includes('light')) upperHours += 0.2
-  else if (cabin.includes('mid')) upperHours += 0.22
-  else upperHours += 0.25
+  if (cabin.includes('helic')) spreadHours = 0.08
+  else if (cabin.includes('turbo')) spreadHours = 0.06
+  else if (cabin.includes('light')) spreadHours = 0.05
+  else if (cabin.includes('mid')) spreadHours = 0.05
+  else spreadHours = 0.06
 
   return {
     min: directHours,
-    max: Math.max(upperHours, directHours),
+    max: Math.max(directHours + spreadHours, directHours),
   }
 }
 
@@ -592,11 +642,24 @@ function aircraftDurationLabel(aircraft = {}) {
     if (minLabel) return minLabel
   }
 
-  const estimatedFlightHours = Number(aircraft.estimated_hours || aircraft.real_flight_hours || 0)
+  const estimatedFlightHours = aircraftDisplayFlightHours(aircraft)
   const estimatedFlightLabel = formatDurationFromHours(estimatedFlightHours)
   if (estimatedFlightLabel) return estimatedFlightLabel
 
   return String(aircraft.time || aircraft.flight_time || activeItinerarySummary.value?.estimatedTime || '42 min')
+}
+
+function aircraftBillingHours(aircraft = {}) {
+  const explicitBillableHours = Number(aircraft.billable_hours || 0)
+  if (Number.isFinite(explicitBillableHours) && explicitBillableHours > 0) return explicitBillableHours
+
+  const minimumHours = Number(aircraft.minimum_hours || 0)
+  const displayHours = aircraftDisplayFlightHours(aircraft)
+  return Math.max(displayHours, minimumHours, 0)
+}
+
+function aircraftBillingNote(aircraft = {}) {
+  return ''
 }
 
 function aircraftCapacityLabel(aircraft = {}) {
@@ -668,9 +731,10 @@ const technicalSheetInsights = computed(() => {
 
   return [
     `Tiempo estimado ${aircraftDurationLabel(aircraft)} para esta ruta.`,
+    aircraftBillingNote(aircraft) || 'Tarifa alineada a la operacion publicada por el operador.',
     `${aircraftEmotionalCopy(aircraft)}.`,
     `${aircraftPriceCopy(aircraft)} con una presentacion premium lista para cliente final.`,
-  ]
+  ].filter(Boolean)
 })
 
 
@@ -722,21 +786,14 @@ function resolveAircraftOperationalFees(aircraft = {}) {
 function aircraftPricingForType(aircraft = {}, priorityType = 'essential') {
   const priorityMeta = resolvePriorityOption(priorityType)
   const formula = buildFlightPricingFormula(aircraft, {
+    ...aircraftPricingContext(),
     packageCode: priorityType,
-    attentionLevel: 'normal',
-    overnightNights: activeItinerarySummary.value?.days || 0,
-    legs: activeItinerarySummary.value?.legs || [],
-    catering: activeItinerarySummary.value?.catering || '',
-    wifi: activeItinerarySummary.value?.wifi || 'none',
-    groundTransport: activeItinerarySummary.value?.groundTransport || 'none',
-    pets: activeItinerarySummary.value?.pets || '',
-    specialBaggage: activeItinerarySummary.value?.specialBaggage || '',
   })
 
   if (formula.hasFormulaInputs) {
     return {
       basePrice: formula.baseCost,
-      operationalFees: formula.repositioning + formula.operationalCosts + formula.extraServices.total,
+      operationalFees: formula.airportFees + formula.ivaAmount + formula.expensesTotal,
       priorityMultiplier: formula.commercialMargin,
       priorityPrice: Math.max(formula.finalPrice - formula.subtotalBeforeMultipliers, 0),
       finalPrice: formula.finalPrice,
@@ -766,9 +823,7 @@ function aircraftPricingForType(aircraft = {}, priorityType = 'essential') {
       subtotalBeforeMultipliers: formula.subtotalBeforeMultipliers,
       formattedBasePrice: formatCurrency(formula.baseCost),
       formattedPriorityPrice: formatCurrency(Math.max(formula.finalPrice - formula.subtotalBeforeMultipliers, 0)),
-      formattedOperationalFees: formatCurrency(
-        formula.repositioning + formula.operationalCosts + formula.extraServices.total,
-      ),
+      formattedOperationalFees: formatCurrency(formula.airportFees + formula.ivaAmount + formula.expensesTotal),
       formattedFinalPrice: formatCurrency(formula.finalPrice),
       formattedSavings: formatCurrency(0),
       formattedSubtotalBeforeMultipliers: formatCurrency(formula.subtotalBeforeMultipliers),
@@ -1237,18 +1292,26 @@ async function handleLogout() {
 
 async function loadServerData() {
   loadingServerData.value = true
+  serverSearchError.value = ''
 
-  const [destinations, plans, trips] = await Promise.all([
-    getClientDestinations(),
-    getClientFlightPackages(),
-    getClientTrips(),
-  ])
+  try {
+    const [destinationsResult, plansResult, tripsResult] = await Promise.allSettled([
+      getClientDestinations(),
+      getClientFlightPackages(),
+      getClientTrips(),
+    ])
 
-  featuredDestinations.value = destinations
-  flightPackages.value = plans
-  ensureDefaultPriority(plans)
-  reservations.value = trips
-  loadingServerData.value = false
+    const destinations = destinationsResult.status === 'fulfilled' ? destinationsResult.value : []
+    const plans = plansResult.status === 'fulfilled' ? plansResult.value : []
+    const trips = tripsResult.status === 'fulfilled' ? tripsResult.value : []
+
+    featuredDestinations.value = destinations
+    flightPackages.value = plans
+    ensureDefaultPriority(plans)
+    reservations.value = trips
+  } finally {
+    loadingServerData.value = false
+  }
 }
 
 onMounted(loadServerData)
@@ -1390,6 +1453,9 @@ watch(
             <div class="aircraft-hero-copy">
               <h3>{{ featuredAircraft.aircraft }}</h3>
               <p class="aircraft-time-line">{{ aircraftSpeedLine(featuredAircraft, activeItinerarySummary) }}</p>
+              <p v-if="aircraftBillingNote(featuredAircraft)" class="aircraft-billing-note">
+                {{ aircraftBillingNote(featuredAircraft) }}
+              </p>
               <p class="hero-price-label">Tarifa estimada total</p>
               <strong class="hero-price">{{ aircraftPriceCopy(featuredAircraft) }}</strong>
               <p class="hero-service-copy">Incluye operacion, logistica y servicio ejecutivo.</p>
@@ -1431,6 +1497,9 @@ watch(
                     <span class="eyebrow">Opcion privada</span>
                     <h3>{{ aircraft.aircraft }}</h3>
                     <p class="aircraft-time-line">{{ aircraftSpeedLine(aircraft, activeItinerarySummary) }}</p>
+                    <p v-if="aircraftBillingNote(aircraft)" class="aircraft-billing-note">
+                      {{ aircraftBillingNote(aircraft) }}
+                    </p>
                   </div>
                 </div>
                 <p class="aircraft-price-line">
@@ -2211,6 +2280,13 @@ button {
   color: #6c604f;
   font-size: 0.92rem;
   font-weight: 600;
+}
+
+.aircraft-billing-note {
+  margin: 0;
+  color: #8f6613;
+  font-size: 0.82rem;
+  font-weight: 700;
 }
 
 .hero-includes {

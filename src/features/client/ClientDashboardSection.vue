@@ -392,10 +392,18 @@ function scheduleAirportSearch(field, query) {
 
   debounceTimers[field] = window.setTimeout(async () => {
     const token = ++requestTokens[field]
+    const trimmedQuery = String(query || '').trim()
+
+    if (!trimmedQuery) {
+      airportSuggestions.value[field] = []
+      airportLoading.value[field] = false
+      return
+    }
+
     airportLoading.value[field] = true
 
     try {
-      const result = await searchAirports(query, 6)
+      const result = await searchAirports(trimmedQuery, 6)
       if (requestTokens[field] !== token) return
       airportSuggestions.value[field] = result.items
       airportSource.value[field] = result.source
@@ -470,11 +478,12 @@ onBeforeUnmount(() => {
                 @input="updateField('origin', $event)"
               />
               <div
-                v-if="activeAirportField === 'origin' && originSuggestions.length"
+                v-if="activeAirportField === 'origin' && (airportLoading.origin || originSuggestions.length)"
                 class="airport-suggestions"
               >
                 <div class="airport-search-meta">
-                  <span>{{ airportLoading.origin ? 'Buscando aeropuertos...' : airportSource.origin === 'remote' ? 'Resultados conectados al backend' : 'Sugerencias locales de apoyo' }}</span>
+                  <span v-if="airportLoading.origin">Buscando aeropuertos...</span>
+                  <span v-else>{{ airportSource.origin === 'remote' ? 'Resultados conectados al backend' : 'Sugerencias locales de apoyo' }}</span>
                 </div>
                 <button
                   v-for="airport in originSuggestions"
@@ -499,11 +508,12 @@ onBeforeUnmount(() => {
                 @input="updateField('destination', $event)"
               />
               <div
-                v-if="activeAirportField === 'destination' && destinationSuggestions.length"
+                v-if="activeAirportField === 'destination' && (airportLoading.destination || destinationSuggestions.length)"
                 class="airport-suggestions"
               >
                 <div class="airport-search-meta">
-                  <span>{{ airportLoading.destination ? 'Buscando aeropuertos...' : airportSource.destination === 'remote' ? 'Resultados conectados al backend' : 'Sugerencias locales de apoyo' }}</span>
+                  <span v-if="airportLoading.destination">Buscando aeropuertos...</span>
+                  <span v-else>{{ airportSource.destination === 'remote' ? 'Resultados conectados al backend' : 'Sugerencias locales de apoyo' }}</span>
                 </div>
                 <button
                   v-for="airport in destinationSuggestions"

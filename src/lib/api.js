@@ -1,13 +1,16 @@
 // Prioridad local:
 // VITE_API_BASE_URL=http://127.0.0.1:8000/api/v1
 // VITE_BACKEND_ORIGIN=http://127.0.0.1:8000
-// Fallback Render:
+// Fallback Render deshabilitado temporalmente:
 // VITE_FALLBACK_API_BASE_URL=https://uber-aviones.onrender.com/api/v1
 // VITE_FALLBACK_BACKEND_ORIGIN=https://uber-aviones.onrender.com
 const API_BASE_URL = String(import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api/v1').replace(/\/$/, '')
 const CONFIGURED_BACKEND_ORIGIN = String(import.meta.env.VITE_BACKEND_ORIGIN || '').replace(/\/$/, '')
-const FALLBACK_API_BASE_URL = String(import.meta.env.VITE_FALLBACK_API_BASE_URL || '').replace(/\/$/, '')
-const FALLBACK_BACKEND_ORIGIN = String(import.meta.env.VITE_FALLBACK_BACKEND_ORIGIN || '').replace(/\/$/, '')
+// const FALLBACK_API_BASE_URL = String(import.meta.env.VITE_FALLBACK_API_BASE_URL || '').replace(/\/$/, '')
+// const FALLBACK_BACKEND_ORIGIN = String(import.meta.env.VITE_FALLBACK_BACKEND_ORIGIN || '').replace(/\/$/, '')
+const FALLBACK_API_BASE_URL = ''
+const FALLBACK_BACKEND_ORIGIN = ''
+const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS || 15000)
 
 
 let memoryToken = null
@@ -119,6 +122,15 @@ function buildUrl(path, query = {}, backendOverride = null) {
   return url.toString()
 }
 
+function shouldLogAircraftRequest(path = '') {
+  return String(path || '').toLowerCase().includes('aircraft')
+}
+
+function logAircraftRequest(label, details = {}) {
+  if (typeof console === 'undefined') return
+  console.log(`[aircraft-debug] ${label}`, details)
+}
+
 function getFilenameFromDisposition(disposition = '') {
   const utfMatch = disposition.match(/filename\*=UTF-8''([^;]+)/i)
   if (utfMatch?.[1]) {
@@ -168,6 +180,32 @@ function extractApiErrorMessage(payload = {}, status = 0) {
   return `Error ${status}`
 }
 
+function isUnauthorizedResponse(response, payload = {}) {
+  if (response?.status === 401) return true
+
+  const message = String(payload?.message || '')
+    .trim()
+    .toLowerCase()
+
+  return message === 'unauthenticated.' || message === 'unauthenticated'
+}
+
+function redirectToClientLogin() {
+  if (typeof window === 'undefined') return
+
+  const currentPath = `${window.location.pathname || '/'}${window.location.search || ''}${window.location.hash || ''}`
+  const isAlreadyOnClientLogin = currentPath.startsWith('/login-cliente') || currentPath.startsWith('/login')
+  if (isAlreadyOnClientLogin) return
+
+  const loginUrl = new URL('/login-cliente', window.location.origin)
+  loginUrl.searchParams.set('session', 'expired')
+  if (currentPath && currentPath !== '/') {
+    loginUrl.searchParams.set('redirect', currentPath)
+  }
+
+  window.location.replace(loginUrl.toString())
+}
+
 export function getStoredToken() {
   if (!memoryToken && canUseSessionStorage()) {
     memoryToken = window.sessionStorage.getItem(AUTH_STORAGE_KEY)
@@ -211,8 +249,10 @@ export function clearStoredToken() {
     window.localStorage.removeItem(AUTH_STORAGE_KEY)
   }
 }
-
+// checar la causa del porque no me muestra el valor presiso como en el sistema , contemplando el ascenso y el desenso 
+// guiate con el movil 
 export async function apiRequest(path, options = {}) {
+  const timeoutMs = Number.isFinite(Number(options.timeoutMs)) ? Number(options.timeoutMs) : API_TIMEOUT_MS
   const config = {
     method: options.method || 'GET',
     headers: buildHeaders(options.headers),
@@ -236,9 +276,39 @@ export async function apiRequest(path, options = {}) {
 
   for (const candidate of orderedCandidates) {
     const url = buildUrl(path, options.query, candidate)
+    const isAircraftRequest = shouldLogAircraftRequest(path)
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null
+    const timeoutId =
+      controller && timeoutMs > 0
+        ? window.setTimeout(() => controller.abort(new Error(`Timeout after ${timeoutMs}ms`)), timeoutMs)
+        : null
 
     try {
+      if (isAircraftRequest) {
+        logAircraftRequest('request', {
+          method: config.method,
+          path,
+          query: options.query || {},
+          url,
+        })
+      }
+
+      if (controller) {
+        config.signal = controller.signal
+      }
       response = await fetch(url, config)
+
+      if (isAircraftRequest && !response.ok) {
+        logAircraftRequest('http-error-response', {
+          method: config.method,
+          path,
+          query: options.query || {},
+          url,
+          status: response.status,
+          statusText: response.statusText,
+        })
+      }
+
       const matchedIndex = candidates.findIndex(
         (item) => item.apiBaseUrl === candidate.apiBaseUrl && item.origin === candidate.origin,
       )
@@ -246,6 +316,17 @@ export async function apiRequest(path, options = {}) {
       lastError = null
       break
     } catch (error) {
+      if (isAircraftRequest) {
+        logAircraftRequest('network-error', {
+          method: config.method,
+          path,
+          query: options.query || {},
+          url,
+          message: error?.message || 'Unknown network error',
+          error,
+        })
+      }
+
       lastError = error
 
       const matchedIndex = candidates.findIndex(
@@ -253,6 +334,10 @@ export async function apiRequest(path, options = {}) {
       )
       const nextIndex = matchedIndex >= 0 ? matchedIndex + 1 : 0
       activeBackendIndex = nextIndex < candidates.length ? nextIndex : 0
+    } finally {
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId)
+      }
     }
   }
 
@@ -287,6 +372,23 @@ export async function apiRequest(path, options = {}) {
     : {}
 
   if (!response.ok || payload.success === false) {
+    if (shouldLogAircraftRequest(path)) {
+      logAircraftRequest('api-error-payload', {
+        method: config.method,
+        path,
+        query: options.query || {},
+        url: response.url,
+        status: response.status,
+        statusText: response.statusText,
+        payload,
+      })
+    }
+
+    if (isUnauthorizedResponse(response, payload)) {
+      clearStoredToken()
+      redirectToClientLogin()
+    }
+
     const error = new Error(extractApiErrorMessage(payload, response.status))
     error.status = response.status
     error.payload = payload

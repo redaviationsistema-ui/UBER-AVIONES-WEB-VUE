@@ -7,20 +7,20 @@ function compact(parts) {
 }
 
 export const featuredAirports = [
-  { code: 'MMMX', iata: 'MEX', name: 'Aeropuerto Internacional Benito Juarez', city: 'Ciudad de Mexico', country: 'Mexico' },
-  { code: 'MMTO', iata: 'TLC', name: 'Aeropuerto Internacional de Toluca', city: 'Toluca', country: 'Mexico' },
-  { code: 'MMMY', iata: 'MTY', name: 'Aeropuerto Internacional de Monterrey', city: 'Monterrey', country: 'Mexico' },
-  { code: 'MMGL', iata: 'GDL', name: 'Aeropuerto Internacional de Guadalajara', city: 'Guadalajara', country: 'Mexico' },
-  { code: 'MMSD', iata: 'SJD', name: 'Aeropuerto Internacional de Los Cabos', city: 'Los Cabos', country: 'Mexico' },
-  { code: 'MMUN', iata: 'CUN', name: 'Aeropuerto Internacional de Cancun', city: 'Cancun', country: 'Mexico' },
-  { code: 'MMPR', iata: 'PVR', name: 'Aeropuerto Internacional Lic. Gustavo Diaz Ordaz', city: 'Puerto Vallarta', country: 'Mexico' },
-  { code: 'MMZH', iata: 'ZIH', name: 'Aeropuerto Internacional de Ixtapa-Zihuatanejo', city: 'Zihuatanejo', country: 'Mexico' },
-  { code: 'MMSP', iata: 'SLP', name: 'Aeropuerto Internacional de San Luis Potosi', city: 'San Luis Potosi', country: 'Mexico' },
-  { code: 'KOPF', iata: 'OPF', name: 'Miami-Opa Locka Executive Airport', city: 'Miami', country: 'Estados Unidos' },
-  { code: 'KMIA', iata: 'MIA', name: 'Miami International Airport', city: 'Miami', country: 'Estados Unidos' },
-  { code: 'KTEB', iata: 'TEB', name: 'Teterboro Airport', city: 'Nueva York', country: 'Estados Unidos' },
-  { code: 'KLAX', iata: 'LAX', name: 'Los Angeles International Airport', city: 'Los Angeles', country: 'Estados Unidos' },
-  { code: 'KLAS', iata: 'LAS', name: 'Harry Reid International Airport', city: 'Las Vegas', country: 'Estados Unidos' },
+  { code: 'MMMX', iata: 'MEX', name: 'Aeropuerto Internacional Benito Juarez', city: 'Ciudad de Mexico', country: 'Mexico', climb_descent_adjustment_minutes: 10 },
+  { code: 'MMTO', iata: 'TLC', name: 'Aeropuerto Internacional de Toluca', city: 'Toluca', country: 'Mexico', climb_descent_adjustment_minutes: 5 },
+  { code: 'MMMY', iata: 'MTY', name: 'Aeropuerto Internacional de Monterrey', city: 'Monterrey', country: 'Mexico', climb_descent_adjustment_minutes: 0 },
+  { code: 'MMGL', iata: 'GDL', name: 'Aeropuerto Internacional de Guadalajara', city: 'Guadalajara', country: 'Mexico', climb_descent_adjustment_minutes: 0 },
+  { code: 'MMSD', iata: 'SJD', name: 'Aeropuerto Internacional de Los Cabos', city: 'Los Cabos', country: 'Mexico', climb_descent_adjustment_minutes: 5 },
+  { code: 'MMUN', iata: 'CUN', name: 'Aeropuerto Internacional de Cancun', city: 'Cancun', country: 'Mexico', climb_descent_adjustment_minutes: 0 },
+  { code: 'MMPR', iata: 'PVR', name: 'Aeropuerto Internacional Lic. Gustavo Diaz Ordaz', city: 'Puerto Vallarta', country: 'Mexico', climb_descent_adjustment_minutes: 0 },
+  { code: 'MMZH', iata: 'ZIH', name: 'Aeropuerto Internacional de Ixtapa-Zihuatanejo', city: 'Zihuatanejo', country: 'Mexico', climb_descent_adjustment_minutes: 0 },
+  { code: 'MMSP', iata: 'SLP', name: 'Aeropuerto Internacional de San Luis Potosi', city: 'San Luis Potosi', country: 'Mexico', climb_descent_adjustment_minutes: 0 },
+  { code: 'KOPF', iata: 'OPF', name: 'Miami-Opa Locka Executive Airport', city: 'Miami', country: 'Estados Unidos', climb_descent_adjustment_minutes: 0 },
+  { code: 'KMIA', iata: 'MIA', name: 'Miami International Airport', city: 'Miami', country: 'Estados Unidos', climb_descent_adjustment_minutes: 0 },
+  { code: 'KTEB', iata: 'TEB', name: 'Teterboro Airport', city: 'Nueva York', country: 'Estados Unidos', climb_descent_adjustment_minutes: 0 },
+  { code: 'KLAX', iata: 'LAX', name: 'Los Angeles International Airport', city: 'Los Angeles', country: 'Estados Unidos', climb_descent_adjustment_minutes: 0 },
+  { code: 'KLAS', iata: 'LAS', name: 'Harry Reid International Airport', city: 'Las Vegas', country: 'Estados Unidos', climb_descent_adjustment_minutes: 0 },
 ]
 
 function normalizeTerm(value) {
@@ -74,6 +74,9 @@ export function mapAirportPayload(payload = {}) {
     name: pickFirstValue(payload.name),
     city: pickFirstValue(payload.city),
     country: pickFirstValue(payload.country),
+    climb_descent_adjustment_minutes: Number(
+      payload.climb_descent_adjustment_minutes || payload.climbDescentAdjustmentMinutes || 0,
+    ) || 0,
   }
 }
 
@@ -118,7 +121,15 @@ export function resolveAirportData(entity, side) {
     entity?.[`${side}_country`],
   )
 
-  return { code, name, city, country }
+  const climbDescentAdjustmentMinutes = Number(
+    airport?.climb_descent_adjustment_minutes ||
+      airport?.climbDescentAdjustmentMinutes ||
+      entity?.[`${side}_airport_climb_descent_adjustment_minutes`] ||
+      entity?.[`${side}AirportClimbDescentAdjustmentMinutes`] ||
+      0,
+  ) || 0
+
+  return { code, name, city, country, climb_descent_adjustment_minutes: climbDescentAdjustmentMinutes }
 }
 
 export function formatAirportLabel(entity, side) {
