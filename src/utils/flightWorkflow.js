@@ -62,6 +62,9 @@ const WORKFLOW_DEFINITIONS = {
     apiWorkflow: 'proveedor aceptado',
     matches: [
       'provider_accepted',
+      'accepted',
+      'aceptada',
+      'aceptado',
       'operador asignado',
       'operador confirmado',
       'approved',
@@ -142,6 +145,8 @@ function normalizeTerm(value) {
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
 }
 
 export function resolveWorkflowState(value) {
@@ -152,7 +157,7 @@ export function resolveWorkflowState(value) {
   }
 
   const match = Object.entries(WORKFLOW_DEFINITIONS).find(([, definition]) =>
-    definition.matches.some((token) => normalized.includes(token)),
+    definition.matches.some((token) => normalized.includes(normalizeTerm(token))),
   )
 
   if (match) {

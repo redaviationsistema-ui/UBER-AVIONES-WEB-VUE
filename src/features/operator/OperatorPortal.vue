@@ -214,7 +214,13 @@ const aircraftWizardSteps = [
   { id: 5, label: 'Revision', description: 'Resumen final antes de publicar o revisar.' },
 ]
 const coverageOptions = ['REGIONALES', 'NACIONALES', 'INTERNACIONALES']
-const aircraftCategoryOptions = ['Jet privado', 'Helicoptero', 'Ambulancia aerea', 'Carga']
+const aircraftCategoryOptions = [
+  { value: 'Helicoptero', label: 'Helicóptero' },
+  { value: 'Turboprop', label: 'Turboprop' },
+  { value: 'Light Jet', label: 'Light Jet' },
+  { value: 'Mid Jet', label: 'Mid Jet' },
+  { value: 'Heavy Jet', label: 'Heavy Jet' },
+]
 const aircraftDocumentTypes = [
   { id: 'maintenance_sticker', label: 'Sticker de mantenimiento', requiresExpiry: false, accepts: ['image', 'pdf'] },
   { id: 'flight_logbook', label: 'Bitacora de vuelo', requiresExpiry: false, accepts: ['image', 'pdf'] },
@@ -1883,10 +1889,22 @@ function knotsToKmh(value) {
   return knots > 0 ? Math.round(knots * 1.852) : 0
 }
 
+function inferAircraftMinimumHours(category = '') {
+  const normalizedCategory = String(category || '').trim().toLowerCase()
+
+  if (normalizedCategory.includes('turboprop')) return 1.5
+  if (normalizedCategory.includes('heavy')) return 3
+  if (normalizedCategory.includes('light')) return 2
+  if (normalizedCategory.includes('mid')) return 2
+  return 2
+}
+
 function kmhToKnots(value) {
   const kmh = Number(value || 0)
   return kmh > 0 ? Math.round(kmh / 1.852) : ''
 }
+
+const inferredAircraftMinimumHours = computed(() => inferAircraftMinimumHours(aircraftForm.category))
 
 function selectedCoverageValues() {
   return String(aircraftForm.coverage || '')
@@ -2980,7 +2998,7 @@ function buildRequestLegs(request = {}) {
     date: request.date,
     passengers: request.passengers || 0,
     status: getRequestSuggestedAircraft(request).available ? 'Disponible' : 'Revisar',
-    action: getRequestSuggestedAircraft(request).available ? 'Aceptar' : 'Proponer ajuste',
+    action: getRequestSuggestedAircraft(request).available ? 'Listo para aceptar' : 'Revisar disponibilidad',
     aircraft: getRequestSuggestedAircraft(request).label,
     comments: request.internalComment || '',
     operationalCost: request.finalPrice || request.quote || 0,
@@ -2999,7 +3017,12 @@ function buildRequestLegs(request = {}) {
       date: legDate,
       passengers: legPassengers,
       status: needsReview ? 'Pendiente' : index % 2 === 0 ? 'Disponible' : 'Revisar',
-      action: needsReview ? 'Rechazar tramo' : index % 2 === 0 ? 'Aceptar' : 'Proponer ajuste',
+      action:
+        needsReview
+          ? 'Esperando datos'
+          : index % 2 === 0
+            ? 'Listo para aceptar'
+            : 'Revisar disponibilidad',
       aircraft: leg.aircraft || leg.assigned_aircraft || primaryLeg.aircraft,
       comments: leg.comment || leg.notes || '',
       operationalCost: Number(leg.operational_fee || leg.cost || 0),
@@ -3302,22 +3325,6 @@ function buildProposalSummary(request = {}) {
   return { total, margin, adjustments }
 }
 
-function explainPartialAcceptance(request = {}) {
-  ui.pushToast({
-    tone: 'info',
-    title: 'Respuesta parcial lista',
-    message: `La solicitud #${request.id} ya se puede trabajar por tramo desde el itinerario operativo.`,
-  })
-}
-
-function explainAdjustmentFlow(request = {}) {
-  ui.pushToast({
-    tone: 'warning',
-    title: 'Propuesta de ajuste',
-    message: `Usa comentario interno y estados por tramo para proponer cambios a Red Aviation en la solicitud #${request.id}.`,
-  })
-}
-
 function buildOperationalProposal(request = {}) {
   const summary = buildProposalSummary(request)
   ui.pushToast({
@@ -3597,7 +3604,7 @@ async function createAircraft() {
     base_airport: aircraftForm.base,
     coverage: aircraftForm.coverage,
     hourly_rate: Number(aircraftForm.hourlyPrice || 0),
-    minimum_hours: Number(aircraftForm.minimumHours || 0),
+    minimum_hours: inferredAircraftMinimumHours.value,
     operational_cost: Number(aircraftForm.operationalCost || 0),
     fuel_burn_gph: Number(aircraftForm.fuelBurnGallonsPerHour || 0),
     engine_reserve_rate: Number(aircraftForm.engineReserveRate || 0),
@@ -3932,7 +3939,7 @@ async function saveAircraftEdits(id) {
     base_airport: aircraftForm.base,
     coverage: aircraftForm.coverage,
     hourly_rate: Number(aircraftForm.hourlyPrice || 0),
-    minimum_hours: Number(aircraftForm.minimumHours || 0),
+    minimum_hours: inferredAircraftMinimumHours.value,
     operational_cost: Number(aircraftForm.operationalCost || 0),
     fuel_burn_gph: Number(aircraftForm.fuelBurnGallonsPerHour || 0),
     engine_reserve_rate: Number(aircraftForm.engineReserveRate || 0),
@@ -4009,6 +4016,7 @@ async function savePricing(id) {
 
   const payload = {
     hourly_rate: row.hourlyPrice,
+    minimum_hours: row.minimumHours,
   }
 
   try {
@@ -4020,7 +4028,7 @@ async function savePricing(id) {
     ui.pushToast({
       tone: 'info',
       title: 'Tarifa sincronizada',
-      message: `La tarifa por hora de la aeronave #${id} ya quedó sincronizada con backend. Los costos avanzados siguen pendientes de soporte del API.`,
+      message: `La tarifa por hora y las horas minimas de la aeronave #${id} ya quedaron sincronizadas con backend. Los costos avanzados siguen pendientes de soporte del API.`,
     })
   } catch (error) {
     showError(
@@ -5638,15 +5646,15 @@ onMounted(() => {
                   }}</small>
                 </label>
                 <label>
-                  <span>Tipo de vuelo</span>
+                  <span>Categoria</span>
                   <select
                     v-model="aircraftForm.category"
                     :disabled="aircraftWizardReadOnly"
                     :class="{ 'input-error': formErrors.aircraft.category }"
                   >
                     <option value="">Selecciona</option>
-                    <option v-for="option in aircraftCategoryOptions" :key="option" :value="option">
-                      {{ option }}
+                    <option v-for="option in aircraftCategoryOptions" :key="option.value" :value="option.value">
+                      {{ option.label }}
                     </option>
                   </select>
                   <small v-if="formErrors.aircraft.category" class="field-error">{{
@@ -5730,36 +5738,6 @@ onMounted(() => {
                     formErrors.aircraft.speedKnots
                   }}</small>
                 </label>
-                <div class="span-2 coverage-field">
-                  <span>Cobertura</span>
-                  <div class="coverage-options" :class="{ 'input-error': formErrors.aircraft.coverage }">
-                    <label v-for="option in coverageOptions" :key="option" class="coverage-option">
-                      <input
-                        type="checkbox"
-                        :checked="isCoverageSelected(option)"
-                        :disabled="aircraftWizardReadOnly"
-                        @change="toggleCoverage(option)"
-                      />
-                      <span>{{ option }}</span>
-                    </label>
-                  </div>
-                  <small v-if="formErrors.aircraft.coverage" class="field-error">{{
-                    formErrors.aircraft.coverage
-                  }}</small>
-                </div>
-                <label class="span-2">
-                  <span>Servicios proporciona</span>
-                  <input
-                    v-model="aircraftForm.amenities"
-                    type="text"
-                    :disabled="aircraftWizardReadOnly"
-                    :class="{ 'input-error': formErrors.aircraft.amenities }"
-                    @input="setUppercaseAircraftField('amenities', $event.target.value)"
-                  />
-                  <small v-if="formErrors.aircraft.amenities" class="field-error">{{
-                    formErrors.aircraft.amenities
-                  }}</small>
-                </label>
                 <label>
                   <span>Precio por hora</span>
                   <input
@@ -5771,96 +5749,6 @@ onMounted(() => {
                   />
                   <small v-if="formErrors.aircraft.hourlyPrice" class="field-error">{{
                     formErrors.aircraft.hourlyPrice
-                  }}</small>
-                </label>
-                <label>
-                  <span>Horas minimas</span>
-                  <input
-                    v-model="aircraftForm.minimumHours"
-                    type="number"
-                    min="0"
-                    step="0.1"
-                    :disabled="aircraftWizardReadOnly"
-                    :class="{ 'input-error': formErrors.aircraft.minimumHours }"
-                  />
-                  <small v-if="formErrors.aircraft.minimumHours" class="field-error">{{
-                    formErrors.aircraft.minimumHours
-                  }}</small>
-                </label>
-                <label>
-                  <span>Consumo gal/hr</span>
-                  <input
-                    v-model="aircraftForm.fuelBurnGallonsPerHour"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                  />
-                </label>
-                <label>
-                  <span>Reserva motor/hr</span>
-                  <input
-                    v-model="aircraftForm.engineReserveRate"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                  />
-                </label>
-                <label>
-                  <span>Seguro/hr</span>
-                  <input
-                    v-model="aircraftForm.insuranceRate"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                  />
-                </label>
-                <label>
-                  <span>Mantenimiento/hr</span>
-                  <input
-                    v-model="aircraftForm.maintenanceRate"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                  />
-                </label>
-                <label>
-                  <span>Tripulacion/hr</span>
-                  <input
-                    v-model="aircraftForm.crewRate"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                  />
-                </label>
-                <label>
-                  <span>Posicionamiento</span>
-                  <input
-                    v-model="aircraftForm.repositioningFee"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                  />
-                </label>
-                <label>
-                  <span>Pernocta</span>
-                  <input
-                    v-model="aircraftForm.overnightFee"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                  />
-                </label>
-                <label>
-                  <span>Otros costos</span>
-                  <input
-                    v-model="aircraftForm.operationalCost"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    :class="{ 'input-error': formErrors.aircraft.operationalCost }"
-                  />
-                  <small v-if="formErrors.aircraft.operationalCost" class="field-error">{{
-                    formErrors.aircraft.operationalCost
                   }}</small>
                 </label>
               </div>
@@ -6103,7 +5991,7 @@ onMounted(() => {
                   >
                   <p class="muted">
                     {{ formatCurrency(aircraftForm.hourlyPrice) }} · Min
-                    {{ aircraftForm.minimumHours || 0 }} hr
+                    {{ inferredAircraftMinimumHours }} hr
                   </p>
                 </article>
                 <article class="wizard-review-card">
@@ -6724,20 +6612,6 @@ onMounted(() => {
                 <button
                   type="button"
                   class="ghost-button"
-                  @click="explainAdjustmentFlow(selectedRequest)"
-                >
-                  Proponer ajuste
-                </button>
-                <button
-                  type="button"
-                  class="ghost-button"
-                  @click="explainPartialAcceptance(selectedRequest)"
-                >
-                  Aceptar por tramo
-                </button>
-                <button
-                  type="button"
-                  class="ghost-button"
                   :disabled="isRequestRejected(selectedRequest.status)"
                   @click="updateRequestStatus(selectedRequest.id, 'Rechazada')"
                 >
@@ -6863,215 +6737,7 @@ onMounted(() => {
                 </p>
               </article>
 
-              <article class="surface request-detail-card">
-                <div class="section-head">
-                  <div>
-                    <p class="eyebrow">Itinerario operativo</p>
-                    <h3>Respuesta por tramos</h3>
-                  </div>
-                </div>
-
-                <div class="request-itinerary-table">
-                  <div class="request-itinerary-head">
-                    <span>Tramo</span>
-                    <span>Ruta</span>
-                    <span>Fecha / hora</span>
-                    <span>Pax</span>
-                    <span>Estado</span>
-                    <span>Accion</span>
-                  </div>
-
-                  <article
-                    v-for="leg in selectedRequestLegs"
-                    :key="leg.id"
-                    class="request-itinerary-row"
-                  >
-                    <span>{{ leg.index }}</span>
-                    <strong>{{ leg.origin }} → {{ leg.destination }}</strong>
-                    <span>{{ formatDateTimeDisplay(leg.date) }}</span>
-                    <span>{{ leg.passengers || 0 }}</span>
-                    <span class="status-pill status-pill--ghost" :data-tone="getLegStatusTone(leg.status)">
-                      {{ leg.status }}
-                    </span>
-                    <span>{{ leg.action }}</span>
-                  </article>
-                </div>
-              </article>
-
               <div class="request-side-stack">
-                <article class="surface request-detail-card">
-                  <div class="section-head">
-                    <div>
-                      <p class="eyebrow">Mesa de decision</p>
-                      <h3>Mesa de aeronaves</h3>
-                    </div>
-                    <button type="button" class="ghost-button" @click="buildOperationalProposal(selectedRequest)">
-                      Armar propuesta operativa
-                    </button>
-                  </div>
-
-                  <div class="request-decision-toolbar">
-                    <label class="request-priority-filter">
-                      <span>Prioridad</span>
-                      <select v-model="aircraftDecisionMode">
-                        <option value="best_match">Mayor compatibilidad</option>
-                        <option value="fast">Mas rapido</option>
-                        <option value="cost">Menor costo</option>
-                        <option value="premium">Premium</option>
-                      </select>
-                    </label>
-                    <label class="request-priority-filter">
-                      <span>Base</span>
-                      <select v-model="aircraftFilterBase">
-                        <option v-for="item in requestAircraftBaseOptions" :key="item" :value="item">
-                          {{ item === 'all' ? 'Todas' : item }}
-                        </option>
-                      </select>
-                    </label>
-                    <label class="request-priority-filter">
-                      <span>Tipo</span>
-                      <select v-model="aircraftFilterType">
-                        <option v-for="item in requestAircraftTypeOptions" :key="item" :value="item">
-                          {{ item === 'all' ? 'Todos' : item }}
-                        </option>
-                      </select>
-                    </label>
-                    <label class="request-priority-filter">
-                      <span>Orden</span>
-                      <select v-model="aircraftFilterSort">
-                        <option value="compatibility">Compatibilidad</option>
-                        <option value="cost">Costo</option>
-                        <option value="base">Base cercana</option>
-                        <option value="margin">Mayor margen</option>
-                        <option value="sla">Mejor SLA</option>
-                      </select>
-                    </label>
-                  </div>
-
-                  <div class="request-priority-reco">
-                    <strong>Asignacion recomendada por prioridad</strong>
-                    <p class="muted">
-                      {{
-                        aircraftDecisionMode === 'premium'
-                          ? 'Mayor compatibilidad y menor riesgo operativo.'
-                          : aircraftDecisionMode === 'fast'
-                            ? 'Mas rapido y con mejor SLA.'
-                            : aircraftDecisionMode === 'cost'
-                              ? 'Menor costo y mejor eficiencia.'
-                              : 'Balance entre compatibilidad, costo y disponibilidad.'
-                      }}
-                    </p>
-                  </div>
-
-                  <div class="request-aircraft-table">
-                    <div class="request-aircraft-head">
-                      <span>Aeronave</span>
-                      <span>Base</span>
-                      <span>Pax</span>
-                      <span>Compatibilidad</span>
-                      <span>Costo</span>
-                      <span>Riesgo</span>
-                      <span>Disponibilidad</span>
-                      <span>Accion</span>
-                    </div>
-                    <article
-                      v-for="row in selectedRequestAircraftRows"
-                      :key="row.id"
-                      class="request-aircraft-row"
-                    >
-                      <strong>{{ row.label }}</strong>
-                      <span>{{ row.base }}</span>
-                      <span>{{ row.pax }}</span>
-                      <span>{{ row.compatibility }}%</span>
-                      <span>{{ row.costBand }}</span>
-                      <span>{{ row.risk }}</span>
-                      <span>{{ row.availability === 'Si' ? 'Disponible' : row.availability === 'Revisar' ? 'Revisar' : 'No disponible' }}</span>
-                      <button
-                        type="button"
-                        class="ghost-button"
-                        :disabled="row.action === 'No compatible'"
-                        @click="row.action === 'Revisar' ? explainAdjustmentFlow(selectedRequest) : explainPartialAcceptance(selectedRequest)"
-                      >
-                        {{ row.action }}
-                      </button>
-                    </article>
-                  </div>
-                </article>
-
-                <article class="surface request-detail-card">
-                  <div class="section-head">
-                    <div>
-                      <p class="eyebrow">Validaciones</p>
-                      <h3>Semaforo operativo</h3>
-                    </div>
-                  </div>
-
-                  <div class="request-semaphore-summary" :data-tone="selectedRequestValidationSummary.tone">
-                    <strong>
-                      {{
-                        selectedRequestValidationSummary.tone === 'success'
-                          ? '🟢'
-                          : selectedRequestValidationSummary.tone === 'warning'
-                            ? '🟡'
-                            : '🔴'
-                      }}
-                      {{ selectedRequestValidationSummary.label }}
-                    </strong>
-                    <p class="muted">{{ selectedRequestValidationSummary.detail }}</p>
-                  </div>
-
-                  <div class="request-validation-list">
-                    <article
-                      v-for="check in selectedRequestValidationChecks"
-                      :key="check.label"
-                      class="request-validation-item"
-                      :data-state="check.state"
-                    >
-                      <strong>{{ check.label }}</strong>
-                      <span>{{ check.state === 'ok' ? 'Disponible' : check.state === 'review' ? 'Requiere revision' : 'No disponible' }}</span>
-                      <p class="muted">{{ check.text }}</p>
-                    </article>
-                  </div>
-                </article>
-
-                <article class="surface request-detail-card">
-                  <div class="section-head">
-                    <div>
-                      <p class="eyebrow">Desglose interno</p>
-                      <h3>Vista ejecutiva</h3>
-                    </div>
-                  </div>
-
-                  <div class="request-executive-strip">
-                    <article class="request-cost-item">
-                      <span>Costo total estimado</span>
-                      <strong>{{ selectedRequestInternalBreakdown.at(-1)?.value || 'Cotizacion en proceso' }}</strong>
-                    </article>
-                    <article class="request-cost-item">
-                      <span>Margen Red Aviation</span>
-                      <strong>{{ selectedRequestInternalBreakdown.find((item) => item.label === 'Margen Red Aviation')?.value || 'Pendiente' }}</strong>
-                    </article>
-                    <article class="request-cost-item">
-                      <span>Riesgo operativo</span>
-                      <strong>{{ selectedRequestValidationSummary.tone === 'success' ? 'Bajo' : selectedRequestValidationSummary.tone === 'warning' ? 'Medio' : 'Alto' }}</strong>
-                    </article>
-                  </div>
-
-                  <details class="request-cost-details">
-                    <summary>Ver desglose</summary>
-                    <div class="request-cost-grid">
-                      <article
-                        v-for="row in selectedRequestInternalBreakdown"
-                        :key="row.label"
-                        class="request-cost-item"
-                      >
-                        <span>{{ row.label }}</span>
-                        <strong>{{ row.value }}</strong>
-                      </article>
-                    </div>
-                  </details>
-                </article>
-
                 <article class="surface request-detail-card">
                   <div class="section-head">
                     <div>
@@ -9352,10 +9018,36 @@ textarea {
   background: #fffaf4;
 }
 
-.request-aircraft-row button {
+.request-aircraft-row-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: 2.4rem;
   padding: 0.45rem 0.75rem;
+  border: 1px solid #dccfb9;
+  border-radius: 14px;
+  background: #fffdfa;
+  color: #2e2a22;
   font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.request-aircraft-row-action[data-tone='success'] {
+  border-color: rgba(22, 163, 74, 0.24);
+  background: rgba(22, 163, 74, 0.08);
+  color: #166534;
+}
+
+.request-aircraft-row-action[data-tone='warning'] {
+  border-color: rgba(202, 138, 4, 0.24);
+  background: rgba(202, 138, 4, 0.08);
+  color: #8f6919;
+}
+
+.request-aircraft-row-action[data-tone='danger'] {
+  border-color: rgba(185, 28, 28, 0.24);
+  background: rgba(185, 28, 28, 0.08);
+  color: #991b1b;
 }
 
 .request-validation-item,

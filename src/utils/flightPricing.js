@@ -52,8 +52,19 @@ const ROUTE_MARKET_FLOOR_BY_BAND = {
   ultra_long: { hourlyFloor: 2800, minimumTotal: 9800 },
 }
 
-const DEFAULT_EXPENSE_FEE = 500
+const SHORT_ROUTE_CATEGORY_MINIMUM_PRICE = {
+  helicopter: 2200,
+  turboprop: 2800,
+  light_jet: 3800,
+  mid_jet: 4800,
+  heavy_jet: 7000,
+  default: 3000,
+}
+
+const DEFAULT_EXPENSE_FEE = 100
 const DEFAULT_IVA_RATE = 0.16
+const DEFAULT_PET_FEE = 250
+const DEFAULT_SPECIAL_BAGGAGE_FEE = 180
 
 function asNumber(value, fallback = 0) {
   const amount = Number(value)
@@ -65,6 +76,102 @@ function normalizeCode(value = '') {
     .trim()
     .toLowerCase()
     .replace(/[\s-]+/g, '_')
+}
+
+function normalizeAirportToken(value = '') {
+  return String(value || '')
+    .trim()
+    .toUpperCase()
+}
+
+function airportMatchesRoute(baseAirport = '', routeAirport = '', routeAirportData = null) {
+  const normalizedBase = normalizeAirportToken(baseAirport)
+  if (!normalizedBase) return false
+
+  const candidates = [
+    routeAirport,
+    routeAirportData?.code,
+    routeAirportData?.iata,
+  ]
+    .map((value) => normalizeAirportToken(value))
+    .filter(Boolean)
+
+  return candidates.includes(normalizedBase)
+}
+
+function resolveRepositioningApplies(record = {}, context = {}) {
+  if (context.repositioningRequired === true) return true
+  if (context.repositioningRequired === false) return false
+
+  if (record.base_airport_match === true) return false
+
+  const firstLeg = Array.isArray(context.legs) ? context.legs[0] || {} : {}
+  const requestedOrigin = firstLeg.origin || context.origin || ''
+  const requestedOriginAirport = firstLeg.originAirport || context.originAirport || null
+  const baseAirport =
+    record.source_origin ||
+    record.base_airport ||
+    record.base ||
+    record.base_airport_code ||
+    record.home_base ||
+    record.airport ||
+    ''
+
+  if (!baseAirport || !requestedOrigin) return true
+
+  return !airportMatchesRoute(baseAirport, requestedOrigin, requestedOriginAirport)
+}
+
+function normalizeCountry(value = '') {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
+}
+
+function inferAirportCountry(airportCode = '', airportData = null) {
+  const explicitCountry = normalizeCountry(airportData?.country || airportData?.pais)
+  if (explicitCountry) return explicitCountry
+
+  const normalizedCode = normalizeAirportToken(airportCode || airportData?.code || airportData?.iata)
+  if (normalizedCode.startsWith('MM')) return 'mexico'
+  return ''
+}
+
+function resolveIvaRateForRoute(context = {}) {
+  const legs = Array.isArray(context.legs) ? context.legs : []
+  if (!legs.length) return DEFAULT_IVA_RATE
+
+  const hasInternationalLeg = legs.some((leg) => {
+    const originCountry = inferAirportCountry(leg.origin, leg.originAirport)
+    const destinationCountry = inferAirportCountry(leg.destination, leg.destinationAirport)
+
+    if (!originCountry || !destinationCountry) return false
+    return originCountry !== 'mexico' || destinationCountry !== 'mexico'
+  })
+
+  return hasInternationalLeg ? 0.04 : 0.16
+}
+
+function resolveAircraftCategoryKey(category = '') {
+  const normalizedCategory = normalizeCode(category)
+
+  if (normalizedCategory.includes('helic')) return 'helicopter'
+  if (normalizedCategory.includes('turboprop') || normalizedCategory.includes('turbo_prop')) return 'turboprop'
+  if (normalizedCategory === 'mid_jet') return 'mid_jet'
+  if (normalizedCategory === 'light_jet') return 'light_jet'
+  if (normalizedCategory === 'heavy_jet') return 'heavy_jet'
+  if (normalizedCategory.includes('heavy') || normalizedCategory.includes('long_range')) return 'heavy_jet'
+  if (
+    normalizedCategory.includes('mid') ||
+    normalizedCategory.includes('midsize') ||
+    normalizedCategory.includes('super_mid')
+  ) {
+    return 'mid_jet'
+  }
+  if (normalizedCategory.includes('light')) return 'light_jet'
+  return 'default'
 }
 
 function inferMinimumHours(category = '', providedMinimum = 0) {
@@ -79,18 +186,40 @@ function inferMinimumHours(category = '', providedMinimum = 0) {
   return 2
 }
 
+function inferMinimumRoutePrice(record = {}, distanceKm = 0) {
+  const explicitMinimumRoutePrice = asNumber(
+    record.minimum_route_price ||
+      record.min_route_price ||
+      record.minimum_short_route_price ||
+      record.short_route_minimum_price,
+  )
+  if (explicitMinimumRoutePrice > 0) return explicitMinimumRoutePrice
+
+  if (asNumber(distanceKm) >= 300) return 0
+
+  const categoryKey = resolveAircraftCategoryKey(
+    record.cabin || record.category || record.aircraft_category || '',
+  )
+
+  return SHORT_ROUTE_CATEGORY_MINIMUM_PRICE[categoryKey] || SHORT_ROUTE_CATEGORY_MINIMUM_PRICE.default
+}
+
 function inferCruiseSpeedKmh(record = {}) {
+  const normalizedCategory = normalizeCode(record.cabin || record.category || record.aircraft_category || '')
+
+  if (normalizedCategory.includes('helic')) return 0.35 * 1062
+  if (normalizedCategory.includes('ultra_long')) return 0.92 * 1062
+  if (normalizedCategory.includes('heavy') || normalizedCategory.includes('long_range')) return 0.87 * 1062
+  if (normalizedCategory.includes('mid') || normalizedCategory.includes('midsize') || normalizedCategory.includes('super_mid')) return 0.81 * 1062
+  if (normalizedCategory.includes('light')) return 0.75 * 1062
+
   const explicitKmh = asNumber(record.speed_kmh || record.speedKmh || record.cruise_speed_kmh)
   if (explicitKmh > 0) return explicitKmh
 
   const explicitKnots = asNumber(record.speed_knots || record.speedKnots || record.cruise_speed_knots)
   if (explicitKnots > 0) return explicitKnots * 1.852
 
-  const normalizedCategory = normalizeCode(record.cabin || record.category || record.aircraft_category || '')
-
   if (normalizedCategory.includes('turboprop') || normalizedCategory.includes('turbo_prop')) return 500
-  if (normalizedCategory.includes('heavy')) return 850
-  if (normalizedCategory.includes('light')) return 700
   return 740
 }
 
@@ -196,6 +325,62 @@ function resolveOperationalCosts(record = {}) {
   )
 }
 
+function resolveAirportFees(record = {}) {
+  return (
+    asNumber(record.landing_fees || record.landing_fee) +
+    asNumber(record.handling_fee || record.handling_fees || record.fbo_fees || record.fbo)
+  )
+}
+
+function resolveAdditionalOperationalCosts(record = {}) {
+  return (
+    asNumber(record.trip_support_fee || record.trip_support || record.dispatch_fee) +
+    asNumber(record.crew_cost || record.crew_rate || record.crew_fee) +
+    asNumber(record.permits_fee || record.permits) +
+    asNumber(record.operational_cost)
+  )
+}
+
+function resolvePriorityServiceFee(context = {}, record = {}) {
+  const explicitFee = asNumber(record.priority_fee || record.priority_service_fee || context.priorityFee)
+  if (explicitFee > 0) return explicitFee
+
+  const level = normalizeCode(context.attentionLevel || context.priorityLevel || record.attention_level)
+  if (level === 'urgent') return 450
+  if (level === 'priority' || level === 'prioridad') return 220
+  return 0
+}
+
+function resolvePetFee(context = {}, record = {}) {
+  const explicitFee = asNumber(record.pet_fee || record.pets_fee || context.petFee)
+  if (explicitFee > 0) return explicitFee
+
+  const rawPets = String(context.pets || '').trim().toLowerCase()
+  if (!rawPets) return 0
+  if (['no', 'ninguno', 'ninguna', 'false'].includes(rawPets)) return 0
+  return DEFAULT_PET_FEE
+}
+
+function resolveSpecialBaggageFee(context = {}, record = {}) {
+  const explicitFee = asNumber(record.special_baggage_fee || record.baggage_fee || context.specialBaggageFee)
+  if (explicitFee > 0) return explicitFee
+
+  return String(context.specialBaggage || '').trim() ? DEFAULT_SPECIAL_BAGGAGE_FEE : 0
+}
+
+function resolveContextDistanceKm(context = {}) {
+  const legs = Array.isArray(context.legs) ? context.legs : []
+  const totalFromLegs = legs.reduce((sum, leg) => sum + asNumber(leg.distance_km || leg.distanceKm), 0)
+  if (totalFromLegs > 0) return totalFromLegs
+
+  const totalFromBreakdownLegs = Array.isArray(context.clientLegs)
+    ? context.clientLegs.reduce((sum, leg) => sum + asNumber(leg.distance_km || leg.distanceKm), 0)
+    : 0
+  if (totalFromBreakdownLegs > 0) return totalFromBreakdownLegs
+
+  return asNumber(context.distance_km || context.distanceKm || context.totalDistanceKm)
+}
+
 function resolveExtraServices(record = {}, context = {}) {
   const cateringKey = normalizeCode(context.catering || 'none')
   const groundTransportKey = normalizeCode(context.groundTransport || 'none')
@@ -246,68 +431,49 @@ export function resolvePriorityFactor(level = 'normal', explicitFactor = null) {
 }
 
 export function buildFlightPricingFormula(record = {}, context = {}) {
-  const category = record.cabin || record.category || record.aircraft_category || ''
   const hourlyRate = asNumber(
     record.hourly_rate || record.hourly_price || record.price_per_hour || record.cost_per_hour || record.cost,
   )
-  const backendBaseCost = asNumber(record.base_cost || record.base_flight_cost)
-  const backendOperationalCosts = asNumber(
-    record.operational_costs_total || record.operational_adjustments || record.adjustments_operational_total,
-  )
-  const backendExtraServicesTotal = asNumber(
-    record.extra_services_total || record.extra_services_cost || record.adjustments_extras_total,
-  )
-  const backendRepositioning = asNumber(record.repositioning_cost || record.repositioning_fee || record.reposition_fee)
-  const backendSubtotalBeforeMultipliers = asNumber(
-    record.subtotal_before_multipliers || record.commercial_subtotal || record.subtotal_pre_multipliers,
-  )
-  const backendFinalPrice = asNumber(record.final_price_amount || record.total_amount || record.quoted_total)
-  const minimumHours = inferMinimumHours(category, record.minimum_hours || record.min_hours)
-  const distanceKm = asNumber(record.distance_km || record.distanceKm)
-  const routeBand = resolveRouteBand(distanceKm)
+  const distanceKm = resolveContextDistanceKm(context) || asNumber(record.distance_km || record.distanceKm)
   const cruiseSpeedKmh = inferCruiseSpeedKmh(record)
+  const routeBand = resolveRouteBand(distanceKm)
   const explicitRealHours = asNumber(record.real_flight_hours || record.flight_hours || record.estimated_hours)
   const rawFlightHours = distanceKm > 0 && cruiseSpeedKmh > 0 ? distanceKm / cruiseSpeedKmh : 0
-  const reserveHours = operationalReserveHours(distanceKm)
-  const realFlightHours =
-    explicitRealHours > 0 ? explicitRealHours : rawFlightHours > 0 ? rawFlightHours + reserveHours : 0
-  const billableHours = Math.max(realFlightHours, minimumHours)
-  const baseCost = backendBaseCost > 0 ? backendBaseCost : billableHours * hourlyRate * routeBand.multiplier
-  const repositioning = backendRepositioning
-  const operationalCosts = backendOperationalCosts > 0 ? backendOperationalCosts : resolveOperationalCosts(record)
-  const extraServices = resolveExtraServices(record, context)
-  const extraServicesTotal = backendExtraServicesTotal > 0 ? backendExtraServicesTotal : extraServices.total
-  const expenseFee = Math.max(asNumber(record.fixed_fee || record.fixedFee || context.expenseFee), DEFAULT_EXPENSE_FEE)
-  const ivaRate = asNumber(record.iva_rate || record.tax_rate || context.ivaRate, DEFAULT_IVA_RATE)
-  const ivaBase = baseCost + repositioning + operationalCosts + extraServicesTotal + expenseFee
-  const ivaAmount =
-    asNumber(record.taxes || record.tax) > 0 ? asNumber(record.taxes || record.tax) : ivaBase * ivaRate
-  const commercialMargin = resolveCommercialMargin(
-    context.packageCode || record.priority_type || record.flight_package,
-    record.commercial_margin || record.margin_factor,
-  )
-  const priorityFactor = resolvePriorityFactor(
-    context.attentionLevel || context.priorityLevel || record.attention_level,
-    record.priority_factor,
-  )
-  const subtotalBeforeMultipliers =
-    backendSubtotalBeforeMultipliers > 0
-      ? backendSubtotalBeforeMultipliers
-      : ivaBase + ivaAmount
+  const reserveHours = 0
+  const realFlightHours = explicitRealHours > 0 ? explicitRealHours : rawFlightHours
+  const billableHours = realFlightHours
+  const minimumHours = 0
+  const minimumRoutePrice = 0
+  const rawBaseCost = realFlightHours * hourlyRate
+  const baseCost = rawBaseCost
+  const repositioning = 0
+  const operationalCosts = 0
+  const extraServices = {
+    catering: 0,
+    groundTransport: 0,
+    wifi: 0,
+    overnight: 0,
+    urgentSchedule: 0,
+    total: 0,
+  }
+  const extraServicesTotal = 0
+  const expenseFee = 0
+  const ivaRate = 0
+  const subtotalBeforeMultipliers = baseCost + operationalCosts
+  const ivaAmount = 0
+  const commercialMargin = 1
+  const priorityFactor = 1
   const dynamicMarketFloor = resolveDynamicMarketFloor(record, billableHours, distanceKm)
-  const calculatedFinalPrice =
-    backendFinalPrice > 0 ? backendFinalPrice : subtotalBeforeMultipliers * commercialMargin * priorityFactor
-  const finalPrice = Math.max(
-    calculatedFinalPrice,
-    dynamicMarketFloor.floorFromHours,
-    dynamicMarketFloor.minimumTotal,
-  )
+  const marginMultiplier = 1
+  const totalBeforeTax = subtotalBeforeMultipliers
+  const finalPrice = totalBeforeTax
   const hasFormulaInputs = subtotalBeforeMultipliers > 0 && (hourlyRate > 0 || distanceKm > 0 || explicitRealHours > 0)
 
   return {
     hasFormulaInputs,
     hourlyRate,
     minimumHours,
+    minimumRoutePrice,
     distanceKm,
     routeBand,
     cruiseSpeedKmh,
@@ -315,6 +481,7 @@ export function buildFlightPricingFormula(record = {}, context = {}) {
     reserveHours,
     realFlightHours,
     billableHours,
+    rawBaseCost,
     baseCost,
     repositioning,
     operationalCosts,
@@ -349,7 +516,7 @@ export function normalizePackageCode(value = '') {
 
 export function buildCommercialSnapshot(context = {}, pricing = {}, aircraft = {}) {
   return {
-    pricing_formula_version: 'private-flight-v2',
+    pricing_formula_version: 'private-flight-v5-broker-distance',
     package_code: normalizePackageCode(context.priorityType || context.packageCode || aircraft.priority_type),
     attention_level: normalizeAttentionLevel(context.attentionLevel || context.priorityLevel),
     billable_hours: asNumber(pricing.billableHours),
@@ -359,7 +526,9 @@ export function buildCommercialSnapshot(context = {}, pricing = {}, aircraft = {
     raw_flight_hours: asNumber(pricing.rawFlightHours),
     reserve_hours: asNumber(pricing.reserveHours),
     minimum_hours: asNumber(pricing.minimumHours),
+    minimum_route_price: asNumber(pricing.minimumRoutePrice),
     hourly_rate: asNumber(aircraft.hourly_rate || aircraft.hourly_price || aircraft.price_per_hour),
+    raw_base_cost: asNumber(pricing.rawBaseCost),
     base_cost: asNumber(pricing.basePrice),
     repositioning_cost: asNumber(pricing.repositioning),
     operational_costs_total: asNumber(pricing.operationalCostBreakdown || pricing.operationalFees),
@@ -375,6 +544,8 @@ export function buildCommercialSnapshot(context = {}, pricing = {}, aircraft = {
       catering: context.catering || 'none',
       ground_transport: context.groundTransport || 'none',
       wifi: context.wifi || 'none',
+      pets: context.pets || '',
+      special_baggage: context.specialBaggage || '',
       overnight: context.overnight || 'no',
       overnight_nights: asNumber(context.overnightNights || context.itineraryDays),
       schedule_flexibility: context.scheduleFlexibility || 'flexible',

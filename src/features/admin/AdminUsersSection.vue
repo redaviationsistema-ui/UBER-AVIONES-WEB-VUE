@@ -60,6 +60,7 @@ const detailLoading = ref(false)
 const detailError = ref('')
 const selectedUserDetail = ref(null)
 const userFormErrors = ref({})
+const savingUser = ref(false)
 
 const userForm = ref(buildEmptyUser())
 const roleForm = ref(buildEmptyRole())
@@ -220,7 +221,17 @@ function normalizeRoleKey(role) {
 
 function normalizeStatusKey(status) {
   const value = String(status || '').toLowerCase()
-  if (value.includes('suspend')) return 'suspendido'
+  if (value.includes('suspend') || value.includes('block')) return 'suspendido'
+  if (
+    value.includes('inactive') ||
+    value.includes('inactiva') ||
+    value.includes('inactivo') ||
+    value.includes('disabled') ||
+    value.includes('inhabilitada') ||
+    value.includes('inhabilitado')
+  ) {
+    return 'inactivo'
+  }
   if (value.includes('operando') || value.includes('activa') || value.includes('activo') || value.includes('disponible')) {
     return 'activo'
   }
@@ -231,9 +242,31 @@ function isActiveStatus(status) {
   return normalizeStatusKey(status) === 'activo'
 }
 
+function canActivateStatus(status) {
+  return normalizeStatusKey(status) !== 'activo'
+}
+
+function normalizeStatusLabel(status) {
+  const normalized = normalizeStatusKey(status)
+
+  if (normalized === 'suspendido') return 'Suspendida'
+  if (normalized === 'inactivo') return 'Inactiva'
+  if (normalized === 'activo') return 'Activa'
+
+  return status || 'Activa'
+}
+
 function normalizeUserRecord(user = {}, index = 0) {
   const primaryRole = user.effective_role || user.role?.code || user.role?.name || user.operational_role || user.role
   const provider = user.provider || user.proveedor || user.ownedProvider || user.owned_provider || null
+  const access = user.access || {}
+  const demo = user.demo || access.demo || null
+  const subscription =
+    user.active_suscripcion ||
+    user.activeSuscripcion ||
+    user.subscription ||
+    access.subscription ||
+    null
 
   return {
     id: user.id ?? Date.now() + index,
@@ -244,6 +277,9 @@ function normalizeUserRecord(user = {}, index = 0) {
     provider_id: user.provider_id || user.proveedor_id || provider?.id || resolveProviderIdForUser(user) || '',
     provider: provider ? normalizeProviderRecord(provider) : null,
     profile: user.profile || null,
+    access,
+    demo,
+    subscription,
     raw: user,
     status: user.status || user.account_status || 'Activa',
     permissions:
@@ -338,8 +374,96 @@ function userDetailRows(detail = {}) {
     { label: 'Telefono', paths: ['user.phone'] },
     { label: 'Rol', paths: ['user.role'] },
     { label: 'Estado', paths: ['user.status'] },
+    {
+      label: 'Acceso comercial',
+      paths: [
+        'user.subscription.status',
+        'user.raw.active_suscripcion.status',
+        'user.raw.activeSuscripcion.status',
+        'user.access.subscription.status',
+        'user.access.membership.status',
+        'user.access.subscription_status',
+        'user.access.membership_status',
+        'user.raw.subscription.status',
+        'user.raw.membership.status',
+        'user.subscription.status',
+        'user.membership.status',
+        'user.subscription_status',
+        'user.membership_status',
+      ],
+    },
+    {
+      label: 'Demo activa',
+      paths: [
+        'user.demo.status',
+        'user.raw.demo.status',
+        'user.access.demo.status',
+        'user.access.demo_active',
+        'user.demo_active',
+        'user.access.has_demo',
+        'user.has_demo',
+      ],
+    },
+    { label: 'Demo vence', paths: ['user.demo.expires_at', 'user.raw.demo.expires_at', 'user.access.demo.expires_at'] },
+    {
+      label: 'Suscripcion vence',
+      paths: [
+        'user.subscription.expires_at',
+        'user.raw.active_suscripcion.expires_at',
+        'user.raw.activeSuscripcion.expires_at',
+        'user.access.subscription.expires_at',
+      ],
+    },
     { label: 'Ultima auditoria', paths: ['user.lastAudit'] },
   ])
+}
+
+function resolveCommercialAccessState(detail = {}) {
+  const user = detail?.user || {}
+  const access = user.access || user.raw?.access || {}
+  const subscriptionStatus = String(
+    user.subscription?.status ||
+      user.raw?.active_suscripcion?.status ||
+      user.raw?.activeSuscripcion?.status ||
+    access.subscription?.status ||
+      access.membership?.status ||
+      access.subscription_status ||
+      access.membership_status ||
+      user.subscription?.status ||
+      user.membership?.status ||
+      user.subscription_status ||
+      user.membership_status ||
+      '',
+  )
+    .trim()
+    .toLowerCase()
+
+  const demoStatus = String(
+    user.demo?.status ||
+      user.raw?.demo?.status ||
+      access.demo?.status ||
+      access.demo_active ||
+      user.demo_active ||
+      access.has_demo ||
+      user.has_demo ||
+      '',
+  )
+    .trim()
+    .toLowerCase()
+
+  if (['active', 'activa', 'vigente', 'approved', 'trial_active', 'demo_active'].includes(subscriptionStatus)) {
+    return 'Habilitado'
+  }
+
+  if (['true', '1', 'yes', 'si'].includes(demoStatus)) {
+    return 'Habilitado'
+  }
+
+  return 'Bloqueado'
+}
+
+function isClientUser(user = {}) {
+  return normalizeRoleKey(user?.role) === 'client'
 }
 
 function closeDetailModal() {
@@ -462,7 +586,7 @@ function openEditUser(user) {
     password: '',
     role: user.role,
     provider_id: user.provider_id || '',
-    status: user.status,
+    status: normalizeStatusLabel(user.status),
     permissions: user.permissions || '',
     invitationSent: user.invitationSent ?? false,
   }
@@ -566,6 +690,8 @@ function normalizeBackendUserError(error) {
 }
 
 async function submitUserForm() {
+  if (savingUser.value) return
+
   userFormErrors.value = validateUserForm()
   if (Object.keys(userFormErrors.value).length > 0) {
     ui.pushToast({
@@ -592,6 +718,8 @@ async function submitUserForm() {
           ? 'active'
           : 'inactive',
   }
+
+  savingUser.value = true
 
   try {
     if (drawerMode.value === 'create' && userForm.value.password) {
@@ -623,6 +751,8 @@ async function submitUserForm() {
       title: 'No se pudo guardar',
       message: normalizedError.message,
     })
+  } finally {
+    savingUser.value = false
   }
 }
 
@@ -656,11 +786,11 @@ async function submitRoleForm() {
 }
 
 async function suspendUser(user) {
-  const isSuspended = normalizeStatusKey(user.status) === 'suspendido'
+  const shouldActivate = canActivateStatus(user.status)
 
   try {
     await requestWithCandidates([
-      { method: 'post', path: `/admin/users/${user.id}/${isSuspended ? 'activate' : 'block'}`, body: {} },
+      { method: 'post', path: `/admin/users/${user.id}/${shouldActivate ? 'activate' : 'block'}`, body: {} },
     ])
 
     await loadUsersFromBackend()
@@ -669,6 +799,38 @@ async function suspendUser(user) {
       tone: 'error',
       title: 'No se pudo actualizar',
       message: error.message || 'El estado del usuario no pudo persistirse.',
+    })
+  }
+}
+
+async function grantUserTrial(user) {
+  try {
+    const response = await requestWithCandidates([
+      { method: 'post', path: `/admin/users/${user.id}/grant-trial`, body: {} },
+    ])
+    const refreshedUser = response?.user ? normalizeUserRecord(response.user, 0) : null
+
+    await loadUsersFromBackend()
+
+    if (detailOpen.value && selectedUserDetail.value?.user?.id === user.id && refreshedUser) {
+      selectedUserDetail.value = {
+        user: refreshedUser,
+        provider: refreshedUser.provider,
+      }
+    }
+
+    ui.pushToast({
+      tone: 'success',
+      title: 'Demo activada',
+      message:
+        response.message ||
+        `La cuenta de ${user.name} ya tiene demo comercial activa y acceso para crear solicitudes.`,
+    })
+  } catch (error) {
+    ui.pushToast({
+      tone: 'error',
+      title: 'No se pudo activar la demo',
+      message: error.message || 'El backend no pudo habilitar el acceso comercial del cliente.',
     })
   }
 }
@@ -763,6 +925,11 @@ function handleChangeRole(user) {
 
 function handleSuspendUser(user) {
   suspendUser(user)
+  closeActionsModal()
+}
+
+function handleGrantUserTrial(user) {
+  grantUserTrial(user)
   closeActionsModal()
 }
 
@@ -908,7 +1075,13 @@ function auditUser(user) {
           <p>{{ user.email }}</p>
 
           <div class="meta-row">
-            <span class="status-pill" :class="{ 'status-pill-warn': normalizeStatusKey(user.status) === 'suspendido' }">
+            <span
+              class="status-pill"
+              :class="{
+                'status-pill-warn': normalizeStatusKey(user.status) === 'suspendido',
+                'status-pill-danger': normalizeStatusKey(user.status) === 'inactivo',
+              }"
+            >
               {{ user.status }}
             </span>
             <small>Ultima auditoria: {{ user.lastAudit }}</small>
@@ -954,7 +1127,13 @@ function auditUser(user) {
               </div>
 
               <div class="role-directory-meta">
-                <span class="status-pill" :class="{ 'status-pill-warn': normalizeStatusKey(user.status) === 'suspendido' }">
+                <span
+                  class="status-pill"
+                  :class="{
+                    'status-pill-warn': normalizeStatusKey(user.status) === 'suspendido',
+                    'status-pill-danger': normalizeStatusKey(user.status) === 'inactivo',
+                  }"
+                >
                   {{ user.status }}
                 </span>
                 <button type="button" class="admin-text-btn" @click="openEditUser(user)">Editar</button>
@@ -1002,7 +1181,13 @@ function auditUser(user) {
           <span>{{ user.email }}</span>
           <span>{{ formatRoleName(user.role) }}</span>
           <span>
-            <span class="status-pill" :class="{ 'status-pill-warn': normalizeStatusKey(user.status) === 'suspendido' }">
+            <span
+              class="status-pill"
+              :class="{
+                'status-pill-warn': normalizeStatusKey(user.status) === 'suspendido',
+                'status-pill-danger': normalizeStatusKey(user.status) === 'inactivo',
+              }"
+            >
               {{ user.status }}
             </span>
           </span>
@@ -1024,8 +1209,16 @@ function auditUser(user) {
               <button type="button" class="mini-action-item" @click="handleViewUser(selectedActionUser)">Ver</button>
               <button type="button" class="mini-action-item" @click="handleChangeRole(selectedActionUser)">Cambiar rol</button>
               <button type="button" class="mini-action-item" @click="handleEditUser(selectedActionUser)">Editar</button>
+              <button
+                v-if="isClientUser(selectedActionUser)"
+                type="button"
+                class="mini-action-item"
+                @click="handleGrantUserTrial(selectedActionUser)"
+              >
+                Activar demo 15 dias
+              </button>
               <button type="button" class="mini-action-item" @click="handleSuspendUser(selectedActionUser)">
-                {{ normalizeStatusKey(selectedActionUser.status) === 'suspendido' ? 'Activar' : 'Suspender' }}
+                {{ canActivateStatus(selectedActionUser.status) ? 'Activar' : 'Suspender' }}
               </button>
               <button type="button" class="mini-action-item" @click="handleAuditUser(selectedActionUser)">Auditar</button>
               <button type="button" class="mini-action-item" @click="handleResetPassword(selectedActionUser)">Resetear</button>
@@ -1102,6 +1295,8 @@ function auditUser(user) {
                 <option value="Activa">Activa</option>
                 <option value="Operando">Operando</option>
                 <option value="Disponible">Disponible</option>
+                <option value="Inactiva">Inactiva</option>
+                <option value="Inhabilitada">Inhabilitada</option>
                 <option value="Suspendida">Suspendida</option>
               </select>
               <small v-if="userFormErrors.status" class="field-error">{{ userFormErrors.status }}</small>
@@ -1123,9 +1318,17 @@ function auditUser(user) {
           </div>
 
           <div class="overlay-actions">
-            <button type="button" class="admin-btn admin-btn-ghost" @click="closeUserDrawer">Cancelar</button>
-            <button type="button" class="admin-btn admin-btn-primary" @click="submitUserForm">
-              {{ drawerMode === 'create' ? 'Crear usuario' : 'Guardar cambios' }}
+            <button type="button" class="admin-btn admin-btn-ghost" :disabled="savingUser" @click="closeUserDrawer">
+              Cancelar
+            </button>
+            <button
+              type="button"
+              class="admin-btn admin-btn-primary"
+              :disabled="savingUser"
+              :aria-busy="savingUser ? 'true' : 'false'"
+              @click="submitUserForm"
+            >
+              {{ savingUser ? 'Guardando...' : drawerMode === 'create' ? 'Crear usuario' : 'Guardar cambios' }}
             </button>
           </div>
         </aside>
@@ -1156,11 +1359,30 @@ function auditUser(user) {
                 <h4>Cuenta</h4>
                 <span class="status-pill">{{ formatRoleName(selectedUserDetail?.user?.role) }}</span>
               </div>
+              <p class="detail-note">
+                Estado de usuario y acceso comercial no son lo mismo. "Activa" solo habilita la cuenta; la reserva
+                del cliente sigue bloqueada si backend no tiene demo activa o suscripcion vigente.
+              </p>
               <div class="detail-grid">
                 <article v-for="row in userDetailRows(selectedUserDetail)" :key="row.label" class="detail-card">
                   <span>{{ row.label }}</span>
                   <strong>{{ row.value }}</strong>
                 </article>
+              </div>
+              <p
+                class="detail-note"
+                :class="{ 'field-error': resolveCommercialAccessState(selectedUserDetail) === 'Bloqueado' }"
+              >
+                Acceso comercial detectado: {{ resolveCommercialAccessState(selectedUserDetail) }}.
+              </p>
+              <div v-if="isClientUser(selectedUserDetail?.user)" class="inline-actions">
+                <button
+                  type="button"
+                  class="admin-btn admin-btn-secondary"
+                  @click="grantUserTrial(selectedUserDetail.user)"
+                >
+                  Activar demo comercial
+                </button>
               </div>
             </section>
 
@@ -1371,6 +1593,14 @@ function auditUser(user) {
 .admin-mini-btn:hover,
 .admin-text-btn:hover {
   transform: translateY(-2px);
+}
+
+.admin-btn:disabled,
+.admin-mini-btn:disabled,
+.admin-text-btn:disabled {
+  cursor: wait;
+  opacity: 0.72;
+  transform: none;
 }
 
 .admin-btn-primary {
@@ -1627,6 +1857,11 @@ function auditUser(user) {
   background: #f8e5d7;
 }
 
+.status-pill-danger {
+  color: #b42318;
+  background: #fee4e2;
+}
+
 .role-chip {
   color: #8c6a1f;
   background: #f3ead2;
@@ -1848,6 +2083,13 @@ function auditUser(user) {
 .detail-empty {
   margin: 0;
   padding: 0.8rem 0;
+}
+
+.detail-note {
+  margin: 0;
+  color: #6b7280;
+  font-size: 0.9rem;
+  line-height: 1.5;
 }
 
 .overlay-head {

@@ -1,8 +1,7 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ActiveTrips from './ActiveTrips.vue'
-import ClientMembershipSection from './ClientMembershipSection.vue'
 import ClientTopNav from './ClientTopNav.vue'
 import ConciergeFloatingButton from './ConciergeFloatingButton.vue'
 import DestinationCards from './DestinationCards.vue'
@@ -36,16 +35,19 @@ const ui = useUiStore()
 const tripType = ref('Ida')
 const selectedPriorityType = ref('essential')
 const profileMenuOpen = ref(false)
+const RESULTS_SURCHARGE_USD = 500
 const searching = ref(false)
 const loadingServerData = ref(false)
 const serverSearchError = ref('')
-const reserving = ref(false)
+const reservingAircraftId = ref('')
 const featuredDestinations = ref([])
 const flightPackages = ref([])
 const aircraftOptions = ref([])
 const reservations = ref([])
 const submittedItinerary = ref(null)
 const activeResultFilter = ref('best_value')
+const technicalSheetOpen = ref(false)
+const technicalAircraft = ref(null)
 
 const searchForm = reactive({
   origin: '',
@@ -56,7 +58,7 @@ const searchForm = reactive({
   departureTime: '',
   returnDate: '',
   returnTime: '',
-  passengers: '',
+  passengers: '1',
   pets: '',
   specialBaggage: '',
   preference: '',
@@ -70,15 +72,12 @@ const topNavItems = [
   { label: 'Reservar', section: 'reservar' },
   { label: 'Mis vuelos', section: 'viajes' },
   { label: 'Perfil', section: 'perfil' },
-  { label: 'Membresia', section: 'membresia' },
 ]
 const mobileNavItems = [
   { label: 'Buscar', section: 'reservar' },
   { label: 'Vuelos', section: 'viajes' },
   { label: 'Cuenta', section: 'perfil' },
-  { label: 'VIP', section: 'membresia' },
 ]
-const activePlan = computed(() => (auth.user?.company_name ? 'Business Club' : 'Sin membresia'))
 const defaultPriorityConfig = {
   empty_leg: { multiplier: 0.95, headline: 'Ahorro inteligente', description: 'Ruta flexible con ahorro real' },
   essential: { multiplier: 1.1, headline: 'Margen standard', description: 'Precio comercial base del marketplace' },
@@ -94,39 +93,45 @@ const selectedAircraft = computed(
 const itineraryLegs = computed(() => {
   if (tripType.value === 'Ida') {
     return [
-      {
+      normalizeLegForQuote({
         origin: searchForm.origin,
         originAirport: searchForm.originAirport,
         destination: searchForm.destination,
         destinationAirport: searchForm.destinationAirport,
         date: searchForm.departureDate,
         time: searchForm.departureTime,
-      },
+      }),
     ]
   }
 
   if (tripType.value === 'Redondo') {
     return [
-      {
+      normalizeLegForQuote({
         origin: searchForm.origin,
         originAirport: searchForm.originAirport,
         destination: searchForm.destination,
         destinationAirport: searchForm.destinationAirport,
         date: searchForm.departureDate,
         time: searchForm.departureTime,
-      },
-      {
+      }),
+      normalizeLegForQuote({
         origin: searchForm.destination,
         originAirport: searchForm.destinationAirport,
         destination: searchForm.origin,
         destinationAirport: searchForm.originAirport,
         date: searchForm.returnDate,
         time: searchForm.returnTime,
-      },
+      }),
     ]
   }
 
-  return searchForm.legs.filter((leg) => leg.origin && leg.destination && leg.date && leg.time)
+  return searchForm.legs
+    .filter((leg) => leg.origin && leg.destination && leg.date)
+    .map((leg, index) =>
+      normalizeLegForQuote(leg, {
+        time: index === 0 ? searchForm.departureTime || '09:00' : '09:00',
+      }),
+    )
 })
 const itineraryDays = computed(() => {
   const dates = itineraryLegs.value
@@ -175,13 +180,56 @@ const tripTypeKey = computed(() => {
 })
 const routeId = computed(() => String(route.params.id || ''))
 const selectedTripId = computed(() => String(route.params.id || ''))
+const accountAccessCopy = computed(() => {
+  const access = auth.access || {}
+  const subscription = access.subscription || access.membership || {}
+  const normalizedSubscriptionStatus = String(
+    subscription.status || access.subscription_status || access.membership_status || '',
+  )
+    .trim()
+    .toLowerCase()
+  const normalizedPlanName = String(
+    subscription.plan_name || subscription.plan || subscription.name || access.plan_name || access.plan || '',
+  ).trim()
+  const truthyStates = new Set(['1', 'true', 'yes', 'si', 'active', 'activa', 'vigente', 'approved', 'trial_active'])
+  const activeStatuses = new Set(['active', 'activa', 'vigente', 'approved'])
+  const demoStatuses = new Set(['trial_active', 'demo_active', 'trial', 'demo'])
+  const flags = [
+    access.has_access,
+    access.active,
+    access.is_active,
+    access.subscription_active,
+    access.demo_active,
+    access.has_demo,
+    access.can_book,
+    access.can_request_flights,
+  ]
+  const normalizedFlags = flags.map((value) => String(value ?? '').trim().toLowerCase())
+  const hasTruthyFlag = normalizedFlags.some((value) => truthyStates.has(value))
+  const hasActiveSubscription = activeStatuses.has(normalizedSubscriptionStatus)
+  const hasDemo = demoStatuses.has(normalizedSubscriptionStatus) || normalizedFlags.some((value) => demoStatuses.has(value))
+
+  if (normalizedPlanName) {
+    return normalizedPlanName
+  }
+
+  if (hasActiveSubscription || hasTruthyFlag) {
+    return 'Acceso activo'
+  }
+
+  if (hasDemo) {
+    return 'Demo activa'
+  }
+
+  return 'Sin demo ni suscripcion'
+})
+const activePlan = computed(() => accountAccessCopy.value)
 const activeSection = computed(() => {
   if (['viajes', 'mis-vuelos', 'historial', 'contrato', 'pago', 'reserva-confirmada'].includes(props.section)) {
     return 'viajes'
   }
   if (props.section === 'soporte') return 'viajes'
   if (props.section === 'perfil') return 'perfil'
-  if (props.section === 'membresia') return 'membresia'
   return 'reservar'
 })
 const bookingStep = computed(() => {
@@ -245,8 +293,46 @@ const filteredAircraftOptions = computed(() => {
     )
     .map(({ aircraft }) => aircraft)
 })
-const featuredAircraft = computed(() => filteredAircraftOptions.value[0] || null)
-const secondaryAircraftOptions = computed(() => filteredAircraftOptions.value.slice(1))
+const visibleAircraftOptions = computed(() => {
+  return filteredAircraftOptions.value.filter((aircraft, index, all) => aircraftVisibleForRoute(aircraft, all, index))
+})
+const decoratedAircraftOptions = computed(() => visibleAircraftOptions.value)
+const featuredAircraft = computed(() => decoratedAircraftOptions.value[0] || null)
+const secondaryAircraftOptions = computed(() => decoratedAircraftOptions.value.slice(1))
+
+const hasSearchContext = computed(() => {
+  const legs = submittedItinerary.value?.legs?.length ? submittedItinerary.value.legs : itineraryLegs.value
+
+  return legs.some((leg) => {
+    const origin = String(leg?.origin || '').trim()
+    const destination = String(leg?.destination || '').trim()
+    return origin && destination
+  })
+})
+
+function createEmptyLeg(overrides = {}) {
+  return {
+    origin: '',
+    originAirport: null,
+    destination: '',
+    destinationAirport: null,
+    date: '',
+    time: '',
+    ...overrides,
+  }
+}
+
+function normalizeLegForQuote(leg = {}, fallback = {}) {
+  return {
+    ...leg,
+    origin: leg.origin || fallback.origin || '',
+    originAirport: leg.originAirport || fallback.originAirport || null,
+    destination: leg.destination || fallback.destination || '',
+    destinationAirport: leg.destinationAirport || fallback.destinationAirport || null,
+    date: leg.date || fallback.date || '',
+    time: leg.time || fallback.time || '09:00',
+  }
+}
 
 function aircraftVisualStyle(imageUrl) {
   if (!imageUrl) {
@@ -272,6 +358,10 @@ function formatCurrency(value) {
     currency: 'USD',
     maximumFractionDigits: 0,
   }).format(Number(value || 0))
+}
+
+function resultDisplayPrice(value = 0) {
+  return formatCurrency(Number(value || 0) + RESULTS_SURCHARGE_USD)
 }
 
 function normalizePriorityCode(value = '') {
@@ -339,12 +429,35 @@ function formatTravelDateLabel(date = '', time = '') {
 }
 
 function itineraryHeadline(summary) {
-  const firstLeg = summary?.legs?.[0]
-  if (!firstLeg) return 'Tu vuelo privado'
+  const legs = Array.isArray(summary?.legs) ? summary.legs.filter((leg) => leg?.origin || leg?.destination) : []
+  if (!legs.length) return 'Tu vuelo privado'
 
-  return `${firstLeg.originAirport?.city || airportDisplayName(firstLeg.origin)} → ${
-    firstLeg.destinationAirport?.city || airportDisplayName(firstLeg.destination)
-  }`
+  const tripType = String(summary?.tripType || '').trim()
+  const firstLeg = legs[0]
+  const lastLeg = legs[legs.length - 1]
+  const firstOrigin = firstLeg.originAirport?.city || airportDisplayName(firstLeg.origin)
+  const firstDestination = firstLeg.destinationAirport?.city || airportDisplayName(firstLeg.destination)
+  const lastDestination = lastLeg.destinationAirport?.city || airportDisplayName(lastLeg.destination)
+
+  if (tripType === 'Redondo' && firstOrigin && firstDestination) {
+    return `${firstOrigin} → ${firstDestination} → ${firstOrigin}`
+  }
+
+  if (tripType === 'Multi-destino') {
+    const routeStops = legs.reduce((stops, leg, index) => {
+      const origin = leg.originAirport?.city || airportDisplayName(leg.origin)
+      const destination = leg.destinationAirport?.city || airportDisplayName(leg.destination)
+
+      if (index === 0 && origin) stops.push(origin)
+      if (destination) stops.push(destination)
+
+      return stops
+    }, [])
+
+    return routeStops.join(' → ')
+  }
+
+  return `${firstOrigin} → ${lastDestination || firstDestination}`
 }
 
 function itineraryDateLine(summary) {
@@ -356,13 +469,29 @@ function itineraryDateLine(summary) {
 
 function aircraftPriceCopy(aircraft) {
   const activePricing = aircraftPricingForType(aircraft, selectedPriorityType.value)
-  if (activePricing.finalPrice) return activePricing.formattedFinalPrice
+  if (activePricing.finalPrice) return resultDisplayPrice(activePricing.finalPrice)
   return 'Cotización inmediata'
 }
 
 function aircraftPriceValue(aircraft) {
   const activePricing = aircraftPricingForType(aircraft, selectedPriorityType.value)
   return activePricing.finalPrice || Number.MAX_SAFE_INTEGER
+}
+
+function aircraftReservationKey(aircraft = {}) {
+  return String(aircraft?.match_id || aircraft?.matched_option_id || aircraft?.aircraft_id || aircraft?.id || '')
+}
+
+function isReservingAircraft(aircraft = {}) {
+  return Boolean(aircraftReservationKey(aircraft)) && reservingAircraftId.value === aircraftReservationKey(aircraft)
+}
+
+function routeDistanceKmForAircraft(aircraft = {}) {
+  return Number(
+    aircraft.distance_km ||
+      aircraft.pricing_breakdown?.client_legs?.reduce((sum, leg) => sum + Number(leg.distance_km || 0), 0) ||
+      0,
+  )
 }
 
 function aircraftTimeValue(aircraft) {
@@ -410,7 +539,63 @@ function aircraftClassLabel(aircraft = {}) {
   return 'Jet ejecutivo'
 }
 
+function aircraftEmotionalCopy(aircraft = {}) {
+  const cabin = String(aircraft.cabin || aircraft.category || '').toLowerCase()
+  const capacity = Number(aircraft.capacity || 0)
+
+  if (cabin.includes('helic')) return 'Perfecto para traslados ejecutivos de acceso rapido'
+  if (cabin.includes('heavy') || cabin.includes('long')) return 'Cabina ideal para consejos, equipos senior y viajes VIP'
+  if (cabin.includes('mid')) return 'Balance ideal entre presencia ejecutiva y eficiencia'
+  if (cabin.includes('light')) return capacity >= 7 ? 'Ideal para grupos ejecutivos compactos' : 'Excelente para juntas privadas y traslados agiles'
+  if (cabin.includes('turbo')) return 'Solucion eficiente para rutas regionales con valor real'
+  return 'Experiencia privada lista para cerrar agenda sin friccion'
+}
+
+function formatDurationFromHours(hours = 0) {
+  const normalizedHours = Number(hours || 0)
+  if (!Number.isFinite(normalizedHours) || normalizedHours <= 0) return ''
+
+  const totalMinutes = Math.max(Math.round(normalizedHours * 60), 0)
+  const wholeHours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+
+  if (wholeHours && minutes) return `${wholeHours} h ${minutes} min`
+  if (wholeHours) return `${wholeHours} h`
+  return `${minutes} min`
+}
+
+function inferredFlightWindowHours(aircraft = {}) {
+  const directHours = Number(aircraft.estimated_hours || aircraft.real_flight_hours || 0)
+  if (!Number.isFinite(directHours) || directHours <= 0) return null
+
+  const cabin = String(aircraft.cabin || aircraft.category || '').toLowerCase()
+  let upperHours = directHours
+
+  if (cabin.includes('helic')) upperHours += 0.18
+  else if (cabin.includes('turbo')) upperHours += 0.22
+  else if (cabin.includes('light')) upperHours += 0.2
+  else if (cabin.includes('mid')) upperHours += 0.22
+  else upperHours += 0.25
+
+  return {
+    min: directHours,
+    max: Math.max(upperHours, directHours),
+  }
+}
+
 function aircraftDurationLabel(aircraft = {}) {
+  const flightWindow = inferredFlightWindowHours(aircraft)
+  if (flightWindow) {
+    const minLabel = formatDurationFromHours(flightWindow.min)
+    const maxLabel = formatDurationFromHours(flightWindow.max)
+    if (minLabel && maxLabel && minLabel !== maxLabel) return `${minLabel} – ${maxLabel}`
+    if (minLabel) return minLabel
+  }
+
+  const estimatedFlightHours = Number(aircraft.estimated_hours || aircraft.real_flight_hours || 0)
+  const estimatedFlightLabel = formatDurationFromHours(estimatedFlightHours)
+  if (estimatedFlightLabel) return estimatedFlightLabel
+
   return String(aircraft.time || aircraft.flight_time || activeItinerarySummary.value?.estimatedTime || '42 min')
 }
 
@@ -429,7 +614,7 @@ function itineraryDepartureLabel(summary = {}) {
 }
 
 function aircraftSpeedLine(aircraft = {}, summary = {}) {
-  return `${aircraftDurationLabel(aircraft)} • ${aircraftCapacityLabel(aircraft)} • ${itineraryDepartureLabel(summary)}`
+  return `${aircraftDurationLabel(aircraft)} • ${itineraryDepartureLabel(summary)}`
 }
 
 function aircraftAvailabilityLabel(aircraft = {}, index = 0) {
@@ -446,6 +631,47 @@ function aircraftIncludes(aircraft = {}) {
     .filter((item) => !hiddenAmenities.has(String(item).trim().toLowerCase()))
     .slice(0, 4)
 }
+
+function aircraftVisibleForRoute(aircraft = {}, allAircraft = [], index = 0) {
+  const normalizedCabin = String(aircraft.cabin || aircraft.category || '').toLowerCase()
+  const isHelicopter = normalizedCabin.includes('helic')
+  if (!isHelicopter) return true
+
+  const distanceKm = routeDistanceKmForAircraft(aircraft)
+  const efficientLimitKm = 320
+  const aircraftRangeKm = Number(aircraft.range_km || aircraft.aircraft?.range_km || 0)
+  const price = aircraftPriceValue(aircraft)
+  const bestFixedWingPrice = allAircraft
+    .filter((item) => !String(item.cabin || item.category || '').toLowerCase().includes('helic'))
+    .reduce((min, item) => Math.min(min, aircraftPriceValue(item)), Number.POSITIVE_INFINITY)
+
+  if (distanceKm > efficientLimitKm) return false
+  if (aircraftRangeKm && distanceKm > aircraftRangeKm * 0.55) return false
+  if (Number.isFinite(bestFixedWingPrice) && price > bestFixedWingPrice * 1.28 && index > 0) return false
+
+  return true
+}
+
+function openTechnicalSheet(aircraft) {
+  technicalAircraft.value = aircraft
+  technicalSheetOpen.value = true
+}
+
+function closeTechnicalSheet() {
+  technicalSheetOpen.value = false
+  technicalAircraft.value = null
+}
+
+const technicalSheetInsights = computed(() => {
+  const aircraft = technicalAircraft.value
+  if (!aircraft) return []
+
+  return [
+    `Tiempo estimado ${aircraftDurationLabel(aircraft)} para esta ruta.`,
+    `${aircraftEmotionalCopy(aircraft)}.`,
+    `${aircraftPriceCopy(aircraft)} con una presentacion premium lista para cliente final.`,
+  ]
+})
 
 
 function resolvePriorityOption(priorityType = 'essential') {
@@ -499,6 +725,12 @@ function aircraftPricingForType(aircraft = {}, priorityType = 'essential') {
     packageCode: priorityType,
     attentionLevel: 'normal',
     overnightNights: activeItinerarySummary.value?.days || 0,
+    legs: activeItinerarySummary.value?.legs || [],
+    catering: activeItinerarySummary.value?.catering || '',
+    wifi: activeItinerarySummary.value?.wifi || 'none',
+    groundTransport: activeItinerarySummary.value?.groundTransport || 'none',
+    pets: activeItinerarySummary.value?.pets || '',
+    specialBaggage: activeItinerarySummary.value?.specialBaggage || '',
   })
 
   if (formula.hasFormulaInputs) {
@@ -520,6 +752,8 @@ function aircraftPricingForType(aircraft = {}, priorityType = 'essential') {
       billableHours: formula.billableHours,
       realFlightHours: formula.realFlightHours,
       minimumHours: formula.minimumHours,
+      minimumRoutePrice: formula.minimumRoutePrice,
+      rawBaseCost: formula.rawBaseCost,
       repositioning: formula.repositioning,
       operationalCostBreakdown: formula.operationalCosts,
       extraServicesTotal: formula.extraServices.total,
@@ -661,15 +895,21 @@ function selectDestination(destination) {
 
     if (hasEmptyLastDestination) {
       lastLeg.destination = destination.code
+      lastLeg.destinationAirport = destination
+      syncMultiDestinationChain(searchForm.legs.length)
       return
     }
 
-    searchForm.legs.push({
-      origin: lastLeg?.destination || searchForm.destination,
-      destination: destination.code,
-      date: lastLeg?.date || searchForm.departureDate,
-      time: lastLeg?.time || searchForm.departureTime,
-    })
+    searchForm.legs.push(
+      createEmptyLeg({
+        origin: lastLeg?.destination || searchForm.destination,
+        originAirport: lastLeg?.destinationAirport || searchForm.destinationAirport,
+        destination: destination.code,
+        destinationAirport: destination,
+        date: lastLeg?.date || searchForm.departureDate,
+        time: lastLeg?.time || searchForm.departureTime || '09:00',
+      }),
+    )
     return
   }
 
@@ -749,14 +989,16 @@ function selectLegAirport({ index, field, airport }) {
 
 function addLeg() {
   const lastLeg = searchForm.legs[searchForm.legs.length - 1] || {}
-  searchForm.legs.push({
+  searchForm.legs.push(
+    createEmptyLeg({
     origin: lastLeg.destination || '',
     originAirport: lastLeg.destinationAirport || null,
     destination: '',
     destinationAirport: null,
     date: lastLeg.date || searchForm.departureDate,
     time: lastLeg.time || '09:00',
-  })
+    }),
+  )
   syncMultiDestinationChain(searchForm.legs.length - 1)
 }
 
@@ -769,7 +1011,7 @@ function removeLeg(index) {
 }
 
 function buildItinerarySummary(payload) {
-  const legs = Array.isArray(payload.legs) ? payload.legs.map((leg) => ({ ...leg })) : []
+  const legs = Array.isArray(payload.legs) ? payload.legs.map((leg) => normalizeLegForQuote(leg)) : []
   const dates = legs
     .map((leg) => new Date(`${leg.date}T00:00:00`))
     .filter((date) => !Number.isNaN(date.getTime()))
@@ -800,6 +1042,8 @@ function buildItinerarySummary(payload) {
 
 function validateSearchForm() {
   const firstLeg = itineraryLegs.value[0] || {}
+  const secondLeg = itineraryLegs.value[1] || {}
+  const incompleteMultiLeg = itineraryLegs.value.findIndex((leg) => !leg.origin || !leg.destination || !leg.date)
 
   if (!firstLeg.origin || !firstLeg.destination || !firstLeg.date) {
     serverSearchError.value = 'Completa origen, destino y fecha para ver opciones disponibles.'
@@ -819,6 +1063,26 @@ function validateSearchForm() {
     ui.pushToast({
       tone: 'warning',
       title: 'Tramos incompletos',
+      message: serverSearchError.value,
+    })
+    return false
+  }
+
+  if (tripType.value === 'Redondo' && (!secondLeg.date || !secondLeg.origin || !secondLeg.destination)) {
+    serverSearchError.value = 'Completa la fecha de regreso para cotizar tu viaje redondo.'
+    ui.pushToast({
+      tone: 'warning',
+      title: 'Regreso pendiente',
+      message: 'Agrega la fecha de regreso para completar el viaje redondo.',
+    })
+    return false
+  }
+
+  if (tripType.value === 'Multi-destino' && incompleteMultiLeg !== -1) {
+    serverSearchError.value = `Completa origen, destino y fecha del tramo ${incompleteMultiLeg + 1}.`
+    ui.pushToast({
+      tone: 'warning',
+      title: 'Tramo pendiente',
       message: serverSearchError.value,
     })
     return false
@@ -844,16 +1108,18 @@ async function submitSearch() {
   searching.value = true
   aircraftOptions.value = []
   try {
+    const normalizedPassengers = Number(searchForm.passengers || 0) || 1
+    searchForm.passengers = String(normalizedPassengers)
     const quotePayload = {
       trip_type: tripTypeKey.value,
       trip_label: tripType.value,
-      passengers: searchForm.passengers,
+      passengers: normalizedPassengers,
       pets: searchForm.pets,
       special_baggage: searchForm.specialBaggage,
       preference: searchForm.preference,
       flight_package: selectedPriorityMeta.value?.name || '',
       priority_type: selectedPriorityType.value,
-      legs: itineraryLegs.value.map((leg) => ({ ...leg })),
+      legs: itineraryLegs.value.map((leg) => normalizeLegForQuote(leg)),
     }
     submittedItinerary.value = buildItinerarySummary(quotePayload)
     ui.pushToast({
@@ -866,13 +1132,14 @@ async function submitSearch() {
     if (!aircraftOptions.value.length) {
       serverSearchError.value = 'No fue posible generar una cotizacion real para este itinerario con la informacion actual.'
     }
-  } catch {
+  } catch (error) {
+    const message = error?.message || 'No fue posible consultar el cotizador en este momento. Intenta de nuevo.'
     aircraftOptions.value = []
-    serverSearchError.value = 'No fue posible consultar el cotizador en este momento. Intenta de nuevo.'
+    serverSearchError.value = message
     ui.pushToast({
       tone: 'error',
       title: 'Cotizador no disponible',
-      message: 'No pudimos consultar opciones en tiempo real para esta ruta.',
+      message,
     })
   } finally {
     searching.value = false
@@ -880,10 +1147,11 @@ async function submitSearch() {
 }
 
 async function requestReservation(aircraft = selectedAircraft.value) {
-  if (!aircraft || reserving.value) return
+  if (!aircraft || reservingAircraftId.value) return
 
   try {
-    reserving.value = true
+    reservingAircraftId.value = aircraftReservationKey(aircraft)
+    const normalizedPassengers = Number(activeItinerarySummary.value.passengers || searchForm.passengers || 0) || 1
     const pricing = aircraftPricingForType(aircraft, selectedPriorityType.value)
     const pricingContext = buildCommercialSnapshot(
       {
@@ -891,6 +1159,11 @@ async function requestReservation(aircraft = selectedAircraft.value) {
         priorityType: pricing.priorityType,
         attentionLevel: 'normal',
         overnightNights: activeItinerarySummary.value.days || 0,
+        catering: activeItinerarySummary.value.catering || '',
+        wifi: activeItinerarySummary.value.wifi || 'none',
+        groundTransport: activeItinerarySummary.value.groundTransport || 'none',
+        pets: activeItinerarySummary.value.pets || '',
+        specialBaggage: activeItinerarySummary.value.specialBaggage || '',
       },
       pricing,
       aircraft,
@@ -898,7 +1171,7 @@ async function requestReservation(aircraft = selectedAircraft.value) {
     const reservation = await createClientFlightRequest({
       trip_type: tripTypeKey.value,
       trip_label: tripType.value,
-      passengers: activeItinerarySummary.value.passengers,
+      passengers: normalizedPassengers,
       pets: activeItinerarySummary.value.pets,
       special_baggage: activeItinerarySummary.value.specialBaggage,
       preference: aircraft.cabin || aircraft.aircraft,
@@ -922,6 +1195,7 @@ async function requestReservation(aircraft = selectedAircraft.value) {
       billable_hours: pricingContext.billable_hours,
       real_flight_hours: pricingContext.real_flight_hours,
       minimum_hours: pricingContext.minimum_hours,
+      minimum_route_price: pricingContext.minimum_route_price,
       subtotal_before_multipliers: pricingContext.subtotal_before_multipliers,
       extra_services_total: pricingContext.extra_services_total,
       aircraft_snapshot: aircraft,
@@ -938,14 +1212,15 @@ async function requestReservation(aircraft = selectedAircraft.value) {
       message: 'Tu reserva ya entro al flujo comercial y operativo.',
     })
     go('reserva-confirmada', createdReservationId)
-  } catch {
+  } catch (error) {
+    const message = error?.message || 'Intenta de nuevo o contacta a tu asesor privado.'
     ui.pushToast({
       tone: 'error',
       title: 'No se pudo solicitar la reserva',
-      message: 'Intenta de nuevo o contacta a tu asesor privado.',
+      message,
     })
   } finally {
-    reserving.value = false
+    reservingAircraftId.value = ''
   }
 }
 
@@ -977,6 +1252,53 @@ async function loadServerData() {
 }
 
 onMounted(loadServerData)
+
+watch(
+  tripType,
+  (nextType) => {
+    if (nextType === 'Ida') {
+      return
+    }
+
+    if (nextType === 'Redondo') {
+      searchForm.returnDate = searchForm.returnDate || searchForm.departureDate
+      searchForm.returnTime = searchForm.returnTime || searchForm.departureTime || '09:00'
+      return
+    }
+
+    if (nextType === 'Multi-destino') {
+      const firstLeg = createEmptyLeg({
+        origin: searchForm.origin,
+        originAirport: searchForm.originAirport,
+        destination: searchForm.destination,
+        destinationAirport: searchForm.destinationAirport,
+        date: searchForm.departureDate,
+        time: searchForm.departureTime || '09:00',
+      })
+      const secondLeg = createEmptyLeg({
+        origin: firstLeg.destination || '',
+        originAirport: firstLeg.destinationAirport || null,
+        destination: '',
+        destinationAirport: null,
+        date: searchForm.departureDate,
+        time: searchForm.departureTime || '09:00',
+      })
+
+      searchForm.legs = [firstLeg, secondLeg]
+    }
+  },
+  { immediate: true },
+)
+
+watch(
+  [bookingStep, hasSearchContext],
+  ([step, hasContext]) => {
+    if (step === 'resultados' && !hasContext) {
+      router.replace('/cliente/reservar')
+    }
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -1067,6 +1389,7 @@ onMounted(loadServerData)
 
             <div class="aircraft-hero-copy">
               <h3>{{ featuredAircraft.aircraft }}</h3>
+              <p class="aircraft-time-line">{{ aircraftSpeedLine(featuredAircraft, activeItinerarySummary) }}</p>
               <p class="hero-price-label">Tarifa estimada total</p>
               <strong class="hero-price">{{ aircraftPriceCopy(featuredAircraft) }}</strong>
               <p class="hero-service-copy">Incluye operacion, logistica y servicio ejecutivo.</p>
@@ -1075,8 +1398,9 @@ onMounted(loadServerData)
               </div>
             </div>
             <div class="hero-actions">
-              <button type="button" :disabled="reserving" @click="requestReservation(featuredAircraft)">
-                {{ reserving ? 'Reservando...' : 'Reservar' }}
+             
+              <button type="button" :disabled="Boolean(reservingAircraftId)" @click="requestReservation(featuredAircraft)">
+                {{ isReservingAircraft(featuredAircraft) ? 'Reservando...' : 'Reservar' }}
               </button>
             </div>
           </article>
@@ -1106,6 +1430,7 @@ onMounted(loadServerData)
                   <div class="aircraft-card-head__copy">
                     <span class="eyebrow">Opcion privada</span>
                     <h3>{{ aircraft.aircraft }}</h3>
+                    <p class="aircraft-time-line">{{ aircraftSpeedLine(aircraft, activeItinerarySummary) }}</p>
                   </div>
                 </div>
                 <p class="aircraft-price-line">
@@ -1114,8 +1439,9 @@ onMounted(loadServerData)
                 </p>
               </div>
               <div class="card-actions">
-                <button type="button" :disabled="reserving" @click="requestReservation(aircraft)">
-                  {{ reserving ? 'Reservando...' : 'Reservar' }}
+                
+                <button type="button" :disabled="Boolean(reservingAircraftId)" @click="requestReservation(aircraft)">
+                  {{ isReservingAircraft(aircraft) ? 'Reservando...' : 'Reservar' }}
                 </button>
               </div>
             </article>
@@ -1205,14 +1531,18 @@ onMounted(loadServerData)
           </form>
         </template>
 
-        <ClientMembershipSection
-          v-else
-          :access="{ has_access: true, demo: { status: 'Activa' }, subscription: { status: activePlan } }"
-          @activate-access="go('reservar')"
-          @go-section="go"
-          @open-concierge="go('soporte')"
-          @select-plan="go('membresia')"
-        />
+        <div v-else class="profile-cards">
+          <article class="profile-highlight-card">
+            <span class="eyebrow">Reserva activa</span>
+            <h3>Tu cuenta ya puede buscar y cotizar</h3>
+            <p>Centraliza rutas, preferencias y seguimiento sin depender de una vista adicional.</p>
+          </article>
+          <article class="profile-highlight-card">
+            <span class="eyebrow">Siguiente paso</span>
+            <h3>Vuelve al cotizador</h3>
+            <p>Usa el flujo de reserva para crear nuevas solicitudes y revisar tus vuelos vigentes.</p>
+          </article>
+        </div>
       </section>
     </main>
 
@@ -1227,6 +1557,59 @@ onMounted(loadServerData)
         {{ item.label }}
       </button>
     </nav>
+
+    <transition name="sheet-fade">
+      <div v-if="technicalSheetOpen && technicalAircraft" class="technical-sheet-backdrop" @click.self="closeTechnicalSheet">
+        <section class="technical-sheet">
+          <div class="technical-sheet__hero">
+            <div class="technical-sheet__media" :style="aircraftVisualStyle(technicalAircraft.image_url)">
+              <img
+                v-if="technicalAircraft.image_url"
+                :src="technicalAircraft.image_url"
+                :alt="technicalAircraft.aircraft"
+                loading="lazy"
+              />
+            </div>
+            <div class="technical-sheet__copy">
+              <span class="eyebrow">Ficha ejecutiva</span>
+              <h3>{{ technicalAircraft.aircraft }}</h3>
+              <p>{{ aircraftDurationLabel(technicalAircraft) }}</p>
+              <strong>{{ aircraftPriceCopy(technicalAircraft) }}</strong>
+            </div>
+            <button class="technical-sheet__close" type="button" @click="closeTechnicalSheet">Cerrar</button>
+          </div>
+
+          <div class="technical-sheet__body">
+            <div class="technical-sheet__map">
+              <span>{{ itineraryHeadline(activeItinerarySummary) }}</span>
+              <strong>{{ routeDistanceKmForAircraft(technicalAircraft) || 'Ruta' }} km</strong>
+            </div>
+
+            <div class="technical-sheet__stats">
+              <article>
+                <span>Ventana de vuelo</span>
+                <strong>{{ aircraftDurationLabel(technicalAircraft) }}</strong>
+              </article>
+              <article>
+                <span>Cabina</span>
+                <strong>{{ aircraftClassLabel(technicalAircraft) }}</strong>
+              </article>
+              <article>
+                <span>Capacidad</span>
+                <strong>{{ aircraftCapacityLabel(technicalAircraft) }}</strong>
+              </article>
+            </div>
+
+            <div class="technical-sheet__insights">
+              <span class="eyebrow">Insights automáticos</span>
+              <ul>
+                <li v-for="insight in technicalSheetInsights" :key="insight">{{ insight }}</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+      </div>
+    </transition>
 
     <ConciergeFloatingButton @open="go('soporte')" />
   </div>
@@ -1430,12 +1813,19 @@ button {
 
 .aircraft-card {
   display: grid;
-  grid-template-columns: minmax(300px, 390px) minmax(0, 1fr) minmax(220px, 260px);
-  gap: 1rem;
+  grid-template-columns: minmax(280px, 350px) minmax(0, 1fr) minmax(180px, 220px);
+  gap: 0.85rem;
   align-items: stretch;
-  padding: 1rem;
-  border-radius: 20px;
-  box-shadow: 0 16px 44px rgba(17, 17, 17, 0.08);
+  padding: 0.85rem;
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(249, 246, 240, 0.96));
+  box-shadow:
+    0 18px 46px rgba(17, 17, 17, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    border-color 180ms ease;
 }
 
 .aircraft-card--featured {
@@ -1450,9 +1840,11 @@ button {
 .aircraft-thumb {
   position: relative;
   overflow: hidden;
-  min-height: 250px;
-  border-radius: 16px;
-  background: linear-gradient(135deg, #242424, #0f0f0f);
+  min-height: 240px;
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.32), transparent 24%),
+    linear-gradient(135deg, #242424, #0f0f0f);
 }
 
 .aircraft-thumb img,
@@ -1478,6 +1870,17 @@ button {
   pointer-events: none;
 }
 
+.aircraft-thumb::before,
+.aircraft-visual::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(125deg, rgba(255, 255, 255, 0.28), transparent 28%, transparent 72%, rgba(255, 255, 255, 0.16));
+  mix-blend-mode: screen;
+  pointer-events: none;
+  z-index: 0;
+}
+
 .aircraft-thumb__badge {
   position: absolute;
   top: 0.85rem;
@@ -1494,6 +1897,32 @@ button {
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+.aircraft-smart-badges {
+  position: absolute;
+  right: 0.85rem;
+  bottom: 0.85rem;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  max-width: calc(100% - 1.7rem);
+}
+
+.aircraft-smart-badges span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.85rem;
+  padding: 0.28rem 0.68rem;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  background: rgba(17, 17, 17, 0.6);
+  color: #ffffff;
+  font-size: 0.72rem;
+  font-weight: 800;
+  backdrop-filter: blur(14px);
 }
 
 .aircraft-thumb__empty {
@@ -1564,7 +1993,7 @@ button {
 
 .aircraft-price-line strong {
   color: #111111;
-  font-size: clamp(2rem, 2.8vw, 2.6rem);
+  font-size: clamp(1.7rem, 2.2vw, 2.2rem);
   line-height: 0.95;
 }
 
@@ -1609,6 +2038,14 @@ button {
 .plan-card h3,
 .support-card h3 {
   margin: 0;
+}
+
+.aircraft-card:hover,
+.aircraft-hero-card:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 24px 54px rgba(17, 17, 17, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.96);
 }
 
 .results-head-premium {
@@ -1692,18 +2129,20 @@ button {
 
 .aircraft-hero-card {
   display: grid;
-  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(190px, 230px);
-  gap: 0.8rem;
-  min-height: 320px;
+  grid-template-columns: minmax(220px, 270px) minmax(0, 1fr) minmax(170px, 210px);
+  gap: 0.75rem;
+  min-height: 300px;
   padding: 0.8rem;
   border: 1px solid rgba(191, 151, 65, 0.34);
-  border-radius: 18px;
-  background: #ffffff;
-  box-shadow: 0 16px 44px rgba(17, 17, 17, 0.08);
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(252, 248, 240, 0.96));
+  box-shadow:
+    0 18px 46px rgba(17, 17, 17, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
 }
 
 .aircraft-thumb-hero {
-  min-height: 320px;
+  min-height: 300px;
 }
 
 .aircraft-hero-copy {
@@ -1759,6 +2198,21 @@ button {
   font-size: 0.95rem;
 }
 
+.hero-emotional-copy,
+.aircraft-emotional-copy {
+  margin: 0;
+  color: #2f2821;
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.aircraft-time-line {
+  margin: 0;
+  color: #6c604f;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
 .hero-includes {
   display: flex;
   flex-wrap: wrap;
@@ -1780,14 +2234,23 @@ button {
 
 .hero-actions {
   display: grid;
+  gap: 0.6rem;
   align-content: center;
   justify-items: end;
 }
 
 .hero-actions button {
-  min-width: 12rem;
+  width: 100%;
+  min-width: 11rem;
   min-height: 3.25rem;
   color: #ffffff;
+}
+
+.secondary-ghost-button {
+  border: 1px solid rgba(191, 151, 65, 0.28) !important;
+  background: rgba(255, 255, 255, 0.68) !important;
+  color: #181512 !important;
+  backdrop-filter: blur(12px);
 }
 
 .aircraft-facts,
@@ -1934,15 +2397,15 @@ button {
 }
 
 .card-actions button:first-child {
-  min-height: 3.25rem;
-  background: linear-gradient(135deg, #111111, #2b2925);
-  color: #ffffff;
+  min-height: 3rem;
+  background: rgba(255, 255, 255, 0.7);
+  color: #111111;
 }
 
 .card-actions button:last-child:not(:only-child) {
-  min-height: 3rem;
-  background: #ffffff;
-  color: #111111;
+  min-height: 3.25rem;
+  background: linear-gradient(135deg, #111111, #2b2925);
+  color: #ffffff;
 }
 
 .aircraft-list-compact {
@@ -1951,14 +2414,14 @@ button {
 }
 
 .aircraft-card-compact {
-  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(190px, 230px);
-  min-height: 320px;
+  grid-template-columns: minmax(220px, 260px) minmax(0, 1fr) minmax(170px, 210px);
+  min-height: 290px;
   padding: 0.8rem;
   border-radius: 18px;
 }
 
 .aircraft-card-compact .aircraft-thumb {
-  min-height: 320px;
+  min-height: 290px;
 }
 
 .aircraft-card-compact .aircraft-copy {
@@ -2107,6 +2570,137 @@ button {
   display: none;
 }
 
+.technical-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background: rgba(8, 8, 8, 0.62);
+  backdrop-filter: blur(20px);
+}
+
+.technical-sheet {
+  width: min(100%, 1040px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 28px;
+  background: linear-gradient(145deg, rgba(22, 22, 22, 0.96), rgba(9, 9, 9, 0.94));
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.35);
+  color: #f4efe7;
+  overflow: hidden;
+}
+
+.technical-sheet__hero {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr) auto;
+  gap: 1rem;
+  padding: 1rem;
+  align-items: center;
+}
+
+.technical-sheet__media {
+  position: relative;
+  min-height: 220px;
+  border-radius: 22px;
+  overflow: hidden;
+  background: linear-gradient(135deg, #1f1f1f, #0f0f0f);
+}
+
+.technical-sheet__media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.technical-sheet__copy {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.technical-sheet__copy p,
+.technical-sheet__copy strong,
+.technical-sheet__map span,
+.technical-sheet__map strong,
+.technical-sheet__stats span,
+.technical-sheet__stats strong,
+.technical-sheet__insights li,
+.technical-sheet__insights .eyebrow {
+  color: #f4efe7;
+}
+
+.technical-sheet__copy strong {
+  font-size: 2rem;
+}
+
+.technical-sheet__close {
+  align-self: start;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.technical-sheet__body {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  gap: 1rem;
+  padding: 0 1rem 1rem;
+}
+
+.technical-sheet__map,
+.technical-sheet__stats,
+.technical-sheet__insights {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(16px);
+}
+
+.technical-sheet__map {
+  display: grid;
+  gap: 0.5rem;
+  min-height: 240px;
+  padding: 1rem;
+  background:
+    radial-gradient(circle at top left, rgba(191, 151, 65, 0.24), transparent 28%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02));
+}
+
+.technical-sheet__stats {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+}
+
+.technical-sheet__stats article {
+  display: grid;
+  gap: 0.18rem;
+  padding: 0.8rem;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.technical-sheet__insights {
+  display: grid;
+  gap: 0.5rem;
+  padding: 1rem;
+}
+
+.technical-sheet__insights ul {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding-left: 1rem;
+}
+
+.sheet-fade-enter-active,
+.sheet-fade-leave-active {
+  transition: opacity 180ms ease;
+}
+
+.sheet-fade-enter-from,
+.sheet-fade-leave-to {
+  opacity: 0;
+}
+
 .active-filter {
   background: #111111 !important;
   border-color: #111111 !important;
@@ -2134,6 +2728,11 @@ button {
   .support-grid,
   .summary-band,
   .profile-form {
+    grid-template-columns: 1fr;
+  }
+
+  .technical-sheet__hero,
+  .technical-sheet__body {
     grid-template-columns: 1fr;
   }
 
@@ -2322,16 +2921,11 @@ button {
   }
 
   .aircraft-list {
-    display: flex;
-    gap: 0.55rem;
-    overflow-x: auto;
-    padding: 0.05rem 0.05rem 0.3rem;
-    scroll-snap-type: x mandatory;
-    scrollbar-width: none;
-  }
-
-  .aircraft-list::-webkit-scrollbar {
-    display: none;
+    display: grid;
+    gap: 0.75rem;
+    overflow: visible;
+    padding: 0;
+    scroll-snap-type: none;
   }
 
   .aircraft-card,
@@ -2346,11 +2940,10 @@ button {
   }
 
   .aircraft-card {
-    flex: 0 0 86%;
-    gap: 0.45rem;
-    border-radius: 12px;
-    padding: 0.55rem;
-    scroll-snap-align: start;
+    gap: 0.55rem;
+    border-radius: 18px;
+    padding: 0.65rem;
+    scroll-snap-align: none;
   }
 
   .aircraft-card-head {
@@ -2359,12 +2952,12 @@ button {
   }
 
   .aircraft-thumb {
-    min-height: 94px;
-    border-radius: 8px;
+    min-height: 220px;
+    border-radius: 14px;
   }
 
   .aircraft-thumb img {
-    min-height: 94px;
+    min-height: 220px;
   }
 
   .aircraft-thumb__badge {
@@ -2384,14 +2977,14 @@ button {
   }
 
   .aircraft-copy {
-    gap: 0.12rem;
+    gap: 0.3rem;
   }
 
   .aircraft-copy h3,
   .aircraft-hero-copy h3 {
-    font-size: 0.84rem;
-    line-height: 1.05;
-    font-weight: 600;
+    font-size: 1rem;
+    line-height: 1.08;
+    font-weight: 700;
   }
 
   .aircraft-copy > strong {
@@ -2407,19 +3000,21 @@ button {
   }
 
   .aircraft-price-line strong {
-    font-size: 0.84rem;
-    line-height: 1.05;
+    font-size: 1.5rem;
+    line-height: 1;
   }
 
   .aircraft-price-line > span,
   .aircraft-price-line small {
-    font-size: 0.64rem;
+    font-size: 0.68rem;
   }
 
-  .aircraft-trust-copy,
-  .aircraft-quick-meta {
-    font-size: 0.7rem;
-    line-height: 1.25;
+  .aircraft-time-line,
+  .hero-service-copy,
+  .hero-emotional-copy,
+  .aircraft-emotional-copy {
+    font-size: 0.78rem;
+    line-height: 1.35;
   }
 
   .aircraft-facts {
@@ -2442,9 +3037,9 @@ button {
   }
 
   .card-actions button {
-    min-height: 2rem;
-    border-radius: 8px;
-    font-size: 0.82rem;
+    min-height: 2.9rem;
+    border-radius: 12px;
+    font-size: 0.9rem;
   }
 
   .aircraft-facts .fact-pill {
@@ -2453,6 +3048,29 @@ button {
 
   .aircraft-visual {
     min-height: 170px;
+  }
+
+  .aircraft-hero-card,
+  .aircraft-card-compact {
+    grid-template-columns: 1fr;
+    min-height: auto;
+  }
+
+  .aircraft-thumb-hero,
+  .aircraft-card-compact .aircraft-thumb {
+    min-height: 220px;
+  }
+
+  .hero-actions,
+  .card-actions {
+    justify-items: stretch;
+    align-content: stretch;
+  }
+
+  .hero-actions button,
+  .card-actions button {
+    width: 100%;
+    min-width: 0;
   }
 
   .aircraft-gallery {
@@ -2473,6 +3091,23 @@ button {
     border-top: 1px solid #e5e1d8;
     background: rgba(255, 255, 255, 0.96);
     backdrop-filter: blur(16px);
+  }
+
+  .technical-sheet-backdrop {
+    padding: 0.75rem;
+  }
+
+  .technical-sheet {
+    border-radius: 22px;
+  }
+
+  .technical-sheet__hero,
+  .technical-sheet__body {
+    padding: 0.75rem;
+  }
+
+  .technical-sheet__media {
+    min-height: 200px;
   }
 
   .mobile-bottom-nav button {

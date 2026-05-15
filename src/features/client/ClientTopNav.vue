@@ -44,7 +44,6 @@ defineEmits(['logout', 'navigate', 'toggle-profile'])
       <div v-if="profileOpen" class="profile-dropdown">
         <span>{{ activePlan }}</span>
         <button type="button" @click="$emit('navigate', 'perfil')">Perfil</button>
-        <button type="button" @click="$emit('navigate', 'membresia')">Membresia</button>
         <button class="logout-option" type="button" @click="$emit('logout')">Cerrar sesion</button>
       </div>
     </div>

@@ -196,6 +196,13 @@ function buildTimeValue(part, value, currentParts) {
 
   return `${String(hours24).padStart(2, '0')}:${nextParts.minute}`
 }
+
+function routePreview(origin = '', destination = '') {
+  if (origin && destination) return `${origin} → ${destination}`
+  if (origin) return `${origin} → Destino`
+  if (destination) return `Origen → ${destination}`
+  return 'Origen → Destino'
+}
 </script>
 
 <template>
@@ -220,6 +227,18 @@ function buildTimeValue(part, value, currentParts) {
           >
             Multi-destino
           </button>
+        </div>
+
+        <div v-if="tripType === 'Redondo'" class="mode-intro mode-intro--roundtrip">
+          <span class="mode-intro__eyebrow">Viaje redondo</span>
+          <strong>Define salida y regreso en un mismo flujo ejecutivo.</strong>
+          <p>Ideal para juntas, inspecciones o regreso el mismo día con control total del itinerario.</p>
+        </div>
+
+        <div v-else-if="tripType === 'Multi-destino'" class="mode-intro mode-intro--multi">
+          <span class="mode-intro__eyebrow">Ruta multi-destino</span>
+          <strong>Construye una gira privada tramo por tramo.</strong>
+          <p>Perfecto para roadshows, visitas ejecutivas y agendas que combinan varias ciudades.</p>
         </div>
 
         <template v-if="tripType === 'Ida'">
@@ -287,105 +306,128 @@ function buildTimeValue(part, value, currentParts) {
               </select>
             </div>
           </label>
-          <label>Pasajeros<input :value="form.passengers" min="1" type="number" @input="updateFormField('passengers', $event)" /></label>
         </template>
 
         <template v-else-if="tripType === 'Redondo'">
-          <label class="airport-field">
-            Origen
-            <input
-              :value="form.origin"
-              autocomplete="off"
-              @focus="activeAirportKey = airportKey('form', 'origin')"
-              @input="updateFormAirport('origin', $event)"
-            />
-            <div v-if="activeAirportKey === airportKey('form', 'origin')" class="airport-options">
-              <span v-if="airportLoading[airportKey('form', 'origin')]">Buscando...</span>
-              <button
-                v-for="airport in airportSuggestions[airportKey('form', 'origin')] || []"
-                :key="`${airport.code}-${airport.iata}-${airport.name}`"
-                type="button"
-                @click="chooseFormAirport('origin', airport)"
-              >
-                {{ formatAirportOption(airport) }}
-              </button>
-            </div>
-          </label>
-          <label class="airport-field">
-            Destino
-            <input
-              :value="form.destination"
-              autocomplete="off"
-              @focus="activeAirportKey = airportKey('form', 'destination')"
-              @input="updateFormAirport('destination', $event)"
-            />
-            <div v-if="activeAirportKey === airportKey('form', 'destination')" class="airport-options">
-              <span v-if="airportLoading[airportKey('form', 'destination')]">Buscando...</span>
-              <button
-                v-for="airport in airportSuggestions[airportKey('form', 'destination')] || []"
-                :key="`${airport.code}-${airport.iata}-${airport.name}`"
-                type="button"
-                @click="chooseFormAirport('destination', airport)"
-              >
-                {{ formatAirportOption(airport) }}
-              </button>
-            </div>
-          </label>
-          <label class="date-field">Fecha salida<input :value="form.departureDate" type="date" @input="updateFormField('departureDate', $event)" /></label>
-          <button
-            v-if="!showDepartureTime && !form.departureTime"
-            class="time-toggle"
-            type="button"
-            @click="revealDepartureTime"
-          >
-            Agregar hora salida
-          </button>
-          <label v-else class="time-field">
-            Hora salida
-            <div class="time-parts">
-              <select :value="splitTimeParts(form.departureTime).hour" @change="updateFormTime('departureTime', 'hour', $event.target.value)">
-                <option value="">Hora</option>
-                <option v-for="hour in hourOptions" :key="`round-departure-hour-${hour}`" :value="hour">{{ hour }}</option>
-              </select>
-              <select :value="splitTimeParts(form.departureTime).minute" @change="updateFormTime('departureTime', 'minute', $event.target.value)">
-                <option v-for="minute in minuteOptions" :key="`round-departure-minute-${minute}`" :value="minute">{{ minute }}</option>
-              </select>
-              <select :value="splitTimeParts(form.departureTime).period" @change="updateFormTime('departureTime', 'period', $event.target.value)">
-                <option v-for="period in periodOptions" :key="`round-departure-period-${period}`" :value="period">{{ period }}</option>
-              </select>
-            </div>
-          </label>
-          <label class="date-field">Fecha regreso<input :value="form.returnDate" type="date" @input="updateFormField('returnDate', $event)" /></label>
-          <button
-            v-if="!showReturnTime && !form.returnTime"
-            class="time-toggle"
-            type="button"
-            @click="revealReturnTime"
-          >
-            Agregar hora regreso
-          </button>
-          <label v-else class="time-field">
-            Hora regreso
-            <div class="time-parts">
-              <select :value="splitTimeParts(form.returnTime).hour" @change="updateFormTime('returnTime', 'hour', $event.target.value)">
-                <option value="">Hora</option>
-                <option v-for="hour in hourOptions" :key="`return-hour-${hour}`" :value="hour">{{ hour }}</option>
-              </select>
-              <select :value="splitTimeParts(form.returnTime).minute" @change="updateFormTime('returnTime', 'minute', $event.target.value)">
-                <option v-for="minute in minuteOptions" :key="`return-minute-${minute}`" :value="minute">{{ minute }}</option>
-              </select>
-              <select :value="splitTimeParts(form.returnTime).period" @change="updateFormTime('returnTime', 'period', $event.target.value)">
-                <option v-for="period in periodOptions" :key="`return-period-${period}`" :value="period">{{ period }}</option>
-              </select>
-            </div>
-          </label>
-          <label>Pasajeros<input :value="form.passengers" min="1" type="number" @input="updateFormField('passengers', $event)" /></label>
+          <section class="roundtrip-grid">
+            <article class="trip-panel trip-panel--primary">
+              <div class="trip-panel__header">
+                <span class="trip-panel__eyebrow">Tramo 1</span>
+                <strong>Salida</strong>
+                <small>{{ routePreview(form.origin, form.destination) }}</small>
+              </div>
+              <div class="trip-panel__body">
+                <label class="airport-field">
+                  Origen
+                  <input
+                    :value="form.origin"
+                    autocomplete="off"
+                    @focus="activeAirportKey = airportKey('form', 'origin')"
+                    @input="updateFormAirport('origin', $event)"
+                  />
+                  <div v-if="activeAirportKey === airportKey('form', 'origin')" class="airport-options">
+                    <span v-if="airportLoading[airportKey('form', 'origin')]">Buscando...</span>
+                    <button
+                      v-for="airport in airportSuggestions[airportKey('form', 'origin')] || []"
+                      :key="`${airport.code}-${airport.iata}-${airport.name}`"
+                      type="button"
+                      @click="chooseFormAirport('origin', airport)"
+                    >
+                      {{ formatAirportOption(airport) }}
+                    </button>
+                  </div>
+                </label>
+                <label class="airport-field">
+                  Destino
+                  <input
+                    :value="form.destination"
+                    autocomplete="off"
+                    @focus="activeAirportKey = airportKey('form', 'destination')"
+                    @input="updateFormAirport('destination', $event)"
+                  />
+                  <div v-if="activeAirportKey === airportKey('form', 'destination')" class="airport-options">
+                    <span v-if="airportLoading[airportKey('form', 'destination')]">Buscando...</span>
+                    <button
+                      v-for="airport in airportSuggestions[airportKey('form', 'destination')] || []"
+                      :key="`${airport.code}-${airport.iata}-${airport.name}`"
+                      type="button"
+                      @click="chooseFormAirport('destination', airport)"
+                    >
+                      {{ formatAirportOption(airport) }}
+                    </button>
+                  </div>
+                </label>
+                <label class="date-field">Fecha salida<input :value="form.departureDate" type="date" @input="updateFormField('departureDate', $event)" /></label>
+                <button
+                  v-if="!showDepartureTime && !form.departureTime"
+                  class="time-toggle"
+                  type="button"
+                  @click="revealDepartureTime"
+                >
+                  Agregar hora salida
+                </button>
+                <label v-else class="time-field">
+                  Hora salida
+                  <div class="time-parts">
+                    <select :value="splitTimeParts(form.departureTime).hour" @change="updateFormTime('departureTime', 'hour', $event.target.value)">
+                      <option value="">Hora</option>
+                      <option v-for="hour in hourOptions" :key="`round-departure-hour-${hour}`" :value="hour">{{ hour }}</option>
+                    </select>
+                    <select :value="splitTimeParts(form.departureTime).minute" @change="updateFormTime('departureTime', 'minute', $event.target.value)">
+                      <option v-for="minute in minuteOptions" :key="`round-departure-minute-${minute}`" :value="minute">{{ minute }}</option>
+                    </select>
+                    <select :value="splitTimeParts(form.departureTime).period" @change="updateFormTime('departureTime', 'period', $event.target.value)">
+                      <option v-for="period in periodOptions" :key="`round-departure-period-${period}`" :value="period">{{ period }}</option>
+                    </select>
+                  </div>
+                </label>
+              </div>
+            </article>
+
+            <article class="trip-panel">
+              <div class="trip-panel__header">
+                <span class="trip-panel__eyebrow">Tramo 2</span>
+                <strong>Regreso</strong>
+                <small>{{ routePreview(form.destination, form.origin) }}</small>
+              </div>
+              <div class="trip-panel__body">
+                <label class="date-field">Fecha regreso<input :value="form.returnDate" type="date" @input="updateFormField('returnDate', $event)" /></label>
+                <button
+                  v-if="!showReturnTime && !form.returnTime"
+                  class="time-toggle"
+                  type="button"
+                  @click="revealReturnTime"
+                >
+                  Agregar hora regreso
+                </button>
+                <label v-else class="time-field">
+                  Hora regreso
+                  <div class="time-parts">
+                    <select :value="splitTimeParts(form.returnTime).hour" @change="updateFormTime('returnTime', 'hour', $event.target.value)">
+                      <option value="">Hora</option>
+                      <option v-for="hour in hourOptions" :key="`return-hour-${hour}`" :value="hour">{{ hour }}</option>
+                    </select>
+                    <select :value="splitTimeParts(form.returnTime).minute" @change="updateFormTime('returnTime', 'minute', $event.target.value)">
+                      <option v-for="minute in minuteOptions" :key="`return-minute-${minute}`" :value="minute">{{ minute }}</option>
+                    </select>
+                    <select :value="splitTimeParts(form.returnTime).period" @change="updateFormTime('returnTime', 'period', $event.target.value)">
+                      <option v-for="period in periodOptions" :key="`return-period-${period}`" :value="period">{{ period }}</option>
+                    </select>
+                  </div>
+                </label>
+                <div class="trip-panel__note">
+                  <span>El tramo de regreso toma automáticamente el aeropuerto inverso del viaje de salida.</span>
+                </div>
+              </div>
+            </article>
+          </section>
         </template>
 
         <template v-else>
           <div class="builder-headline">
-            <span>Agrega ruta</span>
-            <strong>{{ summary.legs.length }} destinos · {{ summary.days }} dias · {{ summary.passengers }} pasajeros</strong>
+            <span>Mapa ejecutivo</span>
+            <strong>{{ summary.legs.length }} tramos listos para tu gira privada</strong>
+            <small>Ordena ciudades, fechas y horarios sin perder continuidad operativa.</small>
           </div>
 
           <section class="multi-leg-builder" aria-label="Tramos multi-destino">
@@ -473,9 +515,6 @@ function buildTimeValue(part, value, currentParts) {
             + Agregar destino
           </button>
 
-          <section class="preference-panel">
-            <label>Pasajeros<input :value="form.passengers" min="1" type="number" @input="updateFormField('passengers', $event)" /></label>
-          </section>
         </template>
 
         <button class="primary-action" type="submit">Cotizar vuelo</button>
@@ -672,8 +711,102 @@ button {
 .wide-field,
 .multi-leg-builder,
 .builder-headline,
-.preference-panel {
+.preference-panel,
+.mode-intro,
+.roundtrip-grid {
   grid-column: 1 / -1;
+}
+
+.mode-intro {
+  display: grid;
+  gap: 0.28rem;
+  padding: 1rem 1.05rem;
+  border: 1px solid #eadfcb;
+  border-radius: 18px;
+  background: linear-gradient(145deg, #fffdf8, #f7f2e9);
+}
+
+.mode-intro__eyebrow {
+  color: #8b6a24;
+  font-size: 0.74rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.mode-intro strong {
+  color: #141414;
+  font-size: 1rem;
+}
+
+.mode-intro p {
+  color: #5f5f5f;
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.roundtrip-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.trip-panel {
+  display: grid;
+  gap: 0.85rem;
+  padding: 0.95rem;
+  border: 1px solid #e5e1d8;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #ffffff, #fbfaf7);
+}
+
+.trip-panel--primary {
+  border-color: #d9c79b;
+  box-shadow: 0 14px 32px rgba(17, 17, 17, 0.05);
+}
+
+.trip-panel__header {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.trip-panel__eyebrow {
+  color: #8b6a24;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.trip-panel__header strong {
+  color: #111111;
+  font-size: 1.05rem;
+}
+
+.trip-panel__header small {
+  color: #6a604f;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.trip-panel__body {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem 0.65rem;
+}
+
+.trip-panel__note {
+  display: grid;
+  grid-column: 1 / -1;
+  padding: 0.8rem;
+  border-radius: 14px;
+  background: #f5f1e8;
+}
+
+.trip-panel__note span {
+  color: #4e4333;
+  font-size: 0.84rem;
+  line-height: 1.4;
 }
 
 .time-toggle {
@@ -699,8 +832,8 @@ button {
   display: grid;
   gap: 0.25rem;
   padding: 1rem;
-  border-radius: 8px;
-  background: #141414;
+  border-radius: 18px;
+  background: linear-gradient(145deg, #141414, #24211b);
 }
 
 .builder-headline span {
@@ -714,6 +847,12 @@ button {
 .builder-headline strong {
   color: #ffffff;
   font-size: 1.1rem;
+}
+
+.builder-headline small {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 0.88rem;
+  line-height: 1.4;
 }
 
 .timeline-leg {
@@ -851,7 +990,9 @@ button {
   }
 
   .flight-form,
-  .leg-editor {
+  .leg-editor,
+  .roundtrip-grid,
+  .trip-panel__body {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -933,6 +1074,17 @@ button {
   .leg-editor {
     grid-template-columns: 1fr;
     padding: 0.8rem;
+  }
+
+  .roundtrip-grid,
+  .trip-panel__body {
+    grid-template-columns: 1fr;
+  }
+
+  .mode-intro,
+  .trip-panel,
+  .builder-headline {
+    border-radius: 14px;
   }
 
 }

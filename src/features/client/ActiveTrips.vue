@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { featuredAirports } from '../../utils/airports'
 import { resolveWorkflowState } from '../../utils/flightWorkflow'
 
@@ -11,8 +11,9 @@ const props = defineProps({
 
 defineEmits(['open-contract', 'open-detail', 'open-payment', 'open-concierge'])
 
+const activeTab = ref('proximos')
+
 const PROGRESS_STEPS = [
-  { key: 'quote', label: 'Cotizacion' },
   { key: 'booking', label: 'Reserva' },
   { key: 'provider', label: 'Respuesta proveedor' },
   { key: 'contract', label: 'Contrato' },
@@ -20,10 +21,6 @@ const PROGRESS_STEPS = [
   { key: 'flight', label: 'Vuelo' },
   { key: 'tracking', label: 'Tracking' },
 ]
-
-const selectedReservation = computed(
-  () => props.reservations.find((reservation) => String(reservation.id) === String(props.selectedId)) || null,
-)
 
 function normalizeStatus(value = '') {
   return String(value || '')
@@ -38,10 +35,10 @@ function statusMeta(status = '') {
   const state = resolveWorkflowState(status)
 
   const metaByState = {
-    draft: { icon: '●', tone: 'neutral', step: 'quote', progress: 8 },
-    quoted: { icon: '🧾', tone: 'info', step: 'quote', progress: 18 },
-    package_selected: { icon: '🎯', tone: 'info', step: 'booking', progress: 28 },
-    reserved: { icon: '📨', tone: 'info', step: 'booking', progress: 38 },
+    draft: { icon: '●', tone: 'neutral', step: 'booking', progress: 8 },
+    quoted: { icon: '🧾', tone: 'info', step: 'booking', progress: 14 },
+    package_selected: { icon: '🎯', tone: 'info', step: 'booking', progress: 22 },
+    reserved: { icon: '📨', tone: 'info', step: 'booking', progress: 34 },
     provider_pending: { icon: '🔍', tone: 'searching', step: 'provider', progress: 48 },
     provider_accepted: { icon: '✅', tone: 'confirmed', step: 'provider', progress: 58 },
     contract_pending: { icon: '📄', tone: 'pending', step: 'contract', progress: 68 },
@@ -51,13 +48,13 @@ function statusMeta(status = '') {
     flight_confirmed: { icon: '🛫', tone: 'confirmed', step: 'flight', progress: 95 },
     tracking_live: { icon: '📡', tone: 'confirmed', step: 'tracking', progress: 98 },
     completed: { icon: '✈', tone: 'completed', step: 'tracking', progress: 100 },
-    cancelled: { icon: '✕', tone: 'cancelled', step: 'quote', progress: 0 },
-    rejected: { icon: '✕', tone: 'cancelled', step: 'quote', progress: 0 },
+    cancelled: { icon: '✕', tone: 'cancelled', step: 'booking', progress: 0 },
+    rejected: { icon: '✕', tone: 'cancelled', step: 'booking', progress: 0 },
   }
 
   return {
     label: state.label,
-    ...(metaByState[state.id] || { icon: '●', tone: 'neutral', step: 'quote', progress: 10 }),
+    ...(metaByState[state.id] || { icon: '●', tone: 'neutral', step: 'booking', progress: 10 }),
   }
 }
 
@@ -208,7 +205,6 @@ function countdownLabel(value = '') {
 function nextAction(status = '') {
   const meta = statusMeta(status)
 
-  if (meta.step === 'quote') return 'Siguiente paso: validacion de cotizacion'
   if (meta.step === 'booking') return 'Siguiente paso: cierre de reserva'
   if (meta.step === 'provider') return 'Siguiente paso: respuesta del proveedor'
   if (meta.step === 'contract') return 'Siguiente paso: firma de contrato'
@@ -216,6 +212,108 @@ function nextAction(status = '') {
   if (meta.step === 'flight') return 'Siguiente paso: confirmacion de vuelo'
   return 'Siguiente paso: tracking y concierge'
 }
+
+function hasWorkflowIn(status = '', states = []) {
+  return states.includes(resolveWorkflowState(status).id)
+}
+
+function contractEnabled(reservation = {}) {
+  return hasWorkflowIn(reservation.workflow_status || reservation.status, [
+    'contract_pending',
+    'contract_signed',
+    'payment_pending',
+    'payment_confirmed',
+    'flight_confirmed',
+    'tracking_live',
+    'completed',
+  ])
+}
+
+function paymentEnabled(reservation = {}) {
+  return hasWorkflowIn(reservation.workflow_status || reservation.status, [
+    'payment_pending',
+    'payment_confirmed',
+    'flight_confirmed',
+    'tracking_live',
+    'completed',
+  ])
+}
+
+function conciergeEnabled(reservation = {}) {
+  return hasWorkflowIn(reservation.workflow_status || reservation.status, [
+    'reserved',
+    'provider_pending',
+    'provider_accepted',
+    'contract_pending',
+    'contract_signed',
+    'payment_pending',
+    'payment_confirmed',
+    'flight_confirmed',
+    'tracking_live',
+    'completed',
+  ])
+}
+
+function aircraftEnabled(reservation = {}) {
+  return Boolean(reservation.aircraft)
+}
+
+function reservationTab(reservation = {}) {
+  const state = resolveWorkflowState(reservation.workflow_status || reservation.status)
+
+  if (['completed', 'cancelled', 'rejected'].includes(state.id)) {
+    return 'historial'
+  }
+
+  if (
+    [
+      'draft',
+      'quoted',
+      'package_selected',
+      'reserved',
+      'provider_pending',
+      'provider_accepted',
+      'contract_pending',
+      'contract_signed',
+      'payment_pending',
+    ].includes(state.id)
+  ) {
+    return 'en_proceso'
+  }
+
+  return 'proximos'
+}
+
+const tabOptions = [
+  { key: 'proximos', label: 'Proximos' },
+  { key: 'en_proceso', label: 'En proceso' },
+  { key: 'historial', label: 'Historial' },
+]
+
+const filteredReservations = computed(() =>
+  props.reservations.filter((reservation) => reservationTab(reservation) === activeTab.value),
+)
+
+const selectedReservation = computed(
+  () =>
+    filteredReservations.value.find((reservation) => String(reservation.id) === String(props.selectedId)) ||
+    filteredReservations.value[0] ||
+    null,
+)
+
+watch(
+  () => props.reservations,
+  (reservations) => {
+    const hasActiveTabReservations = reservations.some((reservation) => reservationTab(reservation) === activeTab.value)
+    if (hasActiveTabReservations) return
+
+    const fallbackTab = tabOptions.find((tab) =>
+      reservations.some((reservation) => reservationTab(reservation) === tab.key),
+    )
+    activeTab.value = fallbackTab?.key || 'proximos'
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -227,9 +325,15 @@ function nextAction(status = '') {
     </div>
 
     <div class="tabs">
-      <button class="active" type="button">Proximos</button>
-      <button type="button">En proceso</button>
-      <button type="button">Historial</button>
+      <button
+        v-for="tab in tabOptions"
+        :key="tab.key"
+        :class="{ active: activeTab === tab.key }"
+        type="button"
+        @click="activeTab = tab.key"
+      >
+        {{ tab.label }}
+      </button>
     </div>
 
     <article v-if="selectedReservation" class="hero-card">
@@ -301,53 +405,15 @@ function nextAction(status = '') {
       </div>
 
       <div class="card-actions card-actions--premium">
-        <button type="button" @click="$emit('open-contract')">📄 Contrato</button>
-        <button type="button" @click="$emit('open-payment')">💳 Pago</button>
-        <button type="button" @click="$emit('open-concierge')">🎧 Concierge</button>
-        <button type="button" @click="$emit('open-detail', selectedReservation.id)">🛩 Ver aeronave</button>
+        <button type="button" :disabled="!contractEnabled(selectedReservation)" @click="$emit('open-contract')">📄 Contrato</button>
+        <button type="button" :disabled="!paymentEnabled(selectedReservation)" @click="$emit('open-payment')">💳 Pago</button>
+        <button type="button" :disabled="!conciergeEnabled(selectedReservation)" @click="$emit('open-concierge')">🎧 Concierge</button>
+        <button type="button" :disabled="!aircraftEnabled(selectedReservation)" @click="$emit('open-detail', selectedReservation.id)">🛩 Ver aeronave</button>
       </div>
     </article>
 
-    <div class="reservation-list">
-      <article v-for="reservation in reservations" :key="reservation.id" class="reservation-card">
-        <div class="reservation-card__copy">
-          <div class="reservation-card__head">
-            <div>
-              <span class="reservation-code">{{ reservationCode(reservation) }}</span>
-              <strong>{{ routeDisplay(reservation) }}</strong>
-            </div>
-            <span class="status-badge" :class="`status-badge--${statusMeta(reservation.workflow_status || reservation.status).tone}`">
-              {{ statusMeta(reservation.workflow_status || reservation.status).icon }}
-              {{ statusMeta(reservation.workflow_status || reservation.status).label }}
-            </span>
-          </div>
-
-          <div class="reservation-card__meta">
-            <span v-if="reservation.date">📅 {{ shortTripDate(reservation.date) }}</span>
-            <span v-if="reservation.passengers">👥 {{ reservation.passengers }} pasajeros</span>
-            <span v-if="reservation.aircraft">🛩 {{ reservation.aircraft }}</span>
-            <span v-if="reservation.estimated_total">💵 {{ reservation.estimated_total }}</span>
-            <span v-if="countdownLabel(reservation.date)">⏳ {{ countdownLabel(reservation.date) }}</span>
-          </div>
-
-          <div class="inline-progress">
-            <span
-              v-for="step in progressSteps(reservation.workflow_status || reservation.status)"
-              :key="`${reservation.id}-${step.key}`"
-              class="inline-step"
-              :class="`inline-step--${step.state}`"
-            ></span>
-          </div>
-
-          <div v-if="itinerarySegments(reservation).length" class="reservation-legs">
-            <span v-for="leg in itinerarySegments(reservation)" :key="leg.key">
-              Tramo {{ leg.order || '?' }}: {{ leg.origin }} → {{ leg.destination }}
-            </span>
-          </div>
-        </div>
-
-        <button type="button" @click="$emit('open-detail', reservation.id)">Ver viaje</button>
-      </article>
+    <div v-if="reservations.length && !selectedReservation" class="empty-state">
+      No hay viajes en {{ tabOptions.find((tab) => tab.key === activeTab)?.label.toLowerCase() || 'esta sección' }}.
     </div>
 
     <div v-if="!reservations.length" class="empty-state">El servidor no devolvio viajes.</div>
@@ -419,14 +485,19 @@ button:hover {
   box-shadow: 0 10px 24px rgba(17, 17, 17, 0.08);
 }
 
-.tabs .active,
-.reservation-card button {
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  transform: none;
+  box-shadow: none;
+}
+
+.tabs .active {
   background: #111111;
   color: #ffffff;
 }
 
 .hero-card,
-.reservation-card,
 .empty-state {
   border: 1px solid #e5e1d8;
   border-radius: 24px;
@@ -493,8 +564,7 @@ button:hover {
   gap: 0.35rem;
 }
 
-.hero-card__head,
-.reservation-card__head {
+.hero-card__head {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
@@ -502,16 +572,12 @@ button:hover {
 }
 
 .hero-copy,
-.reservation-card__copy,
-.reservation-card__meta,
-.legs-grid,
-.reservation-legs {
+.legs-grid {
   display: grid;
   gap: 0.45rem;
 }
 
-.hero-kicker,
-.reservation-code {
+.hero-kicker {
   color: #8b6a24;
   font-size: 0.82rem;
   font-weight: 800;
@@ -519,8 +585,7 @@ button:hover {
   text-transform: uppercase;
 }
 
-.hero-meta,
-.reservation-card__meta {
+.hero-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem 1rem;
@@ -631,8 +696,7 @@ button:hover {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 
-.legs-grid span,
-.reservation-legs span {
+.legs-grid span {
   padding: 0.8rem 0.95rem;
   border-radius: 16px;
   background: rgba(244, 240, 231, 0.9);
@@ -651,47 +715,14 @@ button:hover {
   border-color: #111111;
 }
 
-.reservation-list {
-  display: grid;
-  gap: 1rem;
-}
-
-.reservation-card {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 1rem;
-  align-items: center;
-  padding: 1.1rem;
-}
-
-.inline-progress {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 0.45rem;
-}
-
-.inline-step {
-  height: 0.45rem;
-  border-radius: 999px;
-  background: #ece5d9;
-}
-
-.inline-step--done {
-  background: #1e7b49;
-}
-
-.inline-step--active {
-  background: #b68421;
-}
-
-.inline-step--todo {
-  background: #ece5d9;
+.card-actions--premium button:disabled {
+  background: #f2eee6;
+  color: #8c8376;
+  border-color: #e3dacd;
 }
 
 @media (max-width: 1080px) {
   .hero-card__head,
-  .reservation-card,
-  .reservation-card__head,
   .executive-grid,
   .executive-card--aircraft {
     grid-template-columns: 1fr;
@@ -710,20 +741,17 @@ button:hover {
 
   .tabs,
   .card-actions,
-  .hero-meta,
-  .reservation-card__meta {
+  .hero-meta {
     display: grid;
     grid-template-columns: 1fr;
   }
 
   .tabs button,
-  .card-actions button,
-  .reservation-card button {
+  .card-actions button {
     width: 100%;
   }
 
-  .hero-card,
-  .reservation-card {
+  .hero-card {
     padding: 1rem;
     border-radius: 20px;
   }
