@@ -1,4 +1,4 @@
-import { api } from '../../lib/api'
+import { api, resolveMediaUrl } from '../../lib/api'
 import { featuredAirports } from '../../utils/airports'
 import {
   buildCommercialSnapshot,
@@ -13,10 +13,6 @@ const configuredFlightPackagesPath = String(
   import.meta.env.VITE_CLIENT_FLIGHT_PACKAGES_PATH || import.meta.env.VITE_CLIENT_MEMBERSHIPS_PATH || '',
 ).trim()
 const configuredAircraftPath = String(import.meta.env.VITE_CLIENT_AIRCRAFT_PATH || '').trim()
-
-//
-//const apiBaseUrl = String(import.meta.env.VITE_API_BASE_URL || 'https://uber-aviones.onrender.com/api/v1').trim()
-const apiBaseUrl = String(import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api/v1').trim()
 
 const QUOTES_PREVIEW_PATH = configuredQuotesPreviewPath || '/client/quotes/preview'
 const CLIENT_TRIPS_PATH = configuredTripsPath || '/client/flight-requests'
@@ -479,23 +475,7 @@ function normalizeMatches(payload, itinerary = {}) {
 }
 
 function normalizeMediaUrl(url = '') {
-  const rawUrl = String(url || '').trim()
-  if (!rawUrl) return ''
-
-  if (/^(blob:|data:|https?:\/\/|\/\/)/i.test(rawUrl)) {
-    return rawUrl
-  }
-
-  if (rawUrl.startsWith('/') && !rawUrl.startsWith('/storage')) {
-    return rawUrl
-  }
-
-  try {
-    const apiOrigin = new URL(apiBaseUrl, window.location.origin).origin
-    return `${apiOrigin}/${rawUrl.replace(/^\.?\//, '')}`
-  } catch {
-    return `/${rawUrl.replace(/^\.?\//, '')}`
-  }
+  return resolveMediaUrl(url)
 }
 
 function getPrimaryImageValue(raw = {}) {

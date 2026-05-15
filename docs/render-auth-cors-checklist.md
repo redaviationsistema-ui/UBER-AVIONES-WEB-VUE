@@ -7,7 +7,7 @@ Checklist para publicar el backend con sesion por cookie `HttpOnly`, CORS con cr
 Configura estas variables en el servicio del backend:
 
 ```env
-APP_URL=https://uber-aviones.onrender.com
+<!-- APP_URL=https://uber-aviones.onrender.com -->
 
 SESSION_DRIVER=database
 SESSION_DOMAIN=
@@ -71,7 +71,7 @@ Access-Control-Allow-Credentials: true
 Prueba con:
 http://127.0.0.1:8000/api/v1'
 ```bash
-curl -i -X OPTIONS "https://uber-aviones.onrender.com/api/v1/auth/login" ^
+<!-- curl -i -X OPTIONS "https://uber-aviones.onrender.com/api/v1/auth/login" ^ -->
 
   -H "Origin: http://localhost:5173" ^
   -H "Access-Control-Request-Method: POST" ^
@@ -89,7 +89,7 @@ Debes ver en la respuesta:
 Prueba login real:
 
 ```bash
-curl -i -X POST "https://uber-aviones.onrender.com/api/v1/auth/login" ^
+<!-- curl -i -X POST "https://uber-aviones.onrender.com/api/v1/auth/login" ^ -->
   -H "Origin: http://localhost:5173" ^
   -H "Content-Type: application/json" ^
   --data "{\"email\":\"admin@privateflights.test\",\"password\":\"password\"}"
@@ -106,7 +106,7 @@ Debes recibir:
 Con la cookie devuelta por login:
 
 ```bash
-curl -i "https://uber-aviones.onrender.com/api/v1/auth/me" ^
+<!-- curl -i "https://uber-aviones.onrender.com/api/v1/auth/me" ^ -->
   -H "Origin: http://localhost:5173" ^
   -H "Cookie: red_aviation_session=PEGA_AQUI_EL_VALOR"
 ```

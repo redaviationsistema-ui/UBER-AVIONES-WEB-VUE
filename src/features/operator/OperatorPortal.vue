@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { requestWithCandidates, pickCollection, pickRecord } from '../../lib/backendCrud'
+import { resolveMediaUrl } from '../../lib/api'
 import { resolveProviderIdForUser } from '../../lib/providerContext'
 import OperatorCrewSection from './OperatorCrewSection.vue'
 import { useAuthStore } from '../../stores/auth'
@@ -213,7 +214,6 @@ const aircraftWizardSteps = [
   { id: 4, label: 'Documentacion', description: 'Seguro, vigencias y expediente tecnico.' },
   { id: 5, label: 'Revision', description: 'Resumen final antes de publicar o revisar.' },
 ]
-const coverageOptions = ['REGIONALES', 'NACIONALES', 'INTERNACIONALES']
 const aircraftCategoryOptions = [
   { value: 'Helicoptero', label: 'Helicóptero' },
   { value: 'Turboprop', label: 'Turboprop' },
@@ -1094,27 +1094,7 @@ const requestOperationalAlerts = computed(() => {
 
   return alerts.slice(0, 3)
 })
-const selectedRequestLegs = computed(() => buildRequestLegs(selectedRequest.value))
-const selectedRequestValidationChecks = computed(() => buildRequestValidationChecks(selectedRequest.value))
-const selectedRequestInternalBreakdown = computed(() => buildRequestInternalBreakdown(selectedRequest.value))
 const selectedRequestAircraftComparison = computed(() => buildRequestAircraftComparison(selectedRequest.value))
-const selectedRequestValidationSummary = computed(() => summarizeRequestValidation(selectedRequestValidationChecks.value))
-const requestAircraftBaseOptions = computed(() => [
-  'all',
-  ...new Set(aircraft.value.map((item) => String(item.base || '').trim()).filter(Boolean)),
-])
-const requestAircraftTypeOptions = computed(() => [
-  'all',
-  ...new Set(aircraft.value.map((item) => String(item.category || '').trim()).filter(Boolean)),
-])
-const selectedRequestAircraftRows = computed(() =>
-  buildRequestAircraftRows(selectedRequest.value, {
-    base: aircraftFilterBase.value,
-    type: aircraftFilterType.value,
-    sort: aircraftFilterSort.value,
-    mode: aircraftDecisionMode.value,
-  }),
-)
 const selectedRequestRouteAssignments = computed(() => buildRequestRouteAssignments(selectedRequest.value))
 
 function createEmptyCompany() {
@@ -1460,28 +1440,7 @@ function humanizeAircraftStatus(status = '') {
 }
 
 function normalizeMediaUrl(url = '') {
-  const rawUrl = String(url || '').trim()
-  if (!rawUrl) return ''
-
-  if (/^(blob:|data:|https?:\/\/|\/\/)/i.test(rawUrl)) {
-    return rawUrl
-  }
-
-  if (rawUrl.startsWith('/')) {
-    return rawUrl
-  }
-
-  const apiBase = String(import.meta.env.VITE_API_BASE_URL || '').trim()
-  if (apiBase) {
-    try {
-      const apiOrigin = new URL(apiBase, window.location.origin).origin
-      return `${apiOrigin}/${rawUrl.replace(/^\.?\//, '')}`
-    } catch {
-      return `/${rawUrl.replace(/^\.?\//, '')}`
-    }
-  }
-
-  return `/${rawUrl.replace(/^\.?\//, '')}`
+  return resolveMediaUrl(url)
 }
 
 function hasImage(url = '') {
@@ -1906,28 +1865,6 @@ function kmhToKnots(value) {
 
 const inferredAircraftMinimumHours = computed(() => inferAircraftMinimumHours(aircraftForm.category))
 
-function selectedCoverageValues() {
-  return String(aircraftForm.coverage || '')
-    .split(',')
-    .map((item) => item.trim().toLocaleUpperCase('es-MX'))
-    .filter(Boolean)
-}
-
-function isCoverageSelected(option) {
-  return selectedCoverageValues().includes(option)
-}
-
-function toggleCoverage(option) {
-  const selected = new Set(selectedCoverageValues())
-  if (selected.has(option)) {
-    selected.delete(option)
-  } else {
-    selected.add(option)
-  }
-
-  aircraftForm.coverage = coverageOptions.filter((item) => selected.has(item)).join(', ')
-}
-
 function uppercaseAircraftFormTextFields() {
   ;['name', 'manufacturer', 'registration', 'amenities', 'base', 'coverage'].forEach((field) => {
     aircraftForm[field] = uppercaseText(aircraftForm[field])
@@ -2151,33 +2088,6 @@ function getAvailabilityOperationalStatus(item) {
 
   const latest = relatedEntries[0]
   return getAvailabilityStatusMeta(latest.status)
-}
-
-function getAvailabilityWeeklyHeatmap(item) {
-  const start = new Date()
-  start.setHours(0, 0, 0, 0)
-
-  return Array.from({ length: 7 }, (_, offset) => {
-    const date = new Date(start)
-    date.setDate(start.getDate() + offset)
-    const dayStart = new Date(date)
-    const dayEnd = new Date(date)
-    dayEnd.setHours(23, 59, 59, 999)
-
-    const found = availability.value.find((entry) => {
-      if (Number(entry.aircraftId) !== Number(item.id)) return false
-      const from = new Date(entry.from)
-      const to = new Date(entry.to)
-      if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return false
-      return from <= dayEnd && to >= dayStart
-    })
-
-    return {
-      key: `${item.id}-heat-${offset}`,
-      label: ['L', 'M', 'M', 'J', 'V', 'S', 'D'][offset],
-      ...getAvailabilityStatusMeta(found?.status || 'Disponible'),
-    }
-  })
 }
 
 async function submitAircraftWizard() {
@@ -2942,20 +2852,6 @@ function getRequestSuggestedAircraft(request = {}) {
   }
 }
 
-function getRequestMatchHints(request = {}) {
-  const suggestion = getRequestSuggestedAircraft(request)
-  const hints = [suggestion.detail]
-
-  if (Number(request.passengers || 0)) {
-    hints.push(`${request.passengers} pasajeros contemplados para este servicio.`)
-  }
-  if (request.tripType) {
-    hints.push(`Tipo de vuelo: ${request.tripType}.`)
-  }
-
-  return hints.slice(0, 3)
-}
-
 function getRequestServiceTierLabel(request = {}) {
   const raw = String(request.serviceTier || request.flightPackage || request.priorityType || '').trim()
   if (!raw) return 'Essential'
@@ -3030,102 +2926,6 @@ function buildRequestLegs(request = {}) {
   })
 
   return [primaryLeg, ...extraLegs]
-}
-
-function getLegStatusTone(status = '') {
-  if (status === 'Disponible') return 'success'
-  if (status === 'Revisar') return 'warning'
-  if (status === 'Pendiente') return 'neutral'
-  return 'info'
-}
-
-function buildRequestValidationChecks(request = {}) {
-  if (!request?.id) return []
-
-  const suggestedAircraft = getRequestSuggestedAircraft(request)
-  const passengerCapacity = Number(request.passengers || 0)
-  const routeReviewRequired = buildRequestLegs(request).length > 1 || request.airportChange || request.waitingAtDestination
-
-  return [
-    {
-      label: 'Cobertura de ruta',
-      state: routeReviewRequired ? 'review' : 'ok',
-      text: routeReviewRequired ? 'Requiere revisar tramos y cobertura completa.' : 'Ruta cubierta por la operacion actual.',
-    },
-    {
-      label: 'Disponibilidad de aeronave',
-      state: suggestedAircraft.available ? 'ok' : 'blocked',
-      text: suggestedAircraft.available ? 'Hay aeronave compatible disponible.' : 'No hay disponibilidad inmediata confirmada.',
-    },
-    {
-      label: 'Capacidad suficiente',
-      state: passengerCapacity > 0 && passengerCapacity <= 12 ? 'ok' : 'review',
-      text: passengerCapacity > 0 ? `${passengerCapacity} pax contemplados para esta operacion.` : 'Pasajeros por validar.',
-    },
-    {
-      label: 'Permisos requeridos',
-      state: buildRequestLegs(request).length > 1 ? 'review' : 'ok',
-      text: buildRequestLegs(request).length > 1 ? 'Validar permisos por operacion compuesta.' : 'Sin permisos extra visibles.',
-    },
-    {
-      label: 'Overnight requerido',
-      state: request.overnightRequired ? 'review' : 'ok',
-      text: request.overnightRequired ? 'Operacion con overnight potencial.' : 'No se detecta overnight obligatorio.',
-    },
-    {
-      label: 'FBO / handling',
-      state: buildRequestLegs(request).length > 2 ? 'review' : 'ok',
-      text: buildRequestLegs(request).length > 2 ? 'Coordinar handling en multiples escalas.' : 'Handling estandar estimado.',
-    },
-    {
-      label: 'Tripulacion disponible',
-      state: crew.value.length ? 'ok' : 'review',
-      text: crew.value.length ? 'Hay tripulacion cargada en portal.' : 'Revisar disponibilidad real de tripulacion.',
-    },
-    {
-      label: 'Slots / horarios restringidos',
-      state: getRequestPriorityMeta(request).key === 'urgent' ? 'review' : 'ok',
-      text: getRequestPriorityMeta(request).key === 'urgent' ? 'Salida cercana; revisar slots y tiempo de respuesta.' : 'Sin restriccion visible.',
-    },
-    {
-      label: 'Reposicionamiento necesario',
-      state: suggestedAircraft.available ? 'ok' : 'review',
-      text: suggestedAircraft.available ? 'No se detecta reposicionamiento critico.' : 'Puede requerir reposicionamiento.',
-    },
-  ]
-}
-
-function buildRequestInternalBreakdown(request = {}) {
-  if (!request?.id) return []
-
-  const quoteValue =
-    Number.isFinite(Number(request.quote)) ? Number(request.quote) : Number(request.finalPrice || 0)
-  const finalValue = Number(request.finalPrice || quoteValue || 0)
-  const baseValue = Number(request.basePrice || Math.max(finalValue - Number(request.operationalFee || 0), 0))
-  const operationalFee = Number(request.operationalFee || 0)
-  const repositioning = operationalFee ? operationalFee * 0.22 : 0
-  const overnight = request.overnightRequired ? Math.max(650, operationalFee * 0.16) : 0
-  const landingFees = operationalFee ? operationalFee * 0.18 : 0
-  const handling = operationalFee ? operationalFee * 0.14 : 0
-  const permits = buildRequestLegs(request).length > 1 ? Math.max(320, operationalFee * 0.1) : 0
-  const extraFuel = operationalFee ? operationalFee * 0.2 : 0
-  const redMargin = Number(request.priorityPrice || 0)
-  const estimatedHours = Math.max(buildRequestLegs(request).length * 1.7, 1.5)
-  const hourlyRate = estimatedHours ? baseValue / estimatedHours : 0
-
-  return [
-    { label: 'Horas de vuelo estimadas', value: `${estimatedHours.toFixed(1)} h` },
-    { label: 'Costo por hora', value: hourlyRate ? formatCurrency(hourlyRate) : 'Por definir' },
-    { label: 'Horas minimas', value: buildRequestLegs(request).length > 1 ? '2.0 h' : '1.5 h' },
-    { label: 'Reposicionamiento', value: repositioning ? formatCurrency(repositioning) : 'No visible' },
-    { label: 'Overnight', value: overnight ? formatCurrency(overnight) : 'No requerido' },
-    { label: 'Landing fees', value: landingFees ? formatCurrency(landingFees) : 'Pendiente' },
-    { label: 'FBO / handling', value: handling ? formatCurrency(handling) : 'Pendiente' },
-    { label: 'Permisos', value: permits ? formatCurrency(permits) : 'Estandar' },
-    { label: 'Combustible extra', value: extraFuel ? formatCurrency(extraFuel) : 'No visible' },
-    { label: 'Margen Red Aviation', value: redMargin ? formatCurrency(redMargin) : 'Pendiente' },
-    { label: 'Total estimado interno', value: finalValue ? formatCurrency(finalValue) : 'Cotizacion en proceso' },
-  ]
 }
 
 function buildRequestAircraftComparison(request = {}) {
@@ -3268,33 +3068,6 @@ function buildRequestAircraftRows(request = {}, filters = {}) {
   return rows
 }
 
-function summarizeRequestValidation(checks = []) {
-  const blocked = checks.filter((item) => item.state === 'blocked').length
-  const review = checks.filter((item) => item.state === 'review').length
-  if (blocked) {
-    return {
-      tone: 'danger',
-      label: 'No compatible',
-      icon: 'rojo',
-      detail: `${blocked} bloqueo(s) operativo(s) detectado(s).`,
-    }
-  }
-  if (review) {
-    return {
-      tone: 'warning',
-      label: 'Revision requerida',
-      icon: 'amarillo',
-      detail: `${review} validacion(es) necesitan confirmacion.`,
-    }
-  }
-  return {
-    tone: 'success',
-    label: 'Operacion viable',
-    icon: 'verde',
-    detail: 'Validaciones principales en verde.',
-  }
-}
-
 function buildRequestRouteAssignments(request = {}) {
   const aircraftRows = buildRequestAircraftRows(request, {
     base: 'all',
@@ -3325,6 +3098,7 @@ function buildProposalSummary(request = {}) {
   return { total, margin, adjustments }
 }
 
+// eslint-disable-next-line no-unused-vars
 function buildOperationalProposal(request = {}) {
   const summary = buildProposalSummary(request)
   ui.pushToast({

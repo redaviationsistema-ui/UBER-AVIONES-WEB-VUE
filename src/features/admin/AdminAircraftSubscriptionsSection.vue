@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { requestWithCandidates } from '../../lib/backendCrud'
+import { resolveMediaUrl } from '../../lib/api'
 
 const props = defineProps({
   aircraft: { type: Array, required: true },
@@ -46,19 +47,7 @@ function baseLabel(item) {
 }
 
 function normalizeMediaUrl(url = '') {
-  const rawUrl = String(url || '').trim()
-  if (!rawUrl) return ''
-
-  if (/^(blob:|data:|https?:\/\/|\/\/)/i.test(rawUrl)) return rawUrl
-  if (rawUrl.startsWith('/') && !rawUrl.startsWith('/storage')) return rawUrl
-
-  const apiBase = String(import.meta.env.VITE_API_BASE_URL || 'https://uber-aviones.onrender.com/api/v1').trim()
-  try {
-    const apiOrigin = new URL(apiBase, window.location.origin).origin
-    return `${apiOrigin}/${rawUrl.replace(/^\.?\//, '')}`
-  } catch {
-    return `/${rawUrl.replace(/^\.?\//, '')}`
-  }
+  return resolveMediaUrl(url)
 }
 
 function getPrimaryImageValue(raw = {}) {
