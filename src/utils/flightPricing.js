@@ -61,7 +61,7 @@ const SHORT_ROUTE_CATEGORY_MINIMUM_PRICE = {
   default: 3000,
 }
 
-const DEFAULT_EXPENSE_FEE = 100
+const DEFAULT_EXPENSE_FEE = 400
 const DEFAULT_IVA_RATE = 0.16
 const DEFAULT_PET_FEE = 250
 const DEFAULT_SPECIAL_BAGGAGE_FEE = 180
@@ -423,6 +423,11 @@ function resolveAdditionalOperationalCosts(record = {}) {
   )
 }
 
+function resolveOvernightUnitFee(record = {}) {
+  const hourlyRate = resolveHourlyRate(record)
+  return hourlyRate > 0 ? hourlyRate / 2 : 0
+}
+
 function resolvePriorityServiceFee(context = {}, record = {}) {
   const explicitFee = asNumber(record.priority_fee || record.priority_service_fee || context.priorityFee)
   if (explicitFee > 0) return explicitFee
@@ -628,10 +633,13 @@ function resolveExtraServices(record = {}, context = {}) {
   const wifi =
     asNumber(record.wifi_fee) +
     (DEFAULT_EXTRA_SERVICE_FEES.wifi[wifiKey] ?? 0)
+  const overnightUnitFee = Math.max(resolveOvernightUnitFee(record), DEFAULT_EXTRA_SERVICE_FEES.overnight.yes)
   const overnight =
     overnightNights > 0
-      ? Math.max(asNumber(record.overnight_fee), DEFAULT_EXTRA_SERVICE_FEES.overnight.yes) * overnightNights
-      : Math.max(asNumber(record.overnight_fee), overnightKey === 'yes' ? DEFAULT_EXTRA_SERVICE_FEES.overnight.yes : 0)
+      ? overnightUnitFee * overnightNights
+      : overnightKey === 'yes'
+        ? overnightUnitFee
+        : 0
   const urgentSchedule =
     asNumber(record.urgent_schedule_fee || record.rush_fee) +
     (DEFAULT_EXTRA_SERVICE_FEES.scheduleFlexibility[flexibilityKey] ?? 0)
@@ -688,7 +696,7 @@ export function buildFlightPricingFormula(record = {}, context = {}) {
   const billableMinutes = Math.max(flightMinutes, 0)
   const minimumRoutePrice = inferMinimumRoutePrice(record, distanceKm)
   const rawBaseCost = billableMinutes * costPerMinute
-  const subtotalFlight = rawBaseCost * legCount
+  const subtotalFlight = rawBaseCost
   const baseCost = subtotalFlight
   const repositioning = resolveRepositioningApplies(record, context)
     ? asNumber(record.repositioning_fee || record.repositioning_cost)
@@ -713,8 +721,9 @@ export function buildFlightPricingFormula(record = {}, context = {}) {
       context.ivaAmount,
   )
   const ivaRate = explicitTaxAmount > 0 ? 0 : baseCost > 0 ? resolveIvaRateForRoute(context) : 0
-  const ivaAmount = explicitTaxAmount > 0 ? explicitTaxAmount : 0
-  const subtotalBeforeMultipliers = subtotalFlight + airportFees + ivaAmount + expensesTotal
+  const taxableSubtotal = subtotalFlight + airportFees + expensesTotal
+  const ivaAmount = explicitTaxAmount > 0 ? explicitTaxAmount : taxableSubtotal * ivaRate
+  const subtotalBeforeMultipliers = taxableSubtotal + ivaAmount
   const commercialMargin = 1
   const priorityFactor = 1
   const dynamicMarketFloor = resolveDynamicMarketFloor(record, billableHours, distanceKm)

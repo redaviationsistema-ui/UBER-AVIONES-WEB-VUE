@@ -1397,6 +1397,42 @@ export async function searchClientFlights(itinerary) {
   try {
     const payload = await api.post(QUOTES_PREVIEW_PATH, buildFlightRequestPayload(itinerary))
     matches = normalizeMatches(payload, itinerary)
+
+    if (typeof console !== 'undefined') {
+      console.log('[client-quote] resumen de cotizacion', {
+        itinerary: {
+          origin: firstLeg.origin || itinerary?.origin || '',
+          destination: firstLeg.destination || itinerary?.destination || '',
+          passengers: itinerary?.passengers || '',
+          overnight_nights: itinerary?.overnight_nights || itinerary?.days || 0,
+          trip_type: itinerary?.trip_type || '',
+        },
+        matches: matches.map((item) => ({
+          match_id: item.match_id || item.id,
+          aircraft_id: item.aircraft_id,
+          aircraft: item.aircraft,
+          category: item.cabin || item.aircraft_category || '',
+          hourly_rate: Number(item.hourly_rate || 0),
+          billable_hours: Number(item.billable_hours || 0),
+          base_price: Number(item.base_price || 0),
+          overnight_fee: Number(item.overnight_fee || 0),
+          overnight_nights:
+            Number(
+              item.pricing_breakdown?.overnight > 0 && Number(item.overnight_fee || 0) > 0
+                ? item.pricing_breakdown.overnight / Number(item.overnight_fee || 1)
+                : itinerary?.overnight_nights || itinerary?.days || 0,
+            ) || 0,
+          overnight_cost: Number(
+            item.pricing_breakdown?.overnight ||
+              item.overnight_fees ||
+              0,
+          ),
+          subtotal: Number(item.subtotal || 0),
+          total: Number(item.total || 0),
+          final_price: item.final_price || '',
+        })),
+      })
+    }
   } catch (error) {
     if (isAccessRestrictionError(error)) {
       throw error
