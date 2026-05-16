@@ -63,8 +63,6 @@ const SHORT_ROUTE_CATEGORY_MINIMUM_PRICE = {
 
 const DEFAULT_EXPENSE_FEE = 400
 const DEFAULT_IVA_RATE = 0.16
-const DEFAULT_PET_FEE = 250
-const DEFAULT_SPECIAL_BAGGAGE_FEE = 180
 
 function asNumber(value, fallback = 0) {
   const amount = Number(value)
@@ -134,11 +132,23 @@ function airportMatchesRoute(baseAirport = '', routeAirport = '', routeAirportDa
   return candidates.includes(normalizedBase)
 }
 
+function resolveLastLegAirportForRepositioning(context = {}) {
+  const legs = Array.isArray(context.legs) ? context.legs.filter(Boolean) : []
+  const lastLeg = legs[legs.length - 1] || {}
+
+  return {
+    airport: lastLeg.destination || lastLeg.origin || context.destination || '',
+    airportData: lastLeg.destinationAirport || lastLeg.originAirport || context.destinationAirport || null,
+  }
+}
+
 function resolveRepositioningApplies(record = {}, context = {}) {
   if (context.repositioningRequired === true) return true
   if (context.repositioningRequired === false) return false
 
-  if (record.base_airport_match === true) return false
+  const tripType = normalizeCode(context.tripType || context.trip_type || context.tripLabel || context.trip_label)
+  const isMultiDestination = ['multi_leg', 'multi_city', 'multi_destino', 'multidestino'].includes(tripType)
+  if (record.base_airport_match === true && !isMultiDestination) return false
 
   const firstLeg = Array.isArray(context.legs) ? context.legs[0] || {} : {}
   const requestedOrigin = firstLeg.origin || context.origin || ''
@@ -154,7 +164,37 @@ function resolveRepositioningApplies(record = {}, context = {}) {
 
   if (!baseAirport || !requestedOrigin) return true
 
-  return !airportMatchesRoute(baseAirport, requestedOrigin, requestedOriginAirport)
+  const departsOutsideBase = !airportMatchesRoute(baseAirport, requestedOrigin, requestedOriginAirport)
+  if (departsOutsideBase) return true
+
+  if (!isMultiDestination) {
+    return false
+  }
+
+  const { airport: lastLegAirport, airportData: lastLegAirportData } = resolveLastLegAirportForRepositioning(context)
+  if (!lastLegAirport) return false
+
+  return !airportMatchesRoute(baseAirport, lastLegAirport, lastLegAirportData)
+}
+
+function resolveRepositioningAmount(record = {}, context = {}, hourlyRate = 0, distanceKm = 0) {
+  const explicitRepositioning = asNumber(
+    record.repositioning_fee ||
+      record.repositioning_cost ||
+      record.reposition_fee ||
+      record.reposition_cost,
+  )
+  if (explicitRepositioning > 0) return explicitRepositioning
+
+  const tripType = normalizeCode(context.tripType || context.trip_type || context.tripLabel || context.trip_label)
+  const isMultiDestination = ['multi_leg', 'multi_city', 'multi_destino', 'multidestino'].includes(tripType)
+  if (!(context.repositioningRequired === true && isMultiDestination)) return 0
+
+  const fallbackHourlyRate = Math.max(asNumber(hourlyRate), 0)
+  if (fallbackHourlyRate <= 0) return 0
+
+  const reserveHours = operationalReserveHours(distanceKm)
+  return Number((fallbackHourlyRate * reserveHours).toFixed(2))
 }
 
 function normalizeCountry(value = '') {
@@ -445,14 +485,14 @@ function resolvePetFee(context = {}, record = {}) {
   const rawPets = String(context.pets || '').trim().toLowerCase()
   if (!rawPets) return 0
   if (['no', 'ninguno', 'ninguna', 'false'].includes(rawPets)) return 0
-  return DEFAULT_PET_FEE
+  return 0
 }
 
 function resolveSpecialBaggageFee(context = {}, record = {}) {
   const explicitFee = asNumber(record.special_baggage_fee || record.baggage_fee || context.specialBaggageFee)
   if (explicitFee > 0) return explicitFee
 
-  return String(context.specialBaggage || '').trim() ? DEFAULT_SPECIAL_BAGGAGE_FEE : 0
+  return 0
 }
 
 function resolveContextDistanceKm(context = {}) {
@@ -699,7 +739,7 @@ export function buildFlightPricingFormula(record = {}, context = {}) {
   const subtotalFlight = rawBaseCost
   const baseCost = subtotalFlight
   const repositioning = resolveRepositioningApplies(record, context)
-    ? asNumber(record.repositioning_fee || record.repositioning_cost)
+    ? resolveRepositioningAmount(record, context, hourlyRate, distanceKm)
     : 0
   const airportFees = resolveAirportFees(record)
   const operationalCosts = resolveAdditionalOperationalCosts(record)

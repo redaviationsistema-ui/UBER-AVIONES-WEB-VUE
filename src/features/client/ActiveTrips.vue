@@ -22,15 +22,6 @@ const PROGRESS_STEPS = [
   { key: 'tracking', label: 'Tracking' },
 ]
 
-function normalizeStatus(value = '') {
-  return String(value || '')
-    .trim()
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/\s+/g, '_')
-}
-
 function statusMeta(status = '') {
   const state = resolveWorkflowState(status)
 
@@ -58,13 +49,27 @@ function statusMeta(status = '') {
   }
 }
 
+function workflowId(status = '') {
+  return resolveWorkflowState(status).id
+}
+
 function progressSteps(status = '') {
+  const stateId = workflowId(status)
   const currentStep = statusMeta(status).step
   const currentIndex = PROGRESS_STEPS.findIndex((step) => step.key === currentStep)
 
   return PROGRESS_STEPS.map((step, index) => ({
     ...step,
-    state: index < currentIndex ? 'done' : index === currentIndex ? 'active' : 'todo',
+    state:
+      stateId === 'provider_accepted' && step.key === 'provider'
+        ? 'done'
+        : stateId === 'provider_accepted' && step.key === 'contract'
+          ? 'active'
+          : index < currentIndex
+            ? 'done'
+            : index === currentIndex
+              ? 'active'
+              : 'todo',
   }))
 }
 
@@ -95,16 +100,6 @@ function shortTripDate(value = '') {
     hour: 'numeric',
     minute: '2-digit',
   }).format(parsed)
-}
-
-function airportPair(reservation = {}) {
-  if (reservation.legs?.length) {
-    const firstLeg = reservation.legs[0]
-    const lastLeg = reservation.legs[reservation.legs.length - 1]
-    return `${firstLeg.origin} → ${lastLeg.destination}`
-  }
-
-  return reservation.route || reservation.title || `Vuelo privado #${reservation.id}`
 }
 
 function reservationCode(reservation = {}) {
@@ -181,6 +176,21 @@ function routeDisplay(reservation = {}) {
   return `${origin} → ${destination}`
 }
 
+function routeSegmentsLabel(reservation = {}) {
+  const segments = itinerarySegments(reservation)
+  if (segments.length <= 1) return ''
+
+  return segments
+    .map((segment) => `${segment.origin} → ${segment.destination}`)
+    .join(' · ')
+}
+
+function overnightLabel(reservation = {}) {
+  const nights = Number(reservation.overnight_nights || 0)
+  if (!nights) return ''
+  return `${nights} ${nights === 1 ? 'pernocta' : 'pernoctas'}`
+}
+
 function departureLine(reservation = {}) {
   return reservation.date ? formatTripDate(reservation.date) : 'Horario por confirmar'
 }
@@ -204,8 +214,10 @@ function countdownLabel(value = '') {
 
 function nextAction(status = '') {
   const meta = statusMeta(status)
+  const stateId = workflowId(status)
 
   if (meta.step === 'booking') return 'Siguiente paso: cierre de reserva'
+  if (stateId === 'provider_accepted') return 'Siguiente paso: firma de contrato'
   if (meta.step === 'provider') return 'Siguiente paso: respuesta del proveedor'
   if (meta.step === 'contract') return 'Siguiente paso: firma de contrato'
   if (meta.step === 'payment') return 'Siguiente paso: confirmacion de pago'
@@ -219,6 +231,7 @@ function hasWorkflowIn(status = '', states = []) {
 
 function contractEnabled(reservation = {}) {
   return hasWorkflowIn(reservation.workflow_status || reservation.status, [
+    'provider_accepted',
     'contract_pending',
     'contract_signed',
     'payment_pending',
@@ -346,6 +359,8 @@ watch(
             <span v-if="selectedReservation.passengers">👥 {{ selectedReservation.passengers }} pasajeros</span>
             <span v-if="selectedReservation.aircraft">🛩 {{ selectedReservation.aircraft }}</span>
             <span v-if="itinerarySegments(selectedReservation).length">✈ {{ itinerarySegments(selectedReservation).length }} tramos</span>
+            <span v-if="routeSegmentsLabel(selectedReservation)">🗺 {{ routeSegmentsLabel(selectedReservation) }}</span>
+            <span v-if="overnightLabel(selectedReservation)">🌙 {{ overnightLabel(selectedReservation) }}</span>
             <span v-if="countdownLabel(selectedReservation.date)">⏳ {{ countdownLabel(selectedReservation.date) }}</span>
           </div>
         </div>

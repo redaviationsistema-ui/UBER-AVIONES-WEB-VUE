@@ -978,6 +978,7 @@ function buildCatalogFallbackQuotes(catalog = [], itinerary = {}) {
         legs: itinerary.legs || [],
         origin: itinerary.origin || '',
         originAirport: itinerary.originAirport || null,
+        repositioningRequired: itinerary.repositioningRequired === true,
         catering: itinerary.catering || '',
         wifi: itinerary.wifi || 'none',
         groundTransport: itinerary.groundTransport || itinerary.ground_transport || 'none',
@@ -1094,12 +1095,39 @@ function normalizeWorkflowToken(value = '') {
     .replace(/\s+/g, ' ')
 }
 
+function listRequestMatches(request = {}) {
+  const collections = [request.matches, request.matched_options]
+  return collections.flatMap((items) => (Array.isArray(items) ? items.filter((item) => item && typeof item === 'object') : []))
+}
+
+function pickAcceptedRequestMatch(request = {}) {
+  return listRequestMatches(request).find((match) => {
+    const normalizedStatus = normalizeWorkflowToken(match.status || match.workflow_status || match.state)
+    return ['accepted', 'aceptada', 'aceptado', 'approved', 'aprobada', 'matched'].includes(normalizedStatus)
+  }) || null
+}
+
+function pickPreferredClientMatch(request = {}) {
+  const matches = listRequestMatches(request)
+  if (!matches.length) return null
+
+  const assignedAircraftId = request.assigned_aircraft_id || request.aircraft_id || null
+  if (assignedAircraftId) {
+    const assignedMatch = matches.find((match) => String(match?.aircraft_id || match?.aircraft?.id || '') === String(assignedAircraftId))
+    if (assignedMatch) return assignedMatch
+  }
+
+  return pickAcceptedRequestMatch(request) || matches[0]
+}
+
 function deriveClientWorkflowStatus(request = {}) {
   const rawWorkflow = request.workflow_status || request.workflow || request.status || ''
   const normalizedWorkflow = normalizeWorkflowToken(rawWorkflow)
   const hasAssignedProvider = Boolean(request.assigned_provider_id || request.provider_id)
   const hasAssignedAircraft = Boolean(request.assigned_aircraft_id || request.aircraft_id)
   const hasOperation = Boolean(request.operation?.id || request.operation_id)
+  const acceptedMatch = pickAcceptedRequestMatch(request)
+  const hasAcceptedMatch = Boolean(acceptedMatch)
 
   const contractOrLaterStates = new Set([
     'contract pending',
@@ -1118,26 +1146,45 @@ function deriveClientWorkflowStatus(request = {}) {
     'aceptado',
     'accepted',
     'approved',
+    'aprobada',
+    'aprobado',
     'provider accepted',
     'provider_accepted',
     'operador asignado',
-    'operador_asignado',
     'operador confirmado',
-    'pending',
-    'reserved',
-    'reserva',
-    'reservada',
-    'reservado',
-    'provider pending',
-    'provider_pending',
+    'matched',
   ])
 
-  if (
-    (hasAssignedProvider || hasAssignedAircraft || hasOperation) &&
-    (!normalizedWorkflow || providerAcceptedSignals.has(normalizedWorkflow)) &&
-    !contractOrLaterStates.has(normalizedWorkflow)
-  ) {
+  const providerPendingSignals = new Set([
+    'provider pending',
+    'provider_pending',
+    'buscando operador',
+    'buscando aeronave',
+    'matching',
+    'matching en proceso',
+    'in validation',
+    'en validacion',
+    'revision operativa',
+  ])
+
+  if (contractOrLaterStates.has(normalizedWorkflow)) {
+    return rawWorkflow
+  }
+
+  if (providerAcceptedSignals.has(normalizedWorkflow) || hasAcceptedMatch) {
+    return 'provider_accepted'
+  }
+
+  if (hasOperation) {
     return 'contract_pending'
+  }
+
+  if ((hasAssignedProvider || hasAssignedAircraft) && !normalizedWorkflow) {
+    return 'provider_accepted'
+  }
+
+  if (providerPendingSignals.has(normalizedWorkflow)) {
+    return 'provider_pending'
   }
 
   return rawWorkflow
@@ -1176,23 +1223,22 @@ function normalizeTrip(request = {}) {
   const route = legs.length
     ? legs.map((leg, index) => (index === 0 ? `${leg.origin} -> ${leg.destination}` : leg.destination)).join(' -> ')
     : [request.origin, request.destination].filter(Boolean).join(' -> ')
-  const matchedOptions = Array.isArray(request.matched_options) ? request.matched_options : []
-  const assignedAircraftId = request.assigned_aircraft_id || request.aircraft_id || null
-  const preferredMatch =
-    matchedOptions.find((match) => String(match?.aircraft_id || '') === String(assignedAircraftId || '')) ||
-    matchedOptions[0] ||
-    null
+  const preferredMatch = pickPreferredClientMatch(request)
   const aircraftRecord = preferredMatch?.aircraft || {}
 
   return {
     id: request.id || '',
     route,
     title: route || `Solicitud ${request.id || ''}`,
+    origin: request.origin || legs[0]?.origin || '',
+    destination: request.destination || legs[legs.length - 1]?.destination || '',
     date: request.departure_datetime || request.departure_date || '',
     created_at: request.created_at || request.createdAt || '',
     updated_at: request.updated_at || request.updatedAt || '',
-    assigned_aircraft_id: request.assigned_aircraft_id || request.aircraft_id || '',
-    assigned_provider_id: request.assigned_provider_id || request.provider_id || '',
+    assigned_aircraft_id:
+      request.assigned_aircraft_id || request.aircraft_id || preferredMatch?.aircraft_id || aircraftRecord?.id || '',
+    assigned_provider_id:
+      request.assigned_provider_id || request.provider_id || preferredMatch?.provider_id || aircraftRecord?.provider_id || '',
     status: request.status || '',
     workflow_status: deriveClientWorkflowStatus(request),
     trip_type: request.trip_type || '',
@@ -1203,6 +1249,7 @@ function normalizeTrip(request = {}) {
       request.package_name ||
       request.package ||
       '',
+    overnight_nights: Number(request.overnight_nights || request.days || 0) || 0,
     legs,
     requirements,
     estimated_total: preferredMatch?.total ? asMoney(preferredMatch.total) : '',
@@ -1211,7 +1258,13 @@ function normalizeTrip(request = {}) {
     aircraft_capacity: request.aircraft_capacity || aircraftRecord?.capacity || '',
     aircraft_image: request.aircraft_image || aircraftRecord?.main_image || aircraftRecord?.images?.[0]?.image_url || '',
     amenities: Array.isArray(aircraftRecord?.amenities) ? aircraftRecord.amenities : [],
-    operator: request.operator || request.provider_name || preferredMatch?.provider_name || '',
+    operator:
+      request.operator ||
+      request.provider_name ||
+      preferredMatch?.provider_name ||
+      preferredMatch?.provider?.name ||
+      aircraftRecord?.provider_name ||
+      '',
     payment_status: request.payment_status || '',
   }
 }
@@ -1271,6 +1324,7 @@ function buildFlightRequestPayload(itinerary = {}) {
             priorityType,
             attentionLevel,
             overnightNights: itinerary.overnight_nights || itinerary.days || 0,
+            repositioningRequired: itinerary.repositioningRequired === true,
             catering: itinerary.catering || '',
             wifi: itinerary.wifi || 'none',
             groundTransport: itinerary.ground_transport || itinerary.groundTransport || 'none',
@@ -1374,9 +1428,9 @@ export async function getClientFlightPackages() {
 
 export const getClientMembershipPlans = getClientFlightPackages
 
-export async function getClientTrips() {
+export async function getClientTrips(options = {}) {
   try {
-    const payload = await api.get(CLIENT_TRIPS_PATH)
+    const payload = await api.get(CLIENT_TRIPS_PATH, options)
     return normalizeArray(payload, ['trips', 'reservations', 'flight_requests'])
       .map(normalizeTrip)
       .sort((first, second) => tripSortValue(second) - tripSortValue(first))
@@ -1399,7 +1453,7 @@ export async function searchClientFlights(itinerary) {
     matches = normalizeMatches(payload, itinerary)
 
     if (typeof console !== 'undefined') {
-      console.log('[client-quote] resumen de cotizacion', {
+      console.log('[client-quote] desglose de cotizacion', {
         itinerary: {
           origin: firstLeg.origin || itinerary?.origin || '',
           destination: firstLeg.destination || itinerary?.destination || '',
@@ -1414,7 +1468,19 @@ export async function searchClientFlights(itinerary) {
           category: item.cabin || item.aircraft_category || '',
           hourly_rate: Number(item.hourly_rate || 0),
           billable_hours: Number(item.billable_hours || 0),
+          real_flight_hours: Number(item.real_flight_hours || item.estimated_hours || 0),
           base_price: Number(item.base_price || 0),
+          repositioning_fee: Number(item.repositioning_fee || 0),
+          taxes: Number(item.taxes || 0),
+          airport_fees: Number(
+            item.pricing_breakdown?.airport_fees ||
+              item.landing_fees ||
+              item.fbo_fees ||
+              0,
+          ),
+          operational_cost: Number(item.operational_cost || 0),
+          extra_services_total: Number(item.extra_services_total || 0),
+          expense_fee: Number(item.expense_fee || 0),
           overnight_fee: Number(item.overnight_fee || 0),
           overnight_nights:
             Number(
@@ -1427,9 +1493,11 @@ export async function searchClientFlights(itinerary) {
               item.overnight_fees ||
               0,
           ),
+          subtotal_before_multipliers: Number(item.subtotal_before_multipliers || item.subtotal || 0),
           subtotal: Number(item.subtotal || 0),
           total: Number(item.total || 0),
           final_price: item.final_price || '',
+          pricing_breakdown: item.pricing_breakdown || null,
         })),
       })
     }
@@ -1449,8 +1517,8 @@ export async function searchClientFlights(itinerary) {
   return buildCatalogFallbackQuotes(aircraft, itinerary)
 }
 
-export async function createClientFlightRequest(itinerary) {
-  return api.post(CLIENT_TRIPS_PATH, buildFlightRequestPayload(itinerary))
+export async function createClientFlightRequest(itinerary, options = {}) {
+  return api.post(CLIENT_TRIPS_PATH, buildFlightRequestPayload(itinerary), options)
 }
 
 export async function requestConcierge(message) {

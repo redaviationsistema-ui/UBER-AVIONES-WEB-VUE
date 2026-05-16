@@ -461,10 +461,19 @@ function itineraryHeadline(summary) {
 }
 
 function itineraryDateLine(summary) {
-  const firstLeg = summary?.legs?.[0]
+  const legs = Array.isArray(summary?.legs) ? summary.legs.filter(Boolean) : []
+  const firstLeg = legs[0]
   if (!firstLeg) return 'Fecha por confirmar'
 
-  return `${formatPassengerCopy(summary?.passengers)} • ${formatTravelDateLabel(firstLeg.date, firstLeg.time)}`
+  const datedLegs = legs.filter((leg) => String(leg?.date || '').trim())
+  const firstDate = datedLegs[0]?.date || firstLeg.date || ''
+  const lastDate = datedLegs[datedLegs.length - 1]?.date || firstDate
+  const hasDateRange = firstDate && lastDate && firstDate !== lastDate
+  const dateLabel = hasDateRange
+    ? `${formatTravelDate(firstDate).split(',')[0]} - ${formatTravelDate(lastDate).split(',')[0]}`
+    : formatTravelDateLabel(firstLeg.date, firstLeg.time)
+
+  return dateLabel
 }
 
 function aircraftPriceCopy(aircraft) {
@@ -495,6 +504,10 @@ function routeDistanceKmForAircraft(aircraft = {}) {
 }
 
 function aircraftPricingContext() {
+  const pendingMultiDestinationLegs =
+    tripType.value === 'Multi-destino' &&
+    searchForm.legs.some((leg, index) => index > 0 && (!leg.origin || !leg.destination || !leg.date))
+
   return {
     packageCode: selectedPriorityType.value,
     attentionLevel: 'normal',
@@ -507,6 +520,7 @@ function aircraftPricingContext() {
     groundTransport: activeItinerarySummary.value?.groundTransport || 'none',
     pets: activeItinerarySummary.value?.pets || '',
     specialBaggage: activeItinerarySummary.value?.specialBaggage || '',
+    repositioningRequired: pendingMultiDestinationLegs,
   }
 }
 
@@ -865,6 +879,53 @@ function aircraftPricingForType(aircraft = {}, priorityType = 'essential') {
   }
 }
 
+function logRenderedQuoteBreakdown(aircraftList = [], quotePayload = {}) {
+  if (typeof console === 'undefined' || !aircraftList.length) return
+
+  const rows = aircraftList.map((aircraft, index) => {
+    const pricing = aircraftPricingForType(aircraft, selectedPriorityType.value)
+    const firstLeg = Array.isArray(quotePayload.legs) ? quotePayload.legs[0] || {} : {}
+    const lastLeg = Array.isArray(quotePayload.legs) ? quotePayload.legs[quotePayload.legs.length - 1] || {} : {}
+    const baseAirport = aircraft.source_origin || aircraft.base_airport || ''
+    let repositioningReason = 'Sin reposicionamiento'
+
+    if (Number(pricing.repositioning || 0) > 0) {
+      if (quotePayload.repositioningRequired === true) {
+        repositioningReason = 'Reposicionamiento preventivo por multi-destino incompleto'
+      } else if (baseAirport && firstLeg.origin && baseAirport !== firstLeg.origin) {
+        repositioningReason = `Salida fuera de base: ${baseAirport} -> ${firstLeg.origin}`
+      } else if (baseAirport && lastLeg.destination && baseAirport !== lastLeg.destination) {
+        repositioningReason = `Regreso a base pendiente desde ${lastLeg.destination} hacia ${baseAirport}`
+      } else {
+        repositioningReason = 'Reposicionamiento aplicado por reglas de cotizacion'
+      }
+    }
+
+    return {
+      option: index + 1,
+      aircraft: aircraft.aircraft || aircraft.model || aircraft.cabin || 'Aeronave',
+      category: aircraft.cabin || aircraft.category || '',
+      base_price: Number(pricing.basePrice || 0),
+      repositioning: Number(pricing.repositioning || 0),
+      operational_fees: Number(pricing.operationalFees || 0),
+      operational_costs: Number(pricing.operationalCostBreakdown || 0),
+      extra_services_total: Number(pricing.extraServicesTotal || 0),
+      expense_fee: Number(pricing.expenseFee || 0),
+      iva_amount: Number(pricing.ivaAmount || 0),
+      subtotal_before_multipliers: Number(pricing.subtotalBeforeMultipliers || 0),
+      final_price: Number(pricing.finalPrice || 0),
+      billable_hours: Number(pricing.billableHours || 0),
+      real_flight_hours: Number(pricing.realFlightHours || 0),
+      repositioning_required: quotePayload.repositioningRequired === true,
+      repositioning_reason: repositioningReason,
+      source_origin: aircraft.source_origin || aircraft.base_airport || '',
+    }
+  })
+
+  console.log('[client-quote-ui] payload enviado al cotizador', quotePayload)
+  console.table(rows)
+}
+
 const selectedAircraftPricing = computed(() => {
   return aircraftPricingForType(selectedAircraft.value || {}, selectedPriorityType.value)
 })
@@ -1095,10 +1156,17 @@ function buildItinerarySummary(payload) {
   }
 }
 
+function hasPendingMultiDestinationLegs() {
+  if (tripType.value !== 'Multi-destino') return false
+
+  return searchForm.legs.some((leg, index) => index > 0 && (!leg.origin || !leg.destination || !leg.date))
+}
+
 function validateSearchForm() {
   const firstLeg = itineraryLegs.value[0] || {}
   const secondLeg = itineraryLegs.value[1] || {}
   const incompleteMultiLeg = itineraryLegs.value.findIndex((leg) => !leg.origin || !leg.destination || !leg.date)
+  const pendingMultiDestinationLegs = hasPendingMultiDestinationLegs()
 
   if (!firstLeg.origin || !firstLeg.destination || !firstLeg.date) {
     serverSearchError.value = 'Completa origen, destino y fecha para ver opciones disponibles.'
@@ -1110,7 +1178,7 @@ function validateSearchForm() {
     return false
   }
 
-  if (tripType.value !== 'Ida' && itineraryLegs.value.length < 2) {
+  if (tripType.value !== 'Ida' && itineraryLegs.value.length < 2 && !(tripType.value === 'Multi-destino' && pendingMultiDestinationLegs)) {
     serverSearchError.value =
       tripType.value === 'Redondo'
         ? 'Completa fecha y hora de regreso para cotizar viaje redondo.'
@@ -1133,7 +1201,7 @@ function validateSearchForm() {
     return false
   }
 
-  if (tripType.value === 'Multi-destino' && incompleteMultiLeg !== -1) {
+  if (tripType.value === 'Multi-destino' && incompleteMultiLeg !== -1 && !pendingMultiDestinationLegs) {
     serverSearchError.value = `Completa origen, destino y fecha del tramo ${incompleteMultiLeg + 1}.`
     ui.pushToast({
       tone: 'warning',
@@ -1164,6 +1232,7 @@ async function submitSearch() {
   aircraftOptions.value = []
   try {
     const normalizedPassengers = Number(searchForm.passengers || 0) || 1
+    const pendingMultiDestinationLegs = hasPendingMultiDestinationLegs()
     searchForm.passengers = String(normalizedPassengers)
     const quotePayload = {
       trip_type: tripTypeKey.value,
@@ -1175,15 +1244,19 @@ async function submitSearch() {
       flight_package: selectedPriorityMeta.value?.name || '',
       priority_type: selectedPriorityType.value,
       legs: itineraryLegs.value.map((leg) => normalizeLegForQuote(leg)),
+      repositioningRequired: pendingMultiDestinationLegs,
     }
     submittedItinerary.value = buildItinerarySummary(quotePayload)
     ui.pushToast({
       tone: 'success',
       title: 'Cotizando itinerario',
-      message: 'Validando aeropuertos, tramos y operadores activos.',
+      message: pendingMultiDestinationLegs
+        ? 'Cotizando el tramo confirmado con reposicionamiento preventivo.'
+        : 'Validando aeropuertos, tramos y operadores activos.',
     })
     go('resultados')
     aircraftOptions.value = await searchClientFlights(quotePayload)
+    logRenderedQuoteBreakdown(aircraftOptions.value, quotePayload)
     if (!aircraftOptions.value.length) {
       serverSearchError.value = 'No fue posible generar una cotizacion real para este itinerario con la informacion actual.'
     }
@@ -1223,7 +1296,7 @@ async function requestReservation(aircraft = selectedAircraft.value) {
       pricing,
       aircraft,
     )
-    const reservation = await createClientFlightRequest({
+    const reservationPayload = {
       trip_type: tripTypeKey.value,
       trip_label: tripType.value,
       passengers: normalizedPassengers,
@@ -1257,16 +1330,20 @@ async function requestReservation(aircraft = selectedAircraft.value) {
       source_database: aircraft.source_database || null,
       source_table: aircraft.source_table || null,
       legs: activeItinerarySummary.value.legs.map((leg) => ({ ...leg })),
-    })
-    reservations.value = await getClientTrips()
-    const createdReservationId =
-      reservation?.data?.id || reservation?.id || reservations.value[0]?.id || selectedTripId.value || ''
+    }
+    const reservation = await createClientFlightRequest(reservationPayload, { timeoutMs: 60000 })
+    const createdReservationId = reservation?.data?.id || reservation?.id || selectedTripId.value || ''
+    const refreshedReservations = await getClientTrips({ timeoutMs: 20000 })
+    if (refreshedReservations.length) {
+      reservations.value = refreshedReservations
+    }
+    const targetReservationId = createdReservationId || refreshedReservations[0]?.id || ''
     ui.pushToast({
       tone: 'success',
       title: 'Tu vuelo esta siendo confirmado por Red Aviation',
       message: 'Tu reserva ya entro al flujo comercial y operativo.',
     })
-    go('reserva-confirmada', createdReservationId)
+    go('reserva-confirmada', targetReservationId)
   } catch (error) {
     const message = error?.message || 'Intenta de nuevo o contacta a tu asesor privado.'
     ui.pushToast({
