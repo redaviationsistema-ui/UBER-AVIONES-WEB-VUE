@@ -520,13 +520,13 @@ function aircraftPricingContext() {
     groundTransport: activeItinerarySummary.value?.groundTransport || 'none',
     pets: activeItinerarySummary.value?.pets || '',
     specialBaggage: activeItinerarySummary.value?.specialBaggage || '',
-    repositioningRequired: pendingMultiDestinationLegs,
+    repositioningRequired: pendingMultiDestinationLegs ? true : undefined,
   }
 }
 
 function aircraftOperationalFlightHours(aircraft = {}) {
   const formula = buildFlightPricingFormula(aircraft, aircraftPricingContext())
-  const operationalHours = formula.realFlightHours
+  const operationalHours = formula.displayFlightHours
 
   if (Number.isFinite(operationalHours) && operationalHours > 0) {
     return operationalHours
@@ -535,7 +535,15 @@ function aircraftOperationalFlightHours(aircraft = {}) {
   return 0
 }
 
-function aircraftDisplayFlightHours(aircraft = {}) {
+function aircraftDisplayFlightHours(aircraft = {}, includeRepositioning = false) {
+  const formula = buildFlightPricingFormula(aircraft, aircraftPricingContext())
+  const totalDisplayHours = Number(formula.displayFlightHours || 0)
+  const repositioningHours = includeRepositioning ? Number(formula.repositioningHours || 0) : 0
+
+  if (totalDisplayHours > 0) {
+    return totalDisplayHours + repositioningHours
+  }
+
   const operationalHours = aircraftOperationalFlightHours(aircraft)
   if (operationalHours > 0) return operationalHours
 
@@ -629,7 +637,7 @@ function formatDurationFromHours(hours = 0) {
 }
 
 function inferredFlightWindowHours(aircraft = {}) {
-  const directHours = aircraftDisplayFlightHours(aircraft)
+  const directHours = aircraftDisplayFlightHours(aircraft, true)
   if (!Number.isFinite(directHours) || directHours <= 0) return null
 
   const cabin = String(aircraft.cabin || aircraft.category || '').toLowerCase()
@@ -656,7 +664,7 @@ function aircraftDurationLabel(aircraft = {}) {
     if (minLabel) return minLabel
   }
 
-  const estimatedFlightHours = aircraftDisplayFlightHours(aircraft)
+  const estimatedFlightHours = aircraftDisplayFlightHours(aircraft, true)
   const estimatedFlightLabel = formatDurationFromHours(estimatedFlightHours)
   if (estimatedFlightLabel) return estimatedFlightLabel
 
@@ -819,6 +827,8 @@ function aircraftPricingForType(aircraft = {}, priorityType = 'essential') {
       routeBand: formula.routeBand?.code || '',
       routeMultiplier: formula.routeBand?.multiplier || 1,
       reserveHours: formula.reserveHours,
+      displayFlightHours: formula.displayFlightHours,
+      operationalFlightHours: formula.operationalFlightHours,
       rawFlightHours: formula.rawFlightHours,
       billableHours: formula.billableHours,
       realFlightHours: formula.realFlightHours,
@@ -827,6 +837,7 @@ function aircraftPricingForType(aircraft = {}, priorityType = 'essential') {
       rawBaseCost: formula.rawBaseCost,
       repositioning: formula.repositioning,
       operationalCostBreakdown: formula.operationalCosts,
+      overnightCost: formula.extraServices?.overnight || 0,
       extraServicesTotal: formula.extraServices.total,
       expenseFee: formula.expenseFee,
       ivaRate: formula.ivaRate,
@@ -887,6 +898,7 @@ function logRenderedQuoteBreakdown(aircraftList = [], quotePayload = {}) {
     const firstLeg = Array.isArray(quotePayload.legs) ? quotePayload.legs[0] || {} : {}
     const lastLeg = Array.isArray(quotePayload.legs) ? quotePayload.legs[quotePayload.legs.length - 1] || {} : {}
     const baseAirport = aircraft.source_origin || aircraft.base_airport || ''
+    const overnightNights = Number(activeItinerarySummary.value?.days || 0)
     let repositioningReason = 'Sin reposicionamiento'
 
     if (Number(pricing.repositioning || 0) > 0) {
@@ -909,11 +921,15 @@ function logRenderedQuoteBreakdown(aircraftList = [], quotePayload = {}) {
       repositioning: Number(pricing.repositioning || 0),
       operational_fees: Number(pricing.operationalFees || 0),
       operational_costs: Number(pricing.operationalCostBreakdown || 0),
+      overnight_nights: overnightNights,
+      overnight_cost: Number(pricing.overnightCost || 0),
       extra_services_total: Number(pricing.extraServicesTotal || 0),
       expense_fee: Number(pricing.expenseFee || 0),
       iva_amount: Number(pricing.ivaAmount || 0),
       subtotal_before_multipliers: Number(pricing.subtotalBeforeMultipliers || 0),
       final_price: Number(pricing.finalPrice || 0),
+      display_flight_hours: Number(pricing.displayFlightHours || 0),
+      operational_flight_hours: Number(pricing.operationalFlightHours || 0),
       billable_hours: Number(pricing.billableHours || 0),
       real_flight_hours: Number(pricing.realFlightHours || 0),
       repositioning_required: quotePayload.repositioningRequired === true,
@@ -1244,7 +1260,7 @@ async function submitSearch() {
       flight_package: selectedPriorityMeta.value?.name || '',
       priority_type: selectedPriorityType.value,
       legs: itineraryLegs.value.map((leg) => normalizeLegForQuote(leg)),
-      repositioningRequired: pendingMultiDestinationLegs,
+      repositioningRequired: pendingMultiDestinationLegs ? true : undefined,
     }
     submittedItinerary.value = buildItinerarySummary(quotePayload)
     ui.pushToast({
