@@ -104,6 +104,10 @@ const DEFAULT_FLIGHT_PACKAGE_NAMES = new Set(
   FALLBACK_FLIGHT_PACKAGES.map((item) => String(item.name || '').trim().toLowerCase()),
 )
 
+function preserveExplicitBoolean(value) {
+  return typeof value === 'boolean' ? value : undefined
+}
+
 function extractErrorMessage(error) {
   return String(error?.payload?.message || error?.message || '').trim()
 }
@@ -123,7 +127,7 @@ function isAccessRestrictionError(error) {
 
 function asMoney(value) {
   if (value === null || value === undefined || value === '') return ''
-  const amount = Number(value)
+  const amount = parseDbNumber(value)
 
   if (Number.isNaN(amount)) {
     return String(value)
@@ -136,8 +140,43 @@ function asMoney(value) {
   }).format(amount)
 }
 
+function parseDbNumber(value) {
+  if (value === null || value === undefined || value === '') return null
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+
+  const raw = String(value).trim()
+  if (!raw) return null
+
+  if (/^\d{1,3}(\.\d{3})+$/.test(raw)) {
+    const amount = Number(raw.replace(/\./g, ''))
+    return Number.isFinite(amount) ? amount : null
+  }
+
+  if (/^\d{1,3}(,\d{3})+$/.test(raw)) {
+    const amount = Number(raw.replace(/,/g, ''))
+    return Number.isFinite(amount) ? amount : null
+  }
+
+  if (raw.includes(',') && raw.includes('.')) {
+    const normalized =
+      raw.lastIndexOf(',') > raw.lastIndexOf('.')
+        ? raw.replace(/\./g, '').replace(',', '.')
+        : raw.replace(/,/g, '')
+    const amount = Number(normalized)
+    return Number.isFinite(amount) ? amount : null
+  }
+
+  if (raw.includes(',') && !raw.includes('.')) {
+    const amount = Number(raw.replace(',', '.'))
+    return Number.isFinite(amount) ? amount : null
+  }
+
+  const amount = Number(raw)
+  return Number.isFinite(amount) ? amount : null
+}
+
 function asNumber(value, fallback = 0) {
-  const amount = Number(value)
+  const amount = parseDbNumber(value)
   return Number.isFinite(amount) ? amount : fallback
 }
 
@@ -169,7 +208,7 @@ function normalizeDistanceUnit(value = '') {
   return ''
 }
 
-function inferDistanceUnit(raw = {}, sourceTable = '') {
+export function inferDistanceUnit(raw = {}, sourceTable = '') {
   const explicitUnit = normalizeDistanceUnit(
     raw.distance_unit ||
       raw.distanceUnit ||
@@ -178,12 +217,59 @@ function inferDistanceUnit(raw = {}, sourceTable = '') {
   )
   if (explicitUnit) return explicitUnit
 
-  const normalizedSourceTable = String(sourceTable || raw.source_table || raw.table || '').trim().toLowerCase()
-  if (normalizedSourceTable === 'matched_options' && asNumber(raw.distance_km || raw.distanceKm) > 0) {
-    return 'nm'
+  return 'km'
+}
+
+export function inferEngineType(aircraft = {}) {
+  const category = String(
+    aircraft.category ||
+      aircraft.cabin ||
+      aircraft.aircraft_category ||
+      aircraft.type ||
+      '',
+  ).toLowerCase()
+  const model = String(
+    aircraft.model ||
+      aircraft.aircraft ||
+      aircraft.aircraft_model ||
+      aircraft.aircraft_name ||
+      aircraft.name ||
+      '',
+  ).toLowerCase()
+  const explicitEngineType = String(aircraft.engine_type || aircraft.engineType || '').trim().toLowerCase()
+
+  if (['turbofan', 'turboprop', 'turboshaft'].includes(explicitEngineType)) return explicitEngineType
+
+  if (
+    category.includes('helicopter') ||
+    category.includes('helicoptero') ||
+    model.includes('agusta') ||
+    model.includes('bell')
+  ) {
+    return 'turboshaft'
   }
 
-  return 'km'
+  if (
+    category.includes('turboprop') ||
+    category.includes('turbo prop') ||
+    model.includes('king air') ||
+    model.includes('pilatus') ||
+    model.includes('pc-12')
+  ) {
+    return 'turboprop'
+  }
+
+  if (
+    category.includes('jet') ||
+    model.includes('gulfstream') ||
+    model.includes('learjet') ||
+    model.includes('hawker') ||
+    model.includes('citation')
+  ) {
+    return 'turbofan'
+  }
+
+  return 'unknown'
 }
 
 function normalizePriorityType(value = '') {
@@ -381,6 +467,7 @@ function normalizeMatches(payload, itinerary = {}) {
     })
     const sourceTable = match.source_table || match.table || aircraftRecord?.source_table || 'matched_options'
     const distanceUnit = inferDistanceUnit({ ...aircraftRecord, ...match }, sourceTable)
+    const engineType = inferEngineType({ ...aircraftRecord, ...match })
     const imageUrl = normalizeMediaUrl(
       getPrimaryImageValue(match) ||
         getPrimaryImageValue(aircraftRecord) ||
@@ -449,6 +536,7 @@ function normalizeMatches(payload, itinerary = {}) {
         match.fuel_consumption_gph ||
         aircraftRecord?.fuel_burn_gph ||
         '',
+      engine_type: engineType,
       speed_kmh: match.speed_kmh || match.speedKmh || aircraftRecord?.speed_kmh || aircraftRecord?.speedKmh || '',
       speed_knots:
         match.speed_knots || match.speedKnots || aircraftRecord?.speed_knots || aircraftRecord?.speedKnots || '',
@@ -804,6 +892,7 @@ function normalizeAircraftFromDatabase(raw = {}, index = 0, sourcePath = '') {
     `Aeronave privada ${index + 1}`
   const hourlyRate = resolveHourlyRate(raw)
   const distanceUnit = inferDistanceUnit(raw, raw.source_table || raw.table || 'aircraft')
+  const engineType = inferEngineType(raw)
 
   return {
     id: raw.id || `aircraft-db-${index}`,
@@ -837,6 +926,7 @@ function normalizeAircraftFromDatabase(raw = {}, index = 0, sourcePath = '') {
     minimum_hours: raw.minimum_hours || raw.min_hours || '',
     minimum_route_price: raw.minimum_route_price || raw.min_route_price || '',
     distance_unit: distanceUnit,
+    engine_type: engineType,
     climb_descent_minutes: raw.climb_descent_minutes || raw.climbDescentMinutes || '',
     operational_cost: raw.operational_cost || raw.cost || '',
     speed_kmh: raw.speed_kmh || raw.speedKmh || '',
@@ -978,7 +1068,7 @@ function buildCatalogFallbackQuotes(catalog = [], itinerary = {}) {
         legs: itinerary.legs || [],
         origin: itinerary.origin || '',
         originAirport: itinerary.originAirport || null,
-        repositioningRequired: itinerary.repositioningRequired === true ? true : undefined,
+        repositioningRequired: preserveExplicitBoolean(itinerary.repositioningRequired),
         catering: itinerary.catering || '',
         wifi: itinerary.wifi || 'none',
         groundTransport: itinerary.groundTransport || itinerary.ground_transport || 'none',
@@ -1324,7 +1414,7 @@ function buildFlightRequestPayload(itinerary = {}) {
             priorityType,
             attentionLevel,
             overnightNights: itinerary.overnight_nights || itinerary.days || 0,
-            repositioningRequired: itinerary.repositioningRequired === true ? true : undefined,
+            repositioningRequired: preserveExplicitBoolean(itinerary.repositioningRequired),
             catering: itinerary.catering || '',
             wifi: itinerary.wifi || 'none',
             groundTransport: itinerary.ground_transport || itinerary.groundTransport || 'none',

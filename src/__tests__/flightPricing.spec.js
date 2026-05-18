@@ -3,6 +3,60 @@ import { describe, expect, it } from 'vitest'
 import { buildFlightPricingFormula } from '../utils/flightPricing'
 
 describe('buildFlightPricingFormula', () => {
+  it('charges initial repositioning on one-way quotes when aircraft base differs from origin', () => {
+    const aircraft = {
+      hourly_rate: 6000,
+      speed_kmh: 600,
+      source_origin: 'MMQT',
+      cabin: 'Light Jet',
+    }
+
+    const pricing = buildFlightPricingFormula(aircraft, {
+      tripType: 'Ida',
+      legs: [{ origin: 'MMTO', destination: 'MMMM', distance_km: 170 }],
+    })
+
+    expect(pricing.repositioning).toBeGreaterThan(0)
+    expect(pricing.initialRepositioningHours).toBeGreaterThan(0)
+    expect(pricing.finalRepositioningHours).toBe(0)
+  })
+
+  it('does not charge return-to-base by default on one-way quotes', () => {
+    const aircraft = {
+      hourly_rate: 6000,
+      speed_kmh: 600,
+      source_origin: 'MMQT',
+      cabin: 'Light Jet',
+    }
+
+    const pricing = buildFlightPricingFormula(aircraft, {
+      tripType: 'Ida',
+      legs: [{ origin: 'MMQT', destination: 'MMMM', distance_km: 190 }],
+    })
+
+    expect(pricing.repositioning).toBe(0)
+    expect(pricing.repositioningHours).toBe(0)
+  })
+
+  it('charges return-to-base when the policy explicitly enables it', () => {
+    const aircraft = {
+      hourly_rate: 6000,
+      speed_kmh: 600,
+      source_origin: 'MMQT',
+      cabin: 'Light Jet',
+      charge_return_to_base: true,
+    }
+
+    const pricing = buildFlightPricingFormula(aircraft, {
+      tripType: 'Ida',
+      legs: [{ origin: 'MMQT', destination: 'MMMM', distance_km: 190 }],
+    })
+
+    expect(pricing.repositioning).toBeGreaterThan(0)
+    expect(pricing.initialRepositioningHours).toBe(0)
+    expect(pricing.finalRepositioningHours).toBeGreaterThan(0)
+  })
+
   it('applies repositioning on multi-destination routes when the aircraft ends outside its base', () => {
     const aircraft = {
       hourly_rate: 6000,
@@ -73,6 +127,7 @@ describe('buildFlightPricingFormula', () => {
 
     expect(pricing.repositioning).toBeGreaterThan(0)
     expect(pricing.repositioningHours).toBeGreaterThan(0)
+    expect(pricing.finalRepositioningHours).toBeGreaterThan(0)
   })
 
   it('separates display flight time from billable time for multi-destination quotes', () => {
@@ -92,8 +147,8 @@ describe('buildFlightPricingFormula', () => {
 
     const pricing = buildFlightPricingFormula(aircraft, context)
 
-    expect(pricing.displayFlightHours).toBeGreaterThanOrEqual(0.95)
-    expect(pricing.displayFlightHours).toBeLessThan(1.4)
+    expect(pricing.displayFlightHours).toBeGreaterThanOrEqual(1.1)
+    expect(pricing.displayFlightHours).toBeLessThan(1.5)
     expect(pricing.operationalFlightHours).toBeGreaterThan(pricing.displayFlightHours)
     expect(pricing.billableHours).toBeGreaterThanOrEqual(pricing.operationalFlightHours)
   })
@@ -131,6 +186,103 @@ describe('buildFlightPricingFormula', () => {
     })
 
     expect(pricing.cruiseSpeedKmh).toBe(245)
+  })
+
+  it('uses conservative fallback mach values for light, mid and heavy jets', () => {
+    expect(buildFlightPricingFormula({ cabin: 'Light Jet' }, { distance_km: 300 }).cruiseSpeedKmh).toBeCloseTo(0.72 * 1062)
+    expect(buildFlightPricingFormula({ cabin: 'Mid Jet' }, { distance_km: 300 }).cruiseSpeedKmh).toBeCloseTo(0.78 * 1062)
+    expect(buildFlightPricingFormula({ cabin: 'Heavy Jet' }, { distance_km: 300 }).cruiseSpeedKmh).toBeCloseTo(0.84 * 1062)
+  })
+
+  it('applies a general distance-based adjustment on short jet routes', () => {
+    const aircraft = {
+      cabin: 'Light Jet',
+      speed_kmh: 764.64,
+    }
+
+    const pricing = buildFlightPricingFormula(aircraft, {
+      tripType: 'Ida',
+      distance_km: 90,
+    })
+
+    expect(pricing.clientFlightHours).toBeCloseTo(90 / 764.64, 3)
+    expect(pricing.displayFlightHours).toBeGreaterThan(pricing.clientFlightHours)
+    expect(pricing.displayFlightHours).toBeGreaterThanOrEqual(0.55)
+  })
+
+  it('keeps helicopter short routes above a visual minimum without overinflating them', () => {
+    const aircraft = {
+      cabin: 'Helicoptero ejecutivo',
+      speed_kmh: 245,
+    }
+
+    const pricing = buildFlightPricingFormula(aircraft, {
+      tripType: 'Ida',
+      distance_km: 60,
+    })
+
+    expect(pricing.displayFlightHours).toBeGreaterThanOrEqual(0.3)
+    expect(pricing.displayFlightHours).toBeLessThan(0.7)
+  })
+
+  it('parses latin-formatted aircraft numbers from the database correctly', () => {
+    const pricing = buildFlightPricingFormula(
+      {
+        cabin: 'Turboprop',
+        speed_kmh: '1.063',
+        minimum_hours: '1,5',
+        climb_descent_minutes: '25',
+        hourly_rate: '2.300',
+        range_km: '2.400',
+      },
+      {
+        tripType: 'Ida',
+        distance_km: 800,
+      },
+    )
+
+    expect(pricing.cruiseSpeedKmh).toBe(1063)
+    expect(pricing.hourlyRate).toBe(2300)
+    expect(pricing.climbDescentMinutes).toBe(25)
+    expect(pricing.minimumHours).toBe(2)
+    expect(pricing.clientFlightHours).toBeCloseTo(800 / 1063, 4)
+  })
+
+  it('calculates real flight hours dynamically per aircraft speed', () => {
+    const kingAir = buildFlightPricingFormula(
+      {
+        model: 'KING AIR',
+        cabin: 'Turboprop',
+        speed_kmh: 426,
+        minimum_hours: '1,5',
+        climb_descent_minutes: '25',
+      },
+      {
+        tripType: 'Ida',
+        distance_km: 1291.731008,
+      },
+    )
+
+    const kingAirC90gt = buildFlightPricingFormula(
+      {
+        model: 'KING AIR C90GT',
+        cabin: 'Turboprop',
+        speed_kmh: 482,
+        minimum_hours: '1,5',
+        climb_descent_minutes: '25',
+      },
+      {
+        tripType: 'Ida',
+        distance_km: 1291.731008,
+      },
+    )
+
+    expect(kingAir.cruiseSpeedKmh).toBe(426)
+    expect(kingAirC90gt.cruiseSpeedKmh).toBe(482)
+    expect(kingAir.realFlightHours).toBeCloseTo(1291.731008 / 426 + 25 / 60, 6)
+    expect(kingAirC90gt.realFlightHours).toBeCloseTo(1291.731008 / 482 + 25 / 60, 6)
+    expect(kingAir.realFlightHours).toBeGreaterThan(kingAirC90gt.realFlightHours)
+    expect(kingAir.displayFlightHours).toBeGreaterThan(kingAirC90gt.displayFlightHours)
   })
 
   it('applies dynamic heavy jet minimums by route distance in nautical miles', () => {

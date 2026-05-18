@@ -64,8 +64,43 @@ const SHORT_ROUTE_CATEGORY_MINIMUM_PRICE = {
 const DEFAULT_EXPENSE_FEE = 400
 const DEFAULT_IVA_RATE = 0.16
 
+function parseDbNumber(value) {
+  if (value === null || value === undefined || value === '') return null
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+
+  const raw = String(value).trim()
+  if (!raw) return null
+
+  if (/^\d{1,3}(\.\d{3})+$/.test(raw)) {
+    const amount = Number(raw.replace(/\./g, ''))
+    return Number.isFinite(amount) ? amount : null
+  }
+
+  if (/^\d{1,3}(,\d{3})+$/.test(raw)) {
+    const amount = Number(raw.replace(/,/g, ''))
+    return Number.isFinite(amount) ? amount : null
+  }
+
+  if (raw.includes(',') && raw.includes('.')) {
+    const normalized =
+      raw.lastIndexOf(',') > raw.lastIndexOf('.')
+        ? raw.replace(/\./g, '').replace(',', '.')
+        : raw.replace(/,/g, '')
+    const amount = Number(normalized)
+    return Number.isFinite(amount) ? amount : null
+  }
+
+  if (raw.includes(',') && !raw.includes('.')) {
+    const amount = Number(raw.replace(',', '.'))
+    return Number.isFinite(amount) ? amount : null
+  }
+
+  const amount = Number(raw)
+  return Number.isFinite(amount) ? amount : null
+}
+
 function asNumber(value, fallback = 0) {
-  const amount = Number(value)
+  const amount = parseDbNumber(value)
   return Number.isFinite(amount) ? amount : fallback
 }
 
@@ -117,6 +152,26 @@ function normalizeAirportToken(value = '') {
     .toUpperCase()
 }
 
+function resolveTripTypeKey(value = '') {
+  const normalized = normalizeCode(value)
+
+  if (['round_trip', 'redondo', 'roundtrip'].includes(normalized)) return 'round_trip'
+  if (['multi_leg', 'multi_city', 'multi_destino', 'multidestino'].includes(normalized)) return 'multi_destination'
+  return 'one_way'
+}
+
+function resolveBaseAirportCode(record = {}) {
+  return (
+    record.source_origin ||
+    record.base_airport ||
+    record.base ||
+    record.base_airport_code ||
+    record.home_base ||
+    record.airport ||
+    ''
+  )
+}
+
 function airportMatchesRoute(baseAirport = '', routeAirport = '', routeAirportData = null) {
   const normalizedBase = normalizeAirportToken(baseAirport)
   if (!normalizedBase) return false
@@ -142,67 +197,160 @@ function resolveLastLegAirportForRepositioning(context = {}) {
   }
 }
 
-function resolveRepositioningApplies(record = {}, context = {}) {
-  if (context.repositioningRequired === true) return true
-  if (context.repositioningRequired === false) return false
+function resolveClientRouteEndpoints(context = {}) {
+  const legs = resolveFlightLegs(context)
+  const firstLeg = legs[0] || {}
+  const lastLeg = legs[legs.length - 1] || {}
 
-  const tripType = normalizeCode(context.tripType || context.trip_type || context.tripLabel || context.trip_label)
-  const isMultiDestination = ['multi_leg', 'multi_city', 'multi_destino', 'multidestino'].includes(tripType)
-  if (record.base_airport_match === true && !isMultiDestination) return false
-
-  const firstLeg = Array.isArray(context.legs) ? context.legs[0] || {} : {}
-  const requestedOrigin = firstLeg.origin || context.origin || ''
-  const requestedOriginAirport = firstLeg.originAirport || context.originAirport || null
-  const baseAirport =
-    record.source_origin ||
-    record.base_airport ||
-    record.base ||
-    record.base_airport_code ||
-    record.home_base ||
-    record.airport ||
-    ''
-
-  if (!baseAirport || !requestedOrigin) return true
-
-  const departsOutsideBase = !airportMatchesRoute(baseAirport, requestedOrigin, requestedOriginAirport)
-  if (departsOutsideBase) return true
-
-  if (!isMultiDestination) {
-    return false
+  return {
+    firstAirport: firstLeg.origin || context.origin || '',
+    firstAirportData: firstLeg.originAirport || context.originAirport || null,
+    lastAirport: lastLeg.destination || context.destination || '',
+    lastAirportData: lastLeg.destinationAirport || context.destinationAirport || null,
   }
-
-  const { airport: lastLegAirport, airportData: lastLegAirportData } = resolveLastLegAirportForRepositioning(context)
-  if (!lastLegAirport) return false
-
-  return !airportMatchesRoute(baseAirport, lastLegAirport, lastLegAirportData)
 }
 
-function resolveRepositioningAmount(record = {}, context = {}, hourlyRate = 0, distanceKm = 0) {
-  const explicitRepositioning = asNumber(
+function resolveChargeFlag(value, fallback) {
+  if (typeof value === 'boolean') return value
+  if (value === 1 || value === '1') return true
+  if (value === 0 || value === '0') return false
+
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase()
+  if (['true', 'yes', 'si', 'sí'].includes(normalized)) return true
+  if (['false', 'no'].includes(normalized)) return false
+  return fallback
+}
+
+function resolveRepositioningPolicy(record = {}, context = {}) {
+  const baseAirport = resolveBaseAirportCode(record)
+  const tripType = resolveTripTypeKey(context.tripType || context.trip_type || context.tripLabel || context.trip_label)
+  const { firstAirport, firstAirportData, lastAirport, lastAirportData } = resolveClientRouteEndpoints(context)
+
+  const initialRequired = baseAirport ? !airportMatchesRoute(baseAirport, firstAirport, firstAirportData) : false
+  const finalRequired = baseAirport ? !airportMatchesRoute(baseAirport, lastAirport, lastAirportData) : false
+
+  const explicitRequired = context.repositioningRequired
+  const initialCharge = resolveChargeFlag(
+    record.charge_initial_repositioning ?? context.chargeInitialRepositioning,
+    initialRequired,
+  )
+  const defaultReturnCharge = tripType === 'multi_destination'
+  const finalCharge = resolveChargeFlag(
+    record.charge_return_to_base ?? context.chargeReturnToBase,
+    defaultReturnCharge,
+  )
+
+  const chargeInitial = explicitRequired === false ? false : initialRequired && initialCharge
+  const chargeFinal =
+    explicitRequired === false
+      ? false
+      : finalRequired && (explicitRequired === true ? true : finalCharge)
+
+  return {
+    tripType,
+    baseAirport,
+    initialRequired,
+    finalRequired,
+    chargeInitial,
+    chargeFinal,
+    totalChargeableLegs: Number(chargeInitial) + Number(chargeFinal),
+  }
+}
+
+function resolveRepositioningApplies(record = {}, context = {}) {
+  const policy = resolveRepositioningPolicy(record, context)
+  return policy.chargeInitial || policy.chargeFinal
+}
+
+function resolveRepositioningFactor(record = {}, context = {}) {
+  const explicitFactor = asNumber(
+    record.repositioning_factor ||
+      record.repo_factor ||
+      record.reposition_factor ||
+      context.repositioningFactor ||
+      context.repoFactor,
+  )
+
+  if (explicitFactor > 0) return explicitFactor
+  return 0.8
+}
+
+function resolveExplicitRepositioningAmount(record = {}) {
+  return asNumber(
     record.repositioning_fee ||
       record.repositioning_cost ||
       record.reposition_fee ||
       record.reposition_cost,
   )
-  if (explicitRepositioning > 0) return explicitRepositioning
-
-  const tripType = normalizeCode(context.tripType || context.trip_type || context.tripLabel || context.trip_label)
-  const isMultiDestination = ['multi_leg', 'multi_city', 'multi_destino', 'multidestino'].includes(tripType)
-  if (!isMultiDestination) return 0
-
-  const fallbackHourlyRate = Math.max(asNumber(hourlyRate), 0)
-  if (fallbackHourlyRate <= 0) return 0
-
-  const reserveHours = operationalReserveHours(distanceKm)
-  return Number((fallbackHourlyRate * reserveHours).toFixed(2))
 }
 
-function resolveRepositioningHours(repositioningAmount = 0, hourlyRate = 0) {
-  const normalizedAmount = Math.max(asNumber(repositioningAmount), 0)
-  const normalizedHourlyRate = Math.max(asNumber(hourlyRate), 0)
+function resolveExplicitRepositioningHours(record = {}, hourlyRate = 0, factor = 1) {
+  const explicitHours = asNumber(
+    record.repositioning_hours ||
+      record.repo_hours ||
+      record.reposition_hours,
+  )
+  if (explicitHours > 0) return explicitHours
 
-  if (normalizedAmount <= 0 || normalizedHourlyRate <= 0) return 0
-  return normalizedAmount / normalizedHourlyRate
+  const explicitAmount = resolveExplicitRepositioningAmount(record)
+  const normalizedHourlyRate = Math.max(asNumber(hourlyRate), 0)
+  const normalizedFactor = Math.max(asNumber(factor, 1), 0.01)
+  if (explicitAmount > 0 && normalizedHourlyRate > 0) {
+    return explicitAmount / (normalizedHourlyRate * normalizedFactor)
+  }
+
+  return 0
+}
+
+function resolveFallbackRepositioningHours(policy = {}, context = {}, distanceKm = 0, perLegClientHours = 0) {
+  const repoLegs = Math.max(asNumber(policy.totalChargeableLegs), 0)
+  if (!repoLegs) return 0
+
+  const reserveHours = operationalReserveHours(distanceKm)
+  const fallbackPerLeg = Math.max(perLegClientHours * 0.6, reserveHours)
+
+  return fallbackPerLeg * repoLegs
+}
+
+function resolveRepositioningAmount(record = {}, context = {}, hourlyRate = 0, distanceKm = 0, clientHours = 0, legCount = 1) {
+  const factor = resolveRepositioningFactor(record, context)
+  const policy = resolveRepositioningPolicy(record, context)
+  if (!policy.chargeInitial && !policy.chargeFinal) {
+    return {
+      applies: false,
+      factor,
+      policy,
+      hours: 0,
+      amount: 0,
+      initialHours: 0,
+      finalHours: 0,
+    }
+  }
+
+  const explicitAmount = resolveExplicitRepositioningAmount(record)
+  const explicitHours = resolveExplicitRepositioningHours(record, hourlyRate, factor)
+  const averageClientLegHours = legCount > 0 ? clientHours / legCount : 0
+  const fallbackHours = resolveFallbackRepositioningHours(policy, context, distanceKm, averageClientLegHours)
+  const hours = explicitHours > 0 ? explicitHours : fallbackHours
+  const amount =
+    explicitAmount > 0
+      ? explicitAmount
+      : Math.max(asNumber(hourlyRate), 0) > 0
+        ? Number((hours * hourlyRate * factor).toFixed(2))
+        : 0
+  const divisor = Math.max(policy.totalChargeableLegs, 1)
+
+  return {
+    applies: amount > 0 || hours > 0,
+    factor,
+    policy,
+    hours,
+    amount,
+    initialHours: policy.chargeInitial ? hours / divisor : 0,
+    finalHours: policy.chargeFinal ? hours / divisor : 0,
+  }
 }
 
 function normalizeCountry(value = '') {
@@ -255,6 +403,17 @@ function resolveAircraftCategoryKey(category = '') {
   }
   if (normalizedCategory.includes('light')) return 'light_jet'
   return 'default'
+}
+
+function normalizeAircraftCategory(record = {}) {
+  return String(
+    record.cabin ||
+      record.category ||
+      record.aircraft_category ||
+      '',
+  )
+    .toLowerCase()
+    .trim()
 }
 
 function hasInternationalRoute(context = {}) {
@@ -319,20 +478,30 @@ function inferMinimumRoutePrice(record = {}, distanceKm = 0) {
 
 function inferCruiseSpeedKmh(record = {}) {
   const normalizedCategory = normalizeCode(record.cabin || record.category || record.aircraft_category || '')
-
-  if (normalizedCategory.includes('helic')) return 245
-  if (normalizedCategory.includes('ultra_long')) return 0.92 * 1062
-  if (normalizedCategory.includes('heavy') || normalizedCategory.includes('long_range')) return 0.87 * 1062
-  if (normalizedCategory.includes('mid') || normalizedCategory.includes('midsize') || normalizedCategory.includes('super_mid')) return 0.81 * 1062
-  if (normalizedCategory.includes('light')) return 0.75 * 1062
+  const normalizedModel = normalizeCode(record.model || record.aircraft || record.aircraft_name || '')
 
   const explicitKmh = asNumber(record.speed_kmh || record.speedKmh || record.cruise_speed_kmh)
-  if (explicitKmh > 0) return explicitKmh
+  if (explicitKmh > 100) return explicitKmh
 
   const explicitKnots = asNumber(record.speed_knots || record.speedKnots || record.cruise_speed_knots)
-  if (explicitKnots > 0) return explicitKnots * 1.852
+  if (explicitKnots > 50) return explicitKnots * 1.852
 
-  if (normalizedCategory.includes('turboprop') || normalizedCategory.includes('turbo_prop')) return 500
+  if (normalizedCategory.includes('helic')) return 245
+  if (
+    normalizedCategory.includes('turboprop') ||
+    normalizedCategory.includes('turbo_prop') ||
+    normalizedCategory.includes('turbo') ||
+    normalizedCategory.includes('prop') ||
+    normalizedModel.includes('king_air') ||
+    normalizedModel.includes('pilatus') ||
+    normalizedModel.includes('pc_12')
+  ) {
+    return 500
+  }
+  if (normalizedCategory.includes('ultra_long')) return 0.86 * 1062
+  if (normalizedCategory.includes('heavy') || normalizedCategory.includes('long_range')) return 0.84 * 1062
+  if (normalizedCategory.includes('mid') || normalizedCategory.includes('midsize') || normalizedCategory.includes('super_mid')) return 0.78 * 1062
+  if (normalizedCategory.includes('light')) return 0.72 * 1062
   return 740
 }
 
@@ -593,6 +762,79 @@ function resolveVisibleTaxiBufferHours(context = {}) {
   return Math.min(0.12 + Math.max(legs.length - 1, 0) * 0.04, 0.2)
 }
 
+function resolveVisibleFlightMarginHours(distanceKm = 0, context = {}) {
+  const explicitHours = asNumber(context.visibleMarginHours || context.visible_margin_hours)
+  if (explicitHours > 0) return explicitHours
+
+  const legs = resolveFlightLegs(context)
+  const normalizedDistanceKm = Math.max(asNumber(distanceKm), 0)
+
+  if (normalizedDistanceKm > 0) {
+    if (normalizedDistanceKm < 250) return 0.03
+    if (normalizedDistanceKm < 600) return 0.05
+    if (normalizedDistanceKm < 1200) return 0.08
+    return 0.1
+  }
+
+  if (legs.length > 1) return Math.min(0.03 + (legs.length - 1) * 0.02, 0.08)
+  return 0.03
+}
+
+function applyRouteFlightTimeAdjustment({
+  flightHours = 0,
+  distanceKm = 0,
+  aircraft = {},
+}) {
+  const category = normalizeAircraftCategory(aircraft)
+  const normalizedDistanceKm = Math.max(asNumber(distanceKm), 0)
+  const baseMinutes = Math.max(asNumber(flightHours), 0) * 60
+  const isHelicopter = category.includes('heli')
+  const isTurboprop = category.includes('turbo')
+
+  let adjustedMinutes = baseMinutes
+
+  if (isHelicopter) {
+    if (normalizedDistanceKm < 100) adjustedMinutes += 5
+    else if (normalizedDistanceKm < 200) adjustedMinutes += 3
+
+    return Math.max(adjustedMinutes, 18) / 60
+  }
+
+  if (isTurboprop) {
+    if (normalizedDistanceKm < 100) adjustedMinutes += 12
+    else if (normalizedDistanceKm < 200) adjustedMinutes += 9
+    else if (normalizedDistanceKm < 300) adjustedMinutes += 6
+
+    return Math.max(adjustedMinutes, 25) / 60
+  }
+
+  if (normalizedDistanceKm < 100) adjustedMinutes += 18
+  else if (normalizedDistanceKm < 200) adjustedMinutes += 14
+  else if (normalizedDistanceKm < 300) adjustedMinutes += 10
+  else if (normalizedDistanceKm < 500) adjustedMinutes += 6
+
+  let minimumMinutes = 25
+
+  if (category.includes('light')) {
+    minimumMinutes = 24
+  } else if (
+    category.includes('mid') ||
+    category.includes('midsize') ||
+    category.includes('super')
+  ) {
+    minimumMinutes = 28
+  } else if (
+    category.includes('heavy') ||
+    category.includes('long')
+  ) {
+    minimumMinutes = 30
+  } else if (category.includes('ultra')) {
+    minimumMinutes = 32
+  }
+
+  return Math.max(adjustedMinutes, minimumMinutes) / 60
+}
+
 function resolveClimbDescentMinutes(record = {}, context = {}, distanceKm = 0) {
   const explicitMinutes = asNumber(
     record.climb_descent_minutes ||
@@ -657,11 +899,13 @@ function resolveAirportAdjustmentMinutes(context = {}) {
 
 function resolveCalculatedDisplayFlightHours(record = {}, context = {}, cruiseSpeedKmh = 0) {
   const legs = resolveFlightLegs(context)
-  const climbDescentMinutesPerLeg = resolveClimbDescentMinutes(record, {}, 0)
   const totalDistanceKm =
     resolveContextDistanceKm(context) ||
     convertDistanceToKm(record.distance_km || record.distanceKm, record.distance_unit || record.distanceUnit)
-  const visibleTaxiBufferHours = resolveVisibleTaxiBufferHours(context)
+  const visibleMarginHours = resolveVisibleFlightMarginHours(totalDistanceKm, context)
+  const climbDescentMinutesPerLeg = calculateClimbDescentMinutes({
+    aircraftCategory: record.cabin || record.category || record.aircraft_category || '',
+  })
   const legsWithDistance = legs.filter((leg) =>
     convertDistanceToKm(
       leg.distance_km || leg.distanceKm,
@@ -676,33 +920,29 @@ function resolveCalculatedDisplayFlightHours(record = {}, context = {}, cruiseSp
         leg.distance_unit || leg.distanceUnit || context.distance_unit || context.distanceUnit,
       )
       const rawLegHours = legDistanceKm > 0 ? legDistanceKm / cruiseSpeedKmh : 0
-      const legAirportAdjustmentMinutes = Math.max(
-        asNumber(
-          leg.originAirport?.climb_descent_adjustment_minutes ||
-            leg.originAirport?.climbDescentAdjustmentMinutes ||
-            leg.origin_airport?.climb_descent_adjustment_minutes ||
-            leg.origin_airport?.climbDescentAdjustmentMinutes,
-        ),
-        asNumber(
-          leg.destinationAirport?.climb_descent_adjustment_minutes ||
-            leg.destinationAirport?.climbDescentAdjustmentMinutes ||
-            leg.destination_airport?.climb_descent_adjustment_minutes ||
-            leg.destination_airport?.climbDescentAdjustmentMinutes,
-        ),
-      )
+      const adjustedLegHours = applyRouteFlightTimeAdjustment({
+        flightHours: rawLegHours,
+        distanceKm: legDistanceKm,
+        aircraft: record,
+      })
+      const pureAdjustmentHours = Math.max(adjustedLegHours - rawLegHours, 0)
 
-      return sum + rawLegHours + climbDescentMinutesPerLeg / 60 + Math.min(legAirportAdjustmentMinutes / 60, 0.05)
+      return sum + rawLegHours + pureAdjustmentHours + climbDescentMinutesPerLeg / 60
     }, 0)
 
-    return legsHours + visibleTaxiBufferHours
+    return legsHours + visibleMarginHours
   }
 
   const distanceKm = totalDistanceKm
   const rawFlightHours = distanceKm > 0 && cruiseSpeedKmh > 0 ? distanceKm / cruiseSpeedKmh : 0
+  const adjustedFlightHours = applyRouteFlightTimeAdjustment({
+    flightHours: rawFlightHours,
+    distanceKm,
+    aircraft: record,
+  })
   const climbDescentHours = resolveClimbDescentMinutes(record, context, distanceKm) / 60
-  const airportAdjustmentHours = Math.min(resolveAirportAdjustmentMinutes(context) / 60, 0.1)
 
-  return rawFlightHours + climbDescentHours + airportAdjustmentHours + visibleTaxiBufferHours
+  return adjustedFlightHours + climbDescentHours + visibleMarginHours
 }
 
 function resolveExtraServices(record = {}, context = {}) {
@@ -765,18 +1005,28 @@ export function buildFlightPricingFormula(record = {}, context = {}) {
   const cruiseSpeedKmh = inferCruiseSpeedKmh(record)
   const routeBand = resolveRouteBand(distanceKm)
   const explicitRealHours = asNumber(record.real_flight_hours || record.flight_hours)
-  const rawFlightHours = distanceKm > 0 && cruiseSpeedKmh > 0 ? distanceKm / cruiseSpeedKmh : 0
+  const clientFlightHours = distanceKm > 0 && cruiseSpeedKmh > 0 ? distanceKm / cruiseSpeedKmh : 0
+  const rawFlightHours = clientFlightHours
   const climbDescentMinutes = resolveClimbDescentMinutes(record, context, distanceKm)
   const climbDescentHours = climbDescentMinutes / 60
   const airportAdjustmentMinutes = resolveAirportAdjustmentMinutes(context)
   const airportAdjustmentHours = airportAdjustmentMinutes / 60
   const reserveHours = operationalReserveHours(distanceKm)
+  const visibleMarginHours = resolveVisibleFlightMarginHours(distanceKm, context)
   const calculatedDisplayHours = resolveCalculatedDisplayFlightHours(record, context, cruiseSpeedKmh)
-  const displayFlightHours = calculatedDisplayHours > 0 ? calculatedDisplayHours : explicitRealHours
-  const operationalFlightHours = Math.max(displayFlightHours + reserveHours, 0)
-  const realFlightHours = displayFlightHours
-  const flightMinutes = Math.max(displayFlightHours * 60, 0)
   const legCount = resolveLegCount(context)
+  const calculatedRealFlightHours =
+    clientFlightHours > 0
+      ? clientFlightHours + climbDescentHours
+      : explicitRealHours
+  const visibleDurationHours =
+    calculatedDisplayHours > 0
+      ? calculatedDisplayHours
+      : calculatedRealFlightHours
+  const displayFlightHours = visibleDurationHours
+  const operationalFlightHours = Math.max(visibleDurationHours + reserveHours, 0)
+  const realFlightHours = calculatedRealFlightHours > 0 ? calculatedRealFlightHours : visibleDurationHours
+  const flightMinutes = Math.max(visibleDurationHours * 60, 0)
   const costPerMinute = hourlyRate > 0 ? hourlyRate / 60 : 0
   const minimumHours = inferMinimumHours(
     record.cabin || record.category || record.aircraft_category || '',
@@ -790,10 +1040,46 @@ export function buildFlightPricingFormula(record = {}, context = {}) {
   const rawBaseCost = billableMinutes * costPerMinute
   const subtotalFlight = rawBaseCost
   const baseCost = subtotalFlight
-  const repositioning = resolveRepositioningApplies(record, context)
-    ? resolveRepositioningAmount(record, context, hourlyRate, distanceKm)
-    : 0
-  const repositioningHours = resolveRepositioningHours(repositioning, hourlyRate)
+  const repositioningBreakdown = resolveRepositioningAmount(
+    record,
+    context,
+    hourlyRate,
+    distanceKm,
+    visibleDurationHours,
+    legCount,
+  )
+  let repositioning = repositioningBreakdown.amount
+  let repositioningHours = repositioningBreakdown.hours
+  let repositioningPolicy = repositioningBreakdown.policy
+
+  if (!repositioningBreakdown.applies) {
+    repositioning = 0
+    repositioningHours = 0
+    repositioningPolicy = {
+      ...repositioningBreakdown.policy,
+      chargeInitial: false,
+      chargeFinal: false,
+      totalChargeableLegs: 0,
+    }
+  }
+
+  if (typeof console !== 'undefined' && distanceKm > 0) {
+    console.log('[flight-pricing] DEBUG DINAMICO POR AERONAVE', {
+      aircraft: record.model || record.aircraft || record.aircraft_name || '',
+      category: record.cabin || record.category || record.aircraft_category || '',
+      speed_kmh_raw: record.speed_kmh || record.speedKmh || record.cruise_speed_kmh || '',
+      cruiseSpeedKmh,
+      distanceKm,
+      climbDescentMinutes,
+      minimumHours,
+      clientFlightHours,
+      realFlightHours,
+      displayFlightHours,
+      billableHours,
+      repositioning,
+      repositioningHours,
+    })
+  }
   const airportFees = resolveAirportFees(record)
   const operationalCosts = resolveAdditionalOperationalCosts(record)
   const priorityServiceFee = resolvePriorityServiceFee(context, record)
@@ -833,11 +1119,14 @@ export function buildFlightPricingFormula(record = {}, context = {}) {
     distanceKm,
     routeBand,
     cruiseSpeedKmh,
+    clientFlightHours,
     rawFlightHours,
     climbDescentMinutes,
     climbDescentHours,
     airportAdjustmentMinutes,
     airportAdjustmentHours,
+    visibleMarginHours,
+    visibleDurationHours,
     reserveHours,
     displayFlightHours,
     operationalFlightHours,
@@ -853,6 +1142,10 @@ export function buildFlightPricingFormula(record = {}, context = {}) {
     basePrice: baseCost,
     repositioning,
     repositioningHours,
+    repositioningFactor: repositioningBreakdown.factor,
+    repositioningPolicy,
+    initialRepositioningHours: repositioningBreakdown.initialHours,
+    finalRepositioningHours: repositioningBreakdown.finalHours,
     airportFees,
     operationalCosts,
     extraServices: {
@@ -898,6 +1191,7 @@ export function buildCommercialSnapshot(context = {}, pricing = {}, aircraft = {
     display_flight_hours: asNumber(pricing.displayFlightHours || pricing.realFlightHours),
     operational_flight_hours: asNumber(pricing.operationalFlightHours || pricing.billableHours),
     billable_hours: asNumber(pricing.billableHours),
+    client_flight_hours: asNumber(pricing.clientFlightHours || pricing.rawFlightHours),
     leg_count: asNumber(pricing.legCount || context.legsCount || context.segmentCount, 1),
     flight_minutes: asNumber(pricing.flightMinutes),
     billable_minutes: asNumber(pricing.billableMinutes),
@@ -910,6 +1204,8 @@ export function buildCommercialSnapshot(context = {}, pricing = {}, aircraft = {
     climb_descent_hours: asNumber(pricing.climbDescentHours),
     airport_adjustment_minutes: asNumber(pricing.airportAdjustmentMinutes),
     airport_adjustment_hours: asNumber(pricing.airportAdjustmentHours),
+    visible_margin_hours: asNumber(pricing.visibleMarginHours),
+    visible_duration_hours: asNumber(pricing.visibleDurationHours || pricing.displayFlightHours),
     reserve_hours: asNumber(pricing.reserveHours),
     minimum_hours: asNumber(pricing.minimumHours),
     minimum_route_price: asNumber(pricing.minimumRoutePrice),
@@ -918,6 +1214,8 @@ export function buildCommercialSnapshot(context = {}, pricing = {}, aircraft = {
     subtotal_flight: asNumber(pricing.subtotalFlight),
     base_cost: asNumber(pricing.basePrice),
     repositioning_cost: asNumber(pricing.repositioning),
+    repositioning_hours: asNumber(pricing.repositioningHours),
+    repositioning_factor: asNumber(pricing.repositioningFactor, 0.8),
     fbo_total: asNumber(pricing.airportFees),
     operational_costs_total: asNumber(pricing.operationalCostBreakdown || pricing.operationalCosts),
     extra_services_total: asNumber(pricing.extraServicesTotal),

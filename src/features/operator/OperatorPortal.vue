@@ -89,6 +89,7 @@ const aircraftForm = reactive({
   name: '',
   manufacturer: '',
   category: '',
+  engineType: '',
   registration: '',
   year: '',
   capacity: 1,
@@ -1335,6 +1336,11 @@ function normalizeAircraft(raw = {}, index = 0) {
     name: raw.model || raw.name || raw.aircraft_name || `Aeronave ${index + 1}`,
     manufacturer: raw.manufacturer || '',
     category: raw.category || raw.aircraft_category || raw.type || '',
+    engineType: inferAircraftEngineType({
+      category: raw.category || raw.aircraft_category || raw.type || '',
+      model: raw.model || raw.name || raw.aircraft_name || '',
+      engineType: raw.engine_type || raw.engineType || '',
+    }),
     registration: raw.registration || raw.matricula || '',
     year: raw.year || raw.model_year || '',
     capacity: Number(raw.capacity || raw.passenger_capacity || 0),
@@ -1814,6 +1820,7 @@ function resetAircraftForm() {
     name: '',
     manufacturer: '',
     category: '',
+    engineType: '',
     registration: '',
     year: '',
     capacity: 1,
@@ -1856,6 +1863,45 @@ function inferAircraftMinimumHours(category = '') {
   if (normalizedCategory.includes('light')) return 2
   if (normalizedCategory.includes('mid')) return 2
   return 2
+}
+
+function inferAircraftEngineType({ category = '', model = '', engineType = '' } = {}) {
+  const explicitEngineType = String(engineType || '').trim().toLowerCase()
+  if (['turbofan', 'turboprop', 'turboshaft'].includes(explicitEngineType)) return explicitEngineType
+
+  const normalizedCategory = String(category || '').trim().toLowerCase()
+  const normalizedModel = String(model || '').trim().toLowerCase()
+
+  if (
+    normalizedCategory.includes('helicopter') ||
+    normalizedCategory.includes('helicoptero') ||
+    normalizedModel.includes('agusta') ||
+    normalizedModel.includes('bell')
+  ) {
+    return 'turboshaft'
+  }
+
+  if (
+    normalizedCategory.includes('turboprop') ||
+    normalizedCategory.includes('turbo prop') ||
+    normalizedModel.includes('king air') ||
+    normalizedModel.includes('pilatus') ||
+    normalizedModel.includes('pc-12')
+  ) {
+    return 'turboprop'
+  }
+
+  if (
+    normalizedCategory.includes('jet') ||
+    normalizedModel.includes('gulfstream') ||
+    normalizedModel.includes('learjet') ||
+    normalizedModel.includes('hawker') ||
+    normalizedModel.includes('citation')
+  ) {
+    return 'turbofan'
+  }
+
+  return 'unknown'
 }
 
 function kmhToKnots(value) {
@@ -1906,6 +1952,11 @@ function startEditingAircraft(item) {
     name: uppercaseText(item.name),
     manufacturer: uppercaseText(item.manufacturer),
     category: item.category || '',
+    engineType: inferAircraftEngineType({
+      category: item.category || '',
+      model: item.name || '',
+      engineType: item.engineType || '',
+    }),
     registration: uppercaseText(item.registration),
     year: item.year || '',
     capacity: item.capacity || 1,
@@ -3367,6 +3418,11 @@ async function createAircraft() {
     model: aircraftForm.name,
     manufacturer: aircraftForm.manufacturer,
     category: aircraftForm.category,
+    engine_type: inferAircraftEngineType({
+      category: aircraftForm.category,
+      model: aircraftForm.name,
+      engineType: aircraftForm.engineType,
+    }),
     registration: nullableText(aircraftForm.registration),
     year: Number(aircraftForm.year || 0),
     capacity: Number(aircraftForm.capacity || 1),
@@ -3702,6 +3758,11 @@ async function saveAircraftEdits(id) {
     model: aircraftForm.name,
     manufacturer: aircraftForm.manufacturer,
     category: aircraftForm.category,
+    engine_type: inferAircraftEngineType({
+      category: aircraftForm.category,
+      model: aircraftForm.name,
+      engineType: aircraftForm.engineType,
+    }),
     registration: nullableText(aircraftForm.registration),
     year: Number(aircraftForm.year || 0),
     capacity: Number(aircraftForm.capacity || 1),
