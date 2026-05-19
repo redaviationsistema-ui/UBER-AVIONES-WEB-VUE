@@ -317,7 +317,6 @@ describe('buildFlightPricingFormula', () => {
       speed_kmh: 764.64,
       source_origin: 'TOLUCA',
       cabin: 'Light Jet',
-      operational_cost: 900,
       expense_fee: 400,
     }
 
@@ -329,8 +328,9 @@ describe('buildFlightPricingFormula', () => {
     expect(pricing.billableHours).toBeCloseTo(pricing.displayFlightHours + pricing.repositioningHours, 6)
     expect(pricing.baseCost).toBeCloseTo(pricing.billableHours * pricing.hourlyRate, 6)
     expect(pricing.repositioning).toBeCloseTo(pricing.repositioningHours * pricing.hourlyRate, 6)
+    expect(pricing.operationalCosts).toBe(0)
     expect(pricing.subtotalBeforeMultipliers).toBeCloseTo(
-      pricing.baseCost + pricing.extraServices.overnight + pricing.operationalCosts + pricing.expenseFee,
+      pricing.baseCost + pricing.extraServices.overnight + pricing.expenseFee,
       6,
     )
     expect(pricing.ivaAmount).toBeCloseTo(pricing.subtotalBeforeMultipliers * 0.16, 6)
@@ -360,6 +360,110 @@ describe('buildFlightPricingFormula', () => {
 
     expect(pricing.ivaRate).toBe(0.04)
     expect(pricing.ivaAmount).toBeCloseTo(pricing.subtotalBeforeMultipliers * 0.04, 6)
+  })
+
+  it('ignores optional quote extras inside the pricing formula', () => {
+    const aircraft = {
+      hourly_rate: 4800,
+      speed_kmh: 764.64,
+      cabin: 'Light Jet',
+      expense_fee: 400,
+      catering_fee: 250,
+      wifi_fee: 100,
+    }
+
+    const pricing = buildFlightPricingFormula(aircraft, {
+      tripType: 'Ida',
+      catering: 'basic',
+      wifi: 'full',
+      legs: [{ origin: 'MMTO', destination: 'MMMX', distance_km: 600 }],
+    })
+
+    expect(pricing.extraServices.catering).toBe(0)
+    expect(pricing.extraServices.groundTransport).toBe(0)
+    expect(pricing.extraServices.wifi).toBe(0)
+    expect(pricing.extraServices.urgentSchedule).toBe(0)
+    expect(pricing.extraServices.priorityService).toBe(0)
+    expect(pricing.extraServices.pet).toBe(0)
+    expect(pricing.extraServices.specialBaggage).toBe(0)
+    expect(pricing.extraServicesTotal).toBe(pricing.extraServices.overnight)
+    expect(pricing.operationalCosts).toBe(0)
+    expect(pricing.subtotalBeforeMultipliers).toBeCloseTo(
+      pricing.baseCost + pricing.expenseFee,
+      6,
+    )
+    expect(pricing.ivaAmount).toBeCloseTo(
+      (pricing.baseCost + pricing.expenseFee) * 0.16,
+      6,
+    )
+  })
+
+  it('uses expense fee even when route expense fields exist', () => {
+    const aircraft = {
+      hourly_rate: 5000,
+      speed_kmh: 850,
+      cabin: 'Heavy Jet',
+      national_expenses_usd: 700,
+      international_expenses_usd: 1800,
+      expense_fee: 400,
+    }
+
+    const nationalPricing = buildFlightPricingFormula(aircraft, {
+      tripType: 'Ida',
+      legs: [
+        {
+          origin: 'MMTO',
+          destination: 'MMMX',
+          distance_km: 80,
+          originAirport: { code: 'MMTO', country: 'Mexico' },
+          destinationAirport: { code: 'MMMX', country: 'Mexico' },
+        },
+      ],
+    })
+    const internationalPricing = buildFlightPricingFormula(aircraft, {
+      tripType: 'Ida',
+      legs: [
+        {
+          origin: 'MMTO',
+          destination: 'KIAH',
+          distance_km: 1200,
+          originAirport: { code: 'MMTO', country: 'Mexico' },
+          destinationAirport: { code: 'KIAH', country: 'United States' },
+        },
+      ],
+    })
+
+    expect(nationalPricing.operationalCosts).toBe(0)
+    expect(nationalPricing.expenseFee).toBe(400)
+    expect(internationalPricing.operationalCosts).toBe(0)
+    expect(internationalPricing.expenseFee).toBe(400)
+  })
+
+  it('always calculates iva from the subtotal instead of using manual tax fields', () => {
+    const aircraft = {
+      hourly_rate: 4800,
+      speed_kmh: 764.64,
+      cabin: 'Light Jet',
+      expense_fee: 400,
+      tax_amount: 9999,
+    }
+
+    const pricing = buildFlightPricingFormula(aircraft, {
+      tripType: 'Ida',
+      ivaAmount: 8888,
+      legs: [
+        {
+          origin: 'MMTO',
+          destination: 'MMMX',
+          distance_km: 80,
+          originAirport: { code: 'MMTO', country: 'Mexico' },
+          destinationAirport: { code: 'MMMX', country: 'Mexico' },
+        },
+      ],
+    })
+
+    expect(pricing.ivaRate).toBe(0.16)
+    expect(pricing.ivaAmount).toBeCloseTo(pricing.subtotalBeforeMultipliers * 0.16, 6)
   })
 
   it('matches reserva style totals for a national round trip without repositioning', () => {
@@ -404,6 +508,39 @@ describe('buildFlightPricingFormula', () => {
     expect(pricing.ivaRate).toBe(0.16)
     expect(pricing.ivaAmount).toBeCloseTo(pricing.subtotalBeforeMultipliers * 0.16, 6)
     expect(pricing.finalPrice).toBeCloseTo(pricing.subtotalBeforeMultipliers + pricing.ivaAmount, 6)
+  })
+
+  it('prioritizes crew overnight fee over half of hourly rate', () => {
+    const aircraft = {
+      hourly_rate: 4800,
+      speed_kmh: 764.64,
+      cabin: 'Light Jet',
+      crew_overnight_usd: 1800,
+      expense_fee: 400,
+    }
+
+    const pricing = buildFlightPricingFormula(aircraft, {
+      tripType: 'Redondo',
+      overnightNights: 3,
+      legs: [
+        {
+          origin: 'MMTO',
+          destination: 'MMUN',
+          distance_km: 1501.5714236194174,
+          originAirport: { code: 'MMTO', iata: 'TLC', city: 'Toluca', country: 'Mexico' },
+          destinationAirport: { code: 'MMUN', iata: 'CUN', city: 'Cancun', country: 'Mexico' },
+        },
+        {
+          origin: 'MMUN',
+          destination: 'MMTO',
+          distance_km: 1501.5714236194174,
+          originAirport: { code: 'MMUN', iata: 'CUN', city: 'Cancun', country: 'Mexico' },
+          destinationAirport: { code: 'MMTO', iata: 'TLC', city: 'Toluca', country: 'Mexico' },
+        },
+      ],
+    })
+
+    expect(pricing.extraServices.overnight).toBe(5400)
   })
 
   it('applies dynamic heavy jet minimums by route distance in nautical miles', () => {

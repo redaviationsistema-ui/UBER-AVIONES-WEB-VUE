@@ -508,6 +508,7 @@ function normalizeMatches(payload, itinerary = {}) {
       landing_fees: asNumber(match.landing_fees || match.landing_fee || 0, 0),
       fbo_fees: asNumber(match.fbo_fees || match.fbo || 0, 0),
       fuel_surcharge: asNumber(match.fuel_surcharge || 0, 0),
+      expense_fee: asNumber(match.expense_fee || 0, 0),
       overnight_fees: asNumber(match.overnight_fees || match.overnight_fee || 0, 0),
       taxes: asNumber(match.taxes || match.tax || 0, 0),
       hidden_operator: match.hidden_operator ?? true,
@@ -911,6 +912,7 @@ function normalizeAircraftFromDatabase(raw = {}, index = 0, sourcePath = '') {
     landing_fees: asNumber(raw.landing_fees || raw.landing_fee || 0, 0),
     fbo_fees: asNumber(raw.fbo_fees || raw.fbo || 0, 0),
     fuel_surcharge: asNumber(raw.fuel_surcharge || 0, 0),
+    expense_fee: asNumber(raw.expense_fee || 0, 0),
     overnight_fees: asNumber(raw.overnight_fees || raw.overnight_fee || 0, 0),
     taxes: asNumber(raw.taxes || raw.tax || 0, 0),
     hidden_operator: true,
@@ -1089,6 +1091,20 @@ function buildCatalogFallbackQuotes(catalog = [], itinerary = {}) {
           : asNumber(aircraft.real_flight_hours || aircraft.flight_hours || aircraft.estimated_hours)
 
       if (!finalPrice) return null
+
+      if (typeof console !== 'undefined') {
+        const aircraftLabel = aircraft.aircraft || aircraft.model || aircraft.cabin || `Aeronave ${aircraft.id || ''}`.trim()
+        const quoteLines = [
+          `[Cotizador mercado] ${aircraftLabel}`,
+          `- Vuelo base: ${Number(basePrice.toFixed(2))}`,
+          `- Overnight: ${Number((pricing.extraServices?.overnight || 0).toFixed(2))}`,
+          `- Expense fee: ${Number((pricing.expenseFee || 0).toFixed(2))}`,
+          `- IVA: ${Number((pricing.ivaAmount || 0).toFixed(2))}`,
+          `- Total: ${Number(finalPrice.toFixed(2))}`,
+          `- Horas cobrables: ${Number((billableHours || 0).toFixed(2))}`,
+        ]
+        console.log(quoteLines.join('\n'))
+      }
 
       return {
         ...aircraft,
@@ -1543,53 +1559,84 @@ export async function searchClientFlights(itinerary) {
     matches = normalizeMatches(payload, itinerary)
 
     if (typeof console !== 'undefined') {
-      console.log('[client-quote] desglose de cotizacion', {
-        itinerary: {
-          origin: firstLeg.origin || itinerary?.origin || '',
-          destination: firstLeg.destination || itinerary?.destination || '',
-          passengers: itinerary?.passengers || '',
-          overnight_nights: itinerary?.overnight_nights || itinerary?.days || 0,
-          trip_type: itinerary?.trip_type || '',
-        },
-        matches: matches.map((item) => ({
-          match_id: item.match_id || item.id,
-          aircraft_id: item.aircraft_id,
-          aircraft: item.aircraft,
-          category: item.cabin || item.aircraft_category || '',
-          hourly_rate: Number(item.hourly_rate || 0),
-          billable_hours: Number(item.billable_hours || 0),
-          real_flight_hours: Number(item.real_flight_hours || item.estimated_hours || 0),
-          base_price: Number(item.base_price || 0),
-          repositioning_fee: Number(item.repositioning_fee || 0),
-          taxes: Number(item.taxes || 0),
-          airport_fees: Number(
-            item.pricing_breakdown?.airport_fees ||
-              item.landing_fees ||
-              item.fbo_fees ||
-              0,
-          ),
-          operational_cost: Number(item.operational_cost || 0),
-          extra_services_total: Number(item.extra_services_total || 0),
-          expense_fee: Number(item.expense_fee || 0),
-          overnight_fee: Number(item.overnight_fee || 0),
-          overnight_nights:
-            Number(
-              item.pricing_breakdown?.overnight > 0 && Number(item.overnight_fee || 0) > 0
-                ? item.pricing_breakdown.overnight / Number(item.overnight_fee || 1)
-                : itinerary?.overnight_nights || itinerary?.days || 0,
-            ) || 0,
-          overnight_cost: Number(
-            item.pricing_breakdown?.overnight ||
-              item.overnight_fees ||
-              0,
-          ),
-          subtotal_before_multipliers: Number(item.subtotal_before_multipliers || item.subtotal || 0),
-          subtotal: Number(item.subtotal || 0),
-          total: Number(item.total || 0),
-          final_price: item.final_price || '',
-          pricing_breakdown: item.pricing_breakdown || null,
-        })),
+      matches.forEach((item, index) => {
+        const aircraftLabel =
+          item.aircraft ||
+          item.model ||
+          item.cabin ||
+          item.aircraft_category ||
+          `Aeronave ${index + 1}`
+        const basePrice = Number(item.base_price || 0)
+        const overnightCost = Number(
+          item.pricing_breakdown?.overnight ||
+            item.overnight_fees ||
+            0,
+        )
+        const expenseFee = Number(item.expense_fee || 0)
+        const ivaAmount = Number(item.taxes || item.tax || 0)
+        const finalPrice = Number(item.total || item.final_price || 0)
+        const billableHours = Number(item.billable_hours || 0)
+
+        console.log(
+          [
+            `[Cotizador backend crudo] ${aircraftLabel}`,
+            `- Vuelo base backend: ${basePrice.toFixed(2)}`,
+            `- Overnight backend: ${overnightCost.toFixed(2)}`,
+            `- Expense fee backend: ${expenseFee.toFixed(2)}`,
+            `- IVA backend: ${ivaAmount.toFixed(2)}`,
+            `- Total backend: ${finalPrice.toFixed(2)}`,
+            `- Horas cobrables backend: ${billableHours.toFixed(2)}`,
+          ].join('\n'),
+        )
       })
+
+      // console.log('[client-quote] desglose de cotizacion', {
+      //   itinerary: {
+      //     origin: firstLeg.origin || itinerary?.origin || '',
+      //     destination: firstLeg.destination || itinerary?.destination || '',
+      //     passengers: itinerary?.passengers || '',
+      //     overnight_nights: itinerary?.overnight_nights || itinerary?.days || 0,
+      //     trip_type: itinerary?.trip_type || '',
+      //   },
+      //   matches: matches.map((item) => ({
+      //     match_id: item.match_id || item.id,
+      //     aircraft_id: item.aircraft_id,
+      //     aircraft: item.aircraft,
+      //     category: item.cabin || item.aircraft_category || '',
+      //     hourly_rate: Number(item.hourly_rate || 0),
+      //     billable_hours: Number(item.billable_hours || 0),
+      //     real_flight_hours: Number(item.real_flight_hours || item.estimated_hours || 0),
+      //     base_price: Number(item.base_price || 0),
+      //     repositioning_fee: Number(item.repositioning_fee || 0),
+      //     taxes: Number(item.taxes || 0),
+      //     airport_fees: Number(
+      //       item.pricing_breakdown?.airport_fees ||
+      //         item.landing_fees ||
+      //         item.fbo_fees ||
+      //         0,
+      //     ),
+      //     operational_cost: Number(item.operational_cost || 0),
+      //     extra_services_total: Number(item.extra_services_total || 0),
+      //     expense_fee: Number(item.expense_fee || 0),
+      //     overnight_fee: Number(item.overnight_fee || 0),
+      //     overnight_nights:
+      //       Number(
+      //         item.pricing_breakdown?.overnight > 0 && Number(item.overnight_fee || 0) > 0
+      //           ? item.pricing_breakdown.overnight / Number(item.overnight_fee || 1)
+      //           : itinerary?.overnight_nights || itinerary?.days || 0,
+      //       ) || 0,
+      //     overnight_cost: Number(
+      //       item.pricing_breakdown?.overnight ||
+      //         item.overnight_fees ||
+      //         0,
+      //     ),
+      //     subtotal_before_multipliers: Number(item.subtotal_before_multipliers || item.subtotal || 0),
+      //     subtotal: Number(item.subtotal || 0),
+      //     total: Number(item.total || 0),
+      //     final_price: item.final_price || '',
+      //     pricing_breakdown: item.pricing_breakdown || null,
+      //   })),
+      // })
     }
   } catch (error) {
     if (isAccessRestrictionError(error)) {

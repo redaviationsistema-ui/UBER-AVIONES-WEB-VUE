@@ -525,6 +525,13 @@ function aircraftPricingContext() {
 }
 
 function aircraftOperationalFlightHours(aircraft = {}) {
+  if (hasBackendQuotedPricing(aircraft)) {
+    const backendOperationalHours = Number(aircraft.operational_flight_hours || aircraft.billable_hours || 0)
+    if (Number.isFinite(backendOperationalHours) && backendOperationalHours > 0) {
+      return backendOperationalHours
+    }
+  }
+
   const formula = buildFlightPricingFormula(aircraft, aircraftPricingContext())
   const operationalHours = formula.operationalFlightHours
 
@@ -536,6 +543,17 @@ function aircraftOperationalFlightHours(aircraft = {}) {
 }
 
 function aircraftDisplayFlightHours(aircraft = {}, includeRepositioning = false) {
+  if (hasBackendQuotedPricing(aircraft)) {
+    const explicitDisplayHours = Number(
+      aircraft.display_flight_hours || aircraft.real_flight_hours || aircraft.flight_hours || aircraft.estimated_hours || 0,
+    )
+    const repositioningHours = includeRepositioning ? Number(aircraft.repositioning_hours || 0) : 0
+
+    if (explicitDisplayHours > 0) {
+      return explicitDisplayHours + repositioningHours
+    }
+  }
+
   const formula = buildFlightPricingFormula(aircraft, aircraftPricingContext())
   const totalDisplayHours = Number(formula.displayFlightHours || 0)
   const repositioningHours = includeRepositioning ? Number(formula.repositioningHours || 0) : 0
@@ -681,6 +699,26 @@ function aircraftBillingHours(aircraft = {}) {
 }
 
 function aircraftBillingNote(aircraft = {}) {
+  if (hasBackendQuotedPricing(aircraft)) {
+    const displayFlightHours = Number(
+      aircraft.display_flight_hours || aircraft.real_flight_hours || aircraft.flight_hours || aircraft.estimated_hours || 0,
+    )
+    const repositioningHours = Number(aircraft.repositioning_hours || 0)
+    const billableHours = Number(aircraft.billable_hours || 0)
+
+    if (displayFlightHours > 0 && repositioningHours > 0 && billableHours > 0) {
+      return `${formatDurationFromHours(displayFlightHours)} vuelo + ${formatDurationFromHours(repositioningHours)} reposicion = ${formatDurationFromHours(billableHours)} cobrables.`
+    }
+
+    if (displayFlightHours > 0 && billableHours > displayFlightHours) {
+      return `Backend cobra ${formatDurationFromHours(billableHours)} sobre un vuelo visible de ${formatDurationFromHours(displayFlightHours)}.`
+    }
+
+    if (billableHours > 0) {
+      return 'Importes y horas respetados desde backend.'
+    }
+  }
+
   const formula = buildFlightPricingFormula(aircraft, aircraftPricingContext())
   const minimumHours = Number(formula.minimumHours || aircraft.minimum_hours || 0)
   const displayFlightHours = Number(formula.displayFlightHours || aircraft.display_flight_hours || 0)
@@ -818,14 +856,86 @@ function resolveAircraftOperationalFees(aircraft = {}) {
     Number(aircraft.landing_fees || 0) +
     Number(aircraft.fbo_fees || 0) +
     Number(aircraft.fuel_surcharge || 0) +
+    Number(aircraft.expense_fee || 0) +
     Number(aircraft.overnight_fees || 0) +
     Number(aircraft.taxes || 0)
 
   return explicitFees > 0 ? explicitFees : 0
 }
 
+function hasBackendQuotedPricing(aircraft = {}) {
+  const hasMatchIdentity = Boolean(aircraft.match_id || aircraft.matched_option_id)
+  const hasPrice =
+    Number(aircraft.base_price || 0) > 0 ||
+    Number(aircraft.total || 0) > 0 ||
+    moneyValue(aircraft.final_price) > 0
+
+  return hasMatchIdentity && hasPrice
+}
+
 function aircraftPricingForType(aircraft = {}, priorityType = 'essential') {
   const priorityMeta = resolvePriorityOption(priorityType)
+  if (hasBackendQuotedPricing(aircraft)) {
+    const basePrice = Number(aircraft.base_price || 0)
+    const operationalFees = resolveAircraftOperationalFees(aircraft)
+    const finalPrice = Number(aircraft.total || 0) || moneyValue(aircraft.final_price) || basePrice + operationalFees
+    const displayFlightHours = Number(
+      aircraft.display_flight_hours || aircraft.real_flight_hours || aircraft.flight_hours || aircraft.estimated_hours || 0,
+    )
+    const billableHours = Number(aircraft.billable_hours || 0)
+    const overnightCost = Number(aircraft.overnight_fees || aircraft.overnight_fee || 0)
+    const expenseFee = Number(aircraft.expense_fee || 0)
+    const ivaAmount = Number(aircraft.taxes || aircraft.tax || 0)
+    const subtotalBeforeMultipliers =
+      Number(aircraft.subtotal_before_multipliers || aircraft.subtotal || 0) || basePrice + overnightCost + expenseFee
+
+    return {
+      basePrice,
+      operationalFees,
+      priorityMultiplier: 1,
+      priorityPrice: 0,
+      finalPrice,
+      priorityType: priorityMeta.code,
+      priorityName: priorityMeta.name,
+      headline: 'Cotizacion backend aplicada',
+      description: 'La tarjeta respeta los importes reales entregados por backend.',
+      savings: 0,
+      routeBand: aircraft.route_band || '',
+      routeMultiplier: Number(aircraft.route_multiplier || 1),
+      cruiseSpeedKmh: Number(aircraft.speed_kmh || aircraft.speedKmh || 0),
+      reserveHours: Number(aircraft.reserve_hours || 0),
+      displayFlightHours,
+      operationalFlightHours: Number(aircraft.operational_flight_hours || billableHours || displayFlightHours || 0),
+      rawFlightHours: Number(aircraft.raw_flight_hours || aircraft.real_flight_hours || 0),
+      billableHours,
+      realFlightHours: Number(aircraft.real_flight_hours || aircraft.flight_hours || aircraft.estimated_hours || 0),
+      minimumHours: Number(aircraft.minimum_hours || 0),
+      minimumRoutePrice: Number(aircraft.minimum_route_price || 0),
+      rawBaseCost: basePrice,
+      repositioning: Number(aircraft.repositioning_fee || 0),
+      repositioningHours: Number(aircraft.repositioning_hours || 0),
+      repositioningRequired:
+        Number(aircraft.repositioning_fee || 0) > 0 || Number(aircraft.repositioning_hours || 0) > 0,
+      repositioningPolicy: null,
+      operationalCostBreakdown: 0,
+      overnightCost,
+      extraServicesTotal: overnightCost,
+      expenseFee,
+      ivaRate: 0,
+      ivaAmount,
+      dynamicMarketFloor: null,
+      commercialMargin: 1,
+      attentionFactor: 1,
+      subtotalBeforeMultipliers,
+      formattedBasePrice: formatCurrency(basePrice),
+      formattedPriorityPrice: formatCurrency(0),
+      formattedOperationalFees: formatCurrency(operationalFees),
+      formattedFinalPrice: formatCurrency(finalPrice),
+      formattedSavings: formatCurrency(0),
+      formattedSubtotalBeforeMultipliers: formatCurrency(subtotalBeforeMultipliers),
+    }
+  }
+
   const formula = buildFlightPricingFormula(aircraft, {
     ...aircraftPricingContext(),
     packageCode: priorityType,
@@ -919,69 +1029,8 @@ function aircraftPricingForType(aircraft = {}, priorityType = 'essential') {
 }
 
 function logRenderedQuoteBreakdown(aircraftList = [], quotePayload = {}) {
-  if (typeof console === 'undefined' || !aircraftList.length) return
-
-  const rows = aircraftList.map((aircraft, index) => {
-    const pricing = aircraftPricingForType(aircraft, selectedPriorityType.value)
-    const firstLeg = Array.isArray(quotePayload.legs) ? quotePayload.legs[0] || {} : {}
-    const lastLeg = Array.isArray(quotePayload.legs) ? quotePayload.legs[quotePayload.legs.length - 1] || {} : {}
-    const baseAirport = aircraft.source_origin || aircraft.base_airport || ''
-    const overnightNights = Number(activeItinerarySummary.value?.days || 0)
-    const repositioningRequired = pricing.repositioningRequired === true
-    const repositioning = repositioningRequired ? Number(pricing.repositioning || 0) : 0
-    const repositioningHours = repositioningRequired ? Number(pricing.repositioningHours || 0) : 0
-    const basePrice = Number(pricing.basePrice || 0)
-    const operationalCosts = Number(pricing.operationalCostBreakdown || 0)
-    const overnightCost = Number(pricing.overnightCost || 0)
-    const extraServicesTotal = Number(pricing.extraServicesTotal || 0)
-    const extraServicesWithoutOvernight = Math.max(extraServicesTotal - overnightCost, 0)
-    const expenseFee = Number(pricing.expenseFee || 0)
-    const subtotal = Number(pricing.subtotalBeforeMultipliers || 0)
-    const ivaAmount = Number(pricing.ivaAmount || 0)
-    let repositioningReason = 'Sin reposicionamiento'
-
-    if (repositioningRequired) {
-      if (quotePayload.repositioningRequired === true) {
-        repositioningReason = 'Reposicionamiento preventivo por multi-destino incompleto'
-      } else if (baseAirport && firstLeg.origin && baseAirport !== firstLeg.origin) {
-        repositioningReason = `Salida fuera de base: ${baseAirport} -> ${firstLeg.origin}`
-      } else if (baseAirport && lastLeg.destination && baseAirport !== lastLeg.destination) {
-        repositioningReason = `Regreso a base pendiente desde ${lastLeg.destination} hacia ${baseAirport}`
-      } else {
-        repositioningReason = 'Reposicionamiento aplicado por reglas de cotizacion'
-      }
-    }
-
-    return {
-      option: index + 1,
-      aircraft: aircraft.aircraft || aircraft.model || aircraft.cabin || 'Aeronave',
-      category: aircraft.cabin || aircraft.category || '',
-      base_price: basePrice,
-      cruiseSpeedKmh: Number(pricing.cruiseSpeedKmh || 0),
-      repositioning,
-      repositioning_hours: repositioningHours,
-      operational_costs: operationalCosts,
-      overnight_nights: overnightNights,
-      overnight_cost: overnightCost,
-      extra_services_total: extraServicesTotal,
-      extra_services_without_overnight: extraServicesWithoutOvernight,
-      expense_fee: expenseFee,
-      subtotal_components: basePrice + operationalCosts + overnightCost + expenseFee + extraServicesWithoutOvernight,
-      iva_amount: ivaAmount,
-      subtotal_before_multipliers: subtotal,
-      final_price: Number(pricing.finalPrice || 0),
-      display_flight_hours: Number(pricing.displayFlightHours || 0),
-      operational_flight_hours: Number(pricing.operationalFlightHours || 0),
-      billable_hours: Number(pricing.billableHours || 0),
-      real_flight_hours: Number(pricing.realFlightHours || 0),
-      repositioning_required: repositioningRequired,
-      repositioning_reason: repositioningReason,
-      source_origin: aircraft.source_origin || aircraft.base_airport || '',
-    }
-  })
-
-  console.log('[client-quote-ui] payload enviado al cotizador', quotePayload)
-  console.table(rows)
+  void aircraftList
+  void quotePayload
 }
 
 const selectedAircraftPricing = computed(() => {

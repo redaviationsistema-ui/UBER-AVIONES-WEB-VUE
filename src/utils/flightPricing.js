@@ -714,44 +714,28 @@ function resolveAirportFees(record = {}) {
   )
 }
 
-function resolveAdditionalOperationalCosts(record = {}) {
-  return (
-    asNumber(record.trip_support_fee || record.trip_support || record.dispatch_fee) +
-    asNumber(record.crew_cost || record.crew_rate || record.crew_fee) +
-    asNumber(record.permits_fee || record.permits) +
-    asNumber(record.operational_cost)
-  )
-}
-
 function resolveOvernightUnitFee(record = {}) {
+  const explicitOvernightFee = asNumber(
+    record.crew_overnight_usd ||
+      record.crew_overnight_fee ||
+      record.overnight_fee ||
+      record.overnight_fees,
+  )
+  if (explicitOvernightFee > 0) return explicitOvernightFee
+
   const hourlyRate = resolveHourlyRate(record)
   return hourlyRate > 0 ? hourlyRate / 2 : 0
 }
 
 function resolvePriorityServiceFee(context = {}, record = {}) {
-  const explicitFee = asNumber(record.priority_fee || record.priority_service_fee || context.priorityFee)
-  if (explicitFee > 0) return explicitFee
-
-  const level = normalizeCode(context.attentionLevel || context.priorityLevel || record.attention_level)
-  if (level === 'urgent') return 450
-  if (level === 'priority' || level === 'prioridad') return 220
   return 0
 }
 
 function resolvePetFee(context = {}, record = {}) {
-  const explicitFee = asNumber(record.pet_fee || record.pets_fee || context.petFee)
-  if (explicitFee > 0) return explicitFee
-
-  const rawPets = String(context.pets || '').trim().toLowerCase()
-  if (!rawPets) return 0
-  if (['no', 'ninguno', 'ninguna', 'false'].includes(rawPets)) return 0
   return 0
 }
 
 function resolveSpecialBaggageFee(context = {}, record = {}) {
-  const explicitFee = asNumber(record.special_baggage_fee || record.baggage_fee || context.specialBaggageFee)
-  if (explicitFee > 0) return explicitFee
-
   return 0
 }
 
@@ -1001,22 +985,11 @@ function resolveCalculatedDisplayFlightHours(record = {}, context = {}, cruiseSp
 }
 
 function resolveExtraServices(record = {}, context = {}) {
-  const cateringKey = normalizeCode(context.catering || 'none')
-  const groundTransportKey = normalizeCode(context.groundTransport || 'none')
-  const wifiKey = normalizeCode(context.wifi || 'none')
   const overnightKey = normalizeCode(context.overnight || 'no')
   const overnightNights = Math.max(asNumber(context.overnightNights || context.itineraryDays), 0)
-  const flexibilityKey = normalizeCode(context.scheduleFlexibility || 'flexible')
-
-  const catering =
-    asNumber(record.catering_fee) +
-    (DEFAULT_EXTRA_SERVICE_FEES.catering[cateringKey] ?? 0)
-  const groundTransport =
-    asNumber(record.ground_transport_fee || record.ground_transfer_fee) +
-    (DEFAULT_EXTRA_SERVICE_FEES.groundTransport[groundTransportKey] ?? 0)
-  const wifi =
-    asNumber(record.wifi_fee) +
-    (DEFAULT_EXTRA_SERVICE_FEES.wifi[wifiKey] ?? 0)
+  const catering = 0
+  const groundTransport = 0
+  const wifi = 0
   const overnightUnitFee = Math.max(resolveOvernightUnitFee(record), DEFAULT_EXTRA_SERVICE_FEES.overnight.yes)
   const overnight =
     overnightNights > 0
@@ -1024,9 +997,7 @@ function resolveExtraServices(record = {}, context = {}) {
       : overnightKey === 'yes'
         ? overnightUnitFee
         : 0
-  const urgentSchedule =
-    asNumber(record.urgent_schedule_fee || record.rush_fee) +
-    (DEFAULT_EXTRA_SERVICE_FEES.scheduleFlexibility[flexibilityKey] ?? 0)
+  const urgentSchedule = 0
 
   return {
     catering,
@@ -1124,7 +1095,7 @@ export function buildFlightPricingFormula(record = {}, context = {}) {
   
   
   }
-  const operationalCosts = resolveAdditionalOperationalCosts(record)
+  const operationalCosts = 0
   const priorityServiceFee = resolvePriorityServiceFee(context, record)
   const petFee = resolvePetFee(context, record)
   const specialBaggageFee = resolveSpecialBaggageFee(context, record)
@@ -1139,24 +1110,17 @@ export function buildFlightPricingFormula(record = {}, context = {}) {
     petFee +
     specialBaggageFee
   const airportFees = resolveAirportFees(record)
-  const expenseFee = baseCost > 0 ? asNumber(record.expense_fee || context.expenseFee, DEFAULT_EXPENSE_FEE) : 0
+  const expenseFee =
+    baseCost > 0
+      ? asNumber(record.expense_fee || context.expenseFee, DEFAULT_EXPENSE_FEE)
+      : 0
   const operationalExpenses = operationalCosts + expenseFee
   const extraServicesTotal = overnightCrew + extraServicesWithoutOvernight
   const expensesTotal = overnightCrew + operationalExpenses
-  const explicitTaxAmount = asNumber(
-    record.taxes ||
-      record.tax ||
-      record.tax_amount ||
-      record.iva_amount ||
-      context.taxes ||
-      context.tax ||
-      context.taxAmount ||
-      context.ivaAmount,
-  )
-  const ivaRate = explicitTaxAmount > 0 ? 0 : baseCost > 0 ? resolveIvaRateForRoute(context) : 0
-  const taxableSubtotal = subtotalFlight + overnightCrew + operationalExpenses + extraServicesWithoutOvernight
-  const ivaAmount = explicitTaxAmount > 0 ? explicitTaxAmount : taxableSubtotal * ivaRate
-  const subtotalBeforeMultipliers = taxableSubtotal
+  const ivaRate = baseCost > 0 ? resolveIvaRateForRoute(context) : 0
+  const taxableSubtotal = subtotalFlight + overnightCrew + operationalExpenses
+  const ivaAmount = taxableSubtotal * ivaRate
+  const subtotalBeforeMultipliers = taxableSubtotal + extraServicesWithoutOvernight
   const commercialMargin = 1
   const priorityFactor = 1
   const dynamicMarketFloor = resolveDynamicMarketFloor(record, billableHours, distanceKm)
