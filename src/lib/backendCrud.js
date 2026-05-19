@@ -3,6 +3,7 @@ import { api } from './api'
 function shouldTryNextCandidate(error) {
   const status = Number(error?.status || 0)
 
+  if (status === 0) return true
   if ([404, 405].includes(status)) return true
   if (status >= 500 && status <= 599) return true
 
@@ -26,41 +27,34 @@ export async function requestWithCandidates(candidates) {
   for (const candidate of candidates) {
     try {
       const method = String(candidate.method || 'get').toLowerCase()
+      const sharedOptions = {
+        query: candidate.query,
+        headers: candidate.headers,
+        timeoutMs: candidate.timeoutMs,
+      }
 
       if (method === 'get') {
-        return await api.get(candidate.path, { query: candidate.query, headers: candidate.headers })
+        return await api.get(candidate.path, sharedOptions)
       }
 
       if (method === 'post') {
-        return await api.post(candidate.path, candidate.body, {
-          query: candidate.query,
-          headers: candidate.headers,
-        })
+        return await api.post(candidate.path, candidate.body, sharedOptions)
       }
 
       if (method === 'postform') {
-        return await api.postForm(candidate.path, candidate.formData, {
-          query: candidate.query,
-          headers: candidate.headers,
-        })
+        return await api.postForm(candidate.path, candidate.formData, sharedOptions)
       }
 
       if (method === 'put') {
-        return await api.put(candidate.path, candidate.body, {
-          query: candidate.query,
-          headers: candidate.headers,
-        })
+        return await api.put(candidate.path, candidate.body, sharedOptions)
       }
 
       if (method === 'delete') {
-        return await api.delete(candidate.path, { query: candidate.query, headers: candidate.headers })
+        return await api.delete(candidate.path, sharedOptions)
       }
 
       if (method === 'download') {
-        return await api.download(candidate.path, {
-          query: candidate.query,
-          headers: candidate.headers,
-        })
+        return await api.download(candidate.path, sharedOptions)
       }
     } catch (error) {
       lastError = error

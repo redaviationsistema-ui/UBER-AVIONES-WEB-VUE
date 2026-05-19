@@ -12,7 +12,7 @@ function formatTableLabel(name) {
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ')
 }
-
+ // checrar el flujo de contrato 
 const tableMetadata = {
   aircraft: 'Catalogo principal de aeronaves.',
   aircraft_availability: 'Disponibilidad operativa de aeronaves.',

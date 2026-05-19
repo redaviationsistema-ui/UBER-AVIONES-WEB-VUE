@@ -65,6 +65,18 @@ const SHORT_ROUTE_CATEGORY_MINIMUM_PRICE = {
 
 const DEFAULT_EXPENSE_FEE = 400
 const DEFAULT_IVA_RATE = 0.16
+const AIRPORT_EXPENSE_BY_CATEGORY = {
+  HEAVY_JET: 2000,
+  HEAVYJET: 2000,
+  MIDSIZE_JET: 1000,
+  MID_JET: 1000,
+  MIDJET: 1000,
+  LIGHT_JET: 800,
+  LIGHTJET: 800,
+  TURBOPROP: 600,
+  HELICOPTERO: 700,
+  HELICÓPTERO: 700,
+}
 
 function parseDbNumber(value) {
   if (value === null || value === undefined || value === '') return null
@@ -107,7 +119,7 @@ function asNumber(value, fallback = 0) {
 }
 
 function resolveHourlyRate(record = {}) {
-  return asNumber(
+  const hourlyRate = asNumber(
     record.hourly_rate ||
       record.hourly_price ||
       record.price_per_hour ||
@@ -121,6 +133,8 @@ function resolveHourlyRate(record = {}) {
       record.ratePerHour ||
       record.cost,
   )
+
+  return hourlyRate > 0 && hourlyRate < 100 ? hourlyRate * 1000 : hourlyRate
 }
 
 function normalizeDistanceUnit(value = '') {
@@ -146,6 +160,29 @@ function normalizeCode(value = '') {
     .trim()
     .toLowerCase()
     .replace(/[\s-]+/g, '_')
+}
+
+function resolveAirportExpenseByCategory(record = {}) {
+  const explicitAirportExpense = asNumber(
+    record.airport_expenses_usd ||
+      record.airport_expenses ||
+      record.expense_fee ||
+      record.expenseFee,
+  )
+  if (explicitAirportExpense > 0) {
+    return explicitAirportExpense > 0 && explicitAirportExpense < 100
+      ? explicitAirportExpense * 1000
+      : explicitAirportExpense
+  }
+
+  const category = String(
+    record.motor_clase || record.motorClase || record.category || record.cabin || record.aircraft_category || '',
+  )
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, '_')
+
+  return AIRPORT_EXPENSE_BY_CATEGORY[category] || 0
 }
 
 function normalizeAirportToken(value = '') {
@@ -1069,32 +1106,25 @@ export function buildFlightPricingFormula(record = {}, context = {}) {
     visibleDurationHours,
     legCount,
   )
-  let repositioning = repositioningBreakdown.amount
-  let repositioningHours = repositioningBreakdown.hours
-  let repositioningPolicy = repositioningBreakdown.policy
-
-  if (!repositioningBreakdown.applies) {
-    repositioning = 0
-    repositioningHours = 0
-    repositioningPolicy = {
+  const repositioningHours = repositioningBreakdown.applies ? repositioningBreakdown.hours : 0
+  const repositioningPolicy = repositioningBreakdown.applies
+    ? repositioningBreakdown.policy
+    : {
       ...repositioningBreakdown.policy,
       chargeInitial: false,
       chargeFinal: false,
       totalChargeableLegs: 0,
     }
-  }
 
-  const billableHours = Math.max(displayFlightHours + repositioningHours, 0)
+  const outboundHours = legCount > 0 ? Math.max(asNumber(context.legs?.[0]?.estimated_hours || 0), 0) : 0
+  const overnightHours = Math.max(asNumber(context.overnightNights || context.itineraryDays), 0) * 0.5
+  const returnHours = Math.max(displayFlightHours - outboundHours, 0)
+  const billableHours = Math.max(outboundHours + returnHours + repositioningHours + overnightHours, 0)
   const billableMinutes = Math.max(billableHours * 60, 0)
   const rawBaseCost = billableMinutes * costPerMinute
   const subtotalFlight = rawBaseCost
   const baseCost = subtotalFlight
-  repositioning = repositioningHours * Math.max(hourlyRate, 0)
-
-  if (typeof console !== 'undefined' && distanceKm > 0) {
-  
-  
-  }
+  const repositioning = repositioningHours * Math.max(hourlyRate, 0)
   const operationalCosts = 0
   const priorityServiceFee = resolvePriorityServiceFee(context, record)
   const petFee = resolvePetFee(context, record)
@@ -1109,16 +1139,13 @@ export function buildFlightPricingFormula(record = {}, context = {}) {
     priorityServiceFee +
     petFee +
     specialBaggageFee
-  const airportFees = resolveAirportFees(record)
-  const expenseFee =
-    baseCost > 0
-      ? asNumber(record.expense_fee || context.expenseFee, DEFAULT_EXPENSE_FEE)
-      : 0
-  const operationalExpenses = operationalCosts + expenseFee
+  const airportFees = resolveAirportExpenseByCategory(record)
+  const expenseFee = airportFees
+  const operationalExpenses = operationalCosts
   const extraServicesTotal = overnightCrew + extraServicesWithoutOvernight
-  const expensesTotal = overnightCrew + operationalExpenses
+  const expensesTotal = airportFees + overnightCrew + operationalExpenses
   const ivaRate = baseCost > 0 ? resolveIvaRateForRoute(context) : 0
-  const taxableSubtotal = subtotalFlight + overnightCrew + operationalExpenses
+  const taxableSubtotal = subtotalFlight + airportFees
   const ivaAmount = taxableSubtotal * ivaRate
   const subtotalBeforeMultipliers = taxableSubtotal + extraServicesWithoutOvernight
   const commercialMargin = 1
@@ -1149,11 +1176,15 @@ export function buildFlightPricingFormula(record = {}, context = {}) {
     displayFlightHours,
     operationalFlightHours,
     realFlightHours,
+    outboundHours,
+    returnHours,
+    overnightHours,
     flightMinutes,
     billableMinutes,
     legCount,
     costPerMinute,
     billableHours,
+    flightBase: baseCost,
     rawBaseCost,
     subtotalFlight,
     baseCost,
@@ -1180,8 +1211,11 @@ export function buildFlightPricingFormula(record = {}, context = {}) {
     dynamicMarketFloor,
     commercialMargin,
     priorityFactor,
+    subtotal: subtotalBeforeMultipliers,
     subtotalBeforeMultipliers,
+    total: finalPrice,
     finalPrice,
+    utility: 0,
   }
 }
 
@@ -1229,6 +1263,7 @@ export function buildCommercialSnapshot(context = {}, pricing = {}, aircraft = {
     minimum_route_price: asNumber(pricing.minimumRoutePrice),
     hourly_rate: resolveHourlyRate(aircraft),
     raw_base_cost: asNumber(pricing.rawBaseCost),
+    flight_base: asNumber(pricing.flightBase || pricing.basePrice),
     subtotal_flight: asNumber(pricing.subtotalFlight),
     base_cost: asNumber(pricing.basePrice),
     repositioning_cost: asNumber(pricing.repositioning),
@@ -1241,9 +1276,11 @@ export function buildCommercialSnapshot(context = {}, pricing = {}, aircraft = {
     expenses_total: asNumber(pricing.expensesTotal),
     iva_rate: asNumber(pricing.ivaRate, DEFAULT_IVA_RATE),
     iva_amount: asNumber(pricing.ivaAmount),
+    subtotal: asNumber(pricing.subtotal || pricing.subtotalBeforeMultipliers),
     subtotal_before_multipliers: asNumber(pricing.subtotalBeforeMultipliers),
     commercial_margin: asNumber(pricing.commercialMargin || pricing.priorityMultiplier, 1),
     priority_factor: asNumber(pricing.attentionFactor, 1),
+    total: asNumber(pricing.total || pricing.finalPrice),
     final_price: asNumber(pricing.finalPrice),
     extras: {
       catering: context.catering || 'none',

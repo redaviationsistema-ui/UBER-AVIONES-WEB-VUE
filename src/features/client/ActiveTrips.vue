@@ -61,15 +61,19 @@ function progressSteps(status = '') {
   return PROGRESS_STEPS.map((step, index) => ({
     ...step,
     state:
-      stateId === 'provider_accepted' && step.key === 'provider'
+      stateId === 'reserved' && step.key === 'booking'
         ? 'done'
-        : stateId === 'provider_accepted' && step.key === 'contract'
+        : stateId === 'reserved' && step.key === 'provider'
           ? 'active'
-          : index < currentIndex
+          : stateId === 'provider_accepted' && step.key === 'provider'
             ? 'done'
-            : index === currentIndex
+            : stateId === 'provider_accepted' && step.key === 'contract'
               ? 'active'
-              : 'todo',
+              : index < currentIndex
+                ? 'done'
+                : index === currentIndex
+                  ? 'active'
+                  : 'todo',
   }))
 }
 
@@ -108,12 +112,18 @@ function reservationCode(reservation = {}) {
 }
 
 function airportMeta(code = '') {
-  const normalizedCode = String(code || '').trim().toUpperCase()
+  const normalizedCode = String(code || '')
+    .trim()
+    .toUpperCase()
   return (
     featuredAirports.find(
       (airport) =>
-        String(airport.code || '').trim().toUpperCase() === normalizedCode ||
-        String(airport.iata || '').trim().toUpperCase() === normalizedCode,
+        String(airport.code || '')
+          .trim()
+          .toUpperCase() === normalizedCode ||
+        String(airport.iata || '')
+          .trim()
+          .toUpperCase() === normalizedCode,
     ) || null
   )
 }
@@ -172,7 +182,8 @@ function routeDisplay(reservation = {}) {
   const origin = firstLeg?.origin || airportDisplay(reservation.origin || '')
   const destination = lastLeg?.destination || airportDisplay(reservation.destination || '')
 
-  if (!origin && !destination) return reservation.route || reservation.title || `Vuelo privado #${reservation.id}`
+  if (!origin && !destination)
+    return reservation.route || reservation.title || `Vuelo privado #${reservation.id}`
   return `${origin} → ${destination}`
 }
 
@@ -180,9 +191,7 @@ function routeSegmentsLabel(reservation = {}) {
   const segments = itinerarySegments(reservation)
   if (segments.length <= 1) return ''
 
-  return segments
-    .map((segment) => `${segment.origin} → ${segment.destination}`)
-    .join(' · ')
+  return segments.map((segment) => `${segment.origin} → ${segment.destination}`).join(' · ')
 }
 
 function overnightLabel(reservation = {}) {
@@ -309,7 +318,9 @@ const filteredReservations = computed(() =>
 
 const selectedReservation = computed(
   () =>
-    filteredReservations.value.find((reservation) => String(reservation.id) === String(props.selectedId)) ||
+    filteredReservations.value.find(
+      (reservation) => String(reservation.id) === String(props.selectedId),
+    ) ||
     filteredReservations.value[0] ||
     null,
 )
@@ -317,7 +328,9 @@ const selectedReservation = computed(
 watch(
   () => props.reservations,
   (reservations) => {
-    const hasActiveTabReservations = reservations.some((reservation) => reservationTab(reservation) === activeTab.value)
+    const hasActiveTabReservations = reservations.some(
+      (reservation) => reservationTab(reservation) === activeTab.value,
+    )
     if (hasActiveTabReservations) return
 
     const fallbackTab = tabOptions.find((tab) =>
@@ -356,15 +369,28 @@ watch(
           <h3>{{ routeDisplay(selectedReservation) }}</h3>
           <div class="hero-meta">
             <span v-if="selectedReservation.date">📅 {{ departureLine(selectedReservation) }}</span>
-            <span v-if="selectedReservation.passengers">👥 {{ selectedReservation.passengers }} pasajeros</span>
+            <span v-if="selectedReservation.passengers"
+              >👥 {{ selectedReservation.passengers }} pasajeros</span
+            >
             <span v-if="selectedReservation.aircraft">🛩 {{ selectedReservation.aircraft }}</span>
-            <span v-if="itinerarySegments(selectedReservation).length">✈ {{ itinerarySegments(selectedReservation).length }} tramos</span>
-            <span v-if="routeSegmentsLabel(selectedReservation)">🗺 {{ routeSegmentsLabel(selectedReservation) }}</span>
-            <span v-if="overnightLabel(selectedReservation)">🌙 {{ overnightLabel(selectedReservation) }}</span>
-            <span v-if="countdownLabel(selectedReservation.date)">⏳ {{ countdownLabel(selectedReservation.date) }}</span>
+            <span v-if="itinerarySegments(selectedReservation).length"
+              >✈ {{ itinerarySegments(selectedReservation).length }} tramos</span
+            >
+            <span v-if="routeSegmentsLabel(selectedReservation)"
+              >🗺 {{ routeSegmentsLabel(selectedReservation) }}</span
+            >
+            <span v-if="overnightLabel(selectedReservation)"
+              >🌙 {{ overnightLabel(selectedReservation) }}</span
+            >
+            <span v-if="countdownLabel(selectedReservation.date)"
+              >⏳ {{ countdownLabel(selectedReservation.date) }}</span
+            >
           </div>
         </div>
-        <span class="status-badge" :class="`status-badge--${statusMeta(selectedReservation.workflow_status || selectedReservation.status).tone}`">
+        <span
+          class="status-badge"
+          :class="`status-badge--${statusMeta(selectedReservation.workflow_status || selectedReservation.status).tone}`"
+        >
           {{ statusMeta(selectedReservation.workflow_status || selectedReservation.status).icon }}
           {{ statusMeta(selectedReservation.workflow_status || selectedReservation.status).label }}
         </span>
@@ -372,14 +398,25 @@ watch(
 
       <div class="progress-shell">
         <div class="progress-track">
-          <span class="progress-bar" :style="{ width: `${statusMeta(selectedReservation.workflow_status || selectedReservation.status).progress}%` }"></span>
+          <span
+            class="progress-bar"
+            :style="{
+              width: `${statusMeta(selectedReservation.workflow_status || selectedReservation.status).progress}%`,
+            }"
+          ></span>
         </div>
-        <strong>{{ statusMeta(selectedReservation.workflow_status || selectedReservation.status).progress }}%</strong>
+        <strong
+          >{{
+            statusMeta(selectedReservation.workflow_status || selectedReservation.status).progress
+          }}%</strong
+        >
       </div>
 
       <div class="progress-steps">
         <span
-          v-for="step in progressSteps(selectedReservation.workflow_status || selectedReservation.status)"
+          v-for="step in progressSteps(
+            selectedReservation.workflow_status || selectedReservation.status,
+          )"
           :key="step.key"
           class="step-pill"
           :class="`step-pill--${step.state}`"
@@ -389,25 +426,49 @@ watch(
       </div>
 
       <div class="executive-grid">
-        <article v-if="selectedReservation.aircraft" class="executive-card executive-card--aircraft">
-          <div class="executive-card__media" :class="{ 'executive-card__media--placeholder': !selectedReservation.aircraft_image }">
-            <img v-if="selectedReservation.aircraft_image" :src="selectedReservation.aircraft_image" :alt="selectedReservation.aircraft" />
+        <article
+          v-if="selectedReservation.aircraft"
+          class="executive-card executive-card--aircraft"
+        >
+          <div
+            class="executive-card__media"
+            :class="{ 'executive-card__media--placeholder': !selectedReservation.aircraft_image }"
+          >
+            <img
+              v-if="selectedReservation.aircraft_image"
+              :src="selectedReservation.aircraft_image"
+              :alt="selectedReservation.aircraft"
+            />
             <span v-else>Jet privado</span>
           </div>
           <div class="executive-card__copy">
             <strong>🛩 {{ selectedReservation.aircraft }}</strong>
-            <span v-if="selectedReservation.aircraft_capacity">Capacidad: {{ selectedReservation.aircraft_capacity }} pax</span>
-            <span v-if="selectedReservation.aircraft_category">Cabina: {{ selectedReservation.aircraft_category }}</span>
-            <span v-if="selectedReservation.amenities?.length">Servicios: {{ selectedReservation.amenities.slice(0, 3).join(' • ') }}</span>
+            <span v-if="selectedReservation.aircraft_capacity"
+              >Capacidad: {{ selectedReservation.aircraft_capacity }} pax</span
+            >
+            <span v-if="selectedReservation.aircraft_category"
+              >Cabina: {{ selectedReservation.aircraft_category }}</span
+            >
+            <span v-if="selectedReservation.amenities?.length"
+              >Servicios: {{ selectedReservation.amenities.slice(0, 3).join(' • ') }}</span
+            >
           </div>
         </article>
 
         <article class="executive-card">
           <strong>Próximo paso</strong>
-          <span>{{ nextAction(selectedReservation.workflow_status || selectedReservation.status) }}</span>
-          <span v-if="selectedReservation.flight_package">🎟 {{ selectedReservation.flight_package }}</span>
-          <span v-if="selectedReservation.payment_status">💳 {{ selectedReservation.payment_status }}</span>
-          <span v-if="selectedReservation.operator">🏢 Operado por: {{ selectedReservation.operator }}</span>
+          <span>{{
+            nextAction(selectedReservation.workflow_status || selectedReservation.status)
+          }}</span>
+          <span v-if="selectedReservation.flight_package"
+            >🎟 {{ selectedReservation.flight_package }}</span
+          >
+          <span v-if="selectedReservation.payment_status"
+            >💳 {{ selectedReservation.payment_status }}</span
+          >
+          <span v-if="selectedReservation.operator"
+            >🏢 Operado por: {{ selectedReservation.operator }}</span
+          >
           <span>🎧 Concierge 24/7 disponible</span>
         </article>
       </div>
@@ -420,15 +481,40 @@ watch(
       </div>
 
       <div class="card-actions card-actions--premium">
-        <button type="button" :disabled="!contractEnabled(selectedReservation)" @click="$emit('open-contract')">📄 Contrato</button>
-        <button type="button" :disabled="!paymentEnabled(selectedReservation)" @click="$emit('open-payment')">💳 Pago</button>
-        <button type="button" :disabled="!conciergeEnabled(selectedReservation)" @click="$emit('open-concierge')">🎧 Concierge</button>
-        <button type="button" :disabled="!aircraftEnabled(selectedReservation)" @click="$emit('open-detail', selectedReservation.id)">🛩 Ver aeronave</button>
+        <button
+          type="button"
+          :disabled="!contractEnabled(selectedReservation)"
+          @click="$emit('open-contract', selectedReservation.id)"
+        >
+          📄 Contrato
+        </button>
+        <button
+          type="button"
+          :disabled="!paymentEnabled(selectedReservation)"
+          @click="$emit('open-payment', selectedReservation.id)"
+        >
+          💳 Pago
+        </button>
+        <button
+          type="button"
+          :disabled="!conciergeEnabled(selectedReservation)"
+          @click="$emit('open-concierge', selectedReservation.id)"
+        >
+          🎧 Concierge
+        </button>
+        <button
+          type="button"
+          :disabled="!aircraftEnabled(selectedReservation)"
+          @click="$emit('open-detail', selectedReservation.id)"
+        >
+          🛩 Ver aeronave
+        </button>
       </div>
     </article>
 
     <div v-if="reservations.length && !selectedReservation" class="empty-state">
-      No hay viajes en {{ tabOptions.find((tab) => tab.key === activeTab)?.label.toLowerCase() || 'esta sección' }}.
+      No hay viajes en
+      {{ tabOptions.find((tab) => tab.key === activeTab)?.label.toLowerCase() || 'esta sección' }}.
     </div>
 
     <div v-if="!reservations.length" class="empty-state">El servidor no devolvio viajes.</div>
@@ -492,7 +578,10 @@ button {
   color: #111111;
   font-weight: 800;
   cursor: pointer;
-  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease;
 }
 
 button:hover {
@@ -517,8 +606,7 @@ button:disabled {
   border: 1px solid #e5e1d8;
   border-radius: 24px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 244, 237, 0.92)),
-    #ffffff;
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 244, 237, 0.92)), #ffffff;
   box-shadow: 0 18px 45px rgba(77, 63, 27, 0.08);
 }
 

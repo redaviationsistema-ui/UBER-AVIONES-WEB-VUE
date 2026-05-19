@@ -1,7 +1,8 @@
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ActiveTrips from './ActiveTrips.vue'
+import ClientContractPreview from './ClientContractPreview.vue'
 import ClientTopNav from './ClientTopNav.vue'
 import ConciergeFloatingButton from './ConciergeFloatingButton.vue'
 import DestinationCards from './DestinationCards.vue'
@@ -44,10 +45,13 @@ const featuredDestinations = ref([])
 const flightPackages = ref([])
 const aircraftOptions = ref([])
 const reservations = ref([])
+const refreshingReservations = ref(false)
 const submittedItinerary = ref(null)
 const activeResultFilter = ref('best_value')
 const technicalSheetOpen = ref(false)
 const technicalAircraft = ref(null)
+const CLIENT_TRIPS_POLL_INTERVAL_MS = 15000
+let reservationsPollTimer = null
 
 const searchForm = reactive({
   origin: '',
@@ -63,8 +67,22 @@ const searchForm = reactive({
   specialBaggage: '',
   preference: '',
   legs: [
-    { origin: '', originAirport: null, destination: '', destinationAirport: null, date: '', time: '' },
-    { origin: '', originAirport: null, destination: '', destinationAirport: null, date: '', time: '' },
+    {
+      origin: '',
+      originAirport: null,
+      destination: '',
+      destinationAirport: null,
+      date: '',
+      time: '',
+    },
+    {
+      origin: '',
+      originAirport: null,
+      destination: '',
+      destinationAirport: null,
+      date: '',
+      time: '',
+    },
   ],
 })
 
@@ -79,9 +97,21 @@ const mobileNavItems = [
   { label: 'Cuenta', section: 'perfil' },
 ]
 const defaultPriorityConfig = {
-  empty_leg: { multiplier: 0.95, headline: 'Ahorro inteligente', description: 'Ruta flexible con ahorro real' },
-  essential: { multiplier: 1.1, headline: 'Margen standard', description: 'Precio comercial base del marketplace' },
-  business: { multiplier: 1.2, headline: 'Margen priority', description: 'Atencion premium + flexibilidad' },
+  empty_leg: {
+    multiplier: 0.95,
+    headline: 'Ahorro inteligente',
+    description: 'Ruta flexible con ahorro real',
+  },
+  essential: {
+    multiplier: 1.1,
+    headline: 'Margen standard',
+    description: 'Precio comercial base del marketplace',
+  },
+  business: {
+    multiplier: 1.2,
+    headline: 'Margen priority',
+    description: 'Atencion premium + flexibilidad',
+  },
   elite: { multiplier: 1.35, headline: 'Margen VIP', description: 'Concierge dedicado' },
 }
 
@@ -180,6 +210,36 @@ const tripTypeKey = computed(() => {
 })
 const routeId = computed(() => String(route.params.id || ''))
 const selectedTripId = computed(() => String(route.params.id || ''))
+const selectedReservation = computed(() => {
+  const exactMatch = reservations.value.find(
+    (reservation) => String(reservation.id) === selectedTripId.value,
+  )
+
+  if (exactMatch) return exactMatch
+  if (selectedTripId.value) return null
+
+  return reservations.value[0] || null
+})
+const selectedReservationPriceLabel = computed(() => {
+  return (
+    selectedReservation.value?.formatted_final_price ||
+    selectedReservation.value?.final_price_display ||
+    selectedReservation.value?.estimated_total ||
+    selectedAircraftPricing.value?.formattedFinalPrice ||
+    ''
+  )
+})
+const customerDisplayName = computed(() => {
+  const rawName =
+    auth.user?.name ||
+    auth.user?.company_name ||
+    auth.user?.business_name ||
+    auth.userName ||
+    auth.access?.company_name ||
+    ''
+
+  return String(rawName || '').trim() || 'Cliente SKY Group'
+})
 const accountAccessCopy = computed(() => {
   const access = auth.access || {}
   const subscription = access.subscription || access.membership || {}
@@ -189,9 +249,24 @@ const accountAccessCopy = computed(() => {
     .trim()
     .toLowerCase()
   const normalizedPlanName = String(
-    subscription.plan_name || subscription.plan || subscription.name || access.plan_name || access.plan || '',
+    subscription.plan_name ||
+      subscription.plan ||
+      subscription.name ||
+      access.plan_name ||
+      access.plan ||
+      '',
   ).trim()
-  const truthyStates = new Set(['1', 'true', 'yes', 'si', 'active', 'activa', 'vigente', 'approved', 'trial_active'])
+  const truthyStates = new Set([
+    '1',
+    'true',
+    'yes',
+    'si',
+    'active',
+    'activa',
+    'vigente',
+    'approved',
+    'trial_active',
+  ])
   const activeStatuses = new Set(['active', 'activa', 'vigente', 'approved'])
   const demoStatuses = new Set(['trial_active', 'demo_active', 'trial', 'demo'])
   const flags = [
@@ -204,10 +279,16 @@ const accountAccessCopy = computed(() => {
     access.can_book,
     access.can_request_flights,
   ]
-  const normalizedFlags = flags.map((value) => String(value ?? '').trim().toLowerCase())
+  const normalizedFlags = flags.map((value) =>
+    String(value ?? '')
+      .trim()
+      .toLowerCase(),
+  )
   const hasTruthyFlag = normalizedFlags.some((value) => truthyStates.has(value))
   const hasActiveSubscription = activeStatuses.has(normalizedSubscriptionStatus)
-  const hasDemo = demoStatuses.has(normalizedSubscriptionStatus) || normalizedFlags.some((value) => demoStatuses.has(value))
+  const hasDemo =
+    demoStatuses.has(normalizedSubscriptionStatus) ||
+    normalizedFlags.some((value) => demoStatuses.has(value))
 
   if (normalizedPlanName) {
     return normalizedPlanName
@@ -225,7 +306,11 @@ const accountAccessCopy = computed(() => {
 })
 const activePlan = computed(() => accountAccessCopy.value)
 const activeSection = computed(() => {
-  if (['viajes', 'mis-vuelos', 'historial', 'contrato', 'pago', 'reserva-confirmada'].includes(props.section)) {
+  if (
+    ['viajes', 'mis-vuelos', 'historial', 'contrato', 'pago', 'reserva-confirmada'].includes(
+      props.section,
+    )
+  ) {
     return 'viajes'
   }
   if (props.section === 'soporte') return 'viajes'
@@ -288,20 +373,24 @@ const filteredAircraftOptions = computed(() => {
   return options
     .sort(
       (current, next) =>
-        aircraftDecisionScore(next.aircraft, next.index) - aircraftDecisionScore(current.aircraft, current.index) ||
-        current.index - next.index,
+        aircraftDecisionScore(next.aircraft, next.index) -
+          aircraftDecisionScore(current.aircraft, current.index) || current.index - next.index,
     )
     .map(({ aircraft }) => aircraft)
 })
 const visibleAircraftOptions = computed(() => {
-  return filteredAircraftOptions.value.filter((aircraft, index, all) => aircraftVisibleForRoute(aircraft, all, index))
+  return filteredAircraftOptions.value.filter((aircraft, index, all) =>
+    aircraftVisibleForRoute(aircraft, all, index),
+  )
 })
 const decoratedAircraftOptions = computed(() => visibleAircraftOptions.value)
 const featuredAircraft = computed(() => decoratedAircraftOptions.value[0] || null)
 const secondaryAircraftOptions = computed(() => decoratedAircraftOptions.value.slice(1))
 
 const hasSearchContext = computed(() => {
-  const legs = submittedItinerary.value?.legs?.length ? submittedItinerary.value.legs : itineraryLegs.value
+  const legs = submittedItinerary.value?.legs?.length
+    ? submittedItinerary.value.legs
+    : itineraryLegs.value
 
   return legs.some((leg) => {
     const origin = String(leg?.origin || '').trim()
@@ -369,17 +458,22 @@ function normalizePriorityCode(value = '') {
 }
 
 function airportDisplayName(code = '') {
-  const normalizedCode = String(code || '').trim().toUpperCase()
+  const normalizedCode = String(code || '')
+    .trim()
+    .toUpperCase()
   if (!normalizedCode) return 'Ruta por confirmar'
 
   const catalogAirport = featuredAirports.find((item) =>
-    [item.code, item.iata].filter(Boolean).some((value) => String(value).trim().toUpperCase() === normalizedCode),
+    [item.code, item.iata]
+      .filter(Boolean)
+      .some((value) => String(value).trim().toUpperCase() === normalizedCode),
   )
   if (catalogAirport?.city) return catalogAirport.city
 
-  const destination = featuredDestinations.value.find(
-    (item) =>
-      [item.code, item.iata].filter(Boolean).some((value) => String(value).trim().toUpperCase() === normalizedCode),
+  const destination = featuredDestinations.value.find((item) =>
+    [item.code, item.iata]
+      .filter(Boolean)
+      .some((value) => String(value).trim().toUpperCase() === normalizedCode),
   )
 
   return destination?.city || destination?.name || normalizedCode
@@ -429,15 +523,19 @@ function formatTravelDateLabel(date = '', time = '') {
 }
 
 function itineraryHeadline(summary) {
-  const legs = Array.isArray(summary?.legs) ? summary.legs.filter((leg) => leg?.origin || leg?.destination) : []
+  const legs = Array.isArray(summary?.legs)
+    ? summary.legs.filter((leg) => leg?.origin || leg?.destination)
+    : []
   if (!legs.length) return 'Tu vuelo privado'
 
   const tripType = String(summary?.tripType || '').trim()
   const firstLeg = legs[0]
   const lastLeg = legs[legs.length - 1]
   const firstOrigin = firstLeg.originAirport?.city || airportDisplayName(firstLeg.origin)
-  const firstDestination = firstLeg.destinationAirport?.city || airportDisplayName(firstLeg.destination)
-  const lastDestination = lastLeg.destinationAirport?.city || airportDisplayName(lastLeg.destination)
+  const firstDestination =
+    firstLeg.destinationAirport?.city || airportDisplayName(firstLeg.destination)
+  const lastDestination =
+    lastLeg.destinationAirport?.city || airportDisplayName(lastLeg.destination)
 
   if (tripType === 'Redondo' && firstOrigin && firstDestination) {
     return `${firstOrigin} → ${firstDestination} → ${firstOrigin}`
@@ -488,17 +586,29 @@ function aircraftPriceValue(aircraft) {
 }
 
 function aircraftReservationKey(aircraft = {}) {
-  return String(aircraft?.match_id || aircraft?.matched_option_id || aircraft?.aircraft_id || aircraft?.id || '')
+  return String(
+    aircraft?.match_id ||
+      aircraft?.matched_option_id ||
+      aircraft?.aircraft_id ||
+      aircraft?.id ||
+      '',
+  )
 }
 
 function isReservingAircraft(aircraft = {}) {
-  return Boolean(aircraftReservationKey(aircraft)) && reservingAircraftId.value === aircraftReservationKey(aircraft)
+  return (
+    Boolean(aircraftReservationKey(aircraft)) &&
+    reservingAircraftId.value === aircraftReservationKey(aircraft)
+  )
 }
 
 function routeDistanceKmForAircraft(aircraft = {}) {
   return Number(
     aircraft.distance_km ||
-      aircraft.pricing_breakdown?.client_legs?.reduce((sum, leg) => sum + Number(leg.distance_km || 0), 0) ||
+      aircraft.pricing_breakdown?.client_legs?.reduce(
+        (sum, leg) => sum + Number(leg.distance_km || 0),
+        0,
+      ) ||
       0,
   )
 }
@@ -506,13 +616,18 @@ function routeDistanceKmForAircraft(aircraft = {}) {
 function aircraftPricingContext() {
   const pendingMultiDestinationLegs =
     tripType.value === 'Multi-destino' &&
-    searchForm.legs.some((leg, index) => index > 0 && (!leg.origin || !leg.destination || !leg.date))
+    searchForm.legs.some(
+      (leg, index) => index > 0 && (!leg.origin || !leg.destination || !leg.date),
+    )
 
   return {
     packageCode: selectedPriorityType.value,
     attentionLevel: 'normal',
-    tripType: activeItinerarySummary.value?.tripType || activeItinerarySummary.value?.trip_type || '',
-    segmentCount: Array.isArray(activeItinerarySummary.value?.legs) ? activeItinerarySummary.value.legs.length : 0,
+    tripType:
+      activeItinerarySummary.value?.tripType || activeItinerarySummary.value?.trip_type || '',
+    segmentCount: Array.isArray(activeItinerarySummary.value?.legs)
+      ? activeItinerarySummary.value.legs.length
+      : 0,
     overnightNights: activeItinerarySummary.value?.days || 0,
     legs: activeItinerarySummary.value?.legs || [],
     catering: activeItinerarySummary.value?.catering || '',
@@ -526,7 +641,9 @@ function aircraftPricingContext() {
 
 function aircraftOperationalFlightHours(aircraft = {}) {
   if (hasBackendQuotedPricing(aircraft)) {
-    const backendOperationalHours = Number(aircraft.operational_flight_hours || aircraft.billable_hours || 0)
+    const backendOperationalHours = Number(
+      aircraft.operational_flight_hours || aircraft.billable_hours || 0,
+    )
     if (Number.isFinite(backendOperationalHours) && backendOperationalHours > 0) {
       return backendOperationalHours
     }
@@ -545,7 +662,11 @@ function aircraftOperationalFlightHours(aircraft = {}) {
 function aircraftDisplayFlightHours(aircraft = {}, includeRepositioning = false) {
   if (hasBackendQuotedPricing(aircraft)) {
     const explicitDisplayHours = Number(
-      aircraft.display_flight_hours || aircraft.real_flight_hours || aircraft.flight_hours || aircraft.estimated_hours || 0,
+      aircraft.display_flight_hours ||
+        aircraft.real_flight_hours ||
+        aircraft.flight_hours ||
+        aircraft.estimated_hours ||
+        0,
     )
     const repositioningHours = includeRepositioning ? Number(aircraft.repositioning_hours || 0) : 0
 
@@ -572,7 +693,8 @@ function aircraftDisplayFlightHours(aircraft = {}, includeRepositioning = false)
   const speedKmh = Number(aircraft.speed_kmh || aircraft.speedKmh || 0)
   const climbDescentHours =
     Number(aircraft.climb_descent_hours || 0) ||
-    Number(aircraft.climb_descent_minutes || aircraft.pricing_context?.climb_descent_minutes || 0) / 60
+    Number(aircraft.climb_descent_minutes || aircraft.pricing_context?.climb_descent_minutes || 0) /
+      60
 
   if (distanceKm > 0 && speedKmh > 0) {
     return distanceKm / speedKmh + climbDescentHours
@@ -598,9 +720,15 @@ function aircraftTimeValue(aircraft) {
 function aircraftPremiumValue(aircraft) {
   const cabin = String(aircraft.cabin || aircraft.category || '').toLowerCase()
   const capacity = Number(aircraft.capacity || 0)
-  const premiumCabin = ['premium', 'heavy', 'super midsize', 'large', 'long range', 'vip', 'elite'].some((term) =>
-    cabin.includes(term),
-  )
+  const premiumCabin = [
+    'premium',
+    'heavy',
+    'super midsize',
+    'large',
+    'long range',
+    'vip',
+    'elite',
+  ].some((term) => cabin.includes(term))
 
   return capacity + (premiumCabin ? 20 : 0)
 }
@@ -616,7 +744,13 @@ function aircraftDecisionScore(aircraft = {}, index = 0) {
   const timeScore = 1 / Math.max(aircraftTimeValue(aircraft), 1)
   const luxuryScore = aircraftPremiumValue(aircraft)
   const amenityScore = normalizeAmenityTerms(aircraft).length ? 1 : 0
-  return luxuryScore * 12 + amenityScore * 8 + timeScore * 1500 + priceScore * 250000 + (index === 0 ? 24 : 0)
+  return (
+    luxuryScore * 12 +
+    amenityScore * 8 +
+    timeScore * 1500 +
+    priceScore * 250000 +
+    (index === 0 ? 24 : 0)
+  )
 }
 
 function aircraftClassLabel(aircraft = {}) {
@@ -634,9 +768,13 @@ function aircraftEmotionalCopy(aircraft = {}) {
   const capacity = Number(aircraft.capacity || 0)
 
   if (cabin.includes('helic')) return 'Perfecto para traslados ejecutivos de acceso rapido'
-  if (cabin.includes('heavy') || cabin.includes('long')) return 'Cabina ideal para consejos, equipos senior y viajes VIP'
+  if (cabin.includes('heavy') || cabin.includes('long'))
+    return 'Cabina ideal para consejos, equipos senior y viajes VIP'
   if (cabin.includes('mid')) return 'Balance ideal entre presencia ejecutiva y eficiencia'
-  if (cabin.includes('light')) return capacity >= 7 ? 'Ideal para grupos ejecutivos compactos' : 'Excelente para juntas privadas y traslados agiles'
+  if (cabin.includes('light'))
+    return capacity >= 7
+      ? 'Ideal para grupos ejecutivos compactos'
+      : 'Excelente para juntas privadas y traslados agiles'
   if (cabin.includes('turbo')) return 'Solucion eficiente para rutas regionales con valor real'
   return 'Experiencia privada lista para cerrar agenda sin friccion'
 }
@@ -686,12 +824,18 @@ function aircraftDurationLabel(aircraft = {}) {
   const estimatedFlightLabel = formatDurationFromHours(estimatedFlightHours)
   if (estimatedFlightLabel) return estimatedFlightLabel
 
-  return String(aircraft.time || aircraft.flight_time || activeItinerarySummary.value?.estimatedTime || '42 min')
+  return String(
+    aircraft.time ||
+      aircraft.flight_time ||
+      activeItinerarySummary.value?.estimatedTime ||
+      '42 min',
+  )
 }
 
 function aircraftBillingHours(aircraft = {}) {
   const explicitBillableHours = Number(aircraft.billable_hours || 0)
-  if (Number.isFinite(explicitBillableHours) && explicitBillableHours > 0) return explicitBillableHours
+  if (Number.isFinite(explicitBillableHours) && explicitBillableHours > 0)
+    return explicitBillableHours
 
   const minimumHours = Number(aircraft.minimum_hours || 0)
   const displayHours = aircraftDisplayFlightHours(aircraft)
@@ -701,7 +845,11 @@ function aircraftBillingHours(aircraft = {}) {
 function aircraftBillingNote(aircraft = {}) {
   if (hasBackendQuotedPricing(aircraft)) {
     const displayFlightHours = Number(
-      aircraft.display_flight_hours || aircraft.real_flight_hours || aircraft.flight_hours || aircraft.estimated_hours || 0,
+      aircraft.display_flight_hours ||
+        aircraft.real_flight_hours ||
+        aircraft.flight_hours ||
+        aircraft.estimated_hours ||
+        0,
     )
     const repositioningHours = Number(aircraft.repositioning_hours || 0)
     const billableHours = Number(aircraft.billable_hours || 0)
@@ -715,14 +863,18 @@ function aircraftBillingNote(aircraft = {}) {
     }
 
     if (billableHours > 0) {
-      return 'Importes y horas respetados desde backend.'
+      return ''
     }
   }
 
   const formula = buildFlightPricingFormula(aircraft, aircraftPricingContext())
   const minimumHours = Number(formula.minimumHours || aircraft.minimum_hours || 0)
-  const displayFlightHours = Number(formula.displayFlightHours || aircraft.display_flight_hours || 0)
-  const operationalHours = Number(formula.operationalFlightHours || aircraft.operational_flight_hours || 0)
+  const displayFlightHours = Number(
+    formula.displayFlightHours || aircraft.display_flight_hours || 0,
+  )
+  const operationalHours = Number(
+    formula.operationalFlightHours || aircraft.operational_flight_hours || 0,
+  )
   const repositioningHours = Number(formula.repositioningHours || aircraft.repositioning_hours || 0)
   const billableHours = Number(formula.billableHours || aircraft.billable_hours || 0)
 
@@ -760,7 +912,8 @@ function aircraftSpeedLine(aircraft = {}, summary = {}) {
 }
 
 function aircraftAvailabilityLabel(aircraft = {}, index = 0) {
-  if (aircraft.response_time) return `Salida en ${String(aircraft.response_time).replace(/^[-\s]+/, '')}`
+  if (aircraft.response_time)
+    return `Salida en ${String(aircraft.response_time).replace(/^[-\s]+/, '')}`
   if (index === 0) return 'Salida en 35 min'
   return 'Prioridad Alta'
 }
@@ -784,12 +937,18 @@ function aircraftVisibleForRoute(aircraft = {}, allAircraft = [], index = 0) {
   const aircraftRangeKm = Number(aircraft.range_km || aircraft.aircraft?.range_km || 0)
   const price = aircraftPriceValue(aircraft)
   const bestFixedWingPrice = allAircraft
-    .filter((item) => !String(item.cabin || item.category || '').toLowerCase().includes('helic'))
+    .filter(
+      (item) =>
+        !String(item.cabin || item.category || '')
+          .toLowerCase()
+          .includes('helic'),
+    )
     .reduce((min, item) => Math.min(min, aircraftPriceValue(item)), Number.POSITIVE_INFINITY)
 
   if (distanceKm > efficientLimitKm) return false
   if (aircraftRangeKm && distanceKm > aircraftRangeKm * 0.55) return false
-  if (Number.isFinite(bestFixedWingPrice) && price > bestFixedWingPrice * 1.28 && index > 0) return false
+  if (Number.isFinite(bestFixedWingPrice) && price > bestFixedWingPrice * 1.28 && index > 0)
+    return false
 
   return true
 }
@@ -815,7 +974,6 @@ const technicalSheetInsights = computed(() => {
     `${aircraftPriceCopy(aircraft)} con una presentacion premium lista para cliente final.`,
   ].filter(Boolean)
 })
-
 
 function resolvePriorityOption(priorityType = 'essential') {
   const normalizedType = normalizePriorityCode(priorityType) || 'essential'
@@ -878,16 +1036,22 @@ function aircraftPricingForType(aircraft = {}, priorityType = 'essential') {
   if (hasBackendQuotedPricing(aircraft)) {
     const basePrice = Number(aircraft.base_price || 0)
     const operationalFees = resolveAircraftOperationalFees(aircraft)
-    const finalPrice = Number(aircraft.total || 0) || moneyValue(aircraft.final_price) || basePrice + operationalFees
+    const finalPrice =
+      Number(aircraft.total || 0) || moneyValue(aircraft.final_price) || basePrice + operationalFees
     const displayFlightHours = Number(
-      aircraft.display_flight_hours || aircraft.real_flight_hours || aircraft.flight_hours || aircraft.estimated_hours || 0,
+      aircraft.display_flight_hours ||
+        aircraft.real_flight_hours ||
+        aircraft.flight_hours ||
+        aircraft.estimated_hours ||
+        0,
     )
     const billableHours = Number(aircraft.billable_hours || 0)
     const overnightCost = Number(aircraft.overnight_fees || aircraft.overnight_fee || 0)
-    const expenseFee = Number(aircraft.expense_fee || 0)
-    const ivaAmount = Number(aircraft.taxes || aircraft.tax || 0)
+    const expenseFee = Number(aircraft.expense_fee || aircraft.airport_expenses || 0)
+    const ivaAmount = Number(aircraft.iva_amount || aircraft.taxes || aircraft.tax || 0)
     const subtotalBeforeMultipliers =
-      Number(aircraft.subtotal_before_multipliers || aircraft.subtotal || 0) || basePrice + overnightCost + expenseFee
+      Number(aircraft.subtotal_before_multipliers || aircraft.subtotal || 0) ||
+      basePrice + expenseFee
 
     return {
       basePrice,
@@ -905,17 +1069,22 @@ function aircraftPricingForType(aircraft = {}, priorityType = 'essential') {
       cruiseSpeedKmh: Number(aircraft.speed_kmh || aircraft.speedKmh || 0),
       reserveHours: Number(aircraft.reserve_hours || 0),
       displayFlightHours,
-      operationalFlightHours: Number(aircraft.operational_flight_hours || billableHours || displayFlightHours || 0),
+      operationalFlightHours: Number(
+        aircraft.operational_flight_hours || billableHours || displayFlightHours || 0,
+      ),
       rawFlightHours: Number(aircraft.raw_flight_hours || aircraft.real_flight_hours || 0),
       billableHours,
-      realFlightHours: Number(aircraft.real_flight_hours || aircraft.flight_hours || aircraft.estimated_hours || 0),
+      realFlightHours: Number(
+        aircraft.real_flight_hours || aircraft.flight_hours || aircraft.estimated_hours || 0,
+      ),
       minimumHours: Number(aircraft.minimum_hours || 0),
       minimumRoutePrice: Number(aircraft.minimum_route_price || 0),
       rawBaseCost: basePrice,
       repositioning: Number(aircraft.repositioning_fee || 0),
       repositioningHours: Number(aircraft.repositioning_hours || 0),
       repositioningRequired:
-        Number(aircraft.repositioning_fee || 0) > 0 || Number(aircraft.repositioning_hours || 0) > 0,
+        Number(aircraft.repositioning_fee || 0) > 0 ||
+        Number(aircraft.repositioning_hours || 0) > 0,
       repositioningPolicy: null,
       operationalCostBreakdown: 0,
       overnightCost,
@@ -943,7 +1112,9 @@ function aircraftPricingForType(aircraft = {}, priorityType = 'essential') {
 
   if (formula.hasFormulaInputs) {
     const repositioningRequired =
-      Boolean(formula.repositioningPolicy?.chargeInitial || formula.repositioningPolicy?.chargeFinal) ||
+      Boolean(
+        formula.repositioningPolicy?.chargeInitial || formula.repositioningPolicy?.chargeFinal,
+      ) ||
       Number(formula.repositioningHours || 0) > 0 ||
       Number(formula.repositioning || 0) > 0
 
@@ -985,8 +1156,12 @@ function aircraftPricingForType(aircraft = {}, priorityType = 'essential') {
       attentionFactor: formula.priorityFactor,
       subtotalBeforeMultipliers: formula.subtotalBeforeMultipliers,
       formattedBasePrice: formatCurrency(formula.baseCost),
-      formattedPriorityPrice: formatCurrency(Math.max(formula.finalPrice - formula.subtotalBeforeMultipliers, 0)),
-      formattedOperationalFees: formatCurrency(formula.airportFees + formula.ivaAmount + formula.expensesTotal),
+      formattedPriorityPrice: formatCurrency(
+        Math.max(formula.finalPrice - formula.subtotalBeforeMultipliers, 0),
+      ),
+      formattedOperationalFees: formatCurrency(
+        formula.airportFees + formula.ivaAmount + formula.expensesTotal,
+      ),
       formattedFinalPrice: formatCurrency(formula.finalPrice),
       formattedSavings: formatCurrency(0),
       formattedSubtotalBeforeMultipliers: formatCurrency(formula.subtotalBeforeMultipliers),
@@ -1009,7 +1184,11 @@ function aircraftPricingForType(aircraft = {}, priorityType = 'essential') {
     }
   }
 
-  const pricing = calculatePriorityPricing(basePrice, operationalFees, Number(priorityMeta.multiplier || 1))
+  const pricing = calculatePriorityPricing(
+    basePrice,
+    operationalFees,
+    Number(priorityMeta.multiplier || 1),
+  )
   const essentialPricing = calculatePriorityPricing(basePrice, operationalFees, 1)
   const savings = Math.max(essentialPricing.finalPrice - pricing.finalPrice, 0)
 
@@ -1111,6 +1290,18 @@ function go(section, id = '') {
   router.push(id ? `/cliente/${section}/${id}` : `/cliente/${section}`)
 }
 
+function goToContract(reservationId = '') {
+  go('contrato', reservationId || selectedReservation.value?.id || '')
+}
+
+function goToPayment(reservationId = '') {
+  go('pago', reservationId || selectedReservation.value?.id || '')
+}
+
+function goToConcierge(reservationId = '') {
+  go('soporte', reservationId || selectedReservation.value?.id || '')
+}
+
 function selectDestination(destination) {
   if (tripType.value === 'Multi-destino') {
     const lastLeg = searchForm.legs[searchForm.legs.length - 1]
@@ -1165,14 +1356,24 @@ function syncMultiDestinationChain(startIndex = 1) {
 }
 
 function updateLegField({ index, field, value }) {
-  if (!searchForm.legs[index] || !Object.prototype.hasOwnProperty.call(searchForm.legs[index], field)) return
+  if (
+    !searchForm.legs[index] ||
+    !Object.prototype.hasOwnProperty.call(searchForm.legs[index], field)
+  )
+    return
   searchForm.legs[index][field] = value
 
-  if (field === 'origin' && Object.prototype.hasOwnProperty.call(searchForm.legs[index], 'originAirport')) {
+  if (
+    field === 'origin' &&
+    Object.prototype.hasOwnProperty.call(searchForm.legs[index], 'originAirport')
+  ) {
     searchForm.legs[index].originAirport = null
   }
 
-  if (field === 'destination' && Object.prototype.hasOwnProperty.call(searchForm.legs[index], 'destinationAirport')) {
+  if (
+    field === 'destination' &&
+    Object.prototype.hasOwnProperty.call(searchForm.legs[index], 'destinationAirport')
+  ) {
     searchForm.legs[index].destinationAirport = null
   }
 
@@ -1194,7 +1395,10 @@ function selectFormAirport({ field, airport }) {
 function selectLegAirport({ index, field, airport }) {
   if (!searchForm.legs[index]) return
 
-  if (field === 'origin' && Object.prototype.hasOwnProperty.call(searchForm.legs[index], 'originAirport')) {
+  if (
+    field === 'origin' &&
+    Object.prototype.hasOwnProperty.call(searchForm.legs[index], 'originAirport')
+  ) {
     searchForm.legs[index].originAirport = airport
   }
 
@@ -1214,12 +1418,12 @@ function addLeg() {
   const lastLeg = searchForm.legs[searchForm.legs.length - 1] || {}
   searchForm.legs.push(
     createEmptyLeg({
-    origin: lastLeg.destination || '',
-    originAirport: lastLeg.destinationAirport || null,
-    destination: '',
-    destinationAirport: null,
-    date: lastLeg.date || searchForm.departureDate,
-    time: lastLeg.time || '09:00',
+      origin: lastLeg.destination || '',
+      originAirport: lastLeg.destinationAirport || null,
+      destination: '',
+      destinationAirport: null,
+      date: lastLeg.date || searchForm.departureDate,
+      time: lastLeg.time || '09:00',
     }),
   )
   syncMultiDestinationChain(searchForm.legs.length - 1)
@@ -1234,7 +1438,9 @@ function removeLeg(index) {
 }
 
 function buildItinerarySummary(payload) {
-  const legs = Array.isArray(payload.legs) ? payload.legs.map((leg) => normalizeLegForQuote(leg)) : []
+  const legs = Array.isArray(payload.legs)
+    ? payload.legs.map((leg) => normalizeLegForQuote(leg))
+    : []
   const dates = legs
     .map((leg) => new Date(`${leg.date}T00:00:00`))
     .filter((date) => !Number.isNaN(date.getTime()))
@@ -1252,7 +1458,9 @@ function buildItinerarySummary(payload) {
     groundTransport: payload.ground_transport || payload.groundTransport || 'none',
     wifi: payload.wifi || 'none',
     overnight: (Number(payload.overnight_nights || payload.days || 0) || 0) > 0 ? 'yes' : 'no',
-    attentionLevel: normalizeAttentionLevel(payload.attention_level || payload.priority_level || ''),
+    attentionLevel: normalizeAttentionLevel(
+      payload.attention_level || payload.priority_level || '',
+    ),
     scheduleFlexibility: payload.schedule_flexibility || 'flexible',
     preference: payload.preference,
     cabin: '',
@@ -1266,13 +1474,17 @@ function buildItinerarySummary(payload) {
 function hasPendingMultiDestinationLegs() {
   if (tripType.value !== 'Multi-destino') return false
 
-  return searchForm.legs.some((leg, index) => index > 0 && (!leg.origin || !leg.destination || !leg.date))
+  return searchForm.legs.some(
+    (leg, index) => index > 0 && (!leg.origin || !leg.destination || !leg.date),
+  )
 }
 
 function validateSearchForm() {
   const firstLeg = itineraryLegs.value[0] || {}
   const secondLeg = itineraryLegs.value[1] || {}
-  const incompleteMultiLeg = itineraryLegs.value.findIndex((leg) => !leg.origin || !leg.destination || !leg.date)
+  const incompleteMultiLeg = itineraryLegs.value.findIndex(
+    (leg) => !leg.origin || !leg.destination || !leg.date,
+  )
   const pendingMultiDestinationLegs = hasPendingMultiDestinationLegs()
 
   if (!firstLeg.origin || !firstLeg.destination || !firstLeg.date) {
@@ -1285,7 +1497,11 @@ function validateSearchForm() {
     return false
   }
 
-  if (tripType.value !== 'Ida' && itineraryLegs.value.length < 2 && !(tripType.value === 'Multi-destino' && pendingMultiDestinationLegs)) {
+  if (
+    tripType.value !== 'Ida' &&
+    itineraryLegs.value.length < 2 &&
+    !(tripType.value === 'Multi-destino' && pendingMultiDestinationLegs)
+  ) {
     serverSearchError.value =
       tripType.value === 'Redondo'
         ? 'Completa fecha y hora de regreso para cotizar viaje redondo.'
@@ -1298,7 +1514,10 @@ function validateSearchForm() {
     return false
   }
 
-  if (tripType.value === 'Redondo' && (!secondLeg.date || !secondLeg.origin || !secondLeg.destination)) {
+  if (
+    tripType.value === 'Redondo' &&
+    (!secondLeg.date || !secondLeg.origin || !secondLeg.destination)
+  ) {
     serverSearchError.value = 'Completa la fecha de regreso para cotizar tu viaje redondo.'
     ui.pushToast({
       tone: 'warning',
@@ -1308,7 +1527,11 @@ function validateSearchForm() {
     return false
   }
 
-  if (tripType.value === 'Multi-destino' && incompleteMultiLeg !== -1 && !pendingMultiDestinationLegs) {
+  if (
+    tripType.value === 'Multi-destino' &&
+    incompleteMultiLeg !== -1 &&
+    !pendingMultiDestinationLegs
+  ) {
     serverSearchError.value = `Completa origen, destino y fecha del tramo ${incompleteMultiLeg + 1}.`
     ui.pushToast({
       tone: 'warning',
@@ -1365,10 +1588,12 @@ async function submitSearch() {
     aircraftOptions.value = await searchClientFlights(quotePayload)
     logRenderedQuoteBreakdown(aircraftOptions.value, quotePayload)
     if (!aircraftOptions.value.length) {
-      serverSearchError.value = 'No fue posible generar una cotizacion real para este itinerario con la informacion actual.'
+      serverSearchError.value =
+        'No fue posible generar una cotizacion real para este itinerario con la informacion actual.'
     }
   } catch (error) {
-    const message = error?.message || 'No fue posible consultar el cotizador en este momento. Intenta de nuevo.'
+    const message =
+      error?.message || 'No fue posible consultar el cotizador en este momento. Intenta de nuevo.'
     aircraftOptions.value = []
     serverSearchError.value = message
     ui.pushToast({
@@ -1386,8 +1611,16 @@ async function requestReservation(aircraft = selectedAircraft.value) {
 
   try {
     reservingAircraftId.value = aircraftReservationKey(aircraft)
-    const normalizedPassengers = Number(activeItinerarySummary.value.passengers || searchForm.passengers || 0) || 1
+    const selectedAircraftModel =
+      aircraft.aircraft || aircraft.model || aircraft.registration || aircraft.cabin || ''
+    const normalizedPassengers =
+      Number(activeItinerarySummary.value.passengers || searchForm.passengers || 0) || 1
     const pricing = aircraftPricingForType(aircraft, selectedPriorityType.value)
+    const selectedCardPrice =
+      Number(aircraft.total || 0) ||
+      moneyValue(aircraft.final_price) ||
+      moneyValue(aircraft.estimated_total) ||
+      pricing.finalPrice
     const pricingContext = buildCommercialSnapshot(
       {
         packageCode: pricing.priorityType,
@@ -1409,12 +1642,14 @@ async function requestReservation(aircraft = selectedAircraft.value) {
       passengers: normalizedPassengers,
       pets: activeItinerarySummary.value.pets,
       special_baggage: activeItinerarySummary.value.specialBaggage,
-      preference: aircraft.cabin || aircraft.aircraft,
+      preference: selectedAircraftModel || aircraft.cabin,
+      aircraft_model: selectedAircraftModel,
+      assigned_aircraft_model: selectedAircraftModel,
+      aircraft_name: selectedAircraftModel,
       flight_package: selectedPriorityMeta.value?.name || '',
       service_tier: selectedPriorityMeta.value?.name || '',
       match_id: aircraft.match_id || aircraft.matched_option_id || aircraft.id || null,
-      matched_option_id:
-        aircraft.matched_option_id || aircraft.match_id || aircraft.id || null,
+      matched_option_id: aircraft.matched_option_id || aircraft.match_id || aircraft.id || null,
       aircraft_id: aircraft.aircraft_id || aircraft.id || null,
       provider_id: aircraft.provider_id || aircraft.provider?.id || null,
       priority_type: pricing.priorityType,
@@ -1422,7 +1657,8 @@ async function requestReservation(aircraft = selectedAircraft.value) {
       base_price: Number(pricing.basePrice.toFixed(2)),
       operational_fee: Number(pricing.operationalFees.toFixed(2)),
       priority_price: Number(pricing.priorityPrice.toFixed(2)),
-      final_price: Number(pricing.finalPrice.toFixed(2)),
+      final_price: Number(selectedCardPrice.toFixed(2)),
+      selected_card_price: Number(selectedCardPrice.toFixed(2)),
       pricing_context: pricingContext,
       pricing_formula_version: pricingContext.pricing_formula_version,
       commercial_margin: pricingContext.commercial_margin,
@@ -1433,13 +1669,58 @@ async function requestReservation(aircraft = selectedAircraft.value) {
       minimum_route_price: pricingContext.minimum_route_price,
       subtotal_before_multipliers: pricingContext.subtotal_before_multipliers,
       extra_services_total: pricingContext.extra_services_total,
-      aircraft_snapshot: aircraft,
+      subtotal: Number(
+        (pricingContext.subtotal_before_multipliers || pricing.basePrice || 0).toFixed(2),
+      ),
+      total: Number(selectedCardPrice.toFixed(2)),
+      estimated_total: Number(selectedCardPrice.toFixed(2)),
+      aircraft_snapshot: {
+        ...aircraft,
+        aircraft: selectedAircraftModel,
+        model: selectedAircraftModel,
+        category: aircraft.category || aircraft.cabin || '',
+        capacity: aircraft.capacity || '',
+        base_price: Number(pricing.basePrice.toFixed(2)),
+        operational_fee: Number(pricing.operationalFees.toFixed(2)),
+        priority_price: Number(pricing.priorityPrice.toFixed(2)),
+        subtotal_before_multipliers: Number(
+          (pricingContext.subtotal_before_multipliers || pricing.basePrice || 0).toFixed(2),
+        ),
+        subtotal: Number(
+          (pricingContext.subtotal_before_multipliers || pricing.basePrice || 0).toFixed(2),
+        ),
+        total: Number(selectedCardPrice.toFixed(2)),
+        final_price: Number(selectedCardPrice.toFixed(2)),
+        estimated_total: Number(selectedCardPrice.toFixed(2)),
+      },
       source_database: aircraft.source_database || null,
       source_table: aircraft.source_table || null,
       legs: activeItinerarySummary.value.legs.map((leg) => ({ ...leg })),
     }
     const reservation = await createClientFlightRequest(reservationPayload, { timeoutMs: 60000 })
-    const createdReservationId = reservation?.data?.id || reservation?.id || selectedTripId.value || ''
+    if (typeof console !== 'undefined') {
+      const storedFlightRequest =
+        reservation?.flight_request || reservation?.data?.flight_request || reservation?.data || reservation
+      console.log('[reserva-guardada] Costo del vuelo persistido en backend', {
+        endpoint: '/client/flight-requests',
+        tablas: [
+          'flight_requests.final_price',
+          'request_matches.estimated_price',
+        ],
+        flight_request_id:
+          storedFlightRequest?.id || reservation?.flight_request?.id || reservation?.data?.id || reservation?.id,
+        selected_card_price: Number(selectedCardPrice.toFixed(2)),
+        flight_request_final_price:
+          storedFlightRequest?.final_price || storedFlightRequest?.pricing_context?.final_price || null,
+        match_quote_total:
+          storedFlightRequest?.matched_options?.[0]?.estimated_price ||
+          storedFlightRequest?.matches?.[0]?.estimated_price ||
+          null,
+        response: reservation,
+      })
+    }
+    const createdReservationId =
+      reservation?.data?.id || reservation?.id || selectedTripId.value || ''
     const refreshedReservations = await getClientTrips({ timeoutMs: 20000 })
     if (refreshedReservations.length) {
       reservations.value = refreshedReservations
@@ -1474,6 +1755,61 @@ async function handleLogout() {
   router.push('/')
 }
 
+function shouldAutoRefreshTrips() {
+  return [
+    'viajes',
+    'mis-vuelos',
+    'historial',
+    'contrato',
+    'pago',
+    'reserva-confirmada',
+    'soporte',
+  ].includes(props.section)
+}
+
+async function refreshReservations({ silent = false } = {}) {
+  if (refreshingReservations.value) return
+  if (!silent) {
+    loadingServerData.value = true
+  }
+
+  refreshingReservations.value = true
+
+  try {
+    const trips = await getClientTrips({ timeoutMs: 20000 })
+    reservations.value = trips
+  } finally {
+    refreshingReservations.value = false
+    if (!silent) {
+      loadingServerData.value = false
+    }
+  }
+}
+
+function clearReservationsPolling() {
+  if (reservationsPollTimer) {
+    clearInterval(reservationsPollTimer)
+    reservationsPollTimer = null
+  }
+}
+
+function startReservationsPolling() {
+  clearReservationsPolling()
+
+  if (!shouldAutoRefreshTrips()) return
+
+  reservationsPollTimer = setInterval(() => {
+    if (typeof document !== 'undefined' && document.hidden) return
+    void refreshReservations({ silent: true })
+  }, CLIENT_TRIPS_POLL_INTERVAL_MS)
+}
+
+function handleVisibilityRefresh() {
+  if (typeof document !== 'undefined' && document.hidden) return
+  if (!shouldAutoRefreshTrips()) return
+  void refreshReservations({ silent: true })
+}
+
 async function loadServerData() {
   loadingServerData.value = true
   serverSearchError.value = ''
@@ -1498,7 +1834,31 @@ async function loadServerData() {
   }
 }
 
-onMounted(loadServerData)
+onMounted(() => {
+  loadServerData()
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('focus', handleVisibilityRefresh)
+  }
+
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', handleVisibilityRefresh)
+  }
+
+  startReservationsPolling()
+})
+
+onBeforeUnmount(() => {
+  clearReservationsPolling()
+
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('focus', handleVisibilityRefresh)
+  }
+
+  if (typeof document !== 'undefined') {
+    document.removeEventListener('visibilitychange', handleVisibilityRefresh)
+  }
+})
 
 watch(
   tripType,
@@ -1546,6 +1906,16 @@ watch(
   },
   { immediate: true },
 )
+
+watch(
+  () => props.section,
+  () => {
+    startReservationsPolling()
+    if (shouldAutoRefreshTrips()) {
+      void refreshReservations({ silent: true })
+    }
+  },
+)
 </script>
 
 <template>
@@ -1588,13 +1958,17 @@ watch(
         />
 
         <template v-else-if="bookingStep === 'resultados'">
-        <div class="screen-head results-head results-head-premium">
-          <span class="eyebrow">Luxury concierge selection</span>
-          <h2>{{ itineraryHeadline(activeItinerarySummary) }}</h2>
-          <p>{{ itineraryDateLine(activeItinerarySummary) }}</p>
-          <strong class="results-headline-hook">Tu asesor privado ha seleccionado las mejores opciones para esta ruta.</strong>
-          <span class="results-subhook">Opciones verificadas segun velocidad, costo y nivel de experiencia.</span>
-        </div>
+          <div class="screen-head results-head results-head-premium">
+            <span class="eyebrow">Luxury concierge selection</span>
+            <h2>{{ itineraryHeadline(activeItinerarySummary) }}</h2>
+            <p>{{ itineraryDateLine(activeItinerarySummary) }}</p>
+            <strong class="results-headline-hook"
+              >Tu asesor privado ha seleccionado las mejores opciones para esta ruta.</strong
+            >
+            <span class="results-subhook"
+              >Opciones verificadas segun velocidad, costo y nivel de experiencia.</span
+            >
+          </div>
 
           <div class="filter-toolbar">
             <div class="filter-toolbar__copy">
@@ -1636,7 +2010,9 @@ watch(
 
             <div class="aircraft-hero-copy">
               <h3>{{ featuredAircraft.aircraft }}</h3>
-              <p class="aircraft-time-line">{{ aircraftSpeedLine(featuredAircraft, activeItinerarySummary) }}</p>
+              <p class="aircraft-time-line">
+                {{ aircraftSpeedLine(featuredAircraft, activeItinerarySummary) }}
+              </p>
               <p v-if="aircraftBillingNote(featuredAircraft)" class="aircraft-billing-note">
                 {{ aircraftBillingNote(featuredAircraft) }}
               </p>
@@ -1644,12 +2020,17 @@ watch(
               <strong class="hero-price">{{ aircraftPriceCopy(featuredAircraft) }}</strong>
               <p class="hero-service-copy">Incluye operacion, logistica y servicio ejecutivo.</p>
               <div class="hero-includes">
-                <span v-for="item in aircraftIncludes(featuredAircraft)" :key="item">{{ item }}</span>
+                <span v-for="item in aircraftIncludes(featuredAircraft)" :key="item">{{
+                  item
+                }}</span>
               </div>
             </div>
             <div class="hero-actions">
-             
-              <button type="button" :disabled="Boolean(reservingAircraftId)" @click="requestReservation(featuredAircraft)">
+              <button
+                type="button"
+                :disabled="Boolean(reservingAircraftId)"
+                @click="requestReservation(featuredAircraft)"
+              >
                 {{ isReservingAircraft(featuredAircraft) ? 'Reservando...' : 'Reservar' }}
               </button>
             </div>
@@ -1680,7 +2061,9 @@ watch(
                   <div class="aircraft-card-head__copy">
                     <span class="eyebrow">Opcion privada</span>
                     <h3>{{ aircraft.aircraft }}</h3>
-                    <p class="aircraft-time-line">{{ aircraftSpeedLine(aircraft, activeItinerarySummary) }}</p>
+                    <p class="aircraft-time-line">
+                      {{ aircraftSpeedLine(aircraft, activeItinerarySummary) }}
+                    </p>
                     <p v-if="aircraftBillingNote(aircraft)" class="aircraft-billing-note">
                       {{ aircraftBillingNote(aircraft) }}
                     </p>
@@ -1692,8 +2075,11 @@ watch(
                 </p>
               </div>
               <div class="card-actions">
-                
-                <button type="button" :disabled="Boolean(reservingAircraftId)" @click="requestReservation(aircraft)">
+                <button
+                  type="button"
+                  :disabled="Boolean(reservingAircraftId)"
+                  @click="requestReservation(aircraft)"
+                >
                   {{ isReservingAircraft(aircraft) ? 'Reservando...' : 'Reservar' }}
                 </button>
               </div>
@@ -1706,35 +2092,41 @@ watch(
 
       <section v-else-if="activeSection === 'viajes'" class="screen">
         <article v-if="props.section === 'contrato'" class="document-panel">
-          <span class="eyebrow">Contrato {{ routeId }}</span>
-          <h2>Firma digital</h2>
-          <p>Datos del vuelo, condiciones, total y firma protegida.</p>
-          <div class="signature-box">Firma pendiente</div>
-          <button type="button" @click="go('pago', routeId)">Firmar contrato</button>
+          <ClientContractPreview
+            :reservation="selectedReservation"
+            :reservation-id="routeId"
+            :customer-name="customerDisplayName"
+            @confirm="go('pago', routeId)"
+          />
         </article>
 
         <article v-else-if="props.section === 'pago'" class="document-panel">
           <span class="eyebrow">Pago {{ routeId }}</span>
           <h2>Checkout seguro</h2>
           <p>Pago protegido con tarjeta, transferencia, wire o wallet corporativa.</p>
-          <strong v-if="selectedAircraftPricing?.formattedFinalPrice">{{ selectedAircraftPricing.formattedFinalPrice }}</strong>
+          <strong v-if="selectedReservationPriceLabel">{{ selectedReservationPriceLabel }}</strong>
           <button type="button" @click="go('reserva-confirmada', routeId)">Pagar</button>
         </article>
 
-        <article v-else-if="props.section === 'reserva-confirmada'" class="document-panel confirmation-panel">
-          <span class="eyebrow">Reserva confirmada</span>
-          <h2>Tu vuelo esta siendo confirmado por Red Aviation</h2>
+        <article
+          v-else-if="props.section === 'reserva-confirmada'"
+          class="document-panel confirmation-panel"
+        >
+          <span class="eyebrow">Reserva registrada</span>
+          <h2>Tu solicitud fue enviada al proveedor</h2>
           <p>
-            Ya puedes dar seguimiento desde Mis vuelos. Cuando la operacion quede cerrada veras
-            el estado como confirmado junto con terminal, tripulacion y tracking.
+            Ya puedes dar seguimiento desde Mis vuelos. Cuando el proveedor acepte la operacion
+            veras el avance a contrato, pago y confirmacion final del vuelo.
           </p>
           <div class="signature-box confirmation-box">
             <strong>Estado actual</strong>
-            <span>Reserva registrada y seguimiento activado.</span>
+            <span>Reserva registrada. Esperando respuesta del proveedor.</span>
           </div>
           <div class="confirmation-actions">
             <button type="button" @click="go('viajes', routeId)">Ver mis vuelos</button>
-            <button class="secondary-button" type="button" @click="go('soporte')">Asesor privado 24/7</button>
+            <button class="secondary-button" type="button" @click="go('soporte')">
+              Asesor privado 24/7
+            </button>
           </div>
         </article>
 
@@ -1743,10 +2135,10 @@ watch(
           :reservations="reservations"
           :selected-id="selectedTripId"
           :timeline="timeline"
-          @open-concierge="go('soporte')"
-          @open-contract="go('contrato', selectedTripId)"
+          @open-concierge="goToConcierge($event)"
+          @open-contract="goToContract($event)"
           @open-detail="go('viajes', $event)"
-          @open-payment="go('pago', selectedTripId)"
+          @open-payment="goToPayment($event)"
         />
       </section>
 
@@ -1754,7 +2146,10 @@ watch(
         <div v-if="activeSection === 'perfil'" class="screen-head">
           <span class="eyebrow">Perfil</span>
           <h2>Tu cuenta vuela mejor cuando ya te conoce</h2>
-          <p>Guarda datos, viajeros frecuentes y preferencias para reservar en segundos la siguiente vez.</p>
+          <p>
+            Guarda datos, viajeros frecuentes y preferencias para reservar en segundos la siguiente
+            vez.
+          </p>
         </div>
 
         <template v-if="activeSection === 'perfil'">
@@ -1762,25 +2157,36 @@ watch(
             <article class="profile-highlight-card">
               <span class="eyebrow">Viajeros frecuentes</span>
               <h3>CEO, familia o equipo ejecutivo</h3>
-              <p>Deja perfiles guardados para acelerar futuras reservas y reducir friccion operativa.</p>
+              <p>
+                Deja perfiles guardados para acelerar futuras reservas y reducir friccion operativa.
+              </p>
             </article>
             <article class="profile-highlight-card">
               <span class="eyebrow">Facturacion</span>
               <h3>Pagos y datos listos</h3>
-              <p>Metodo de pago, razon social y datos de contacto siempre a mano dentro del mismo flujo.</p>
+              <p>
+                Metodo de pago, razon social y datos de contacto siempre a mano dentro del mismo
+                flujo.
+              </p>
             </article>
           </div>
 
           <form class="profile-form">
             <label>Nombre<input :value="auth.user?.name || 'Miembro Red Aviation'" /></label>
             <label>Telefono<input placeholder="+52 55 0000 0000" /></label>
-            <label>Empresa<input :value="auth.user?.company_name || ''" placeholder="Empresa" /></label>
+            <label
+              >Empresa<input :value="auth.user?.company_name || ''" placeholder="Empresa"
+            /></label>
             <label>Correo<input :value="auth.user?.email || 'miembro@redaviation.test'" /></label>
             <label>Pasaporte / ID<input placeholder="Documento principal" /></label>
             <label>Metodo de pago<input placeholder="Tarjeta corporativa o transferencia" /></label>
             <label>Facturacion<input placeholder="RFC / razon social" /></label>
             <label>Seguridad<input placeholder="NDA, privacidad, requerimientos" /></label>
-            <label class="wide">Preferencias<textarea placeholder="Catering, mascotas, FBO, privacidad, asistencia especial"></textarea></label>
+            <label class="wide"
+              >Preferencias<textarea
+                placeholder="Catering, mascotas, FBO, privacidad, asistencia especial"
+              ></textarea>
+            </label>
           </form>
         </template>
 
@@ -1793,7 +2199,9 @@ watch(
           <article class="profile-highlight-card">
             <span class="eyebrow">Siguiente paso</span>
             <h3>Vuelve al cotizador</h3>
-            <p>Usa el flujo de reserva para crear nuevas solicitudes y revisar tus vuelos vigentes.</p>
+            <p>
+              Usa el flujo de reserva para crear nuevas solicitudes y revisar tus vuelos vigentes.
+            </p>
           </article>
         </div>
       </section>
@@ -1812,10 +2220,17 @@ watch(
     </nav>
 
     <transition name="sheet-fade">
-      <div v-if="technicalSheetOpen && technicalAircraft" class="technical-sheet-backdrop" @click.self="closeTechnicalSheet">
+      <div
+        v-if="technicalSheetOpen && technicalAircraft"
+        class="technical-sheet-backdrop"
+        @click.self="closeTechnicalSheet"
+      >
         <section class="technical-sheet">
           <div class="technical-sheet__hero">
-            <div class="technical-sheet__media" :style="aircraftVisualStyle(technicalAircraft.image_url)">
+            <div
+              class="technical-sheet__media"
+              :style="aircraftVisualStyle(technicalAircraft.image_url)"
+            >
               <img
                 v-if="technicalAircraft.image_url"
                 :src="technicalAircraft.image_url"
@@ -1829,7 +2244,9 @@ watch(
               <p>{{ aircraftDurationLabel(technicalAircraft) }}</p>
               <strong>{{ aircraftPriceCopy(technicalAircraft) }}</strong>
             </div>
-            <button class="technical-sheet__close" type="button" @click="closeTechnicalSheet">Cerrar</button>
+            <button class="technical-sheet__close" type="button" @click="closeTechnicalSheet">
+              Cerrar
+            </button>
           </div>
 
           <div class="technical-sheet__body">
@@ -1874,9 +2291,7 @@ watch(
   width: 100%;
   min-height: 100vh;
   padding-top: 4.7rem;
-  background:
-    linear-gradient(180deg, #fbfaf6 0%, #f3f1eb 100%),
-    #f7f5ef;
+  background: linear-gradient(180deg, #fbfaf6 0%, #f3f1eb 100%), #f7f5ef;
   color: #141414;
 }
 
@@ -2128,7 +2543,13 @@ button {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(125deg, rgba(255, 255, 255, 0.28), transparent 28%, transparent 72%, rgba(255, 255, 255, 0.16));
+  background: linear-gradient(
+    125deg,
+    rgba(255, 255, 255, 0.28),
+    transparent 28%,
+    transparent 72%,
+    rgba(255, 255, 255, 0.16)
+  );
   mix-blend-mode: screen;
   pointer-events: none;
   z-index: 0;
@@ -2594,7 +3015,8 @@ button {
   color: #ffffff;
   background:
     linear-gradient(135deg, rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.52)),
-    url('https://images.unsplash.com/photo-1540962351504-03099e0a754b?auto=format&fit=crop&w=1200&q=80') center/cover;
+    url('https://images.unsplash.com/photo-1540962351504-03099e0a754b?auto=format&fit=crop&w=1200&q=80')
+      center/cover;
 }
 
 .aircraft-visual span {
@@ -2995,7 +3417,6 @@ button {
   .technical-sheet__body {
     grid-template-columns: 1fr;
   }
-
 }
 
 @media (max-width: 760px) {

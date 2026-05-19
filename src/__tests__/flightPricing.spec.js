@@ -439,6 +439,46 @@ describe('buildFlightPricingFormula', () => {
     expect(internationalPricing.expenseFee).toBe(400)
   })
 
+  it('prioritizes airport_expenses_usd from the aircraft record for subtotal and total', () => {
+    const hawkerPricing = buildFlightPricingFormula(
+      {
+        model: 'HAWKER 800A',
+        hourly_rate: '3.000',
+        airport_expenses_usd: '1.000',
+        motor_clase: 'MIDSIZE_JET',
+      },
+      {
+        tripType: 'Ida',
+        legs: [{ estimated_hours: 6.5 }],
+      },
+    )
+
+    const gulfstreamPricing = buildFlightPricingFormula(
+      {
+        model: 'GULFSTREAM G-IV',
+        hourly_rate: '6.500',
+        airport_expenses_usd: '2.000',
+        motor_clase: 'HEAVY_JET',
+      },
+      {
+        tripType: 'Ida',
+        legs: [{ estimated_hours: 6.5 }],
+      },
+    )
+
+    expect(hawkerPricing.basePrice).toBeCloseTo(19500, 6)
+    expect(hawkerPricing.expenseFee).toBeCloseTo(1000, 6)
+    expect(hawkerPricing.subtotalBeforeMultipliers).toBeCloseTo(20500, 6)
+    expect(hawkerPricing.ivaAmount).toBeCloseTo(3280, 6)
+    expect(hawkerPricing.finalPrice).toBeCloseTo(23780, 6)
+
+    expect(gulfstreamPricing.basePrice).toBeCloseTo(42250, 6)
+    expect(gulfstreamPricing.expenseFee).toBeCloseTo(2000, 6)
+    expect(gulfstreamPricing.subtotalBeforeMultipliers).toBeCloseTo(44250, 6)
+    expect(gulfstreamPricing.ivaAmount).toBeCloseTo(7080, 6)
+    expect(gulfstreamPricing.finalPrice).toBeCloseTo(51330, 6)
+  })
+
   it('always calculates iva from the subtotal instead of using manual tax fields', () => {
     const aircraft = {
       hourly_rate: 4800,

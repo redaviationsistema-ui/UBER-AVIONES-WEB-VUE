@@ -7,20 +7,23 @@ import {
   normalizePackageCode,
 } from '../../utils/flightPricing'
 
-const configuredQuotesPreviewPath = String(import.meta.env.VITE_CLIENT_QUOTES_PREVIEW_PATH || '').trim()
+const configuredQuotesPreviewPath = String(
+  import.meta.env.VITE_CLIENT_QUOTES_PREVIEW_PATH || '',
+).trim()
 const configuredTripsPath = String(import.meta.env.VITE_CLIENT_TRIPS_PATH || '').trim()
 const configuredFlightPackagesPath = String(
-  import.meta.env.VITE_CLIENT_FLIGHT_PACKAGES_PATH || import.meta.env.VITE_CLIENT_MEMBERSHIPS_PATH || '',
+  import.meta.env.VITE_CLIENT_FLIGHT_PACKAGES_PATH ||
+    import.meta.env.VITE_CLIENT_MEMBERSHIPS_PATH ||
+    '',
 ).trim()
 const configuredAircraftPath = String(import.meta.env.VITE_CLIENT_AIRCRAFT_PATH || '').trim()
 
 const QUOTES_PREVIEW_PATH = configuredQuotesPreviewPath || '/client/quotes/preview'
 const CLIENT_TRIPS_PATH = configuredTripsPath || '/client/flight-requests'
 const CLIENT_FLIGHT_PACKAGES_PATH = configuredFlightPackagesPath || '/plans'
-const CLIENT_AIRCRAFT_PATHS = [...new Set([
-  configuredAircraftPath,
-  '/client/aircraft',
-].filter(Boolean))]
+const CLIENT_AIRCRAFT_PATHS = [
+  ...new Set([configuredAircraftPath, '/client/aircraft'].filter(Boolean)),
+]
 const FALLBACK_DESTINATIONS = [
   {
     code: 'CUN',
@@ -101,7 +104,11 @@ const FALLBACK_FLIGHT_PACKAGES = [
 ]
 
 const DEFAULT_FLIGHT_PACKAGE_NAMES = new Set(
-  FALLBACK_FLIGHT_PACKAGES.map((item) => String(item.name || '').trim().toLowerCase()),
+  FALLBACK_FLIGHT_PACKAGES.map((item) =>
+    String(item.name || '')
+      .trim()
+      .toLowerCase(),
+  ),
 )
 
 function preserveExplicitBoolean(value) {
@@ -146,6 +153,11 @@ function parseDbNumber(value) {
 
   const raw = String(value).trim()
   if (!raw) return null
+  const sanitized = raw.replace(/[^\d,.-]/g, '')
+
+  if (sanitized && sanitized !== raw) {
+    return parseDbNumber(sanitized)
+  }
 
   if (/^\d{1,3}(\.\d{3})+$/.test(raw)) {
     const amount = Number(raw.replace(/\./g, ''))
@@ -181,7 +193,7 @@ function asNumber(value, fallback = 0) {
 }
 
 function resolveHourlyRate(raw = {}) {
-  return asNumber(
+  const hourlyRate = asNumber(
     raw.hourly_rate ||
       raw.hourly_price ||
       raw.price_per_hour ||
@@ -196,6 +208,8 @@ function resolveHourlyRate(raw = {}) {
       raw.cost,
     0,
   )
+
+  return hourlyRate > 0 && hourlyRate < 100 ? hourlyRate * 1000 : hourlyRate
 }
 
 function normalizeDistanceUnit(value = '') {
@@ -210,10 +224,7 @@ function normalizeDistanceUnit(value = '') {
 
 export function inferDistanceUnit(raw = {}, sourceTable = '') {
   const explicitUnit = normalizeDistanceUnit(
-    raw.distance_unit ||
-      raw.distanceUnit ||
-      raw.route_distance_unit ||
-      raw.routeDistanceUnit,
+    raw.distance_unit || raw.distanceUnit || raw.route_distance_unit || raw.routeDistanceUnit,
   )
   if (explicitUnit) return explicitUnit
 
@@ -222,11 +233,7 @@ export function inferDistanceUnit(raw = {}, sourceTable = '') {
 
 export function inferEngineType(aircraft = {}) {
   const category = String(
-    aircraft.category ||
-      aircraft.cabin ||
-      aircraft.aircraft_category ||
-      aircraft.type ||
-      '',
+    aircraft.category || aircraft.cabin || aircraft.aircraft_category || aircraft.type || '',
   ).toLowerCase()
   const model = String(
     aircraft.model ||
@@ -236,9 +243,12 @@ export function inferEngineType(aircraft = {}) {
       aircraft.name ||
       '',
   ).toLowerCase()
-  const explicitEngineType = String(aircraft.engine_type || aircraft.engineType || '').trim().toLowerCase()
+  const explicitEngineType = String(aircraft.engine_type || aircraft.engineType || '')
+    .trim()
+    .toLowerCase()
 
-  if (['turbofan', 'turboprop', 'turboshaft'].includes(explicitEngineType)) return explicitEngineType
+  if (['turbofan', 'turboprop', 'turboshaft'].includes(explicitEngineType))
+    return explicitEngineType
 
   if (
     category.includes('helicopter') ||
@@ -300,12 +310,16 @@ function normalizeTripType(value = '', label = '') {
 
 function resolveSegmentCount(payload = {}, itinerary = {}) {
   const previewPayload =
-    payload?.data && typeof payload.data === 'object' && !Array.isArray(payload.data) ? payload.data : payload
+    payload?.data && typeof payload.data === 'object' && !Array.isArray(payload.data)
+      ? payload.data
+      : payload
   const tripType = normalizeTripType(
     previewPayload?.trip_type || itinerary?.trip_type,
     previewPayload?.trip_label || itinerary?.trip_label,
   )
-  const payloadSegmentCount = asNumber(previewPayload?.segment_count || previewPayload?.segments || 0)
+  const payloadSegmentCount = asNumber(
+    previewPayload?.segment_count || previewPayload?.segments || 0,
+  )
   if (payloadSegmentCount > 0) return payloadSegmentCount
 
   const payloadLegs = Array.isArray(previewPayload?.legs) ? previewPayload.legs.length : 0
@@ -319,7 +333,9 @@ function resolveSegmentCount(payload = {}, itinerary = {}) {
 }
 
 function buildPricingBreakdown(match = {}, aircraftRecord = {}, payload = {}, itinerary = {}) {
-  const billableHours = asNumber(match.billable_hours || match.estimated_hours || match.hours || match.flight_hours)
+  const billableHours = asNumber(
+    match.billable_hours || match.estimated_hours || match.hours || match.flight_hours,
+  )
   const operationalHourlyRate = resolveHourlyRate({
     ...aircraftRecord,
     ...match,
@@ -435,7 +451,9 @@ function buildPricingBreakdown(match = {}, aircraftRecord = {}, payload = {}, it
 
 function normalizeMatches(payload, itinerary = {}) {
   const previewPayload =
-    payload?.data && typeof payload.data === 'object' && !Array.isArray(payload.data) ? payload.data : payload
+    payload?.data && typeof payload.data === 'object' && !Array.isArray(payload.data)
+      ? payload.data
+      : payload
   const matches =
     previewPayload?.matches ||
     previewPayload?.matched_options ||
@@ -460,12 +478,15 @@ function normalizeMatches(payload, itinerary = {}) {
     const imageRecord = { ...match, ...aircraftRecord }
     const aircraftImages = normalizeAircraftImages(imageRecord)
     const pricing = buildPricingBreakdown(match, aircraftRecord, payload, itinerary)
-    const resolvedTotal = pricing.hasFormulaInputs ? pricing.total : asNumber(match.total || match.price, 0)
+    const resolvedTotal = pricing.hasFormulaInputs
+      ? pricing.total
+      : asNumber(match.total || match.price, 0)
     const hourlyRate = resolveHourlyRate({
       ...aircraftRecord,
       ...match,
     })
-    const sourceTable = match.source_table || match.table || aircraftRecord?.source_table || 'matched_options'
+    const sourceTable =
+      match.source_table || match.table || aircraftRecord?.source_table || 'matched_options'
     const distanceUnit = inferDistanceUnit({ ...aircraftRecord, ...match }, sourceTable)
     const engineType = inferEngineType({ ...aircraftRecord, ...match })
     const imageUrl = normalizeMediaUrl(
@@ -501,16 +522,25 @@ function normalizeMatches(payload, itinerary = {}) {
         match.price ||
         match.quoted_price ||
         (resolvedTotal ? asMoney(resolvedTotal) : asMoney(match.total || '')),
-      base_price: asNumber(match.base_price || aircraftRecord?.base_price || resolvedTotal || match.total || 0),
-      priority_type: normalizePriorityType(match.priority_type || match.service_tier || match.flight_package),
+      base_price: asNumber(
+        match.flight_base ||
+          match.base_price ||
+          aircraftRecord?.base_price ||
+          resolvedTotal ||
+          match.total ||
+          0,
+      ),
+      priority_type: normalizePriorityType(
+        match.priority_type || match.service_tier || match.flight_package,
+      ),
       priority_multiplier: asNumber(match.priority_multiplier || match.service_multiplier || 1, 1),
       priority_price: asNumber(match.priority_price || 0, 0),
       landing_fees: asNumber(match.landing_fees || match.landing_fee || 0, 0),
       fbo_fees: asNumber(match.fbo_fees || match.fbo || 0, 0),
       fuel_surcharge: asNumber(match.fuel_surcharge || 0, 0),
-      expense_fee: asNumber(match.expense_fee || 0, 0),
+      expense_fee: asNumber(match.expense_fee || match.airport_expenses || 0, 0),
       overnight_fees: asNumber(match.overnight_fees || match.overnight_fee || 0, 0),
-      taxes: asNumber(match.taxes || match.tax || 0, 0),
+      taxes: asNumber(match.iva_amount || match.taxes || match.tax || 0, 0),
       hidden_operator: match.hidden_operator ?? true,
       amenities: Array.isArray(match.amenities)
         ? match.amenities
@@ -522,11 +552,21 @@ function normalizeMatches(payload, itinerary = {}) {
       priority: match.priority || '',
       model: match.model || match.aircraft_model || aircraftRecord?.model || '',
       hourly_rate: hourlyRate || '',
-      total: pricing.hasFormulaInputs ? Number(pricing.total.toFixed(2)) : match.total || '',
-      subtotal: pricing.hasFormulaInputs ? Number(pricing.subtotal.toFixed(2)) : match.subtotal || '',
-      utility: pricing.hasFormulaInputs ? Number(pricing.utility.toFixed(2)) : match.utility || match.margin || '',
+      total: pricing.hasFormulaInputs
+        ? Number(pricing.total.toFixed(2))
+        : match.total || match.final_price || '',
+      subtotal: pricing.hasFormulaInputs
+        ? Number(pricing.subtotal.toFixed(2))
+        : match.subtotal || '',
+      utility: pricing.hasFormulaInputs
+        ? Number(pricing.utility.toFixed(2))
+        : match.utility || match.margin || '',
       margin_percent:
-        pricing.marginPercent || match.margin_percent || match.utility_percent || match.porcentaje_utilidad || '',
+        pricing.marginPercent ||
+        match.margin_percent ||
+        match.utility_percent ||
+        match.porcentaje_utilidad ||
+        '',
       fixed_fee: pricing.fixedFee || match.fixed_fee || match.fee_fijo || '',
       fixed_fee_total: pricing.hasFormulaInputs ? Number(pricing.fixedFeeTotal.toFixed(2)) : '',
       segment_count: pricing.segmentCount,
@@ -538,10 +578,24 @@ function normalizeMatches(payload, itinerary = {}) {
         aircraftRecord?.fuel_burn_gph ||
         '',
       engine_type: engineType,
-      speed_kmh: match.speed_kmh || match.speedKmh || aircraftRecord?.speed_kmh || aircraftRecord?.speedKmh || '',
+      speed_kmh:
+        match.speed_kmh ||
+        match.speedKmh ||
+        aircraftRecord?.speed_kmh ||
+        aircraftRecord?.speedKmh ||
+        '',
       speed_knots:
-        match.speed_knots || match.speedKnots || aircraftRecord?.speed_knots || aircraftRecord?.speedKnots || '',
-      minimum_hours: match.minimum_hours || match.min_hours || aircraftRecord?.minimum_hours || aircraftRecord?.min_hours || '',
+        match.speed_knots ||
+        match.speedKnots ||
+        aircraftRecord?.speed_knots ||
+        aircraftRecord?.speedKnots ||
+        '',
+      minimum_hours:
+        match.minimum_hours ||
+        match.min_hours ||
+        aircraftRecord?.minimum_hours ||
+        aircraftRecord?.min_hours ||
+        '',
       minimum_route_price:
         match.minimum_route_price ||
         match.min_route_price ||
@@ -549,17 +603,38 @@ function normalizeMatches(payload, itinerary = {}) {
         aircraftRecord?.min_route_price ||
         '',
       trip_support_fee:
-        match.trip_support_fee || match.trip_support || aircraftRecord?.trip_support_fee || aircraftRecord?.trip_support || '',
-      permits_fee: match.permits_fee || match.permits || aircraftRecord?.permits_fee || aircraftRecord?.permits || '',
+        match.trip_support_fee ||
+        match.trip_support ||
+        aircraftRecord?.trip_support_fee ||
+        aircraftRecord?.trip_support ||
+        '',
+      permits_fee:
+        match.permits_fee ||
+        match.permits ||
+        aircraftRecord?.permits_fee ||
+        aircraftRecord?.permits ||
+        '',
       handling_fee:
-        match.handling_fee || match.handling_fees || aircraftRecord?.handling_fee || aircraftRecord?.handling_fees || '',
+        match.handling_fee ||
+        match.handling_fees ||
+        aircraftRecord?.handling_fee ||
+        aircraftRecord?.handling_fees ||
+        '',
       catering_fee: match.catering_fee || aircraftRecord?.catering_fee || '',
       ground_transport_fee:
-        match.ground_transport_fee || match.ground_transfer_fee || aircraftRecord?.ground_transport_fee || '',
+        match.ground_transport_fee ||
+        match.ground_transfer_fee ||
+        aircraftRecord?.ground_transport_fee ||
+        '',
       wifi_fee: match.wifi_fee || aircraftRecord?.wifi_fee || '',
-      urgent_schedule_fee: match.urgent_schedule_fee || match.rush_fee || aircraftRecord?.urgent_schedule_fee || '',
+      urgent_schedule_fee:
+        match.urgent_schedule_fee || match.rush_fee || aircraftRecord?.urgent_schedule_fee || '',
       commercial_margin:
-        match.commercial_margin || match.margin_factor || aircraftRecord?.commercial_margin || aircraftRecord?.margin_factor || '',
+        match.commercial_margin ||
+        match.margin_factor ||
+        aircraftRecord?.commercial_margin ||
+        aircraftRecord?.margin_factor ||
+        '',
       priority_factor: match.priority_factor || aircraftRecord?.priority_factor || '',
       attention_level: normalizeAttentionLevel(match.attention_level || match.priority_level || ''),
       engine_reserve_rate:
@@ -596,7 +671,12 @@ function normalizeMatches(payload, itinerary = {}) {
       billable_hours: match.billable_hours || '',
       real_flight_hours: match.real_flight_hours || match.flight_hours || '',
       climb_descent_minutes: match.climb_descent_minutes || '',
-      registration: match.registration || match.matricula || aircraftRecord?.registration || aircraftRecord?.matricula || '',
+      registration:
+        match.registration ||
+        match.matricula ||
+        aircraftRecord?.registration ||
+        aircraftRecord?.matricula ||
+        '',
       image_url: imageUrl,
       images: aircraftImages,
       image_source_database: aircraftImages[0]?.sourceDatabase || '',
@@ -696,7 +776,9 @@ function normalizeAircraftImages(raw = {}) {
       return {
         id: imageRecord.id || `image-${index}`,
         title: imageRecord.title || imageRecord.name || imageRecord.kind || `Imagen ${index + 1}`,
-        kind: String(imageRecord.kind || imageRecord.slot || (index === 0 ? 'main' : 'gallery')).toLowerCase(),
+        kind: String(
+          imageRecord.kind || imageRecord.slot || (index === 0 ? 'main' : 'gallery'),
+        ).toLowerCase(),
         imageUrl,
         sourceDatabase:
           imageRecord.source_database ||
@@ -775,7 +857,9 @@ function airportLookupTokens(value = '', airport = null) {
       .map((item) => normalizeText(item))
       .filter(Boolean)
 
-    const matchesAirport = airportTokens.some((token) => token === normalizedValue || tokens.has(token))
+    const matchesAirport = airportTokens.some(
+      (token) => token === normalizedValue || tokens.has(token),
+    )
     if (!matchesAirport) return
 
     airportTokens.forEach((token) => tokens.add(token))
@@ -817,7 +901,9 @@ function findMatchingCatalogAircraft(match = {}, catalog = []) {
   if (!matchValues.size) return null
 
   return (
-    catalog.find((aircraft) => aircraftLookupValues(aircraft).some((value) => matchValues.has(value))) || null
+    catalog.find((aircraft) =>
+      aircraftLookupValues(aircraft).some((value) => matchValues.has(value)),
+    ) || null
   )
 }
 
@@ -854,7 +940,8 @@ function mergeMatchesWithCatalogImages(matches = [], catalog = []) {
       minimum_route_price: match.minimum_route_price || catalogAircraft.minimum_route_price || '',
       speed_kmh: match.speed_kmh || catalogAircraft.speed_kmh || '',
       speed_knots: match.speed_knots || catalogAircraft.speed_knots || '',
-      climb_descent_minutes: match.climb_descent_minutes || catalogAircraft.climb_descent_minutes || '',
+      climb_descent_minutes:
+        match.climb_descent_minutes || catalogAircraft.climb_descent_minutes || '',
       image_url: catalogAircraft.image_url || match.image_url,
       images,
       image_source_database: catalogAircraft.image_source_database || match.image_source_database,
@@ -863,7 +950,9 @@ function mergeMatchesWithCatalogImages(matches = [], catalog = []) {
       source_table: catalogAircraft.source_table || match.source_table,
       source_endpoint: catalogAircraft.source_endpoint || match.source_endpoint,
       source_origin: catalogAircraft.source_origin || match.source_origin,
-      match_reason: catalogAircraft.source_origin ? catalogAircraft.match_reason : match.match_reason,
+      match_reason: catalogAircraft.source_origin
+        ? catalogAircraft.match_reason
+        : match.match_reason,
       status: match.status || catalogAircraft.status,
     }
   })
@@ -904,17 +993,29 @@ function normalizeAircraftFromDatabase(raw = {}, index = 0, sourcePath = '') {
     aircraft: aircraftName,
     cabin: raw.category || raw.aircraft_category || raw.type || raw.cabin || 'Cabina verificada',
     time: raw.estimated_time || raw.flight_time || '',
-    final_price: asMoney(raw.final_price || raw.price || raw.quoted_price || hourlyRate),
-    base_price: asNumber(raw.base_price || raw.final_price || raw.price || raw.quoted_price || hourlyRate || 0),
-    priority_type: normalizePriorityType(raw.priority_type || raw.service_tier || raw.flight_package),
+    final_price: asMoney(
+      raw.final_price || raw.total || raw.price || raw.quoted_price || hourlyRate,
+    ),
+    base_price: asNumber(
+      raw.flight_base ||
+        raw.base_price ||
+        raw.final_price ||
+        raw.price ||
+        raw.quoted_price ||
+        hourlyRate ||
+        0,
+    ),
+    priority_type: normalizePriorityType(
+      raw.priority_type || raw.service_tier || raw.flight_package,
+    ),
     priority_multiplier: asNumber(raw.priority_multiplier || raw.service_multiplier || 1, 1),
     priority_price: asNumber(raw.priority_price || 0, 0),
     landing_fees: asNumber(raw.landing_fees || raw.landing_fee || 0, 0),
     fbo_fees: asNumber(raw.fbo_fees || raw.fbo || 0, 0),
     fuel_surcharge: asNumber(raw.fuel_surcharge || 0, 0),
-    expense_fee: asNumber(raw.expense_fee || 0, 0),
+    expense_fee: asNumber(raw.expense_fee || raw.airport_expenses || 0, 0),
     overnight_fees: asNumber(raw.overnight_fees || raw.overnight_fee || 0, 0),
-    taxes: asNumber(raw.taxes || raw.tax || 0, 0),
+    taxes: asNumber(raw.iva_amount || raw.taxes || raw.tax || 0, 0),
     hidden_operator: true,
     amenities: normalizeAmenities(raw),
     response_time: raw.response_time || '',
@@ -953,7 +1054,12 @@ function normalizeAircraftFromDatabase(raw = {}, index = 0, sourcePath = '') {
     provider: raw.provider || null,
     image_url: images[0]?.imageUrl || '',
     images,
-    image_source_database: images[0]?.sourceDatabase || raw.source_database || raw.database || raw.connection || 'aircraft',
+    image_source_database:
+      images[0]?.sourceDatabase ||
+      raw.source_database ||
+      raw.database ||
+      raw.connection ||
+      'aircraft',
     image_source_table: images[0]?.sourceTable || 'aircraft_images',
     source_database: raw.source_database || raw.database || raw.connection || 'aircraft',
     source_table: raw.source_table || raw.table || 'aircraft',
@@ -1003,14 +1109,25 @@ function filterAircraftByItinerary(aircraft = [], itinerary = {}) {
   const originAirport = firstLeg.originAirport || itinerary.originAirport || null
   const hasOrigin = Boolean(String(originRaw || '').trim())
   const passengers = Number(itinerary.passengers || 0)
-  const activeStatuses = new Set(['', 'active', 'trial_active', 'approved', 'aprobada', 'available', 'disponible'])
+  const activeStatuses = new Set([
+    '',
+    'active',
+    'trial_active',
+    'approved',
+    'aprobada',
+    'available',
+    'disponible',
+  ])
 
   const filteredAircraft = aircraft
     .filter((item) => {
       const status = normalizeText(item.status).toLowerCase()
       return activeStatuses.has(status)
     })
-    .filter((item) => !passengers || !Number(item.capacity || 0) || Number(item.capacity || 0) >= passengers)
+    .filter(
+      (item) =>
+        !passengers || !Number(item.capacity || 0) || Number(item.capacity || 0) >= passengers,
+    )
     .map((item) => {
       const baseAirportMatches = airportBaseMatches(originRaw, item.source_origin, originAirport)
 
@@ -1020,7 +1137,10 @@ function filterAircraftByItinerary(aircraft = [], itinerary = {}) {
         base_airport_match: baseAirportMatches,
         match_reason: baseAirportMatches
           ? `Coincide con base_airport ${item.source_origin}`
-          : item.match_reason || (item.source_origin ? `Salida optimizada desde ${item.source_origin}` : 'Opción verificada'),
+          : item.match_reason ||
+            (item.source_origin
+              ? `Salida optimizada desde ${item.source_origin}`
+              : 'Opción verificada'),
       }
     })
     .sort((first, second) => {
@@ -1055,7 +1175,9 @@ function formatDurationFromHours(hours = 0) {
 function buildCatalogFallbackQuotes(catalog = [], itinerary = {}) {
   const filteredCatalog = filterAircraftByItinerary(catalog, itinerary)
   const packageCode = normalizePriorityType(itinerary.priority_type || itinerary.flight_package)
-  const attentionLevel = normalizeAttentionLevel(itinerary.attention_level || itinerary.priority_level || '')
+  const attentionLevel = normalizeAttentionLevel(
+    itinerary.attention_level || itinerary.priority_level || '',
+  )
   const overnightNights = itinerary.overnight_nights || itinerary.days || 0
 
   return filteredCatalog
@@ -1065,7 +1187,9 @@ function buildCatalogFallbackQuotes(catalog = [], itinerary = {}) {
         priorityType: packageCode,
         attentionLevel,
         tripType: itinerary.trip_type || itinerary.trip_label || '',
-        segmentCount: Array.isArray(itinerary.legs) ? itinerary.legs.length : itinerary.segment_count || itinerary.segments || 0,
+        segmentCount: Array.isArray(itinerary.legs)
+          ? itinerary.legs.length
+          : itinerary.segment_count || itinerary.segments || 0,
         overnightNights,
         legs: itinerary.legs || [],
         origin: itinerary.origin || '',
@@ -1084,16 +1208,23 @@ function buildCatalogFallbackQuotes(catalog = [], itinerary = {}) {
       )
       const basePrice = pricing.baseCost > 0 ? pricing.baseCost : fallbackBasePrice
       const finalPrice = pricing.finalPrice > 0 ? pricing.finalPrice : fallbackFinalPrice
-      const billableHours = pricing.billableHours > 0 ? pricing.billableHours : asNumber(aircraft.billable_hours)
+      const billableHours =
+        pricing.billableHours > 0 ? pricing.billableHours : asNumber(aircraft.billable_hours)
       const estimatedHours =
         pricing.realFlightHours > 0
           ? pricing.realFlightHours
-          : asNumber(aircraft.real_flight_hours || aircraft.flight_hours || aircraft.estimated_hours)
+          : asNumber(
+              aircraft.real_flight_hours || aircraft.flight_hours || aircraft.estimated_hours,
+            )
 
       if (!finalPrice) return null
 
       if (typeof console !== 'undefined') {
-        const aircraftLabel = aircraft.aircraft || aircraft.model || aircraft.cabin || `Aeronave ${aircraft.id || ''}`.trim()
+        const aircraftLabel =
+          aircraft.aircraft ||
+          aircraft.model ||
+          aircraft.cabin ||
+          `Aeronave ${aircraft.id || ''}`.trim()
         const quoteLines = [
           `[Cotizador mercado] ${aircraftLabel}`,
           `- Vuelo base: ${Number(basePrice.toFixed(2))}`,
@@ -1113,46 +1244,73 @@ function buildCatalogFallbackQuotes(catalog = [], itinerary = {}) {
         base_price: basePrice,
         final_price: asMoney(finalPrice),
         priority_type: packageCode || aircraft.priority_type || 'essential',
-        priority_multiplier: pricing.commercialMargin > 0 ? pricing.commercialMargin : asNumber(aircraft.priority_multiplier || 1, 1),
+        priority_multiplier:
+          pricing.commercialMargin > 0
+            ? pricing.commercialMargin
+            : asNumber(aircraft.priority_multiplier || 1, 1),
         priority_price:
           pricing.finalPrice > 0 && pricing.subtotalBeforeMultipliers > 0
             ? Math.max(pricing.finalPrice - pricing.subtotalBeforeMultipliers, 0)
             : asNumber(aircraft.priority_price || 0, 0),
-        operational_cost: pricing.operationalCosts > 0 ? pricing.operationalCosts : asNumber(aircraft.operational_cost),
-        repositioning_fee: pricing.repositioning > 0 ? pricing.repositioning : asNumber(aircraft.repositioning_fee),
+        operational_cost:
+          pricing.operationalCosts > 0
+            ? pricing.operationalCosts
+            : asNumber(aircraft.operational_cost),
+        repositioning_fee:
+          pricing.repositioning > 0 ? pricing.repositioning : asNumber(aircraft.repositioning_fee),
         taxes: pricing.ivaAmount > 0 ? pricing.ivaAmount : asNumber(aircraft.taxes || aircraft.tax),
         time: aircraft.time || formatDurationFromHours(estimatedHours),
         estimated_hours: estimatedHours || '',
         billable_hours: billableHours || '',
         real_flight_hours:
-          pricing.realFlightHours > 0 ? pricing.realFlightHours : asNumber(aircraft.real_flight_hours) || '',
-        minimum_hours: pricing.minimumHours > 0 ? pricing.minimumHours : aircraft.minimum_hours || '',
+          pricing.realFlightHours > 0
+            ? pricing.realFlightHours
+            : asNumber(aircraft.real_flight_hours) || '',
+        minimum_hours:
+          pricing.minimumHours > 0 ? pricing.minimumHours : aircraft.minimum_hours || '',
         climb_descent_minutes:
-          pricing.climbDescentMinutes > 0 ? pricing.climbDescentMinutes : asNumber(aircraft.climb_descent_minutes) || '',
-        minimum_route_price: pricing.minimumRoutePrice > 0 ? pricing.minimumRoutePrice : aircraft.minimum_route_price || '',
+          pricing.climbDescentMinutes > 0
+            ? pricing.climbDescentMinutes
+            : asNumber(aircraft.climb_descent_minutes) || '',
+        minimum_route_price:
+          pricing.minimumRoutePrice > 0
+            ? pricing.minimumRoutePrice
+            : aircraft.minimum_route_price || '',
         route_band: pricing.routeBand?.code || '',
         route_multiplier: pricing.routeBand?.multiplier || 1,
         commercial_margin:
-          pricing.commercialMargin > 0 ? pricing.commercialMargin : asNumber(aircraft.commercial_margin, 1),
+          pricing.commercialMargin > 0
+            ? pricing.commercialMargin
+            : asNumber(aircraft.commercial_margin, 1),
         priority_factor:
-          pricing.priorityFactor > 0 ? pricing.priorityFactor : asNumber(aircraft.priority_factor, 1),
+          pricing.priorityFactor > 0
+            ? pricing.priorityFactor
+            : asNumber(aircraft.priority_factor, 1),
         subtotal_before_multipliers:
           pricing.subtotalBeforeMultipliers > 0
             ? pricing.subtotalBeforeMultipliers
             : asNumber(aircraft.subtotal_before_multipliers),
         extra_services_total:
-          pricing.extraServicesTotal > 0 ? pricing.extraServicesTotal : asNumber(aircraft.extra_services_total),
+          pricing.extraServicesTotal > 0
+            ? pricing.extraServicesTotal
+            : asNumber(aircraft.extra_services_total),
         source_table: aircraft.source_table || 'catalog_fallback_quote',
         match_reason: aircraft.match_reason || 'Cotizacion generada desde la base de salida',
       }
     })
     .filter(Boolean)
-    .sort((first, second) => asNumber(first.base_airport_match ? 0 : 1) - asNumber(second.base_airport_match ? 0 : 1) || basePriceSort(first, second))
+    .sort(
+      (first, second) =>
+        asNumber(first.base_airport_match ? 0 : 1) - asNumber(second.base_airport_match ? 0 : 1) ||
+        basePriceSort(first, second),
+    )
 }
 
 function basePriceSort(first = {}, second = {}) {
-  return asNumber(first.base_price || first.final_price, Number.MAX_SAFE_INTEGER) -
+  return (
+    asNumber(first.base_price || first.final_price, Number.MAX_SAFE_INTEGER) -
     asNumber(second.base_price || second.final_price, Number.MAX_SAFE_INTEGER)
+  )
 }
 
 function normalizeFlightPackage(flightPackage = {}, index = 0) {
@@ -1168,25 +1326,39 @@ function normalizeFlightPackage(flightPackage = {}, index = 0) {
 
   return {
     id: flightPackage.id || flightPackage.code || `package-${index}`,
-    code: normalizePriorityType(flightPackage.code || flightPackage.id || flightPackage.slug || flightPackage.name),
+    code: normalizePriorityType(
+      flightPackage.code || flightPackage.id || flightPackage.slug || flightPackage.name,
+    ),
     name: flightPackage.name || flightPackage.title || `Paquete ${index + 1}`,
     badge: flightPackage.badge || flightPackage.code || '',
     category: flightPackage.category || flightPackage.segment || 'Servicio privado',
-    price: flightPackage.price || asMoney(flightPackage.price_total || flightPackage.price_from || ''),
-    multiplier: asNumber(flightPackage.multiplier || flightPackage.priority_multiplier || flightPackage.factor || 1, 1),
+    price:
+      flightPackage.price || asMoney(flightPackage.price_total || flightPackage.price_from || ''),
+    multiplier: asNumber(
+      flightPackage.multiplier || flightPackage.priority_multiplier || flightPackage.factor || 1,
+      1,
+    ),
     benefits,
     action: flightPackage.action || 'Elegir paquete',
   }
 }
 
 function isFlightPackageRecord(flightPackage = {}) {
-  const normalizedName = String(flightPackage.name || flightPackage.title || '').trim().toLowerCase()
-  const normalizedCode = String(flightPackage.code || flightPackage.id || '').trim().toLowerCase()
-  const normalizedCategory = String(flightPackage.category || flightPackage.segment || '').trim().toLowerCase()
+  const normalizedName = String(flightPackage.name || flightPackage.title || '')
+    .trim()
+    .toLowerCase()
+  const normalizedCode = String(flightPackage.code || flightPackage.id || '')
+    .trim()
+    .toLowerCase()
+  const normalizedCategory = String(flightPackage.category || flightPackage.segment || '')
+    .trim()
+    .toLowerCase()
 
   if (DEFAULT_FLIGHT_PACKAGE_NAMES.has(normalizedName)) return true
-  if (['empty-leg', 'empty_leg', 'essential', 'business', 'elite'].includes(normalizedCode)) return true
-  if (normalizedCategory.includes('servicio') || normalizedCategory.includes('flight package')) return true
+  if (['empty-leg', 'empty_leg', 'essential', 'business', 'elite'].includes(normalizedCode))
+    return true
+  if (normalizedCategory.includes('servicio') || normalizedCategory.includes('flight package'))
+    return true
 
   return false
 }
@@ -1203,34 +1375,76 @@ function normalizeWorkflowToken(value = '') {
 
 function listRequestMatches(request = {}) {
   const collections = [request.matches, request.matched_options]
-  return collections.flatMap((items) => (Array.isArray(items) ? items.filter((item) => item && typeof item === 'object') : []))
+  return collections.flatMap((items) =>
+    Array.isArray(items) ? items.filter((item) => item && typeof item === 'object') : [],
+  )
 }
 
 function pickAcceptedRequestMatch(request = {}) {
-  return listRequestMatches(request).find((match) => {
-    const normalizedStatus = normalizeWorkflowToken(match.status || match.workflow_status || match.state)
-    return ['accepted', 'aceptada', 'aceptado', 'approved', 'aprobada', 'matched'].includes(normalizedStatus)
-  }) || null
+  return (
+    listRequestMatches(request).find((match) => {
+      const normalizedStatus = normalizeWorkflowToken(
+        match.status || match.workflow_status || match.state,
+      )
+      return ['accepted', 'aceptada', 'aceptado', 'approved', 'aprobada', 'matched'].includes(
+        normalizedStatus,
+      )
+    }) || null
+  )
 }
 
 function pickPreferredClientMatch(request = {}) {
   const matches = listRequestMatches(request)
   if (!matches.length) return null
 
+  const assignedMatchId = request.match_id || request.matched_option_id || null
+  if (assignedMatchId) {
+    const exactMatch = matches.find(
+      (match) =>
+        String(match?.match_id || match?.matched_option_id || match?.id || '') ===
+        String(assignedMatchId),
+    )
+    if (exactMatch) return exactMatch
+  }
+
   const assignedAircraftId = request.assigned_aircraft_id || request.aircraft_id || null
   if (assignedAircraftId) {
-    const assignedMatch = matches.find((match) => String(match?.aircraft_id || match?.aircraft?.id || '') === String(assignedAircraftId))
+    const assignedMatch = matches.find(
+      (match) =>
+        String(match?.aircraft_id || match?.aircraft?.id || '') === String(assignedAircraftId),
+    )
     if (assignedMatch) return assignedMatch
+  }
+
+  const assignedAircraftModel = String(
+    request.assigned_aircraft_model || request.aircraft_model || request.aircraft_name || '',
+  ).trim()
+  if (assignedAircraftModel) {
+    const modelMatch = matches.find((match) => {
+      const matchModel = String(
+        match?.aircraft_model ||
+          match?.model ||
+          match?.visibility_payload?.aircraft_model ||
+          match?.aircraft?.model ||
+          '',
+      ).trim()
+
+      return matchModel && matchModel.toLowerCase() === assignedAircraftModel.toLowerCase()
+    })
+    if (modelMatch) return modelMatch
   }
 
   return pickAcceptedRequestMatch(request) || matches[0]
 }
 
-function deriveClientWorkflowStatus(request = {}) {
+export function deriveClientWorkflowStatus(request = {}) {
   const rawWorkflow = request.workflow_status || request.workflow || request.status || ''
   const normalizedWorkflow = normalizeWorkflowToken(rawWorkflow)
-  const hasAssignedProvider = Boolean(request.assigned_provider_id || request.provider_id)
-  const hasAssignedAircraft = Boolean(request.assigned_aircraft_id || request.aircraft_id)
+  const hasExplicitAssignedProvider = Boolean(request.assigned_provider_id)
+  const hasExplicitAssignedAircraft = Boolean(request.assigned_aircraft_id)
+  const hasSelectedProvider = Boolean(request.provider_id)
+  const hasSelectedAircraft = Boolean(request.aircraft_id)
+  const hasSelectedMatch = Boolean(request.match_id || request.matched_option_id)
   const hasOperation = Boolean(request.operation?.id || request.operation_id)
   const acceptedMatch = pickAcceptedRequestMatch(request)
   const hasAcceptedMatch = Boolean(acceptedMatch)
@@ -1256,7 +1470,6 @@ function deriveClientWorkflowStatus(request = {}) {
     'aprobado',
     'provider accepted',
     'provider_accepted',
-    'operador asignado',
     'operador confirmado',
     'matched',
   ])
@@ -1271,7 +1484,10 @@ function deriveClientWorkflowStatus(request = {}) {
     'in validation',
     'en validacion',
     'revision operativa',
+    'operador asignado',
   ])
+
+  const genericConfirmedSignals = new Set(['confirmada', 'confirmado'])
 
   if (contractOrLaterStates.has(normalizedWorkflow)) {
     return rawWorkflow
@@ -1285,18 +1501,30 @@ function deriveClientWorkflowStatus(request = {}) {
     return 'contract_pending'
   }
 
-  if ((hasAssignedProvider || hasAssignedAircraft) && !normalizedWorkflow) {
-    return 'provider_accepted'
+  if (providerPendingSignals.has(normalizedWorkflow)) {
+    return 'provider_pending'
   }
 
-  if (providerPendingSignals.has(normalizedWorkflow)) {
+  if (genericConfirmedSignals.has(normalizedWorkflow)) {
+    if (hasAcceptedMatch || hasExplicitAssignedProvider || hasExplicitAssignedAircraft) {
+      return 'provider_accepted'
+    }
+
+    return 'provider_pending'
+  }
+
+  if ((hasSelectedProvider || hasSelectedAircraft || hasSelectedMatch) && !normalizedWorkflow) {
+    return 'provider_pending'
+  }
+
+  if ((hasExplicitAssignedProvider || hasExplicitAssignedAircraft) && !normalizedWorkflow) {
     return 'provider_pending'
   }
 
   return rawWorkflow
 }
 
-function normalizeTrip(request = {}) {
+export function normalizeTrip(request = {}) {
   const legs = Array.isArray(request.legs)
     ? request.legs
         .map((leg) => ({
@@ -1327,10 +1555,67 @@ function normalizeTrip(request = {}) {
         .filter((leg) => leg.origin && leg.destination)
     : []
   const route = legs.length
-    ? legs.map((leg, index) => (index === 0 ? `${leg.origin} -> ${leg.destination}` : leg.destination)).join(' -> ')
+    ? legs
+        .map((leg, index) =>
+          index === 0 ? `${leg.origin} -> ${leg.destination}` : leg.destination,
+        )
+        .join(' -> ')
     : [request.origin, request.destination].filter(Boolean).join(' -> ')
   const preferredMatch = pickPreferredClientMatch(request)
-  const aircraftRecord = preferredMatch?.aircraft || {}
+  const snapshotRecord =
+    request.aircraft_snapshot && typeof request.aircraft_snapshot === 'object'
+      ? request.aircraft_snapshot
+      : {}
+  const visibilityAircraftRecord =
+    request.visibility_payload?.aircraft && typeof request.visibility_payload.aircraft === 'object'
+      ? request.visibility_payload.aircraft
+      : {}
+  const pricingContext =
+    request.pricing_context && typeof request.pricing_context === 'object'
+      ? request.pricing_context
+      : null
+  const aircraftRecord =
+    (Object.keys(snapshotRecord).length ? snapshotRecord : null) ||
+    (Object.keys(visibilityAircraftRecord).length ? visibilityAircraftRecord : null) ||
+    preferredMatch?.aircraft ||
+    {}
+  const resolvedFinalPrice = asNumber(
+    request.final_price ||
+      request.total ||
+      request.estimated_total ||
+      request.final_price_display ||
+      request.formatted_final_price ||
+      pricingContext?.total ||
+      pricingContext?.final_price ||
+      snapshotRecord?.total ||
+      snapshotRecord?.final_price ||
+      preferredMatch?.total ||
+      preferredMatch?.final_price ||
+      preferredMatch?.price,
+    0,
+  )
+  const resolvedBasePrice = asNumber(
+    request.base_price ||
+      request.flight_base ||
+      preferredMatch?.base_price ||
+      preferredMatch?.flight_base,
+    0,
+  )
+  const resolvedAircraftModel = String(
+    request.assigned_aircraft_model ||
+      request.aircraft_model ||
+      request.aircraft_name ||
+      snapshotRecord?.aircraft_model ||
+      snapshotRecord?.aircraft ||
+      snapshotRecord?.model ||
+      preferredMatch?.visibility_payload?.aircraft_model ||
+      request.visibility_payload?.aircraft_model ||
+      aircraftRecord?.model ||
+      aircraftRecord?.name ||
+      aircraftRecord?.aircraft ||
+      aircraftRecord?.category ||
+      '',
+  ).trim()
 
   return {
     id: request.id || '',
@@ -1342,9 +1627,17 @@ function normalizeTrip(request = {}) {
     created_at: request.created_at || request.createdAt || '',
     updated_at: request.updated_at || request.updatedAt || '',
     assigned_aircraft_id:
-      request.assigned_aircraft_id || request.aircraft_id || preferredMatch?.aircraft_id || aircraftRecord?.id || '',
+      request.assigned_aircraft_id ||
+      request.aircraft_id ||
+      preferredMatch?.aircraft_id ||
+      aircraftRecord?.id ||
+      '',
     assigned_provider_id:
-      request.assigned_provider_id || request.provider_id || preferredMatch?.provider_id || aircraftRecord?.provider_id || '',
+      request.assigned_provider_id ||
+      request.provider_id ||
+      preferredMatch?.provider_id ||
+      aircraftRecord?.provider_id ||
+      '',
     status: request.status || '',
     workflow_status: deriveClientWorkflowStatus(request),
     trip_type: request.trip_type || '',
@@ -1358,12 +1651,35 @@ function normalizeTrip(request = {}) {
     overnight_nights: Number(request.overnight_nights || request.days || 0) || 0,
     legs,
     requirements,
-    estimated_total: preferredMatch?.total ? asMoney(preferredMatch.total) : '',
-    aircraft: request.aircraft_model || aircraftRecord?.model || aircraftRecord?.category || '',
-    aircraft_category: request.aircraft_category || aircraftRecord?.category || '',
-    aircraft_capacity: request.aircraft_capacity || aircraftRecord?.capacity || '',
-    aircraft_image: request.aircraft_image || aircraftRecord?.main_image || aircraftRecord?.images?.[0]?.image_url || '',
-    amenities: Array.isArray(aircraftRecord?.amenities) ? aircraftRecord.amenities : [],
+    estimated_total: resolvedFinalPrice > 0 ? asMoney(resolvedFinalPrice) : '',
+    final_price: resolvedFinalPrice,
+    final_price_display: resolvedFinalPrice > 0 ? asMoney(resolvedFinalPrice) : '',
+    formatted_final_price: resolvedFinalPrice > 0 ? asMoney(resolvedFinalPrice) : '',
+    base_price: resolvedBasePrice,
+    pricing_context: pricingContext,
+    aircraft_snapshot: Object.keys(snapshotRecord).length ? snapshotRecord : null,
+    aircraft: resolvedAircraftModel,
+    aircraft_category:
+      request.aircraft_category ||
+      snapshotRecord?.cabin ||
+      snapshotRecord?.category ||
+      aircraftRecord?.category ||
+      '',
+    aircraft_capacity:
+      request.aircraft_capacity || snapshotRecord?.capacity || aircraftRecord?.capacity || '',
+    aircraft_image:
+      request.aircraft_image ||
+      snapshotRecord?.main_image ||
+      snapshotRecord?.image ||
+      snapshotRecord?.images?.[0]?.image_url ||
+      aircraftRecord?.main_image ||
+      aircraftRecord?.images?.[0]?.image_url ||
+      '',
+    amenities: Array.isArray(snapshotRecord?.amenities)
+      ? snapshotRecord.amenities
+      : Array.isArray(aircraftRecord?.amenities)
+        ? aircraftRecord.amenities
+        : [],
     operator:
       request.operator ||
       request.provider_name ||
@@ -1391,7 +1707,7 @@ function tripSortValue(trip = {}) {
   return 0
 }
 
-function buildFlightRequestPayload(itinerary = {}) {
+export function buildFlightRequestPayload(itinerary = {}) {
   const normalizedLegs = Array.isArray(itinerary.legs)
     ? itinerary.legs
         .map((leg) => {
@@ -1415,12 +1731,27 @@ function buildFlightRequestPayload(itinerary = {}) {
   const tripType = normalizeTripType(itinerary.trip_type, itinerary.trip_label)
   const flightPackage = String(itinerary.flight_package || itinerary.service_tier || '').trim()
   const priorityType = normalizePriorityType(itinerary.priority_type || flightPackage)
-  const attentionLevel = normalizeAttentionLevel(itinerary.attention_level || itinerary.priority_level || '')
+  const attentionLevel = normalizeAttentionLevel(
+    itinerary.attention_level || itinerary.priority_level || '',
+  )
   const priorityMultiplier = asNumber(itinerary.priority_multiplier || 1, 1)
-  const basePrice = asNumber(itinerary.base_price || 0, 0)
-  const operationalFee = asNumber(itinerary.operational_fee || 0, 0)
+  const basePrice = asNumber(itinerary.flight_base || itinerary.base_price || 0, 0)
+  const operationalFee = asNumber(itinerary.expense_fee || itinerary.operational_fee || 0, 0)
   const priorityPrice = asNumber(itinerary.priority_price || 0, 0)
-  const finalPrice = asNumber(itinerary.final_price || 0, 0)
+  const finalPrice = asNumber(itinerary.total || itinerary.final_price || 0, 0)
+  const subtotalBeforeMultipliers = asNumber(
+    itinerary.subtotal || itinerary.subtotal_before_multipliers || basePrice,
+    0,
+  )
+  const selectedAircraftModel = String(
+    itinerary.assigned_aircraft_model ||
+      itinerary.aircraft_model ||
+      itinerary.aircraft_name ||
+      itinerary.aircraft ||
+      itinerary.model ||
+      itinerary.preference ||
+      '',
+  ).trim()
   const pricingContext =
     itinerary.pricing_context && typeof itinerary.pricing_context === 'object'
       ? itinerary.pricing_context
@@ -1441,13 +1772,18 @@ function buildFlightRequestPayload(itinerary = {}) {
             billableHours: itinerary.billable_hours,
             realFlightHours: itinerary.real_flight_hours,
             minimumHours: itinerary.minimum_hours,
+            flightBase: basePrice,
             basePrice,
             repositioning: itinerary.repositioning_cost || itinerary.repositioning_fee,
+            expenseFee: operationalFee,
+            ivaAmount: itinerary.iva_amount || itinerary.taxes || itinerary.tax,
+            subtotal: itinerary.subtotal || itinerary.subtotal_before_multipliers,
             operationalCostBreakdown: operationalFee,
             extraServicesTotal: itinerary.extra_services_total,
             subtotalBeforeMultipliers: itinerary.subtotal_before_multipliers,
             commercialMargin: itinerary.commercial_margin || priorityMultiplier,
             attentionFactor: itinerary.priority_factor,
+            total: finalPrice,
             finalPrice,
           },
           itinerary.aircraft_snapshot || itinerary,
@@ -1461,7 +1797,10 @@ function buildFlightRequestPayload(itinerary = {}) {
     passengers: Number(itinerary.passengers) || 1,
     trip_type: tripType,
     trip_label: itinerary.trip_label || 'Ida',
-    aircraft_type: itinerary.preference || null,
+    aircraft_type: selectedAircraftModel || itinerary.preference || null,
+    aircraft_model: selectedAircraftModel || null,
+    assigned_aircraft_model: selectedAircraftModel || null,
+    aircraft_name: selectedAircraftModel || null,
     aircraft_id: itinerary.aircraft_id || null,
     provider_id: itinerary.provider_id || null,
     match_id: itinerary.match_id || itinerary.matched_option_id || null,
@@ -1474,7 +1813,11 @@ function buildFlightRequestPayload(itinerary = {}) {
     base_price: basePrice || null,
     operational_fee: operationalFee || null,
     priority_price: priorityPrice,
+    subtotal: subtotalBeforeMultipliers || null,
+    estimated_total: finalPrice || null,
+    total: finalPrice || null,
     final_price: finalPrice || null,
+    selected_card_price: asNumber(itinerary.selected_card_price || finalPrice || 0, 0) || null,
     pricing_formula_version: pricingContext.pricing_formula_version,
     pricing_context: pricingContext,
     commercial_margin: pricingContext.commercial_margin || null,
@@ -1487,10 +1830,18 @@ function buildFlightRequestPayload(itinerary = {}) {
     subtotal_before_multipliers: pricingContext.subtotal_before_multipliers || null,
     source_database: itinerary.source_database || null,
     source_table: itinerary.source_table || null,
+    aircraft_snapshot:
+      itinerary.aircraft_snapshot && typeof itinerary.aircraft_snapshot === 'object'
+        ? itinerary.aircraft_snapshot
+        : null,
     requirements: normalizedLegs.length > 1 ? normalizedLegs.slice(1) : [],
     pets: itinerary.pets || null,
     special_baggage: itinerary.special_baggage || itinerary.specialBaggage || null,
-    overnight_nights: pricingContext.extras?.overnight_nights || itinerary.overnight_nights || itinerary.days || null,
+    overnight_nights:
+      pricingContext.extras?.overnight_nights ||
+      itinerary.overnight_nights ||
+      itinerary.days ||
+      null,
     notes: [
       itinerary.trip_label || tripType || '',
       flightPackage || priorityType,
@@ -1519,8 +1870,12 @@ export async function getClientFlightPackages() {
     }
 
     const payload = await api.get(CLIENT_FLIGHT_PACKAGES_PATH)
-    const packages = normalizeArray(payload, ['packages', 'flight_packages', 'plans', 'memberships'])
-      .filter(isFlightPackageRecord)
+    const packages = normalizeArray(payload, [
+      'packages',
+      'flight_packages',
+      'plans',
+      'memberships',
+    ]).filter(isFlightPackageRecord)
 
     if (!packages.length) {
       return FALLBACK_FLIGHT_PACKAGES.map(normalizeFlightPackage)
@@ -1567,11 +1922,7 @@ export async function searchClientFlights(itinerary) {
           item.aircraft_category ||
           `Aeronave ${index + 1}`
         const basePrice = Number(item.base_price || 0)
-        const overnightCost = Number(
-          item.pricing_breakdown?.overnight ||
-            item.overnight_fees ||
-            0,
-        )
+        const overnightCost = Number(item.pricing_breakdown?.overnight || item.overnight_fees || 0)
         const expenseFee = Number(item.expense_fee || 0)
         const ivaAmount = Number(item.taxes || item.tax || 0)
         const finalPrice = Number(item.total || item.final_price || 0)

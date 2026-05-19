@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { requestWithCandidates, pickCollection, pickRecord } from '../../lib/backendCrud'
 import { resolveMediaUrl } from '../../lib/api'
@@ -8,7 +8,7 @@ import OperatorCrewSection from './OperatorCrewSection.vue'
 import { useAuthStore } from '../../stores/auth'
 import { useUiStore } from '../../stores/ui'
 
-defineProps({
+const props = defineProps({
   section: { type: String, required: true },
 })
 
@@ -17,8 +17,11 @@ const auth = useAuthStore()
 const ui = useUiStore()
 
 const loading = ref(false)
+const refreshingRequests = ref(false)
 const portalLoadSequence = ref(0)
 let portalLoadScheduled = false
+const OPERATOR_REQUESTS_POLL_INTERVAL_MS = 15000
+let requestsPollTimer = null
 const companyId = ref(null)
 const settings = reactive({
   emailNotifications: false,
@@ -90,6 +93,7 @@ const aircraftForm = reactive({
   manufacturer: '',
   category: '',
   engineType: '',
+  engineClass: '',
   registration: '',
   year: '',
   capacity: 1,
@@ -97,6 +101,7 @@ const aircraftForm = reactive({
   amenities: '',
   base: '',
   coverage: '',
+  airportExpensesUsd: '',
   hourlyPrice: '',
   minimumHours: '',
   operationalCost: '',
@@ -222,6 +227,33 @@ const aircraftCategoryOptions = [
   { value: 'Mid Jet', label: 'Mid Jet' },
   { value: 'Heavy Jet', label: 'Heavy Jet' },
 ]
+const aircraftCategoryRules = {
+  TURBOPROP: {
+    engineType: 'turboprop',
+    engineClass: 'TURBOPROP',
+    airportExpensesUsd: 600,
+  },
+  'LIGHT JET': {
+    engineType: 'turbofan',
+    engineClass: 'LIGHT_JET',
+    airportExpensesUsd: 800,
+  },
+  'MID JET': {
+    engineType: 'turbofan',
+    engineClass: 'MIDSIZE_JET',
+    airportExpensesUsd: 1000,
+  },
+  'HEAVY JET': {
+    engineType: 'turbofan',
+    engineClass: 'HEAVY_JET',
+    airportExpensesUsd: 2000,
+  },
+  HELICOPTERO: {
+    engineType: 'turboshaft',
+    engineClass: 'HELICOPTER',
+    airportExpensesUsd: 700,
+  },
+}
 const aircraftDocumentTypes = [
   { id: 'maintenance_sticker', label: 'Sticker de mantenimiento', requiresExpiry: false, accepts: ['image', 'pdf'] },
   { id: 'flight_logbook', label: 'Bitacora de vuelo', requiresExpiry: false, accepts: ['image', 'pdf'] },
@@ -1336,11 +1368,16 @@ function normalizeAircraft(raw = {}, index = 0) {
     name: raw.model || raw.name || raw.aircraft_name || `Aeronave ${index + 1}`,
     manufacturer: raw.manufacturer || '',
     category: raw.category || raw.aircraft_category || raw.type || '',
-    engineType: inferAircraftEngineType({
-      category: raw.category || raw.aircraft_category || raw.type || '',
-      model: raw.model || raw.name || raw.aircraft_name || '',
-      engineType: raw.engine_type || raw.engineType || '',
-    }),
+    engineType:
+      raw.engine_type ||
+      raw.engineType ||
+      raw.motor_tipo ||
+      inferAircraftEngineType({
+        category: raw.category || raw.aircraft_category || raw.type || '',
+        model: raw.model || raw.name || raw.aircraft_name || '',
+        engineType: raw.engine_type || raw.engineType || raw.motor_tipo || '',
+      }),
+    engineClass: raw.engine_class || raw.engineClass || raw.motor_clase || '',
     registration: raw.registration || raw.matricula || '',
     year: raw.year || raw.model_year || '',
     capacity: Number(raw.capacity || raw.passenger_capacity || 0),
@@ -1350,6 +1387,7 @@ function normalizeAircraft(raw = {}, index = 0) {
     amenities: Array.isArray(raw.amenities) ? raw.amenities.join(', ') : raw.amenities || '',
     base: raw.base || raw.base_airport || raw.base_airport_code || '',
     coverage: Array.isArray(raw.coverage) ? raw.coverage.join(', ') : raw.coverage || '',
+    airportExpensesUsd: Number(raw.airport_expenses_usd || raw.airport_expenses || raw.expense_fee || 0),
     hourlyPrice: Number(raw.hourly_rate || raw.hourly_price || raw.price_per_hour || 0),
     minimumHours: Number(raw.minimum_hours || raw.min_hours || 0),
     fuelBurnGallonsPerHour: Number(raw.fuel_burn_gph || raw.fuel_consumption_gph || 0),
@@ -1508,12 +1546,73 @@ function resolveRequestAircraftLabel(raw = {}) {
   return String(aircraftLabel || '').trim() || 'Por definir'
 }
 
+function parseRequestAmount(value, fallback = 0) {
+  if (value === null || value === undefined || value === '') return fallback
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : fallback
+  }
+
+  const normalized = String(value).replace(/[^0-9.,-]+/g, '').trim()
+  if (!normalized) return fallback
+
+  const decimalSeparator = normalized.lastIndexOf(',') > normalized.lastIndexOf('.') ? ',' : '.'
+  let sanitized = normalized
+
+  if (decimalSeparator === ',') {
+    sanitized = normalized.replace(/\./g, '').replace(',', '.')
+  } else {
+    sanitized = normalized.replace(/,/g, '')
+  }
+
+  const numericValue = Number(sanitized)
+  return Number.isFinite(numericValue) ? numericValue : fallback
+}
+
+function resolveRequestFinalPriceValue(raw = {}) {
+  const pricingContext =
+    raw.pricing_context && typeof raw.pricing_context === 'object' ? raw.pricing_context : {}
+  const preferredMatch = pickPreferredRequestMatch(raw.matches)
+
+  return parseRequestAmount(
+    raw.final_price ||
+      raw.total ||
+      raw.estimated_total ||
+      raw.final_price_display ||
+      raw.formatted_final_price ||
+      raw.total_price ||
+      raw.quote_total ||
+      raw.quote ||
+      pricingContext.total ||
+      pricingContext.final_price ||
+      preferredMatch?.final_price ||
+      preferredMatch?.total ||
+      preferredMatch?.total_price ||
+      preferredMatch?.estimated_price ||
+      preferredMatch?.price,
+    0,
+  )
+}
+
 function resolveRequestQuoteValue(raw = {}) {
-  const directQuote = raw.quote_total || raw.quote || raw.total_price
+  const directQuote =
+    raw.quote_total ||
+    raw.quote ||
+    raw.total_price ||
+    raw.final_price ||
+    raw.total ||
+    raw.estimated_total ||
+    raw.final_price_display ||
+    raw.formatted_final_price
   if (directQuote !== null && directQuote !== undefined && directQuote !== '') return directQuote
 
+  const pricingContext =
+    raw.pricing_context && typeof raw.pricing_context === 'object' ? raw.pricing_context : {}
   const preferredMatch = pickPreferredRequestMatch(raw.matches)
   return (
+    pricingContext.total ||
+    pricingContext.final_price ||
+    preferredMatch?.final_price ||
+    preferredMatch?.total ||
     preferredMatch?.estimated_price ||
     preferredMatch?.price ||
     preferredMatch?.total_price ||
@@ -1567,10 +1666,10 @@ function normalizeRequest(raw = {}, index = 0) {
     flightPackage: raw.flight_package || raw.package_name || raw.package || '',
     serviceTier,
     priorityType: raw.priority_type || '',
-    basePrice: Number(raw.base_price || 0),
-    operationalFee: Number(raw.operational_fee || 0),
-    priorityPrice: Number(raw.priority_price || 0),
-    finalPrice: Number(raw.final_price || 0),
+    basePrice: parseRequestAmount(raw.base_price, 0),
+    operationalFee: parseRequestAmount(raw.operational_fee, 0),
+    priorityPrice: parseRequestAmount(raw.priority_price, 0),
+    finalPrice: resolveRequestFinalPriceValue(raw),
     overnightRequired: Boolean(raw.overnight_required || raw.requires_overnight),
     waitingAtDestination: Boolean(raw.wait_at_destination || raw.destination_wait),
     airportChange: Boolean(raw.airport_change_required || raw.change_airport),
@@ -1821,6 +1920,7 @@ function resetAircraftForm() {
     manufacturer: '',
     category: '',
     engineType: '',
+    engineClass: '',
     registration: '',
     year: '',
     capacity: 1,
@@ -1828,6 +1928,7 @@ function resetAircraftForm() {
     amenities: '',
     base: '',
     coverage: '',
+    airportExpensesUsd: '',
     hourlyPrice: '',
     minimumHours: '',
     operationalCost: '',
@@ -1865,7 +1966,15 @@ function inferAircraftMinimumHours(category = '') {
   return 2
 }
 
+function getAircraftCategoryRule(category = '') {
+  const normalizedCategory = String(category || '').trim().toLocaleUpperCase('es-MX')
+  return aircraftCategoryRules[normalizedCategory] || null
+}
+
 function inferAircraftEngineType({ category = '', model = '', engineType = '' } = {}) {
+  const categoryRule = getAircraftCategoryRule(category)
+  if (categoryRule?.engineType) return categoryRule.engineType
+
   const explicitEngineType = String(engineType || '').trim().toLowerCase()
   if (['turbofan', 'turboprop', 'turboshaft'].includes(explicitEngineType)) return explicitEngineType
 
@@ -1922,6 +2031,24 @@ function setUppercaseAircraftField(field, value) {
   aircraftForm[field] = uppercaseText(value)
 }
 
+function applyAircraftCategoryRule(category) {
+  const categoryRule = getAircraftCategoryRule(category)
+  if (!categoryRule) {
+    aircraftForm.engineType = inferAircraftEngineType({
+      category,
+      model: aircraftForm.name,
+      engineType: aircraftForm.engineType,
+    })
+    aircraftForm.engineClass = ''
+    aircraftForm.airportExpensesUsd = ''
+    return
+  }
+
+  aircraftForm.engineType = categoryRule.engineType
+  aircraftForm.engineClass = categoryRule.engineClass
+  aircraftForm.airportExpensesUsd = categoryRule.airportExpensesUsd
+}
+
 function resetImageForm() {
   Object.assign(imageForm, {
     aircraftId: aircraft.value[0]?.id || null,
@@ -1948,15 +2075,21 @@ function resetDocumentForm() {
 function startEditingAircraft(item) {
   editingAircraftId.value = item.id
   clearFormFeedback('aircraft')
+  const categoryRule = getAircraftCategoryRule(item.category || '')
   Object.assign(aircraftForm, {
     name: uppercaseText(item.name),
     manufacturer: uppercaseText(item.manufacturer),
     category: item.category || '',
-    engineType: inferAircraftEngineType({
-      category: item.category || '',
-      model: item.name || '',
-      engineType: item.engineType || '',
-    }),
+    engineType:
+      item.engineType ||
+      item.engine_type ||
+      categoryRule?.engineType ||
+      inferAircraftEngineType({
+        category: item.category || '',
+        model: item.name || '',
+        engineType: item.engineType || item.engine_type || '',
+      }),
+    engineClass: item.engineClass || item.engine_class || item.motor_clase || categoryRule?.engineClass || '',
     registration: uppercaseText(item.registration),
     year: item.year || '',
     capacity: item.capacity || 1,
@@ -1964,6 +2097,13 @@ function startEditingAircraft(item) {
     amenities: uppercaseText(item.amenities),
     base: uppercaseText(item.base),
     coverage: uppercaseText(item.coverage),
+    airportExpensesUsd:
+      item.airportExpensesUsd ||
+      item.airport_expenses_usd ||
+      item.airport_expenses ||
+      item.expense_fee ||
+      categoryRule?.airportExpensesUsd ||
+      '',
     hourlyPrice: item.hourlyPrice || '',
     minimumHours: item.minimumHours || '',
     operationalCost: item.operationalCost || '',
@@ -2852,11 +2992,8 @@ function getRequestClientLabel(request = {}) {
 }
 
 function getRequestQuoteLabel(request = {}) {
-  const rawValue = request.quote
-  const numericValue =
-    typeof rawValue === 'number'
-      ? rawValue
-      : Number(String(rawValue ?? '').replace(/[^0-9.-]+/g, ''))
+  const rawValue = request.quote ?? request.finalPrice ?? request.basePrice
+  const numericValue = parseRequestAmount(rawValue, 0)
 
   if (!Number.isFinite(numericValue) || numericValue <= 0) {
     return 'Cotizacion en proceso'
@@ -3209,45 +3346,67 @@ async function loadPortal() {
   }
 
   const currentLoadSequence = ++portalLoadSequence.value
+  const portalLoadTimeoutMs = 45000
   loading.value = true
 
   try {
     const requestJobs = [
       {
         request: requestWithCandidates([
-          { method: 'get', path: '/proveedor/dashboard' },
-          { method: 'get', path: '/proveedor/empresa' },
-          { method: 'get', path: '/operator/dashboard' },
+          { method: 'get', path: '/proveedor/dashboard', timeoutMs: portalLoadTimeoutMs },
+          { method: 'get', path: '/proveedor/empresa', timeoutMs: portalLoadTimeoutMs },
+          { method: 'get', path: '/operator/dashboard', timeoutMs: portalLoadTimeoutMs },
         ]),
         apply: applyDashboardResponse,
       },
       {
         request: requestWithCandidates([
-          { method: 'get', path: '/proveedor/mis-aeronaves' },
-          { method: 'get', path: '/proveedor/aeronaves' },
-          { method: 'get', path: '/operator/my-aircraft' },
-          { method: 'get', path: '/operator/aircraft' },
+          { method: 'get', path: '/proveedor/mis-aeronaves', timeoutMs: portalLoadTimeoutMs },
+          { method: 'get', path: '/proveedor/aeronaves', timeoutMs: portalLoadTimeoutMs },
+          { method: 'get', path: '/operator/my-aircraft', timeoutMs: portalLoadTimeoutMs },
+          { method: 'get', path: '/operator/aircraft', timeoutMs: portalLoadTimeoutMs },
         ]),
         apply: applyAircraftResponse,
       },
       {
         request: requestWithCandidates([
-          { method: 'get', path: '/proveedor/mis-solicitudes' },
-          { method: 'get', path: '/proveedor/solicitudes' },
-          { method: 'get', path: '/provider/my-requests' },
-          { method: 'get', path: '/provider/requests' },
-          { method: 'get', path: '/operator/my-requests' },
-          { method: 'get', path: '/operator/requests' },
+          { method: 'get', path: '/proveedor/mis-solicitudes', timeoutMs: portalLoadTimeoutMs },
+          { method: 'get', path: '/proveedor/solicitudes', timeoutMs: portalLoadTimeoutMs },
+          { method: 'get', path: '/provider/my-requests', timeoutMs: portalLoadTimeoutMs },
+          { method: 'get', path: '/provider/requests', timeoutMs: portalLoadTimeoutMs },
+          { method: 'get', path: '/operator/my-requests', timeoutMs: portalLoadTimeoutMs },
+          { method: 'get', path: '/operator/requests', timeoutMs: portalLoadTimeoutMs },
         ]),
         apply: applyRequestsResponse,
       },
-      { request: requestWithCandidates([{ method: 'get', path: '/proveedor/operaciones' }]), apply: applyOperationsResponse },
-      { request: requestWithCandidates([{ method: 'get', path: '/proveedor/incidencias' }]), apply: applyIncidentsResponse },
-      { request: requestWithCandidates([{ method: 'get', path: '/proveedor/pagos' }]), apply: applyPaymentsResponse },
-      { request: requestWithCandidates([{ method: 'get', path: '/proveedor/historial' }]), apply: applyHistoryResponse },
-      { request: requestWithCandidates([{ method: 'get', path: '/proveedor/tripulacion' }]), apply: applyCrewResponse },
-      { request: requestWithCandidates([{ method: 'get', path: '/proveedor/configuracion' }]), apply: applySettingsResponse },
-      { request: requestWithCandidates([{ method: 'get', path: '/proveedor/disponibilidad' }]), apply: applyAvailabilityResponse },
+      {
+        request: requestWithCandidates([{ method: 'get', path: '/proveedor/operaciones', timeoutMs: portalLoadTimeoutMs }]),
+        apply: applyOperationsResponse,
+      },
+      {
+        request: requestWithCandidates([{ method: 'get', path: '/proveedor/incidencias', timeoutMs: portalLoadTimeoutMs }]),
+        apply: applyIncidentsResponse,
+      },
+      {
+        request: requestWithCandidates([{ method: 'get', path: '/proveedor/pagos', timeoutMs: portalLoadTimeoutMs }]),
+        apply: applyPaymentsResponse,
+      },
+      {
+        request: requestWithCandidates([{ method: 'get', path: '/proveedor/historial', timeoutMs: portalLoadTimeoutMs }]),
+        apply: applyHistoryResponse,
+      },
+      {
+        request: requestWithCandidates([{ method: 'get', path: '/proveedor/tripulacion', timeoutMs: portalLoadTimeoutMs }]),
+        apply: applyCrewResponse,
+      },
+      {
+        request: requestWithCandidates([{ method: 'get', path: '/proveedor/configuracion', timeoutMs: portalLoadTimeoutMs }]),
+        apply: applySettingsResponse,
+      },
+      {
+        request: requestWithCandidates([{ method: 'get', path: '/proveedor/disponibilidad', timeoutMs: portalLoadTimeoutMs }]),
+        apply: applyAvailabilityResponse,
+      },
     ]
 
     const settledResults = await Promise.all(
@@ -3418,11 +3577,14 @@ async function createAircraft() {
     model: aircraftForm.name,
     manufacturer: aircraftForm.manufacturer,
     category: aircraftForm.category,
-    engine_type: inferAircraftEngineType({
+    engine_type: aircraftForm.engineType || inferAircraftEngineType({
       category: aircraftForm.category,
       model: aircraftForm.name,
       engineType: aircraftForm.engineType,
     }),
+    motor_tipo: String(aircraftForm.engineType || '').toUpperCase(),
+    engine_class: aircraftForm.engineClass,
+    motor_clase: aircraftForm.engineClass,
     registration: nullableText(aircraftForm.registration),
     year: Number(aircraftForm.year || 0),
     capacity: Number(aircraftForm.capacity || 1),
@@ -3433,6 +3595,9 @@ async function createAircraft() {
       .filter(Boolean),
     base_airport: aircraftForm.base,
     coverage: aircraftForm.coverage,
+    airport_expenses_usd: Number(aircraftForm.airportExpensesUsd || 0),
+    airport_expenses: Number(aircraftForm.airportExpensesUsd || 0),
+    expense_fee: Number(aircraftForm.airportExpensesUsd || 0),
     hourly_rate: Number(aircraftForm.hourlyPrice || 0),
     minimum_hours: inferredAircraftMinimumHours.value,
     operational_cost: Number(aircraftForm.operationalCost || 0),
@@ -3758,11 +3923,14 @@ async function saveAircraftEdits(id) {
     model: aircraftForm.name,
     manufacturer: aircraftForm.manufacturer,
     category: aircraftForm.category,
-    engine_type: inferAircraftEngineType({
+    engine_type: aircraftForm.engineType || inferAircraftEngineType({
       category: aircraftForm.category,
       model: aircraftForm.name,
       engineType: aircraftForm.engineType,
     }),
+    motor_tipo: String(aircraftForm.engineType || '').toUpperCase(),
+    engine_class: aircraftForm.engineClass,
+    motor_clase: aircraftForm.engineClass,
     registration: nullableText(aircraftForm.registration),
     year: Number(aircraftForm.year || 0),
     capacity: Number(aircraftForm.capacity || 1),
@@ -3773,6 +3941,9 @@ async function saveAircraftEdits(id) {
       .filter(Boolean),
     base_airport: aircraftForm.base,
     coverage: aircraftForm.coverage,
+    airport_expenses_usd: Number(aircraftForm.airportExpensesUsd || 0),
+    airport_expenses: Number(aircraftForm.airportExpensesUsd || 0),
+    expense_fee: Number(aircraftForm.airportExpensesUsd || 0),
     hourly_rate: Number(aircraftForm.hourlyPrice || 0),
     minimum_hours: inferredAircraftMinimumHours.value,
     operational_cost: Number(aircraftForm.operationalCost || 0),
@@ -3893,6 +4064,52 @@ async function reloadRequestsList() {
     'data',
   ])
   requests.value = collection.map(normalizeRequest)
+}
+
+function shouldAutoRefreshRequests() {
+  return ['dashboard', 'solicitudes'].includes(props.section)
+}
+
+async function refreshRequestsList({ silent = true } = {}) {
+  if (refreshingRequests.value) return
+  if (!silent) {
+    loading.value = true
+  }
+
+  refreshingRequests.value = true
+
+  try {
+    await reloadRequestsList()
+  } finally {
+    refreshingRequests.value = false
+    if (!silent) {
+      loading.value = false
+    }
+  }
+}
+
+function clearRequestsPolling() {
+  if (requestsPollTimer) {
+    clearInterval(requestsPollTimer)
+    requestsPollTimer = null
+  }
+}
+
+function startRequestsPolling() {
+  clearRequestsPolling()
+
+  if (!shouldAutoRefreshRequests()) return
+
+  requestsPollTimer = setInterval(() => {
+    if (typeof document !== 'undefined' && document.hidden) return
+    void refreshRequestsList({ silent: true })
+  }, OPERATOR_REQUESTS_POLL_INTERVAL_MS)
+}
+
+function handleRequestsVisibilityRefresh() {
+  if (typeof document !== 'undefined' && document.hidden) return
+  if (!shouldAutoRefreshRequests()) return
+  void refreshRequestsList({ silent: true })
 }
 
 async function reloadOperationsList() {
@@ -4606,6 +4823,13 @@ async function saveSettings() {
 }
 
 watch(
+  () => aircraftForm.category,
+  (nextCategory) => {
+    applyAircraftCategoryRule(nextCategory)
+  },
+)
+
+watch(
   () => [canLoadProviderData.value, providerId.value],
   ([canLoad, nextProviderId], previous = []) => {
     const [previousCanLoad, previousProviderId] = previous
@@ -4644,7 +4868,34 @@ watch(
 onMounted(() => {
   syncCompanyForm()
   resetCrewForm()
+  if (typeof window !== 'undefined') {
+    window.addEventListener('focus', handleRequestsVisibilityRefresh)
+  }
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', handleRequestsVisibilityRefresh)
+  }
+  startRequestsPolling()
 })
+
+onBeforeUnmount(() => {
+  clearRequestsPolling()
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('focus', handleRequestsVisibilityRefresh)
+  }
+  if (typeof document !== 'undefined') {
+    document.removeEventListener('visibilitychange', handleRequestsVisibilityRefresh)
+  }
+})
+
+watch(
+  () => props.section,
+  () => {
+    startRequestsPolling()
+    if (shouldAutoRefreshRequests()) {
+      void refreshRequestsList({ silent: true })
+    }
+  },
+)
 </script>
 
 <template>
@@ -5548,6 +5799,23 @@ onMounted(() => {
 
               <div class="form-grid">
                 <label>
+                  <span>Tipo de motor</span>
+                  <input v-model="aircraftForm.engineType" type="text" disabled />
+                </label>
+                <label>
+                  <span>Clase de motor</span>
+                  <input v-model="aircraftForm.engineClass" type="text" disabled />
+                </label>
+                <label>
+                  <span>Gastos aeroportuarios USD</span>
+                  <input
+                    v-model="aircraftForm.airportExpensesUsd"
+                    type="number"
+                    min="0"
+                    disabled
+                  />
+                </label>
+                <label>
                   <span>Capacidad</span>
                   <input
                     v-model="aircraftForm.capacity"
@@ -6450,7 +6718,7 @@ onMounted(() => {
                   :disabled="isRequestRejected(selectedRequest.status)"
                   @click="updateRequestStatus(selectedRequest.id, 'Rechazada')"
                 >
-                  Rechazar con motivo
+                  Rechazar
                 </button>
                 <button
                   type="button"
@@ -6458,7 +6726,7 @@ onMounted(() => {
                   :disabled="isRequestAccepted(selectedRequest.status)"
                   @click="updateRequestStatus(selectedRequest.id, 'Aceptada')"
                 >
-                  Aceptar todo
+                  Aceptar
                 </button>
               </div>
             </div>

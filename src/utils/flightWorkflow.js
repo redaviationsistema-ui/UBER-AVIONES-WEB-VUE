@@ -71,8 +71,6 @@ const WORKFLOW_DEFINITIONS = {
       'aprobada',
       'aprobado',
       'matched',
-      'confirmada',
-      'confirmado',
     ],
   },
   contract_pending: {
