@@ -57,6 +57,28 @@ describe('buildFlightPricingFormula', () => {
     expect(pricing.finalRepositioningHours).toBeGreaterThan(0)
   })
 
+  it('does not charge repositioning on round trips when textual base and airport code are the same airport', () => {
+    const aircraft = {
+      hourly_rate: 4800,
+      speed_kmh: 764.64,
+      source_origin: 'TOLUCA',
+      cabin: 'Light Jet',
+    }
+
+    const pricing = buildFlightPricingFormula(aircraft, {
+      tripType: 'Redondo',
+      legs: [
+        { origin: 'MMTO', destination: 'MMUN', distance_km: 1690, originAirport: { code: 'MMTO', iata: 'TLC', city: 'Toluca' } },
+        { origin: 'MMUN', destination: 'MMTO', distance_km: 1690, destinationAirport: { code: 'MMTO', iata: 'TLC', city: 'Toluca' } },
+      ],
+    })
+
+    expect(pricing.initialRepositioningHours).toBe(0)
+    expect(pricing.finalRepositioningHours).toBe(0)
+    expect(pricing.repositioningHours).toBe(0)
+    expect(pricing.billableHours).toBeCloseTo(pricing.displayFlightHours, 6)
+  })
+
   it('applies repositioning on multi-destination routes when the aircraft ends outside its base', () => {
     const aircraft = {
       hourly_rate: 6000,
@@ -80,7 +102,11 @@ describe('buildFlightPricingFormula', () => {
     )
     const multiDestinationPricing = buildFlightPricingFormula(aircraft, multiDestinationContext)
 
-    expect(multiDestinationPricing.repositioning).toBe(1800)
+    expect(multiDestinationPricing.repositioningHours).toBeCloseTo(1800 / (6000 * 0.8), 6)
+    expect(multiDestinationPricing.repositioning).toBeCloseTo(
+      multiDestinationPricing.repositioningHours * multiDestinationPricing.hourlyRate,
+      6,
+    )
     expect(multiDestinationPricing.realFlightHours).toBe(pricingWithoutRepositioningFee.realFlightHours)
   })
 
@@ -150,7 +176,7 @@ describe('buildFlightPricingFormula', () => {
     expect(pricing.displayFlightHours).toBeGreaterThanOrEqual(1.1)
     expect(pricing.displayFlightHours).toBeLessThan(1.5)
     expect(pricing.operationalFlightHours).toBeGreaterThan(pricing.displayFlightHours)
-    expect(pricing.billableHours).toBeGreaterThanOrEqual(pricing.operationalFlightHours)
+    expect(pricing.billableHours).toBe(pricing.displayFlightHours + pricing.repositioningHours)
   })
 
   it('does not apply repositioning on multi-destination routes when the final destination is the base', () => {
@@ -283,6 +309,101 @@ describe('buildFlightPricingFormula', () => {
     expect(kingAirC90gt.realFlightHours).toBeCloseTo(1291.731008 / 482 + 25 / 60, 6)
     expect(kingAir.realFlightHours).toBeGreaterThan(kingAirC90gt.realFlightHours)
     expect(kingAir.displayFlightHours).toBeGreaterThan(kingAirC90gt.displayFlightHours)
+  })
+
+  it('prices billable hours from display flight time plus repositioning hours', () => {
+    const aircraft = {
+      hourly_rate: 4800,
+      speed_kmh: 764.64,
+      source_origin: 'TOLUCA',
+      cabin: 'Light Jet',
+      operational_cost: 900,
+      expense_fee: 400,
+    }
+
+    const pricing = buildFlightPricingFormula(aircraft, {
+      tripType: 'Ida',
+      legs: [{ origin: 'MMTO', destination: 'MMMX', distance_km: 600 }],
+    })
+
+    expect(pricing.billableHours).toBeCloseTo(pricing.displayFlightHours + pricing.repositioningHours, 6)
+    expect(pricing.baseCost).toBeCloseTo(pricing.billableHours * pricing.hourlyRate, 6)
+    expect(pricing.repositioning).toBeCloseTo(pricing.repositioningHours * pricing.hourlyRate, 6)
+    expect(pricing.subtotalBeforeMultipliers).toBeCloseTo(
+      pricing.baseCost + pricing.extraServices.overnight + pricing.operationalCosts + pricing.expenseFee,
+      6,
+    )
+    expect(pricing.ivaAmount).toBeCloseTo(pricing.subtotalBeforeMultipliers * 0.16, 6)
+    expect(pricing.finalPrice).toBeCloseTo(pricing.subtotalBeforeMultipliers + pricing.ivaAmount, 6)
+  })
+
+  it('uses 4 percent iva on international routes', () => {
+    const aircraft = {
+      hourly_rate: 5000,
+      speed_kmh: 850,
+      cabin: 'Heavy Jet',
+      operational_cost: 1200,
+    }
+
+    const pricing = buildFlightPricingFormula(aircraft, {
+      tripType: 'Ida',
+      legs: [
+        {
+          origin: 'MMTO',
+          destination: 'KIAH',
+          distance_km: 1200,
+          originAirport: { code: 'MMTO', country: 'Mexico' },
+          destinationAirport: { code: 'KIAH', country: 'United States' },
+        },
+      ],
+    })
+
+    expect(pricing.ivaRate).toBe(0.04)
+    expect(pricing.ivaAmount).toBeCloseTo(pricing.subtotalBeforeMultipliers * 0.04, 6)
+  })
+
+  it('matches reserva style totals for a national round trip without repositioning', () => {
+    const aircraft = {
+      hourly_rate: 4800,
+      speed_kmh: 764.64,
+      source_origin: 'TOLUCA',
+      cabin: 'Light Jet',
+      expense_fee: 400,
+    }
+
+    const pricing = buildFlightPricingFormula(aircraft, {
+      tripType: 'Redondo',
+      overnightNights: 4,
+      legs: [
+        {
+          origin: 'MMTO',
+          destination: 'MMUN',
+          distance_km: 1501.5714236194174,
+          originAirport: { code: 'MMTO', iata: 'TLC', city: 'Toluca', country: 'Mexico' },
+          destinationAirport: { code: 'MMUN', iata: 'CUN', city: 'Cancun', country: 'Mexico' },
+        },
+        {
+          origin: 'MMUN',
+          destination: 'MMTO',
+          distance_km: 1501.5714236194174,
+          originAirport: { code: 'MMUN', iata: 'CUN', city: 'Cancun', country: 'Mexico' },
+          destinationAirport: { code: 'MMTO', iata: 'TLC', city: 'Toluca', country: 'Mexico' },
+        },
+      ],
+    })
+
+    expect(pricing.repositioningHours).toBe(0)
+    expect(pricing.billableHours).toBeCloseTo(pricing.displayFlightHours, 6)
+    expect(pricing.baseCost).toBeCloseTo(pricing.billableHours * pricing.hourlyRate, 6)
+    expect(pricing.extraServices.overnight).toBe(9600)
+    expect(pricing.expenseFee).toBe(400)
+    expect(pricing.subtotalBeforeMultipliers).toBeCloseTo(
+      pricing.baseCost + pricing.extraServices.overnight + pricing.expenseFee,
+      6,
+    )
+    expect(pricing.ivaRate).toBe(0.16)
+    expect(pricing.ivaAmount).toBeCloseTo(pricing.subtotalBeforeMultipliers * 0.16, 6)
+    expect(pricing.finalPrice).toBeCloseTo(pricing.subtotalBeforeMultipliers + pricing.ivaAmount, 6)
   })
 
   it('applies dynamic heavy jet minimums by route distance in nautical miles', () => {

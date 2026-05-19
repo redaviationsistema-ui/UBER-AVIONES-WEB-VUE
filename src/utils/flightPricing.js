@@ -1,3 +1,5 @@
+import { featuredAirports } from './airports'
+
 const COMMERCIAL_MARGIN_BY_PACKAGE = {
   empty_leg: 0.95,
   essential: 1.1,
@@ -152,6 +154,62 @@ function normalizeAirportToken(value = '') {
     .toUpperCase()
 }
 
+function normalizeAirportLookupText(value = '') {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
+}
+
+function tokenizeAirportValue(value = '') {
+  return String(value || '')
+    .split(/[\s,/()\-]+/)
+    .map((token) => normalizeAirportLookupText(token))
+    .filter(Boolean)
+}
+
+function appendAirportTokens(tokens, value = '') {
+  const normalizedValue = normalizeAirportLookupText(value)
+  if (!normalizedValue) return
+
+  tokens.add(normalizedValue)
+  tokenizeAirportValue(value).forEach((token) => tokens.add(token))
+}
+
+function airportLookupTokens(value = '', airport = null) {
+  const tokens = new Set()
+  appendAirportTokens(tokens, value)
+  appendAirportTokens(tokens, airport?.code)
+  appendAirportTokens(tokens, airport?.iata)
+  appendAirportTokens(tokens, airport?.city)
+  appendAirportTokens(tokens, airport?.name)
+
+  if (!tokens.size) return tokens
+
+  const normalizedValue = normalizeAirportLookupText(value)
+
+  featuredAirports.forEach((airportRecord) => {
+    const airportTokens = [
+      airportRecord.code,
+      airportRecord.iata,
+      airportRecord.city,
+      airportRecord.name,
+      `${airportRecord.city} ${airportRecord.iata}`,
+      `${airportRecord.city} ${airportRecord.code}`,
+    ]
+      .map((item) => normalizeAirportLookupText(item))
+      .filter(Boolean)
+
+    const matchesAirport = airportTokens.some((token) => token === normalizedValue || tokens.has(token))
+    if (!matchesAirport) return
+
+    airportTokens.forEach((token) => tokens.add(token))
+  })
+
+  return tokens
+}
+
 function resolveTripTypeKey(value = '') {
   const normalized = normalizeCode(value)
 
@@ -173,18 +231,15 @@ function resolveBaseAirportCode(record = {}) {
 }
 
 function airportMatchesRoute(baseAirport = '', routeAirport = '', routeAirportData = null) {
-  const normalizedBase = normalizeAirportToken(baseAirport)
-  if (!normalizedBase) return false
+  const baseTokens = airportLookupTokens(baseAirport)
+  const routeTokens = airportLookupTokens(routeAirport, routeAirportData)
+  if (!baseTokens.size || !routeTokens.size) return false
 
-  const candidates = [
-    routeAirport,
-    routeAirportData?.code,
-    routeAirportData?.iata,
-  ]
-    .map((value) => normalizeAirportToken(value))
-    .filter(Boolean)
+  for (const token of routeTokens) {
+    if (baseTokens.has(token)) return true
+  }
 
-  return candidates.includes(normalizedBase)
+  return false
 }
 
 function resolveLastLegAirportForRepositioning(context = {}) {
@@ -1034,12 +1089,7 @@ export function buildFlightPricingFormula(record = {}, context = {}) {
     distanceKm,
     context,
   )
-  const billableHours = Math.max(operationalFlightHours, minimumHours)
-  const billableMinutes = Math.max(billableHours * 60, 0)
   const minimumRoutePrice = inferMinimumRoutePrice(record, distanceKm)
-  const rawBaseCost = billableMinutes * costPerMinute
-  const subtotalFlight = rawBaseCost
-  const baseCost = subtotalFlight
   const repositioningBreakdown = resolveRepositioningAmount(
     record,
     context,
@@ -1063,32 +1113,36 @@ export function buildFlightPricingFormula(record = {}, context = {}) {
     }
   }
 
+  const billableHours = Math.max(displayFlightHours + repositioningHours, 0)
+  const billableMinutes = Math.max(billableHours * 60, 0)
+  const rawBaseCost = billableMinutes * costPerMinute
+  const subtotalFlight = rawBaseCost
+  const baseCost = subtotalFlight
+  repositioning = repositioningHours * Math.max(hourlyRate, 0)
+
   if (typeof console !== 'undefined' && distanceKm > 0) {
-    console.log('[flight-pricing] DEBUG DINAMICO POR AERONAVE', {
-      aircraft: record.model || record.aircraft || record.aircraft_name || '',
-      category: record.cabin || record.category || record.aircraft_category || '',
-      speed_kmh_raw: record.speed_kmh || record.speedKmh || record.cruise_speed_kmh || '',
-      cruiseSpeedKmh,
-      distanceKm,
-      climbDescentMinutes,
-      minimumHours,
-      clientFlightHours,
-      realFlightHours,
-      displayFlightHours,
-      billableHours,
-      repositioning,
-      repositioningHours,
-    })
+  
+  
   }
-  const airportFees = resolveAirportFees(record)
   const operationalCosts = resolveAdditionalOperationalCosts(record)
   const priorityServiceFee = resolvePriorityServiceFee(context, record)
   const petFee = resolvePetFee(context, record)
   const specialBaggageFee = resolveSpecialBaggageFee(context, record)
   const extraServices = resolveExtraServices(record, context)
-  const extraServicesTotal = extraServices.total + priorityServiceFee + petFee + specialBaggageFee
+  const overnightCrew = extraServices.overnight
+  const extraServicesWithoutOvernight =
+    extraServices.catering +
+    extraServices.groundTransport +
+    extraServices.wifi +
+    extraServices.urgentSchedule +
+    priorityServiceFee +
+    petFee +
+    specialBaggageFee
+  const airportFees = resolveAirportFees(record)
   const expenseFee = baseCost > 0 ? asNumber(record.expense_fee || context.expenseFee, DEFAULT_EXPENSE_FEE) : 0
-  const expensesTotal = operationalCosts + extraServicesTotal + expenseFee + repositioning
+  const operationalExpenses = operationalCosts + expenseFee
+  const extraServicesTotal = overnightCrew + extraServicesWithoutOvernight
+  const expensesTotal = overnightCrew + operationalExpenses
   const explicitTaxAmount = asNumber(
     record.taxes ||
       record.tax ||
@@ -1100,15 +1154,15 @@ export function buildFlightPricingFormula(record = {}, context = {}) {
       context.ivaAmount,
   )
   const ivaRate = explicitTaxAmount > 0 ? 0 : baseCost > 0 ? resolveIvaRateForRoute(context) : 0
-  const taxableSubtotal = subtotalFlight + airportFees + expensesTotal
+  const taxableSubtotal = subtotalFlight + overnightCrew + operationalExpenses + extraServicesWithoutOvernight
   const ivaAmount = explicitTaxAmount > 0 ? explicitTaxAmount : taxableSubtotal * ivaRate
-  const subtotalBeforeMultipliers = taxableSubtotal + ivaAmount
+  const subtotalBeforeMultipliers = taxableSubtotal
   const commercialMargin = 1
   const priorityFactor = 1
   const dynamicMarketFloor = resolveDynamicMarketFloor(record, billableHours, distanceKm)
   const marginMultiplier = 1
   const totalBeforeTax = subtotalBeforeMultipliers
-  const finalPrice = totalBeforeTax
+  const finalPrice = subtotalBeforeMultipliers + ivaAmount
   const hasFormulaInputs = subtotalBeforeMultipliers > 0 && (hourlyRate > 0 || distanceKm > 0 || explicitRealHours > 0)
 
   return {

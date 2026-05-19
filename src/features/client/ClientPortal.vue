@@ -683,8 +683,14 @@ function aircraftBillingHours(aircraft = {}) {
 function aircraftBillingNote(aircraft = {}) {
   const formula = buildFlightPricingFormula(aircraft, aircraftPricingContext())
   const minimumHours = Number(formula.minimumHours || aircraft.minimum_hours || 0)
+  const displayFlightHours = Number(formula.displayFlightHours || aircraft.display_flight_hours || 0)
   const operationalHours = Number(formula.operationalFlightHours || aircraft.operational_flight_hours || 0)
+  const repositioningHours = Number(formula.repositioningHours || aircraft.repositioning_hours || 0)
   const billableHours = Number(formula.billableHours || aircraft.billable_hours || 0)
+
+  if (displayFlightHours > 0 && repositioningHours > 0 && billableHours > 0) {
+    return `${formatDurationFromHours(displayFlightHours)} vuelo + ${formatDurationFromHours(repositioningHours)} reposicion = ${formatDurationFromHours(billableHours)} cobrables.`
+  }
 
   if (minimumHours > 0 && billableHours >= minimumHours && minimumHours > operationalHours) {
     return `Tarifa calculada con minimo operativo de ${formatDurationFromHours(minimumHours)}.`
@@ -924,6 +930,14 @@ function logRenderedQuoteBreakdown(aircraftList = [], quotePayload = {}) {
     const repositioningRequired = pricing.repositioningRequired === true
     const repositioning = repositioningRequired ? Number(pricing.repositioning || 0) : 0
     const repositioningHours = repositioningRequired ? Number(pricing.repositioningHours || 0) : 0
+    const basePrice = Number(pricing.basePrice || 0)
+    const operationalCosts = Number(pricing.operationalCostBreakdown || 0)
+    const overnightCost = Number(pricing.overnightCost || 0)
+    const extraServicesTotal = Number(pricing.extraServicesTotal || 0)
+    const extraServicesWithoutOvernight = Math.max(extraServicesTotal - overnightCost, 0)
+    const expenseFee = Number(pricing.expenseFee || 0)
+    const subtotal = Number(pricing.subtotalBeforeMultipliers || 0)
+    const ivaAmount = Number(pricing.ivaAmount || 0)
     let repositioningReason = 'Sin reposicionamiento'
 
     if (repositioningRequired) {
@@ -942,18 +956,19 @@ function logRenderedQuoteBreakdown(aircraftList = [], quotePayload = {}) {
       option: index + 1,
       aircraft: aircraft.aircraft || aircraft.model || aircraft.cabin || 'Aeronave',
       category: aircraft.cabin || aircraft.category || '',
-      base_price: Number(pricing.basePrice || 0),
+      base_price: basePrice,
       cruiseSpeedKmh: Number(pricing.cruiseSpeedKmh || 0),
       repositioning,
       repositioning_hours: repositioningHours,
-      operational_fees: Number(pricing.operationalFees || 0),
-      operational_costs: Number(pricing.operationalCostBreakdown || 0),
+      operational_costs: operationalCosts,
       overnight_nights: overnightNights,
-      overnight_cost: Number(pricing.overnightCost || 0),
-      extra_services_total: Number(pricing.extraServicesTotal || 0),
-      expense_fee: Number(pricing.expenseFee || 0),
-      iva_amount: Number(pricing.ivaAmount || 0),
-      subtotal_before_multipliers: Number(pricing.subtotalBeforeMultipliers || 0),
+      overnight_cost: overnightCost,
+      extra_services_total: extraServicesTotal,
+      extra_services_without_overnight: extraServicesWithoutOvernight,
+      expense_fee: expenseFee,
+      subtotal_components: basePrice + operationalCosts + overnightCost + expenseFee + extraServicesWithoutOvernight,
+      iva_amount: ivaAmount,
+      subtotal_before_multipliers: subtotal,
       final_price: Number(pricing.finalPrice || 0),
       display_flight_hours: Number(pricing.displayFlightHours || 0),
       operational_flight_hours: Number(pricing.operationalFlightHours || 0),
