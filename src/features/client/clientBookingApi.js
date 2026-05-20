@@ -18,37 +18,12 @@ const configuredFlightPackagesPath = String(
     '',
 ).trim()
 const configuredAircraftPath = String(import.meta.env.VITE_CLIENT_AIRCRAFT_PATH || '').trim()
-const configuredStripeCheckoutPath = String(
-  import.meta.env.VITE_CLIENT_STRIPE_CHECKOUT_PATH || '',
-).trim()
-const configuredStripeWireIntentPath = String(
-  import.meta.env.VITE_CLIENT_STRIPE_WIRE_INTENT_PATH || '',
-).trim()
 
 const QUOTES_PREVIEW_PATH = configuredQuotesPreviewPath || '/client/quotes/preview'
 const CLIENT_TRIPS_PATH = configuredTripsPath || '/client/flight-requests'
 const CLIENT_FLIGHT_PACKAGES_PATH = configuredFlightPackagesPath || '/plans'
 const CLIENT_AIRCRAFT_PATHS = [
   ...new Set([configuredAircraftPath, '/client/aircraft'].filter(Boolean)),
-]
-const CLIENT_STRIPE_CHECKOUT_PATHS = [
-  ...new Set(
-    [
-      configuredStripeCheckoutPath,
-      '/stripe/checkout/create',
-      '/client/stripe/checkout/create',
-      '/client/payments/checkout',
-    ].filter(Boolean),
-  ),
-]
-const CLIENT_STRIPE_WIRE_INTENT_PATHS = [
-  ...new Set(
-    [
-      configuredStripeWireIntentPath,
-      '/client/payments/wire-intent',
-      '/client/stripe/wire-intent',
-    ].filter(Boolean),
-  ),
 ]
 const FALLBACK_DESTINATIONS = [
   {
@@ -2115,56 +2090,6 @@ export async function searchClientFlights(itinerary) {
 
 export async function createClientFlightRequest(itinerary, options = {}) {
   return api.post(CLIENT_TRIPS_PATH, buildFlightRequestPayload(itinerary), options)
-}
-
-export async function createClientCheckoutSession(reservationId, payload = {}, options = {}) {
-  const normalizedReservationId = String(reservationId || '').trim()
-
-  if (!normalizedReservationId) {
-    throw new Error('No se encontro la reserva para iniciar el checkout.')
-  }
-
-  const requestBody = {
-    booking_id: normalizedReservationId,
-    reservation_id: normalizedReservationId,
-    ...payload,
-  }
-  let lastError = null
-
-  for (const path of CLIENT_STRIPE_CHECKOUT_PATHS) {
-    try {
-      return await api.post(path, requestBody, options)
-    } catch (error) {
-      lastError = error
-    }
-  }
-
-  throw lastError || new Error('No se pudo crear la sesion de checkout.')
-}
-
-export async function createClientWireIntent(reservationId, payload = {}, options = {}) {
-  const normalizedReservationId = String(reservationId || '').trim()
-
-  if (!normalizedReservationId) {
-    throw new Error('No se encontro la reserva para registrar la transferencia.')
-  }
-
-  const requestBody = {
-    booking_id: normalizedReservationId,
-    reservation_id: normalizedReservationId,
-    ...payload,
-  }
-  let lastError = null
-
-  for (const path of CLIENT_STRIPE_WIRE_INTENT_PATHS) {
-    try {
-      return await api.post(path, requestBody, options)
-    } catch (error) {
-      lastError = error
-    }
-  }
-
-  throw lastError || new Error('No se pudo registrar la instruccion de transferencia.')
 }
 
 export async function requestConcierge(message) {

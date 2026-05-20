@@ -15,14 +15,11 @@ import {
   normalizePackageCode,
 } from '../../utils/flightPricing'
 import {
-  createClientCheckoutSession,
   createClientFlightRequest,
-  createClientWireIntent,
   getClientDestinations,
   getClientFlightPackages,
   markClientTripReadyForPayment,
   getClientTrips,
-  requestConcierge,
   searchClientFlights,
 } from './clientBookingApi'
 import { useAuthStore } from '../../stores/auth'
@@ -339,33 +336,23 @@ const paymentMethodCards = [
   {
     id: 'card',
     label: 'Tarjeta corporativa',
-    note: 'Checkout hospedado en Stripe con autorizacion y webhook de confirmacion.',
+    note: 'Autorizacion inmediata y validacion segura.',
     icon: 'card',
   },
   {
     id: 'wire',
     label: 'Transferencia / wire',
-    note: 'Registro de instruccion bancaria y conciliacion asistida por concierge.',
+    note: 'Coordinacion con concierge y comprobante bancario.',
     icon: 'bank',
   },
 ]
-const paymentFlowSteps = [
-  'Cliente paga a Red Aviation como plataforma.',
-  'Stripe confirma el cobro por webhook en el backend.',
-  'La reserva queda pagada y bloquea aeronave / operacion.',
-  'Red Aviation libera al proveedor despues de validacion operativa.',
-]
 const paymentForm = reactive({
   contactEmail: '',
+  cardNumber: '',
+  expiryDate: '',
+  securityCode: '',
 })
 const selectedPaymentMethod = ref('card')
-const paymentSubmitting = ref(false)
-const paymentSubmissionError = ref('')
-const paymentReferenceLabel = ref('')
-const paymentSupportRequested = ref(false)
-const selectedPaymentMethodMeta = computed(
-  () => paymentMethodCards.find((method) => method.id === selectedPaymentMethod.value) || paymentMethodCards[0],
-)
 const accountAccessCopy = computed(() => {
   const access = auth.access || {}
   const subscription = access.subscription || access.membership || {}
