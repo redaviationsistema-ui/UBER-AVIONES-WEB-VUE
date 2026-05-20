@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { requestWithCandidates, pickCollection, pickRecord } from '../../lib/backendCrud'
 import { resolveMediaUrl } from '../../lib/api'
 import { resolveProviderIdForUser } from '../../lib/providerContext'
+import { buildWorkflowApiPayload } from '../../utils/flightWorkflow'
 import OperatorCrewSection from './OperatorCrewSection.vue'
 import { useAuthStore } from '../../stores/auth'
 import { useUiStore } from '../../stores/ui'
@@ -209,6 +210,12 @@ const requestStatusFilter = ref('all')
 const requestPriorityFilter = ref('all')
 const selectedRequestId = ref(null)
 const requestInternalCommentDraft = ref('')
+const archivedTrayOpen = ref(false)
+const requestStatusUpdate = reactive({
+  requestId: null,
+  action: '',
+})
+const requestsConnectionWarningShown = ref(false)
 const aircraftDecisionMode = ref('best_match')
 const aircraftFilterBase = ref('all')
 const aircraftFilterType = ref('all')
@@ -987,7 +994,12 @@ const requestKpis = computed(() => {
   ]
 })
 const requestStatusTabs = computed(() => [
-  { id: 'all', label: 'Todas', count: requests.value.length },
+  {
+    id: 'all',
+    label: 'Activas',
+    count: requests.value.filter((request) => getRequestStatusMeta(request.status).queue !== 'rejected')
+      .length,
+  },
   {
     id: 'new',
     label: 'Nuevas',
@@ -1008,14 +1020,19 @@ const requestStatusTabs = computed(() => [
       (request) => getRequestStatusMeta(request.status).queue === 'confirmed',
     ).length,
   },
-  {
-    id: 'rejected',
-    label: 'Rechazadas',
-    count: requests.value.filter(
-      (request) => getRequestStatusMeta(request.status).queue === 'rejected',
-    ).length,
-  },
 ])
+const archivedRequests = computed(() =>
+  [...requests.value]
+    .filter((request) => getRequestStatusMeta(request.status).queue === 'rejected')
+    .sort((left, right) => {
+      const rightDate = parseOperationalDate(right.updatedAt || right.responseLimit || right.date)
+      const leftDate = parseOperationalDate(left.updatedAt || left.responseLimit || left.date)
+      if (leftDate && rightDate) return rightDate.getTime() - leftDate.getTime()
+      if (rightDate) return 1
+      if (leftDate) return -1
+      return Number(right.id) - Number(left.id)
+    }),
+)
 const filteredRequests = computed(() => {
   const search = requestSearch.value.trim().toLowerCase()
 
@@ -1024,7 +1041,9 @@ const filteredRequests = computed(() => {
       const statusMeta = getRequestStatusMeta(request.status)
       const priorityMeta = getRequestPriorityMeta(request)
       const matchesStatus =
-        requestStatusFilter.value === 'all' || statusMeta.queue === requestStatusFilter.value
+        requestStatusFilter.value === 'all'
+          ? statusMeta.queue !== 'rejected'
+          : statusMeta.queue === requestStatusFilter.value
       const matchesPriority =
         requestPriorityFilter.value === 'all' || priorityMeta.key === requestPriorityFilter.value
       const haystack = [
@@ -1067,33 +1086,6 @@ watch(
   },
   { immediate: true },
 )
-const selectedRequestTimeline = computed(() => {
-  if (!selectedRequest.value) return []
-
-  const request = selectedRequest.value
-  const timeline = [
-    {
-      id: `request-created-${request.id}`,
-      date: formatDateTimeDisplay(request.createdAt || request.date),
-      title: 'Solicitud creada',
-      detail: `${getRequestRouteLabel(request)} · ${request.passengers || 0} pax`,
-    },
-    {
-      id: `request-match-${request.id}`,
-      date: formatDateTimeDisplay(request.updatedAt || request.responseLimit || request.date),
-      title: 'Matching operativo',
-      detail: getRequestSuggestedAircraft(request).detail,
-    },
-    {
-      id: `request-status-${request.id}`,
-      date: formatDateTimeDisplay(request.responseLimit || request.updatedAt || request.date),
-      title: getRequestStatusMeta(request.status).headline,
-      detail: getRequestStatusCopy(request.status),
-    },
-  ]
-
-  return timeline.filter((item) => item.date && item.date !== 'Sin fecha')
-})
 const requestOperationalAlerts = computed(() => {
   if (!selectedRequest.value) return []
 
@@ -1128,8 +1120,6 @@ const requestOperationalAlerts = computed(() => {
   return alerts.slice(0, 3)
 })
 const selectedRequestAircraftComparison = computed(() => buildRequestAircraftComparison(selectedRequest.value))
-const selectedRequestRouteAssignments = computed(() => buildRequestRouteAssignments(selectedRequest.value))
-
 function createEmptyCompany() {
   return {
     legalName: '',
@@ -1176,6 +1166,20 @@ function pushHistory(module, action) {
 
 function showError(title, message) {
   ui.pushToast({ tone: 'error', title, message })
+}
+
+function isBackendConnectionError(error) {
+  const message = String(error?.message || '').toLowerCase()
+  return (
+    message.includes('no fue posible conectar con el servicio local ni con el servidor remoto') ||
+    message.includes('failed to fetch') ||
+    message.includes('networkerror') ||
+    message.includes('err_connection_refused')
+  )
+}
+
+function getBackendConnectionMessage() {
+  return 'No hay conexion con el backend local en http://127.0.0.1:8000. Verifica que Laravel este corriendo.'
 }
 
 function clearFormFeedback(formKey) {
@@ -1556,13 +1560,10 @@ function parseRequestAmount(value, fallback = 0) {
   if (!normalized) return fallback
 
   const decimalSeparator = normalized.lastIndexOf(',') > normalized.lastIndexOf('.') ? ',' : '.'
-  let sanitized = normalized
-
-  if (decimalSeparator === ',') {
-    sanitized = normalized.replace(/\./g, '').replace(',', '.')
-  } else {
-    sanitized = normalized.replace(/,/g, '')
-  }
+  const sanitized =
+    decimalSeparator === ','
+      ? normalized.replace(/\./g, '').replace(',', '.')
+      : normalized.replace(/,/g, '')
 
   const numericValue = Number(sanitized)
   return Number.isFinite(numericValue) ? numericValue : fallback
@@ -1574,7 +1575,8 @@ function resolveRequestFinalPriceValue(raw = {}) {
   const preferredMatch = pickPreferredRequestMatch(raw.matches)
 
   return parseRequestAmount(
-    raw.final_price ||
+    raw.selected_card_price ||
+      raw.final_price ||
       raw.total ||
       raw.estimated_total ||
       raw.final_price_display ||
@@ -1595,12 +1597,13 @@ function resolveRequestFinalPriceValue(raw = {}) {
 
 function resolveRequestQuoteValue(raw = {}) {
   const directQuote =
-    raw.quote_total ||
-    raw.quote ||
-    raw.total_price ||
+    raw.selected_card_price ||
     raw.final_price ||
     raw.total ||
     raw.estimated_total ||
+    raw.total_price ||
+    raw.quote_total ||
+    raw.quote ||
     raw.final_price_display ||
     raw.formatted_final_price
   if (directQuote !== null && directQuote !== undefined && directQuote !== '') return directQuote
@@ -1609,6 +1612,7 @@ function resolveRequestQuoteValue(raw = {}) {
     raw.pricing_context && typeof raw.pricing_context === 'object' ? raw.pricing_context : {}
   const preferredMatch = pickPreferredRequestMatch(raw.matches)
   return (
+    pricingContext.selected_card_price ||
     pricingContext.total ||
     pricingContext.final_price ||
     preferredMatch?.final_price ||
@@ -2879,10 +2883,10 @@ function getRequestStatusMeta(statusOrRequest = '') {
   }
   if (isRequestRejected(status)) {
     return {
-      label: 'Rechazada',
+      label: 'Archivada',
       tone: 'neutral',
       queue: 'rejected',
-      headline: 'Solicitud cerrada',
+      headline: 'Solicitud archivada',
     }
   }
   if (isRequestPendingValidation(status)) {
@@ -2900,6 +2904,21 @@ function getRequestStatusMeta(statusOrRequest = '') {
     queue: 'new',
     headline: 'Pendiente de decision',
   }
+}
+
+function applyLocalRequestStatusUpdate(id, status) {
+  const normalizedId = String(id)
+  requests.value = requests.value.map((request) => {
+    if (String(request.id) !== normalizedId) return request
+
+    const normalizedStatus = status === 'Aceptada' ? 'accepted' : 'rejected'
+    return {
+      ...request,
+      status,
+      rawStatus: normalizedStatus,
+      rawWorkflowStatus: normalizedStatus,
+    }
+  })
 }
 
 function getRequestPriorityMeta(request = {}) {
@@ -3256,21 +3275,6 @@ function buildRequestAircraftRows(request = {}, filters = {}) {
   return rows
 }
 
-function buildRequestRouteAssignments(request = {}) {
-  const aircraftRows = buildRequestAircraftRows(request, {
-    base: 'all',
-    type: 'all',
-    sort: 'compatibility',
-    mode: aircraftDecisionMode.value,
-  })
-  return buildRequestLegs(request).map((leg, index) => ({
-    id: leg.id,
-    route: `${leg.origin} → ${leg.destination}`,
-    best: aircraftRows[index]?.label || aircraftRows[0]?.label || 'Por definir',
-    alternative: aircraftRows[index + 1]?.label || aircraftRows[1]?.label || 'Sin alternativa',
-    state: aircraftRows[index]?.availability === 'Si' ? 'ok' : 'review',
-  }))
-}
 
 function buildProposalSummary(request = {}) {
   const rows = buildRequestAircraftRows(request, {
@@ -3340,6 +3344,12 @@ function mapIncidentTone(priority = '') {
   return 'Seguimiento'
 }
 
+function isUpdatingRequestStatus(requestId, action = '') {
+  if (!requestStatusUpdate.requestId) return false
+  if (String(requestStatusUpdate.requestId) !== String(requestId)) return false
+  return action ? requestStatusUpdate.action === action : true
+}
+
 async function loadPortal() {
   if (!canLoadProviderData.value) {
     return
@@ -3372,8 +3382,6 @@ async function loadPortal() {
         request: requestWithCandidates([
           { method: 'get', path: '/proveedor/mis-solicitudes', timeoutMs: portalLoadTimeoutMs },
           { method: 'get', path: '/proveedor/solicitudes', timeoutMs: portalLoadTimeoutMs },
-          { method: 'get', path: '/provider/my-requests', timeoutMs: portalLoadTimeoutMs },
-          { method: 'get', path: '/provider/requests', timeoutMs: portalLoadTimeoutMs },
           { method: 'get', path: '/operator/my-requests', timeoutMs: portalLoadTimeoutMs },
           { method: 'get', path: '/operator/requests', timeoutMs: portalLoadTimeoutMs },
         ]),
@@ -4048,8 +4056,6 @@ async function reloadRequestsList() {
   const response = await requestWithCandidates([
     { method: 'get', path: '/proveedor/mis-solicitudes' },
     { method: 'get', path: '/proveedor/solicitudes' },
-    { method: 'get', path: '/provider/my-requests' },
-    { method: 'get', path: '/provider/requests' },
     { method: 'get', path: '/operator/my-requests' },
     { method: 'get', path: '/operator/requests' },
   ])
@@ -4080,6 +4086,23 @@ async function refreshRequestsList({ silent = true } = {}) {
 
   try {
     await reloadRequestsList()
+    requestsConnectionWarningShown.value = false
+  } catch (error) {
+    if (isBackendConnectionError(error)) {
+      clearRequestsPolling()
+      if (!requestsConnectionWarningShown.value) {
+        requestsConnectionWarningShown.value = true
+        showError('Backend no disponible', getBackendConnectionMessage())
+      }
+      return
+    }
+
+    if (!silent) {
+      showError(
+        'No se pudieron recargar las solicitudes',
+        error.message || 'Las solicitudes no pudieron sincronizarse con la base de datos.',
+      )
+    }
   } finally {
     refreshingRequests.value = false
     if (!silent) {
@@ -4109,6 +4132,9 @@ function startRequestsPolling() {
 function handleRequestsVisibilityRefresh() {
   if (typeof document !== 'undefined' && document.hidden) return
   if (!shouldAutoRefreshRequests()) return
+  if (!requestsPollTimer) {
+    startRequestsPolling()
+  }
   void refreshRequestsList({ silent: true })
 }
 
@@ -4534,48 +4560,53 @@ async function updateRequestStatus(id, status) {
   const action = status === 'Aceptada' ? 'accept' : 'reject'
   const translatedAction = status === 'Aceptada' ? 'aceptar' : 'rechazar'
   const backendStatus = status === 'Aceptada' ? 'accepted' : 'rejected'
+  const workflowPayload = buildWorkflowApiPayload(backendStatus)
+  const statusPayload = {
+    ...workflowPayload,
+    state: workflowPayload.status,
+    decision: action,
+    action,
+  }
+  requestStatusUpdate.requestId = id
+  requestStatusUpdate.action = action
 
   try {
     await requestWithCandidates([
       {
         method: 'post',
         path: `/proveedor/solicitudes/${id}/${translatedAction}`,
-        body: {},
-      },
-      {
-        method: 'post',
-        path: `/provider/requests/${id}/${action}`,
-        body: {},
-      },
-      {
-        method: 'post',
-        path: `/provider/my-requests/${id}/${action}`,
-        body: {},
+        body: statusPayload,
       },
       {
         method: 'post',
         path: `/operator/requests/${id}/${action}`,
-        body: {},
+        body: statusPayload,
       },
-      { method: 'put', path: `/proveedor/solicitudes/${id}`, body: { status: backendStatus } },
-      { method: 'put', path: `/provider/requests/${id}`, body: { status: backendStatus } },
-      { method: 'put', path: `/provider/my-requests/${id}`, body: { status: backendStatus } },
-      { method: 'put', path: `/operator/requests/${id}`, body: { status: backendStatus } },
-      { method: 'put', path: `/proveedor/mis-solicitudes/${id}`, body: { status: backendStatus } },
-      { method: 'put', path: `/operator/my-requests/${id}`, body: { status: backendStatus } },
+      { method: 'put', path: `/proveedor/solicitudes/${id}`, body: statusPayload },
+      { method: 'put', path: `/operator/requests/${id}`, body: statusPayload },
+      { method: 'put', path: `/proveedor/mis-solicitudes/${id}`, body: statusPayload },
+      { method: 'put', path: `/operator/my-requests/${id}`, body: statusPayload },
       {
         method: 'post',
         path: `/proveedor/solicitudes/${id}/status`,
-        body: { status: backendStatus },
+        body: statusPayload,
       },
-      { method: 'post', path: `/provider/requests/${id}/status`, body: { status: backendStatus } },
-      { method: 'post', path: `/provider/my-requests/${id}/status`, body: { status: backendStatus } },
-      { method: 'post', path: `/operator/requests/${id}/status`, body: { status: backendStatus } },
+      { method: 'post', path: `/operator/requests/${id}/status`, body: statusPayload },
     ])
   } catch (error) {
+    requestStatusUpdate.requestId = null
+    requestStatusUpdate.action = ''
+    if (isBackendConnectionError(error)) {
+      clearRequestsPolling()
+      return showError('Backend no disponible', getBackendConnectionMessage())
+    }
+    const conciseMessage =
+      error?.candidateAttempts?.length
+        ? 'El backend no acepto ninguna ruta compatible para actualizar la solicitud.'
+        : error.message
     return showError(
       status === 'Aceptada' ? 'No se pudo aceptar' : 'No se pudo rechazar',
-      error.message ||
+      conciseMessage ||
         'La solicitud no pudo actualizarse en la base de datos. Si persiste, el backend aun no expone la ruta de cambio de estado.',
     )
   }
@@ -4583,6 +4614,8 @@ async function updateRequestStatus(id, status) {
   try {
     await reloadRequestsList()
   } catch (error) {
+    requestStatusUpdate.requestId = null
+    requestStatusUpdate.action = ''
     return showError(
       'Estado actualizado pero no sincronizado',
       error.message ||
@@ -4590,6 +4623,11 @@ async function updateRequestStatus(id, status) {
     )
   }
 
+  applyLocalRequestStatusUpdate(id, status)
+  if (status === 'Aceptada') {
+    requestStatusFilter.value = 'confirmed'
+    selectedRequestId.value = String(id)
+  }
   pushHistory('Solicitudes', `Solicitud #${id} ${status === 'Aceptada' ? 'aceptada' : 'rechazada'}`)
   ui.pushToast({
     tone: status === 'Aceptada' ? 'success' : 'info',
@@ -4599,6 +4637,8 @@ async function updateRequestStatus(id, status) {
         ? 'La aeronave queda bloqueada temporalmente mientras contrato y pago avanzan.'
         : 'La plataforma podra reasignar otra aeronave sin exponer el rechazo al cliente.',
   })
+  requestStatusUpdate.requestId = null
+  requestStatusUpdate.action = ''
 }
 
 async function updateOperationStatus(id, status) {
@@ -6603,7 +6643,19 @@ watch(
               Escanea la cola, prioriza urgencias y acepta o rechaza solicitudes desde una sola bandeja.
             </p>
           </div>
-          <span class="badge">Proveedor decide aqui: aceptar o rechazar</span>
+          <div class="requests-head-actions">
+            <button
+              type="button"
+              class="archive-toggle"
+              :class="{ 'is-active': archivedTrayOpen }"
+              @click="archivedTrayOpen = !archivedTrayOpen"
+            >
+              <span class="archive-toggle__icon" aria-hidden="true">🗂</span>
+              <span class="archive-toggle__label">Archivadas</span>
+              <strong>{{ archivedRequests.length }}</strong>
+            </button>
+            <span class="badge">Proveedor decide aqui: aceptar o rechazar</span>
+          </div>
         </div>
 
         <div class="fleet-kpi-grid request-kpi-grid">
@@ -6655,7 +6707,47 @@ watch(
           </label>
         </div>
 
-        <div v-if="requests.length" class="requests-dispatch-layout">
+        <section v-if="archivedTrayOpen" class="archived-requests-panel">
+          <div class="section-head compact-head">
+            <div>
+              <p class="eyebrow">Archivadas</p>
+              <h3>Solicitudes rechazadas</h3>
+            </div>
+            <span class="badge">Solo lectura</span>
+          </div>
+
+          <div v-if="archivedRequests.length" class="archived-requests-list">
+            <article
+              v-for="request in archivedRequests"
+              :key="`archived-${request.id}`"
+              class="archived-request-card"
+            >
+              <div class="request-queue-top">
+                <strong>Solicitud #{{ request.id }}</strong>
+                <span class="status-pill status-pill--ghost" data-tone="neutral">Archivada</span>
+              </div>
+              <p class="request-queue-route">{{ getRequestRouteLabel(request) }}</p>
+              <div class="request-queue-meta">
+                <span>{{ request.passengers || 0 }} pax</span>
+                <span>{{ formatDateTimeDisplay(request.date) }}</span>
+              </div>
+              <div class="request-queue-meta">
+                <span class="package-chip" :data-tone="getRequestServiceTierTone(request)">
+                  {{ getRequestServiceTierLabel(request) }}
+                </span>
+                <span>{{ getRequestQuoteLabel(request) }}</span>
+                <span>Rechazada por proveedor</span>
+              </div>
+            </article>
+          </div>
+
+          <p v-else class="empty-state">No hay solicitudes archivadas por el momento.</p>
+        </section>
+
+        <div
+          v-if="requests.length && (filteredRequests.length || !archivedTrayOpen)"
+          class="requests-dispatch-layout"
+        >
           <aside class="requests-queue">
             <article
               v-for="request in filteredRequests"
@@ -6694,7 +6786,7 @@ watch(
             </article>
 
             <p v-if="!filteredRequests.length" class="empty-state">
-              No hay solicitudes que coincidan con los filtros actuales.
+              No hay solicitudes activas que coincidan con los filtros actuales.
             </p>
           </aside>
 
@@ -6715,18 +6807,34 @@ watch(
                 <button
                   type="button"
                   class="ghost-button"
-                  :disabled="isRequestRejected(selectedRequest.status)"
+                  :disabled="
+                    isRequestRejected(selectedRequest.status) ||
+                    isUpdatingRequestStatus(selectedRequest.id)
+                  "
                   @click="updateRequestStatus(selectedRequest.id, 'Rechazada')"
                 >
-                  Rechazar
+                  <span
+                    v-if="isUpdatingRequestStatus(selectedRequest.id, 'reject')"
+                    class="button-spinner"
+                    aria-hidden="true"
+                  ></span>
+                  {{ isUpdatingRequestStatus(selectedRequest.id, 'reject') ? 'Rechazando...' : 'Rechazar' }}
                 </button>
                 <button
                   type="button"
                   class="primary-action"
-                  :disabled="isRequestAccepted(selectedRequest.status)"
+                  :disabled="
+                    isRequestAccepted(selectedRequest.status) ||
+                    isUpdatingRequestStatus(selectedRequest.id)
+                  "
                   @click="updateRequestStatus(selectedRequest.id, 'Aceptada')"
                 >
-                  Aceptar
+                  <span
+                    v-if="isUpdatingRequestStatus(selectedRequest.id, 'accept')"
+                    class="button-spinner"
+                    aria-hidden="true"
+                  ></span>
+                  {{ isUpdatingRequestStatus(selectedRequest.id, 'accept') ? 'Aceptando...' : 'Aceptar' }}
                 </button>
               </div>
             </div>
@@ -6774,142 +6882,11 @@ watch(
               </article>
             </div>
 
-            <div class="request-detail-grid">
-              <article class="surface request-detail-card">
-                <div class="section-head">
-                  <div>
-                    <p class="eyebrow">Bloques operativos</p>
-                    <h3>Resumen del vuelo</h3>
-                  </div>
-                </div>
+          
 
-                <div class="request-detail-blocks">
-                  <article class="request-detail-block">
-                    <span class="mini-label">Ruta</span>
-                    <strong>{{ getRequestRouteLabel(selectedRequest) }}</strong>
-                  </article>
-                  <article class="request-detail-block">
-                    <span class="mini-label">Salida</span>
-                    <strong>{{ formatDateTimeDisplay(selectedRequest.date) }}</strong>
-                  </article>
-                  <article class="request-detail-block">
-                    <span class="mini-label">Pasajeros</span>
-                    <strong>{{ selectedRequest.passengers || 0 }} pasajeros</strong>
-                  </article>
-                  <article class="request-detail-block">
-                    <span class="mini-label">Cliente</span>
-                    <strong>{{ getRequestClientLabel(selectedRequest) }}</strong>
-                  </article>
-                  <article class="request-detail-block">
-                    <span class="mini-label">Cotizacion</span>
-                    <strong>{{ getRequestQuoteLabel(selectedRequest) }}</strong>
-                  </article>
-                  <article class="request-detail-block">
-                    <span class="mini-label">Codigo / tipo</span>
-                    <strong>{{
-                      selectedRequest.requestCode || 'Codigo interno sin publicar'
-                    }}</strong>
-                    <p class="muted">
-                      {{ getRequestTripTypeLabel(selectedRequest) }}
-                    </p>
-                  </article>
-                  <article class="request-detail-block">
-                    <span class="mini-label">Tipo de solicitud</span>
-                    <strong>{{ getRequestTripTypeLabel(selectedRequest) }}</strong>
-                    <p class="muted">
-                      {{
-                        [
-                          selectedRequest.waitingAtDestination ? 'Espera en destino' : '',
-                          selectedRequest.overnightRequired ? 'Varios dias / overnight' : '',
-                          selectedRequest.airportChange ? 'Cambio de aeropuerto' : '',
-                          selectedRequest.specialRequest ? 'Solicitud especial' : '',
-                        ]
-                          .filter(Boolean)
-                          .join(' · ') || 'Operacion simple visible en backend'
-                      }}
-                    </p>
-                  </article>
-                </div>
 
-                <p class="muted request-detail-note">
-                  {{
-                    selectedRequest.internalComment ||
-                    selectedRequest.specialRequirements ||
-                    'Cliente protegido por plataforma. Sin comentario adicional cargado en backend.'
-                  }}
-                </p>
-              </article>
 
-              <div class="request-side-stack">
-                <article class="surface request-detail-card">
-                  <div class="section-head">
-                    <div>
-                      <p class="eyebrow">Multi-avion por tramo</p>
-                      <h3>Asignacion por segmento</h3>
-                    </div>
-                  </div>
 
-                  <div class="request-route-assignment-table">
-                    <div class="request-route-assignment-head">
-                      <span>Tramo</span>
-                      <span>Mejor opcion</span>
-                      <span>Alternativa</span>
-                      <span>Estado</span>
-                    </div>
-                    <article
-                      v-for="row in selectedRequestRouteAssignments"
-                      :key="row.id"
-                      class="request-route-assignment-row"
-                    >
-                      <strong>{{ row.route }}</strong>
-                      <span>{{ row.best }}</span>
-                      <span>{{ row.alternative }}</span>
-                      <span>{{ row.state === 'ok' ? '✅' : '⚠️' }}</span>
-                    </article>
-                  </div>
-                </article>
-
-                <article class="surface request-detail-card">
-                  <div class="section-head">
-                    <div>
-                      <p class="eyebrow">Coordinacion interna</p>
-                      <h3>Comentario para Red Aviation</h3>
-                    </div>
-                  </div>
-
-                  <textarea
-                    v-model="requestInternalCommentDraft"
-                    class="request-internal-comment"
-                    rows="4"
-                    placeholder="Ej. Podemos aceptar el tramo 1 y 2, pero el tramo 3 requiere ajuste de horario por disponibilidad de tripulacion."
-                  />
-                  <p class="muted">No visible para cliente. Solo para coordinacion interna con Red Aviation.</p>
-                </article>
-
-                <article class="surface request-detail-card">
-                  <div class="section-head">
-                    <div>
-                      <p class="eyebrow">Timeline</p>
-                      <h3>Actividad operacional</h3>
-                    </div>
-                  </div>
-
-                  <div class="ops-timeline">
-                    <article
-                      v-for="entry in selectedRequestTimeline"
-                      :key="entry.id"
-                      class="ops-timeline-item"
-                    >
-                      <span class="ops-timeline-time">{{ entry.date }}</span>
-                      <div>
-                        <strong>{{ entry.title }}</strong>
-                        <p class="muted">{{ entry.detail }}</p>
-                      </div>
-                    </article>
-                  </div>
-                </article>
-              </div>
-            </div>
           </article>
         </div>
 
@@ -7748,6 +7725,19 @@ watch(
 .empty-state {
   margin: 1rem 0 0;
   color: #6d665c;
+}
+
+.empty-state--actionable {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.empty-state--actionable p {
+  margin: 0;
+}
+
+.archive-inline-button {
+  justify-self: start;
 }
 
 .field-error {
@@ -8748,11 +8738,34 @@ textarea {
   color: #ffffff;
 }
 
+.ghost-button,
+.primary-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+}
+
+.button-spinner {
+  width: 0.95rem;
+  height: 0.95rem;
+  border-radius: 999px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  animation: operator-button-spin 0.7s linear infinite;
+}
+
 .primary-action:disabled,
 .ghost-button:disabled,
 .chip-button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+@keyframes operator-button-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .list-card,
@@ -8860,6 +8873,67 @@ textarea {
   margin-top: 1.4rem;
 }
 
+.requests-head-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.archive-toggle,
+.archive-inline-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 3rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid #e4d3b2;
+  border-radius: 16px;
+  background: #fff8ed;
+  color: #2c241b;
+  font-weight: 700;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+}
+
+.archive-toggle:hover,
+.archive-toggle.is-active,
+.archive-inline-button:hover {
+  border-color: #c8a96b;
+  box-shadow: 0 16px 28px rgba(31, 24, 16, 0.08);
+  transform: translateY(-1px);
+}
+
+.archive-toggle__icon,
+.archive-inline-button span[aria-hidden='true'] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  background: #f3e3c1;
+  font-size: 1rem;
+}
+
+.archive-toggle__label {
+  color: #6f5a30;
+}
+
+.archive-toggle strong,
+.archive-inline-button strong {
+  min-width: 1.9rem;
+  padding: 0.2rem 0.45rem;
+  border-radius: 999px;
+  background: #1c1711;
+  color: #fffaf1;
+  text-align: center;
+  font-size: 0.84rem;
+}
+
 .request-search,
 .request-priority-filter {
   display: grid;
@@ -8905,6 +8979,30 @@ textarea {
   border-color: #c8a96b;
   box-shadow: 0 18px 30px rgba(31, 24, 16, 0.08);
   transform: translateY(-1px);
+}
+
+.archived-requests-panel {
+  margin-top: 1.25rem;
+  padding: 1.1rem;
+  border: 1px solid #ebdcc4;
+  border-radius: 24px;
+  background: linear-gradient(180deg, rgba(255, 250, 241, 0.92), rgba(247, 238, 223, 0.82));
+}
+
+.archived-requests-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 0.95rem;
+  margin-top: 1rem;
+}
+
+.archived-request-card {
+  display: grid;
+  gap: 0.7rem;
+  padding: 1rem;
+  border: 1px solid #ead9be;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.88);
 }
 
 .requests-dispatch-layout {

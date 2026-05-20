@@ -124,10 +124,20 @@ const WORKFLOW_DEFINITIONS = {
     matches: ['completed', 'completada', 'finalizada', 'finalizado', 'cerrada', 'post-vuelo'],
   },
   rejected: {
-    label: 'No disponible',
+    label: 'Vuelo rechazado',
     apiStatus: 'rejected',
     apiWorkflow: 'rechazada',
-    matches: ['rejected', 'rechazada', 'rechazado', 'declined', 'no viable'],
+    matches: [
+      'rejected',
+      'rechazada',
+      'rechazado',
+      'declined',
+      'no viable',
+      'sin opciones disponibles',
+      'no options available',
+      'operador rechazo',
+      'proveedor rechazo',
+    ],
   },
   cancelled: {
     label: 'Cancelada',

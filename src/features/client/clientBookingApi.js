@@ -1,5 +1,6 @@
 import { api, resolveMediaUrl } from '../../lib/api'
 import { featuredAirports } from '../../utils/airports'
+import { buildWorkflowApiPayload } from '../../utils/flightWorkflow'
 import {
   buildCommercialSnapshot,
   buildFlightPricingFormula,
@@ -17,12 +18,37 @@ const configuredFlightPackagesPath = String(
     '',
 ).trim()
 const configuredAircraftPath = String(import.meta.env.VITE_CLIENT_AIRCRAFT_PATH || '').trim()
+const configuredStripeCheckoutPath = String(
+  import.meta.env.VITE_CLIENT_STRIPE_CHECKOUT_PATH || '',
+).trim()
+const configuredStripeWireIntentPath = String(
+  import.meta.env.VITE_CLIENT_STRIPE_WIRE_INTENT_PATH || '',
+).trim()
 
 const QUOTES_PREVIEW_PATH = configuredQuotesPreviewPath || '/client/quotes/preview'
 const CLIENT_TRIPS_PATH = configuredTripsPath || '/client/flight-requests'
 const CLIENT_FLIGHT_PACKAGES_PATH = configuredFlightPackagesPath || '/plans'
 const CLIENT_AIRCRAFT_PATHS = [
   ...new Set([configuredAircraftPath, '/client/aircraft'].filter(Boolean)),
+]
+const CLIENT_STRIPE_CHECKOUT_PATHS = [
+  ...new Set(
+    [
+      configuredStripeCheckoutPath,
+      '/stripe/checkout/create',
+      '/client/stripe/checkout/create',
+      '/client/payments/checkout',
+    ].filter(Boolean),
+  ),
+]
+const CLIENT_STRIPE_WIRE_INTENT_PATHS = [
+  ...new Set(
+    [
+      configuredStripeWireIntentPath,
+      '/client/payments/wire-intent',
+      '/client/stripe/wire-intent',
+    ].filter(Boolean),
+  ),
 ]
 const FALLBACK_DESTINATIONS = [
   {
@@ -1448,6 +1474,17 @@ export function deriveClientWorkflowStatus(request = {}) {
   const hasOperation = Boolean(request.operation?.id || request.operation_id)
   const acceptedMatch = pickAcceptedRequestMatch(request)
   const hasAcceptedMatch = Boolean(acceptedMatch)
+  const matches = listRequestMatches(request)
+  const hasRejectedMatch = matches.some((match) =>
+    ['rejected', 'rechazada', 'rechazado', 'declined'].includes(
+      normalizeWorkflowToken(match?.status || match?.workflow_status || match?.state),
+    ),
+  )
+  const hasPendingMatch = matches.some((match) =>
+    ['pending', 'pendiente', 'sent to provider', 'sent_to_provider'].includes(
+      normalizeWorkflowToken(match?.status || match?.workflow_status || match?.state),
+    ),
+  )
 
   const contractOrLaterStates = new Set([
     'contract pending',
@@ -1459,6 +1496,14 @@ export function deriveClientWorkflowStatus(request = {}) {
     'completed',
     'cancelled',
     'rejected',
+  ])
+  const rejectedSignals = new Set([
+    'rejected',
+    'rechazada',
+    'rechazado',
+    'declined',
+    'sin opciones disponibles',
+    'no options available',
   ])
 
   const providerAcceptedSignals = new Set([
@@ -1493,6 +1538,10 @@ export function deriveClientWorkflowStatus(request = {}) {
     return rawWorkflow
   }
 
+  if (rejectedSignals.has(normalizedWorkflow)) {
+    return 'rejected'
+  }
+
   if (providerAcceptedSignals.has(normalizedWorkflow) || hasAcceptedMatch) {
     return 'provider_accepted'
   }
@@ -1511,6 +1560,10 @@ export function deriveClientWorkflowStatus(request = {}) {
     }
 
     return 'provider_pending'
+  }
+
+  if (hasRejectedMatch && !hasAcceptedMatch && !hasPendingMatch) {
+    return 'rejected'
   }
 
   if ((hasSelectedProvider || hasSelectedAircraft || hasSelectedMatch) && !normalizedWorkflow) {
@@ -1580,17 +1633,26 @@ export function normalizeTrip(request = {}) {
     preferredMatch?.aircraft ||
     {}
   const resolvedFinalPrice = asNumber(
-    request.final_price ||
+    request.selected_card_price ||
+      pricingContext?.selected_card_price ||
+      request.final_price ||
       request.total ||
       request.estimated_total ||
       request.final_price_display ||
       request.formatted_final_price ||
+      request.amount ||
+      request.net_amount ||
       pricingContext?.total ||
       pricingContext?.final_price ||
+      snapshotRecord?.selected_card_price ||
       snapshotRecord?.total ||
       snapshotRecord?.final_price ||
+      preferredMatch?.selected_card_price ||
       preferredMatch?.total ||
       preferredMatch?.final_price ||
+      preferredMatch?.estimated_price ||
+      preferredMatch?.quote_total ||
+      preferredMatch?.quote ||
       preferredMatch?.price,
     0,
   )
@@ -1655,6 +1717,15 @@ export function normalizeTrip(request = {}) {
     final_price: resolvedFinalPrice,
     final_price_display: resolvedFinalPrice > 0 ? asMoney(resolvedFinalPrice) : '',
     formatted_final_price: resolvedFinalPrice > 0 ? asMoney(resolvedFinalPrice) : '',
+    selected_card_price: asNumber(
+      request.selected_card_price ||
+        pricingContext?.selected_card_price ||
+        snapshotRecord?.selected_card_price ||
+        preferredMatch?.selected_card_price ||
+        resolvedFinalPrice ||
+        0,
+      0,
+    ) || null,
     base_price: resolvedBasePrice,
     pricing_context: pricingContext,
     aircraft_snapshot: Object.keys(snapshotRecord).length ? snapshotRecord : null,
@@ -1900,6 +1971,43 @@ export async function getClientTrips(options = {}) {
   }
 }
 
+export async function markClientTripReadyForPayment(reservationId, options = {}) {
+  const normalizedReservationId = String(reservationId || '').trim()
+
+  if (!normalizedReservationId) {
+    throw new Error('No se encontro la reserva para avanzar a pago.')
+  }
+
+  const workflowPayload = {
+    ...buildWorkflowApiPayload('payment_pending'),
+    payment_status: 'Pendiente de pago',
+  }
+  const candidatePaths = [
+    `${CLIENT_TRIPS_PATH}/${normalizedReservationId}`,
+    `${CLIENT_TRIPS_PATH}/${normalizedReservationId}/workflow`,
+    `${CLIENT_TRIPS_PATH}/${normalizedReservationId}/status`,
+  ]
+  let lastError = null
+
+  for (const path of candidatePaths) {
+    try {
+      const payload = await api.put(path, workflowPayload, options)
+      const record =
+        payload?.flight_request || payload?.reservation || payload?.trip || payload?.data || payload
+
+      return normalizeTrip({
+        ...(record && typeof record === 'object' ? record : {}),
+        id: record?.id || normalizedReservationId,
+        ...workflowPayload,
+      })
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  throw lastError || new Error('No se pudo actualizar la reserva a pago pendiente.')
+}
+
 export async function searchClientFlights(itinerary) {
   const firstLeg = Array.isArray(itinerary?.legs) ? itinerary.legs[0] || {} : {}
   const aircraftQuery = {
@@ -2007,6 +2115,56 @@ export async function searchClientFlights(itinerary) {
 
 export async function createClientFlightRequest(itinerary, options = {}) {
   return api.post(CLIENT_TRIPS_PATH, buildFlightRequestPayload(itinerary), options)
+}
+
+export async function createClientCheckoutSession(reservationId, payload = {}, options = {}) {
+  const normalizedReservationId = String(reservationId || '').trim()
+
+  if (!normalizedReservationId) {
+    throw new Error('No se encontro la reserva para iniciar el checkout.')
+  }
+
+  const requestBody = {
+    booking_id: normalizedReservationId,
+    reservation_id: normalizedReservationId,
+    ...payload,
+  }
+  let lastError = null
+
+  for (const path of CLIENT_STRIPE_CHECKOUT_PATHS) {
+    try {
+      return await api.post(path, requestBody, options)
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  throw lastError || new Error('No se pudo crear la sesion de checkout.')
+}
+
+export async function createClientWireIntent(reservationId, payload = {}, options = {}) {
+  const normalizedReservationId = String(reservationId || '').trim()
+
+  if (!normalizedReservationId) {
+    throw new Error('No se encontro la reserva para registrar la transferencia.')
+  }
+
+  const requestBody = {
+    booking_id: normalizedReservationId,
+    reservation_id: normalizedReservationId,
+    ...payload,
+  }
+  let lastError = null
+
+  for (const path of CLIENT_STRIPE_WIRE_INTENT_PATHS) {
+    try {
+      return await api.post(path, requestBody, options)
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  throw lastError || new Error('No se pudo registrar la instruccion de transferencia.')
 }
 
 export async function requestConcierge(message) {

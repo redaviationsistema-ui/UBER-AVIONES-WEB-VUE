@@ -6,6 +6,7 @@ const props = defineProps({
   reservation: { type: Object, default: null },
   reservationId: { type: [String, Number], default: '' },
   customerName: { type: String, default: '' },
+  submitting: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['confirm'])
@@ -170,6 +171,8 @@ function resolveReservationFinalPrice(reservation = {}) {
   const preferredMatch = pickPreferredClientMatch(reservation) || {}
 
   return (
+    reservation.selected_card_price ||
+    pricingContext.selected_card_price ||
     reservation.final_price ||
     reservation.total ||
     reservation.estimated_total ||
@@ -181,8 +184,10 @@ function resolveReservationFinalPrice(reservation = {}) {
     reservation.net_amount ||
     pricingContext.total ||
     pricingContext.final_price ||
+    snapshotRecord.selected_card_price ||
     snapshotRecord.total ||
     snapshotRecord.final_price ||
+    preferredMatch.selected_card_price ||
     preferredMatch.total ||
     preferredMatch.final_price ||
     preferredMatch.estimated_price ||
@@ -709,7 +714,9 @@ const clauses = computed(() => [
           >
         </div>
       </div>
-      <button type="button" @click="emit('confirm')">Firmar contrato</button>
+      <button type="button" :disabled="props.submitting" @click="emit('confirm')">
+        {{ props.submitting ? 'Procesando firma...' : 'Firmar contrato' }}
+      </button>
       <small class="signature-note">Fecha de emisión del contrato: {{ contractDate }}</small>
     </section>
   </article>

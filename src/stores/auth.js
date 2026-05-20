@@ -5,6 +5,7 @@ import { normalizeAuthRole, resolveDashboardPathByRole } from '../lib/authRoutin
 import { resolveProviderIdForUser } from '../lib/providerContext'
 
 const AUTH_SNAPSHOT_KEY = 'red_aviation_auth_snapshot'
+const AUTH_REQUEST_TIMEOUT_MS = Number(import.meta.env.VITE_AUTH_API_TIMEOUT_MS || 45000)
 
 function canUseStorage(storageName) {
   return typeof window !== 'undefined' && typeof window[storageName] !== 'undefined'
@@ -242,7 +243,7 @@ export const useAuthStore = defineStore('auth', () => {
     loading.value = true
 
     try {
-      const response = await api.post('/auth/login', credentials)
+      const response = await api.post('/auth/login', credentials, { timeoutMs: AUTH_REQUEST_TIMEOUT_MS })
       applyAuth(response)
       return response
     } finally {
@@ -254,7 +255,7 @@ export const useAuthStore = defineStore('auth', () => {
     loading.value = true
 
     try {
-      const response = await api.post('/auth/register', payload)
+      const response = await api.post('/auth/register', payload, { timeoutMs: AUTH_REQUEST_TIMEOUT_MS })
       applyAuth(response)
       return response
     } finally {

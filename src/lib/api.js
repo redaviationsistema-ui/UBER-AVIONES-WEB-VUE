@@ -1,15 +1,7 @@
-// Prioridad local:
-// VITE_API_BASE_URL=http://127.0.0.1:8000/api/v1
-// VITE_BACKEND_ORIGIN=http://127.0.0.1:8000
-// Fallback Render deshabilitado temporalmente:
-// VITE_FALLBACK_API_BASE_URL=https://uber-aviones.onrender.com/api/v1
-// VITE_FALLBACK_BACKEND_ORIGIN=https://uber-aviones.onrender.com
 const API_BASE_URL = String(import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api/v1').replace(/\/$/, '')
 const CONFIGURED_BACKEND_ORIGIN = String(import.meta.env.VITE_BACKEND_ORIGIN || '').replace(/\/$/, '')
-// const FALLBACK_API_BASE_URL = String(import.meta.env.VITE_FALLBACK_API_BASE_URL || '').replace(/\/$/, '')
-// const FALLBACK_BACKEND_ORIGIN = String(import.meta.env.VITE_FALLBACK_BACKEND_ORIGIN || '').replace(/\/$/, '')
-const FALLBACK_API_BASE_URL = ''
-const FALLBACK_BACKEND_ORIGIN = ''
+const FALLBACK_API_BASE_URL = String(import.meta.env.VITE_FALLBACK_API_BASE_URL || '').replace(/\/$/, '')
+const FALLBACK_BACKEND_ORIGIN = String(import.meta.env.VITE_FALLBACK_BACKEND_ORIGIN || '').replace(/\/$/, '')
 const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS || 15000)
 
 
@@ -180,6 +172,34 @@ function extractApiErrorMessage(payload = {}, status = 0) {
   return `Error ${status}`
 }
 
+function isTimeoutError(error) {
+  if (!error) return false
+
+  return (
+    error.name === 'AbortError' ||
+    String(error.message || '')
+      .toLowerCase()
+      .includes('timeout after')
+  )
+}
+
+function buildNetworkErrorMessage(lastError, attemptedCandidates = [], timeoutMs = API_TIMEOUT_MS) {
+  const destinations = attemptedCandidates
+    .map((candidate) => candidate.apiBaseUrl)
+    .filter(Boolean)
+
+  if (isTimeoutError(lastError)) {
+    const destinationLabel =
+      destinations.length > 1
+        ? `los servicios configurados (${destinations.join(', ')})`
+        : destinations[0] || 'el servicio configurado'
+
+    return `El servicio tardó demasiado en responder (${Math.round(timeoutMs / 1000)} s). Verifica que ${destinationLabel} esté activo.`
+  }
+
+  return 'No fue posible conectar con el servicio local ni con el servidor remoto.'
+}
+
 function isUnauthorizedResponse(response, payload = {}) {
   if (response?.status === 401) return true
 
@@ -342,7 +362,7 @@ export async function apiRequest(path, options = {}) {
   }
 
   if (!response) {
-    const networkError = new Error('No fue posible conectar con el servicio local ni con el servidor remoto.')
+    const networkError = new Error(buildNetworkErrorMessage(lastError, orderedCandidates, timeoutMs))
     networkError.cause = lastError
     throw networkError
   }

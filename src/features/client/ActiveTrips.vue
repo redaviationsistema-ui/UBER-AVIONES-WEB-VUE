@@ -69,11 +69,15 @@ function progressSteps(status = '') {
             ? 'done'
             : stateId === 'provider_accepted' && step.key === 'contract'
               ? 'active'
-              : index < currentIndex
+              : stateId === 'contract_signed' && step.key === 'contract'
                 ? 'done'
-                : index === currentIndex
+                : stateId === 'contract_signed' && step.key === 'payment'
                   ? 'active'
-                  : 'todo',
+                : index < currentIndex
+                  ? 'done'
+                  : index === currentIndex
+                    ? 'active'
+                    : 'todo',
   }))
 }
 
@@ -225,13 +229,26 @@ function nextAction(status = '') {
   const meta = statusMeta(status)
   const stateId = workflowId(status)
 
+  if (stateId === 'rejected') return 'El operador rechazo este vuelo. Nuestro equipo puede ayudarte a buscar otra opcion.'
+  if (stateId === 'reserved') return 'Siguiente paso: Respuesta del proveedor'
   if (meta.step === 'booking') return 'Siguiente paso: cierre de reserva'
-  if (stateId === 'provider_accepted') return 'Siguiente paso: firma de contrato'
-  if (meta.step === 'provider') return 'Siguiente paso: respuesta del proveedor'
-  if (meta.step === 'contract') return 'Siguiente paso: firma de contrato'
-  if (meta.step === 'payment') return 'Siguiente paso: confirmacion de pago'
-  if (meta.step === 'flight') return 'Siguiente paso: confirmacion de vuelo'
+  if (stateId === 'provider_accepted') return 'Siguiente paso: Firma de contrato'
+  if (stateId === 'contract_signed') return 'Siguiente paso: Confirmacion de pago'
+  if (meta.step === 'provider') return 'Siguiente paso: Respuesta del proveedor'
+  if (meta.step === 'contract') return 'Siguiente paso: Firma de contrato'
+  if (meta.step === 'payment') return 'Siguiente paso: Confirmacion de pago'
+  if (meta.step === 'flight') return 'Siguiente paso: Confirmacion de vuelo'
   return 'Siguiente paso: tracking y concierge'
+}
+
+function nextActionDetail(status = '') {
+  const action = nextAction(status)
+
+  if (!action.startsWith('Siguiente paso: ')) {
+    return action
+  }
+
+  return action.replace('Siguiente paso: ', '')
 }
 
 function hasWorkflowIn(status = '', states = []) {
@@ -242,17 +259,12 @@ function contractEnabled(reservation = {}) {
   return hasWorkflowIn(reservation.workflow_status || reservation.status, [
     'provider_accepted',
     'contract_pending',
-    'contract_signed',
-    'payment_pending',
-    'payment_confirmed',
-    'flight_confirmed',
-    'tracking_live',
-    'completed',
   ])
 }
 
 function paymentEnabled(reservation = {}) {
   return hasWorkflowIn(reservation.workflow_status || reservation.status, [
+    'contract_signed',
     'payment_pending',
     'payment_confirmed',
     'flight_confirmed',
@@ -274,10 +286,6 @@ function conciergeEnabled(reservation = {}) {
     'tracking_live',
     'completed',
   ])
-}
-
-function aircraftEnabled(reservation = {}) {
-  return Boolean(reservation.aircraft)
 }
 
 function reservationTab(reservation = {}) {
@@ -456,9 +464,9 @@ watch(
         </article>
 
         <article class="executive-card">
-          <strong>Próximo paso</strong>
+          <strong>Siguiente paso:</strong>
           <span>{{
-            nextAction(selectedReservation.workflow_status || selectedReservation.status)
+            nextActionDetail(selectedReservation.workflow_status || selectedReservation.status)
           }}</span>
           <span v-if="selectedReservation.flight_package"
             >🎟 {{ selectedReservation.flight_package }}</span
@@ -496,19 +504,17 @@ watch(
           💳 Pago
         </button>
         <button
+        >
+          🛩 pendiente
+        </button>
+        <button
           type="button"
           :disabled="!conciergeEnabled(selectedReservation)"
           @click="$emit('open-concierge', selectedReservation.id)"
         >
           🎧 Concierge
         </button>
-        <button
-          type="button"
-          :disabled="!aircraftEnabled(selectedReservation)"
-          @click="$emit('open-detail', selectedReservation.id)"
-        >
-          🛩 Ver aeronave
-        </button>
+        
       </div>
     </article>
 

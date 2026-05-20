@@ -2,10 +2,12 @@ import { api } from './api'
 
 function shouldTryNextCandidate(error) {
   const status = Number(error?.status || 0)
+  const message = String(error?.message || '').toLowerCase()
 
   if (status === 0) return true
   if ([404, 405].includes(status)) return true
   if (status >= 500 && status <= 599) return true
+  if (message.includes('route') && message.includes('could not be found')) return true
 
   return false
 }

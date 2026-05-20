@@ -15,10 +15,14 @@ import {
   normalizePackageCode,
 } from '../../utils/flightPricing'
 import {
+  createClientCheckoutSession,
   createClientFlightRequest,
+  createClientWireIntent,
   getClientDestinations,
   getClientFlightPackages,
+  markClientTripReadyForPayment,
   getClientTrips,
+  requestConcierge,
   searchClientFlights,
 } from './clientBookingApi'
 import { useAuthStore } from '../../stores/auth'
@@ -46,6 +50,7 @@ const flightPackages = ref([])
 const aircraftOptions = ref([])
 const reservations = ref([])
 const refreshingReservations = ref(false)
+const signingContract = ref(false)
 const submittedItinerary = ref(null)
 const activeResultFilter = ref('best_value')
 const technicalSheetOpen = ref(false)
@@ -89,7 +94,7 @@ const searchForm = reactive({
 const topNavItems = [
   { label: 'Reservar', section: 'reservar' },
   { label: 'Mis vuelos', section: 'viajes' },
-  { label: 'Perfil', section: 'perfil' },
+  { label: '  Perfil', section: 'perfil' },
 ]
 const mobileNavItems = [
   { label: 'Buscar', section: 'reservar' },
@@ -221,7 +226,23 @@ const selectedReservation = computed(() => {
   return reservations.value[0] || null
 })
 const selectedReservationPriceLabel = computed(() => {
+  const pricingContext =
+    selectedReservation.value?.pricing_context &&
+    typeof selectedReservation.value.pricing_context === 'object'
+      ? selectedReservation.value.pricing_context
+      : {}
+  const snapshotRecord =
+    selectedReservation.value?.aircraft_snapshot &&
+    typeof selectedReservation.value.aircraft_snapshot === 'object'
+      ? selectedReservation.value.aircraft_snapshot
+      : {}
+
   return (
+    (selectedReservation.value?.selected_card_price
+      ? formatCurrency(selectedReservation.value.selected_card_price)
+      : '') ||
+    (pricingContext.selected_card_price ? formatCurrency(pricingContext.selected_card_price) : '') ||
+    (snapshotRecord.selected_card_price ? formatCurrency(snapshotRecord.selected_card_price) : '') ||
     selectedReservation.value?.formatted_final_price ||
     selectedReservation.value?.final_price_display ||
     selectedReservation.value?.estimated_total ||
@@ -230,7 +251,21 @@ const selectedReservationPriceLabel = computed(() => {
   )
 })
 const selectedReservationPriceValue = computed(() => {
+  const pricingContext =
+    selectedReservation.value?.pricing_context &&
+    typeof selectedReservation.value.pricing_context === 'object'
+      ? selectedReservation.value.pricing_context
+      : {}
+  const snapshotRecord =
+    selectedReservation.value?.aircraft_snapshot &&
+    typeof selectedReservation.value.aircraft_snapshot === 'object'
+      ? selectedReservation.value.aircraft_snapshot
+      : {}
+
   return (
+    Number(selectedReservation.value?.selected_card_price || 0) ||
+    Number(pricingContext.selected_card_price || 0) ||
+    Number(snapshotRecord.selected_card_price || 0) ||
     moneyValue(selectedReservation.value?.formatted_final_price) ||
     moneyValue(selectedReservation.value?.final_price_display) ||
     moneyValue(selectedReservation.value?.estimated_total) ||
@@ -304,23 +339,33 @@ const paymentMethodCards = [
   {
     id: 'card',
     label: 'Tarjeta corporativa',
-    note: 'Autorizacion inmediata y validacion segura.',
+    note: 'Checkout hospedado en Stripe con autorizacion y webhook de confirmacion.',
     icon: 'card',
   },
   {
     id: 'wire',
     label: 'Transferencia / wire',
-    note: 'Coordinacion con concierge y comprobante bancario.',
+    note: 'Registro de instruccion bancaria y conciliacion asistida por concierge.',
     icon: 'bank',
   },
 ]
+const paymentFlowSteps = [
+  'Cliente paga a Red Aviation como plataforma.',
+  'Stripe confirma el cobro por webhook en el backend.',
+  'La reserva queda pagada y bloquea aeronave / operacion.',
+  'Red Aviation libera al proveedor despues de validacion operativa.',
+]
 const paymentForm = reactive({
   contactEmail: '',
-  cardNumber: '',
-  expiryDate: '',
-  securityCode: '',
 })
 const selectedPaymentMethod = ref('card')
+const paymentSubmitting = ref(false)
+const paymentSubmissionError = ref('')
+const paymentReferenceLabel = ref('')
+const paymentSupportRequested = ref(false)
+const selectedPaymentMethodMeta = computed(
+  () => paymentMethodCards.find((method) => method.id === selectedPaymentMethod.value) || paymentMethodCards[0],
+)
 const accountAccessCopy = computed(() => {
   const access = auth.access || {}
   const subscription = access.subscription || access.membership || {}
@@ -410,7 +455,6 @@ const userFirstName = computed(() => {
 const selectedPriorityMeta = computed(
   () => flightPackages.value.find((item) => item.code === selectedPriorityType.value) || null,
 )
-const recommendedAircraftId = computed(() => String(aircraftOptions.value[0]?.id || ''))
 const resultFilterOptions = [
   { key: 'best_value', label: 'Recomendado por asesor' },
   { key: 'price', label: 'Mejor inversion' },
@@ -609,12 +653,6 @@ function formatTravelDate(date = '', time = '') {
     hour: 'numeric',
     minute: '2-digit',
   }).format(parsed)
-}
-
-function formatPassengerCopy(value) {
-  const amount = Number(value || 0)
-  if (!amount) return 'Vuelo privado'
-  return `${amount} ${amount === 1 ? 'pasajero' : 'pasajeros'}`
 }
 
 function formatTravelDateLabel(date = '', time = '') {
@@ -913,13 +951,15 @@ function inferredFlightWindowHours(aircraft = {}) {
   if (!Number.isFinite(directHours) || directHours <= 0) return null
 
   const cabin = String(aircraft.cabin || aircraft.category || '').toLowerCase()
-  let spreadHours = 0.05
-
-  if (cabin.includes('helic')) spreadHours = 0.08
-  else if (cabin.includes('turbo')) spreadHours = 0.06
-  else if (cabin.includes('light')) spreadHours = 0.05
-  else if (cabin.includes('mid')) spreadHours = 0.05
-  else spreadHours = 0.06
+  const spreadHours = cabin.includes('helic')
+    ? 0.08
+    : cabin.includes('turbo')
+      ? 0.06
+      : cabin.includes('light')
+        ? 0.05
+        : cabin.includes('mid')
+          ? 0.05
+          : 0.06
 
   return {
     min: directHours,
@@ -946,16 +986,6 @@ function aircraftDurationLabel(aircraft = {}) {
       activeItinerarySummary.value?.estimatedTime ||
       '42 min',
   )
-}
-
-function aircraftBillingHours(aircraft = {}) {
-  const explicitBillableHours = Number(aircraft.billable_hours || 0)
-  if (Number.isFinite(explicitBillableHours) && explicitBillableHours > 0)
-    return explicitBillableHours
-
-  const minimumHours = Number(aircraft.minimum_hours || 0)
-  const displayHours = aircraftDisplayFlightHours(aircraft)
-  return Math.max(displayHours, minimumHours, 0)
 }
 
 function aircraftBillingNote(aircraft = {}) {
@@ -1027,13 +1057,6 @@ function aircraftSpeedLine(aircraft = {}, summary = {}) {
   return `${aircraftDurationLabel(aircraft)} • ${itineraryDepartureLabel(summary)}`
 }
 
-function aircraftAvailabilityLabel(aircraft = {}, index = 0) {
-  if (aircraft.response_time)
-    return `Salida en ${String(aircraft.response_time).replace(/^[-\s]+/, '')}`
-  if (index === 0) return 'Salida en 35 min'
-  return 'Prioridad Alta'
-}
-
 function aircraftIncludes(aircraft = {}) {
   const amenities = Array.isArray(aircraft.amenities) ? aircraft.amenities.filter(Boolean) : []
   const hiddenAmenities = new Set(['wifi', 'catering', 'equipaje', 'traslado terrestre'])
@@ -1067,11 +1090,6 @@ function aircraftVisibleForRoute(aircraft = {}, allAircraft = [], index = 0) {
     return false
 
   return true
-}
-
-function openTechnicalSheet(aircraft) {
-  technicalAircraft.value = aircraft
-  technicalSheetOpen.value = true
 }
 
 function closeTechnicalSheet() {
@@ -1332,63 +1350,6 @@ const selectedAircraftPricing = computed(() => {
   return aircraftPricingForType(selectedAircraft.value || {}, selectedPriorityType.value)
 })
 
-function packageFlowCopy(packageCode = '') {
-  const normalized = normalizePriorityCode(packageCode)
-
-  if (normalized === 'business') {
-    return {
-      priceLabel: 'Sin costo adicional',
-      headline: 'Atencion prioritaria, mayor flexibilidad y coordinacion mas agil.',
-      support: 'Ideal para respuesta rapida y mayor personalizacion.',
-      accent: '+ Prioridad + Flexibilidad',
-    }
-  }
-
-  if (normalized === 'elite') {
-    return {
-      priceLabel: 'Sin costo adicional',
-      headline: 'Prioridad maxima, concierge dedicado y gestion personalizada.',
-      support: 'Ideal para control total y asistencia premium.',
-      accent: '+ Concierge + Prioridad Maxima',
-    }
-  }
-
-  return {
-    priceLabel: 'Incluido en tu reserva',
-    headline: 'Proceso privado estandar con cotizacion, validacion y confirmacion.',
-    support: 'Ideal para una reserva clara y eficiente.',
-    accent: 'Incluido en tu reserva',
-  }
-}
-
-function packagePriceLabel(flightPackage) {
-  return packageFlowCopy(flightPackage?.code).priceLabel
-}
-
-function packageButtonLabel(flightPackage) {
-  const normalized = normalizePriorityCode(flightPackage?.code)
-  const isSelected = selectedPriorityType.value === normalized
-
-  if (normalized === 'essential') {
-    return isSelected ? 'Plan Actual' : 'Elegir Essential'
-  }
-
-  if (normalized === 'business') {
-    return isSelected ? 'Seleccionado' : 'Mejorar a Business'
-  }
-
-  if (normalized === 'elite') {
-    return isSelected ? 'Seleccionado' : 'Acceder a Elite'
-  }
-
-  return isSelected ? 'Seleccionado' : `Elegir ${flightPackage?.name || 'plan'}`
-}
-
-function selectPriority(flightPackage) {
-  if (!flightPackage?.code) return
-  selectedPriorityType.value = flightPackage.code
-}
-
 function ensureDefaultPriority(packages = []) {
   if (!packages.length) {
     if (!selectedPriorityType.value) selectedPriorityType.value = 'essential'
@@ -1416,6 +1377,66 @@ function goToPayment(reservationId = '') {
 
 function goToConcierge(reservationId = '') {
   go('soporte', reservationId || selectedReservation.value?.id || '')
+}
+
+function mergeReservationUpdate(updatedReservation = null) {
+  const normalizedReservationId = String(updatedReservation?.id || '').trim()
+  if (!normalizedReservationId) return
+
+  const nextReservation = {
+    ...(updatedReservation || {}),
+    id: normalizedReservationId,
+  }
+  const existingIndex = reservations.value.findIndex(
+    (reservation) => String(reservation.id) === normalizedReservationId,
+  )
+
+  if (existingIndex === -1) return
+
+  reservations.value = reservations.value.map((reservation, index) =>
+    index === existingIndex ? { ...reservation, ...nextReservation } : reservation,
+  )
+}
+
+async function handleContractConfirm() {
+  const reservationId = String(routeId.value || selectedReservation.value?.id || '').trim()
+  if (!reservationId || signingContract.value) return
+
+  const optimisticReservation = {
+    id: reservationId,
+    status: 'payment_pending',
+    workflow_status: 'pago pendiente',
+    payment_status: 'Pendiente de pago',
+    updated_at: new Date().toISOString(),
+  }
+
+  mergeReservationUpdate(optimisticReservation)
+  signingContract.value = true
+
+  try {
+    const updatedReservation = await markClientTripReadyForPayment(reservationId, {
+      timeoutMs: 20000,
+    })
+
+    mergeReservationUpdate(updatedReservation?.id ? updatedReservation : optimisticReservation)
+    await refreshReservations({ silent: true })
+    ui.pushToast({
+      tone: 'success',
+      title: 'Contrato firmado',
+      message: 'La reserva avanzo a pago y ya puedes completar el cobro.',
+    })
+  } catch (error) {
+    ui.pushToast({
+      tone: 'error',
+      title: 'No se pudo sincronizar la firma',
+      message:
+        error?.message ||
+        'La interfaz ya avanzo a pago, pero necesitamos volver a sincronizar con el servidor.',
+    })
+  } finally {
+    signingContract.value = false
+    go('pago', reservationId)
+  }
 }
 
 watch(
@@ -1742,12 +1763,8 @@ async function requestReservation(aircraft = selectedAircraft.value) {
     const normalizedPassengers =
       Number(activeItinerarySummary.value.passengers || searchForm.passengers || 0) || 1
     const pricing = aircraftPricingForType(aircraft, selectedPriorityType.value)
-    const selectedCardPrice =
-      Number(aircraft.total || 0) ||
-      moneyValue(aircraft.final_price) ||
-      moneyValue(aircraft.estimated_total) ||
-      pricing.finalPrice
-    const pricingContext = buildCommercialSnapshot(
+    const selectedCardPrice = Number((pricing.finalPrice + RESULTS_SURCHARGE_USD).toFixed(2))
+    const basePricingContext = buildCommercialSnapshot(
       {
         packageCode: pricing.priorityType,
         priorityType: pricing.priorityType,
@@ -1762,6 +1779,12 @@ async function requestReservation(aircraft = selectedAircraft.value) {
       pricing,
       aircraft,
     )
+    const pricingContext = {
+      ...basePricingContext,
+      selected_card_price: selectedCardPrice,
+      total: selectedCardPrice,
+      final_price: selectedCardPrice,
+    }
     const reservationPayload = {
       trip_type: tripTypeKey.value,
       trip_label: tripType.value,
@@ -1815,6 +1838,7 @@ async function requestReservation(aircraft = selectedAircraft.value) {
         subtotal: Number(
           (pricingContext.subtotal_before_multipliers || pricing.basePrice || 0).toFixed(2),
         ),
+        selected_card_price: Number(selectedCardPrice.toFixed(2)),
         total: Number(selectedCardPrice.toFixed(2)),
         final_price: Number(selectedCardPrice.toFixed(2)),
         estimated_total: Number(selectedCardPrice.toFixed(2)),
@@ -2164,7 +2188,7 @@ watch(
 
           <div v-if="secondaryAircraftOptions.length" class="aircraft-list aircraft-list-compact">
             <article
-              v-for="(aircraft, index) in secondaryAircraftOptions"
+              v-for="aircraft in secondaryAircraftOptions"
               :key="aircraft.id"
               class="aircraft-card aircraft-card-compact"
             >
@@ -2222,7 +2246,8 @@ watch(
             :reservation="selectedReservation"
             :reservation-id="routeId"
             :customer-name="customerDisplayName"
-            @confirm="go('pago', routeId)"
+            :submitting="signingContract"
+            @confirm="handleContractConfirm"
           />
         </article>
 
