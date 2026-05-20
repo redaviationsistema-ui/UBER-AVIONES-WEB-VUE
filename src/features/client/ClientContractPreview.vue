@@ -513,7 +513,7 @@ const clauses = computed(() => [
   {
     title: '17. VALIDEZ DE FIRMAS ELECTRÓNICAS',
     paragraphs: [
-      'Las partes acuerdan que la firma del presente Contrato podrá realizarse de manera electrónica. RED SKY GROUP S.A. DE C.V. hará uso de la plataforma DocuSign para la firma electrónica, la cual tendrá plena validez legal. El Cliente podrá firmar por cualquier medio digital que elija, y al hacerlo, reconoce y acepta expresamente la legalidad, validez y plena eficacia del acto de firma electrónica, asumiendo toda responsabilidad derivada de su utilización. Las firmas electrónicas tendrán la misma fuerza y efecto que una firma autógrafa para todos los efectos legales.',
+      'Las partes acuerdan que la firma del presente Contrato podrá realizarse de manera electrónica. RED AVIATION COMPANY S.A. DE C.V. hará uso de la plataforma DocuSign para la firma electrónica, la cual tendrá plena validez legal. El Cliente podrá firmar por cualquier medio digital que elija, y al hacerlo, reconoce y acepta expresamente la legalidad, validez y plena eficacia del acto de firma electrónica, asumiendo toda responsabilidad derivada de su utilización. Las firmas electrónicas tendrán la misma fuerza y efecto que una firma autógrafa para todos los efectos legales.',
     ],
   },
 ])
@@ -566,7 +566,7 @@ const clauses = computed(() => [
           >.
         </p>
         <p>
-          ENTRE <strong>RED SKY GROUP S.A. DE C.V.</strong>, sociedad constituida conforme a
+          ENTRE <strong>RED AVIATION COMPANY S.A. DE C.V.</strong>, sociedad constituida conforme a
           las leyes de los Estados Unidos Mexicanos, con domicilio en Circuito Alfonso G. de Orozco,
           Manzana 007, C.P. 50225, San Miguel Totoltepec, Toluca de Lerdo, Estado de México,
           legalmente representada en este acto por José Luis Hernández Ortiz, quien cuenta con
@@ -593,7 +593,7 @@ const clauses = computed(() => [
       </div>
 
       <div class="contract-block">
-        <h3>ANEXO “A” DINÁMICO</h3>
+        <h3>ANEXO “A” </h3>
         <div class="annex-table-wrap">
           <table class="annex-table">
             <tbody>
@@ -681,7 +681,7 @@ const clauses = computed(() => [
         <div class="signatures-grid">
           <article class="signature-card">
             <span>Prestador del Servicio</span>
-            <strong>RED SKY GROUP S.A. DE C.V.</strong>
+            <strong>RED AVIATION COMPANY S.A. DE C.V.</strong>
             <small>Nombre: José Luis Hernández Ortiz</small>
             <small>Cargo: Representante Legal</small>
             <div class="signature-line"></div>
@@ -887,6 +887,7 @@ const clauses = computed(() => [
 
 .annex-table td {
   font-weight: 700;
+  text-transform: uppercase;
 }
 
 .account-card,

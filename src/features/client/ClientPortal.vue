@@ -229,6 +229,29 @@ const selectedReservationPriceLabel = computed(() => {
     ''
   )
 })
+const selectedReservationPriceValue = computed(() => {
+  return (
+    moneyValue(selectedReservation.value?.formatted_final_price) ||
+    moneyValue(selectedReservation.value?.final_price_display) ||
+    moneyValue(selectedReservation.value?.estimated_total) ||
+    moneyValue(selectedAircraftPricing.value?.formattedFinalPrice) ||
+    0
+  )
+})
+const paymentSummaryAmountLabel = computed(() => {
+  if (selectedReservationPriceValue.value > 0) {
+    return formatCurrency(selectedReservationPriceValue.value)
+  }
+  return selectedReservationPriceLabel.value || 'Monto por confirmar'
+})
+const paymentReservationPassengerCount = computed(() => {
+  return Number(
+    selectedReservation.value?.passengers ||
+      activeItinerarySummary.value?.passengers ||
+      searchForm.passengers ||
+      1,
+  )
+})
 const customerDisplayName = computed(() => {
   const rawName =
     auth.user?.name ||
@@ -240,6 +263,64 @@ const customerDisplayName = computed(() => {
 
   return String(rawName || '').trim() || 'Cliente SKY Group'
 })
+const customerEmail = computed(() => {
+  const rawEmail = auth.user?.email || auth.access?.email || ''
+  return String(rawEmail || '').trim() || 'cliente@skygroup.com'
+})
+const paymentHeroTitle = computed(() => {
+  return selectedReservation.value ? 'Configura tu pago' : 'Checkout seguro'
+})
+const paymentHeroCopy = computed(() => {
+  if (selectedReservation.value) {
+    return 'Confirma el metodo, revisa los datos de contacto y autoriza el cargo de tu reserva.'
+  }
+  return 'Pago protegido con tarjeta, transferencia, wire o wallet corporativa.'
+})
+const paymentRouteHeadline = computed(() => itineraryHeadline(activeItinerarySummary.value))
+const paymentDateLabel = computed(() => itineraryDateLine(activeItinerarySummary.value))
+const paymentFeatureList = [
+  {
+    icon: 'shield',
+    title: 'Pago protegido',
+    copy: 'Cobro seguro con trazabilidad operativa en tiempo real.',
+  },
+  {
+    icon: 'concierge',
+    title: 'Concierge financiero',
+    copy: 'Coordinacion para factura, wire o confirmacion inmediata.',
+  },
+  {
+    icon: 'team',
+    title: 'Uso corporativo',
+    copy: 'Soporte para tarjetas empresariales y aprobaciones ejecutivas.',
+  },
+  {
+    icon: 'route',
+    title: 'Reserva priorizada',
+    copy: 'Resumen final antes de liberar la operacion al proveedor.',
+  },
+]
+const paymentMethodCards = [
+  {
+    id: 'card',
+    label: 'Tarjeta corporativa',
+    note: 'Autorizacion inmediata y validacion segura.',
+    icon: 'card',
+  },
+  {
+    id: 'wire',
+    label: 'Transferencia / wire',
+    note: 'Coordinacion con concierge y comprobante bancario.',
+    icon: 'bank',
+  },
+]
+const paymentForm = reactive({
+  contactEmail: '',
+  cardNumber: '',
+  expiryDate: '',
+  securityCode: '',
+})
+const selectedPaymentMethod = ref('card')
 const accountAccessCopy = computed(() => {
   const access = auth.access || {}
   const subscription = access.subscription || access.membership || {}
@@ -439,6 +520,41 @@ function moneyValue(value) {
   const normalized = raw.replace(/[^\d.-]/g, '')
   const parsed = Number(normalized)
   return Number.isFinite(parsed) ? parsed : 0
+}
+
+function digitsOnly(value = '') {
+  return String(value || '').replace(/\D/g, '')
+}
+
+function formatCardNumber(value = '') {
+  return digitsOnly(value)
+    .slice(0, 19)
+    .replace(/(.{4})/g, '$1 ')
+    .trim()
+}
+
+function formatExpiryDate(value = '') {
+  const digits = digitsOnly(value).slice(0, 4)
+  if (!digits) return ''
+
+  let month = digits.slice(0, 2)
+  const year = digits.slice(2, 4)
+
+  if (month.length === 1 && Number(month) > 1) {
+    month = `0${month}`
+  }
+
+  if (month.length === 2) {
+    const numericMonth = Number(month)
+    if (numericMonth <= 0) month = '01'
+    if (numericMonth > 12) month = '12'
+  }
+
+  return year ? `${month}/${year}` : month
+}
+
+function formatSecurityCode(value = '') {
+  return digitsOnly(value).slice(0, 4)
 }
 
 function formatCurrency(value) {
@@ -1302,6 +1418,16 @@ function goToConcierge(reservationId = '') {
   go('soporte', reservationId || selectedReservation.value?.id || '')
 }
 
+watch(
+  customerEmail,
+  (value) => {
+    if (!paymentForm.contactEmail || paymentForm.contactEmail === 'cliente@skygroup.com') {
+      paymentForm.contactEmail = value
+    }
+  },
+  { immediate: true },
+)
+
 function selectDestination(destination) {
   if (tripType.value === 'Multi-destino') {
     const lastLeg = searchForm.legs[searchForm.legs.length - 1]
@@ -2100,12 +2226,366 @@ watch(
           />
         </article>
 
-        <article v-else-if="props.section === 'pago'" class="document-panel">
-          <span class="eyebrow">Pago {{ routeId }}</span>
-          <h2>Checkout seguro</h2>
-          <p>Pago protegido con tarjeta, transferencia, wire o wallet corporativa.</p>
-          <strong v-if="selectedReservationPriceLabel">{{ selectedReservationPriceLabel }}</strong>
-          <button type="button" @click="go('reserva-confirmada', routeId)">Pagar</button>
+        <article v-else-if="props.section === 'pago'" class="payment-checkout">
+          <div class="payment-checkout__main">
+            <button class="payment-back" type="button" @click="go('contrato', routeId)">
+              <span aria-hidden="true">←</span>
+              <span>Volver al contrato</span>
+            </button>
+
+            <div class="payment-checkout__hero">
+              <span class="eyebrow">Pago {{ routeId }}</span>
+              <h2>{{ paymentHeroTitle }}</h2>
+              <p>{{ paymentHeroCopy }}</p>
+              <div class="payment-trust-strip">
+                <span>
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M12 3l7 3v5c0 5.05-3.41 9.74-7 11-3.59-1.26-7-5.95-7-11V6l7-3z"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="1.8"
+                    />
+                    <path
+                      d="M9.4 12.2l1.7 1.7 3.5-3.7"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="1.8"
+                    />
+                  </svg>
+                  Checkout cifrado
+                </span>
+                <span>
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M7 10V8a5 5 0 0 1 10 0v2"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="1.8"
+                    />
+                    <rect
+                      x="5"
+                      y="10"
+                      width="14"
+                      height="10"
+                      rx="2"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.8"
+                    />
+                  </svg>
+                  Datos protegidos
+                </span>
+              </div>
+            </div>
+
+            <section class="payment-section">
+              <h3>Detalles del pago</h3>
+              <div class="payment-method-grid">
+                <button
+                  v-for="method in paymentMethodCards"
+                  :key="method.id"
+                  type="button"
+                  class="payment-method-card"
+                  :class="{ 'payment-method-card--active': selectedPaymentMethod === method.id }"
+                  @click="selectedPaymentMethod = method.id"
+                >
+                  <span class="payment-method-card__icon" aria-hidden="true">
+                    <svg v-if="method.icon === 'card'" viewBox="0 0 24 24">
+                      <rect
+                        x="3"
+                        y="6"
+                        width="18"
+                        height="12"
+                        rx="3"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.8"
+                      />
+                      <path
+                        d="M3 10h18"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-linecap="round"
+                        stroke-width="1.8"
+                      />
+                      <path
+                        d="M7 15h3"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-linecap="round"
+                        stroke-width="1.8"
+                      />
+                    </svg>
+                    <svg v-else viewBox="0 0 24 24">
+                      <path
+                        d="M4 10l8-5 8 5"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="1.8"
+                      />
+                      <path
+                        d="M6 10v8M10 10v8M14 10v8M18 10v8M4 18h16"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-linecap="round"
+                        stroke-width="1.8"
+                      />
+                    </svg>
+                  </span>
+                  <strong>{{ method.label }}</strong>
+                  <span>{{ method.note }}</span>
+                </button>
+              </div>
+
+              <div class="payment-quantity-card">
+                <span>Pasajeros confirmados</span>
+                <div class="payment-quantity-card__row">
+                  <strong>{{ paymentReservationPassengerCount }}</strong>
+                  <small>{{ paymentRouteHeadline }}</small>
+                </div>
+              </div>
+            </section>
+
+            <section class="payment-section">
+              <h3>Informacion de contacto</h3>
+              <label class="payment-field payment-field--stacked">
+                <span>Correo electronico</span>
+                <input
+                  v-model="paymentForm.contactEmail"
+                  type="email"
+                  placeholder="cliente@empresa.com"
+                />
+              </label>
+            </section>
+
+            <section class="payment-section">
+              <h3>Metodo de pago</h3>
+              <div class="payment-form-grid">
+                <label class="payment-field payment-field--card payment-field--full">
+                  <span>Numero de tarjeta</span>
+                  <div class="payment-field__input-shell">
+                    <input
+                      v-model="paymentForm.cardNumber"
+                      inputmode="numeric"
+                      autocomplete="cc-number"
+                      maxlength="23"
+                      placeholder="1234 5678 9012 3456"
+                      @input="paymentForm.cardNumber = formatCardNumber(paymentForm.cardNumber)"
+                    />
+                    <div class="payment-card-brands" aria-hidden="true">
+                      <span class="brand-chip brand-chip--visa">VISA</span>
+                      <span class="brand-chip brand-chip--mc">
+                        <i></i>
+                        <i></i>
+                      </span>
+                      <span class="brand-chip brand-chip--amex">AMEX</span>
+                    </div>
+                  </div>
+                  <small>Visa, Mastercard, Amex y tarjetas corporativas.</small>
+                </label>
+
+                <label class="payment-field payment-field--card">
+                  <span>Fecha de caducidad</span>
+                  <div class="payment-field__input-shell payment-field__input-shell--compact">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <rect
+                        x="4"
+                        y="5"
+                        width="16"
+                        height="15"
+                        rx="3"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.8"
+                      />
+                      <path
+                        d="M8 3v4M16 3v4M4 10h16"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-linecap="round"
+                        stroke-width="1.8"
+                      />
+                    </svg>
+                    <input
+                      v-model="paymentForm.expiryDate"
+                      inputmode="numeric"
+                      autocomplete="cc-exp"
+                      maxlength="5"
+                      placeholder="MM/AA"
+                      @input="paymentForm.expiryDate = formatExpiryDate(paymentForm.expiryDate)"
+                    />
+                  </div>
+                </label>
+
+                <label class="payment-field payment-field--card">
+                  <span>Codigo de seguridad</span>
+                  <div class="payment-field__input-shell payment-field__input-shell--compact">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <rect
+                        x="3"
+                        y="6"
+                        width="18"
+                        height="12"
+                        rx="3"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.8"
+                      />
+                      <path
+                        d="M3 10h18M16 15h2"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-linecap="round"
+                        stroke-width="1.8"
+                      />
+                    </svg>
+                    <input
+                      v-model="paymentForm.securityCode"
+                      inputmode="numeric"
+                      autocomplete="cc-csc"
+                      maxlength="4"
+                      placeholder="CVC"
+                      @input="paymentForm.securityCode = formatSecurityCode(paymentForm.securityCode)"
+                    />
+                  </div>
+                </label>
+              </div>
+            </section>
+          </div>
+
+          <aside class="payment-summary-card">
+            <span class="payment-summary-card__eyebrow">Resumen de reserva</span>
+            <h3>{{ customerDisplayName }}</h3>
+            <p class="payment-summary-card__route">{{ paymentRouteHeadline }}</p>
+            <div class="payment-summary-flight">
+              <div class="payment-summary-flight__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path
+                    d="M21 16l-8-4V5.5a1.5 1.5 0 0 0-3 0V12l-8 4 1 2 7-2.5V20l-2 1.5V23l4-1 4 1v-1.5L14 20v-4.5L21 18z"
+                    fill="currentColor"
+                  />
+                </svg>
+              </div>
+              <div>
+                <span>Vuelo privado protegido</span>
+                <strong>{{ paymentDateLabel }}</strong>
+              </div>
+            </div>
+
+            <div class="payment-feature-list">
+              <article v-for="feature in paymentFeatureList" :key="feature">
+                <span class="payment-feature-list__icon" aria-hidden="true">
+                  <svg v-if="feature.icon === 'shield'" viewBox="0 0 24 24">
+                    <path
+                      d="M12 3l7 3v5c0 5.05-3.41 9.74-7 11-3.59-1.26-7-5.95-7-11V6l7-3z"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="1.8"
+                    />
+                  </svg>
+                  <svg v-else-if="feature.icon === 'concierge'" viewBox="0 0 24 24">
+                    <path
+                      d="M6 17a6 6 0 0 1 12 0"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-linecap="round"
+                      stroke-width="1.8"
+                    />
+                    <path
+                      d="M12 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM4 17h16"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="1.8"
+                    />
+                  </svg>
+                  <svg v-else-if="feature.icon === 'team'" viewBox="0 0 24 24">
+                    <path
+                      d="M16 19v-1a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v1"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="1.8"
+                    />
+                    <circle cx="10" cy="8" r="3" fill="none" stroke="currentColor" stroke-width="1.8" />
+                    <path
+                      d="M20 19v-1a4 4 0 0 0-3-3.87M16 5.13A3 3 0 0 1 16 11"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="1.8"
+                    />
+                  </svg>
+                  <svg v-else viewBox="0 0 24 24">
+                    <path
+                      d="M5 19h14M7 16l3-3 2 2 5-5"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="1.8"
+                    />
+                    <circle cx="7" cy="8" r="2" fill="none" stroke="currentColor" stroke-width="1.8" />
+                  </svg>
+                </span>
+                <p>
+                  <strong>{{ feature.title }}</strong>
+                  <span>{{ feature.copy }}</span>
+                </p>
+              </article>
+            </div>
+
+            <div class="payment-summary-meta">
+              <p>
+                <span>Fecha estimada</span>
+                <strong>{{ paymentDateLabel }}</strong>
+              </p>
+              <p>
+                <span>Metodo seleccionado</span>
+                <strong>{{
+                  paymentMethodCards.find((method) => method.id === selectedPaymentMethod)?.label
+                }}</strong>
+              </p>
+            </div>
+
+            <div class="payment-totals">
+              <p>
+                <span>Subtotal</span>
+                <strong>{{ paymentSummaryAmountLabel }}</strong>
+              </p>
+              <p>
+                <span>Impuestos estimados</span>
+                <strong>{{ formatCurrency(0) }}</strong>
+              </p>
+              <p class="payment-totals__total">
+                <span>Importe a pagar hoy</span>
+                <strong>{{ paymentSummaryAmountLabel }}</strong>
+              </p>
+            </div>
+
+            <button class="payment-submit" type="button" @click="go('reserva-confirmada', routeId)">
+              Pagar ahora
+            </button>
+
+            <p class="payment-summary-card__legal">
+              Al confirmar el pago autorizas el cargo del importe indicado y el inicio del proceso
+              operativo con el proveedor asignado.
+            </p>
+          </aside>
         </article>
 
         <article
@@ -3148,6 +3628,426 @@ button {
   gap: 1rem;
 }
 
+.payment-checkout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 420px);
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.payment-checkout__main {
+  display: grid;
+  gap: 1.35rem;
+}
+
+.payment-back {
+  width: fit-content;
+  min-height: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #111111;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.payment-back span {
+  color: inherit;
+  font-weight: 700;
+}
+
+.payment-back:hover {
+  transform: translateX(-2px);
+}
+
+.payment-checkout__hero {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.payment-checkout__hero p {
+  margin: 0;
+  max-width: 760px;
+}
+
+.payment-trust-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  padding-top: 0.2rem;
+}
+
+.payment-trust-strip span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 2.2rem;
+  padding: 0.45rem 0.8rem;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.8);
+  color: #3d372e;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.payment-trust-strip svg,
+.payment-field__input-shell svg {
+  width: 1rem;
+  height: 1rem;
+  color: #8b6a24;
+  flex: 0 0 auto;
+}
+
+.payment-section {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.payment-section h3,
+.payment-summary-card h3 {
+  color: #111111;
+  font-size: clamp(1.2rem, 2vw, 1.7rem);
+}
+
+.payment-method-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.payment-method-card,
+.payment-quantity-card,
+.payment-summary-card,
+.payment-field--card,
+.payment-field--stacked {
+  border-radius: 24px;
+}
+
+.payment-method-card {
+  display: grid;
+  gap: 0.42rem;
+  min-height: 128px;
+  padding: 1.15rem;
+  border: 1px solid rgba(17, 17, 17, 0.1);
+  background: linear-gradient(180deg, #ffffff, #f8f5ee);
+  text-align: left;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.payment-method-card__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.8rem;
+  height: 2.8rem;
+  border-radius: 16px;
+  background: rgba(139, 106, 36, 0.08);
+  color: #8b6a24;
+}
+
+.payment-method-card__icon svg,
+.payment-feature-list__icon svg,
+.payment-summary-flight__icon svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.payment-method-card strong,
+.payment-quantity-card strong,
+.payment-summary-card strong,
+.payment-summary-card__route,
+.payment-totals__total span,
+.payment-totals__total strong {
+  color: #111111;
+}
+
+.payment-method-card span,
+.payment-quantity-card span,
+.payment-quantity-card small,
+.payment-field span,
+.payment-field small,
+.payment-summary-card__eyebrow,
+.payment-summary-meta span,
+.payment-totals span,
+.payment-summary-card__legal {
+  color: #655d52;
+}
+
+.payment-method-card--active {
+  border-color: rgba(191, 151, 65, 0.52);
+  box-shadow: 0 18px 44px rgba(17, 17, 17, 0.08);
+  background: linear-gradient(180deg, #fffdf7, #ffffff);
+}
+
+.payment-method-card:hover {
+  transform: translateY(-2px);
+}
+
+.payment-quantity-card {
+  display: grid;
+  gap: 0.6rem;
+  padding: 1.15rem;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  background: #ffffff;
+}
+
+.payment-quantity-card__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.payment-quantity-card__row strong {
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.payment-quantity-card__row small {
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.payment-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.payment-field {
+  display: grid;
+  gap: 0.42rem;
+}
+
+.payment-field--full {
+  grid-column: 1 / -1;
+}
+
+.payment-field--card,
+.payment-field--stacked {
+  padding: 1rem 1.1rem;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  background: #ffffff;
+}
+
+.payment-field__input-shell {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 3.2rem;
+}
+
+.payment-field__input-shell--compact {
+  gap: 0.6rem;
+}
+
+.payment-field input {
+  width: 100%;
+  min-height: 100%;
+  padding: 0 0.1rem;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: #111111;
+  font: inherit;
+}
+
+.payment-field input::placeholder {
+  color: #9d9589;
+}
+
+.payment-card-brands {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.brand-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.6rem;
+  height: 1.5rem;
+  padding: 0 0.38rem;
+  border-radius: 8px;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.brand-chip--visa {
+  background: #1a4fb8;
+  color: #ffffff;
+}
+
+.brand-chip--amex {
+  background: #2a8dbf;
+  color: #ffffff;
+}
+
+.brand-chip--mc {
+  position: relative;
+  min-width: 2.2rem;
+  background: #111111;
+}
+
+.brand-chip--mc i {
+  width: 0.78rem;
+  height: 0.78rem;
+  border-radius: 999px;
+}
+
+.brand-chip--mc i:first-child {
+  background: #ea001b;
+  transform: translateX(0.12rem);
+}
+
+.brand-chip--mc i:last-child {
+  background: #ff9f1c;
+  transform: translateX(-0.12rem);
+  opacity: 0.88;
+}
+
+.payment-summary-card {
+  position: sticky;
+  top: 6rem;
+  display: grid;
+  gap: 1rem;
+  padding: 1.4rem;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  background:
+    radial-gradient(circle at top right, rgba(191, 151, 65, 0.14), transparent 30%),
+    linear-gradient(180deg, #fffdfa, #f6f0e5);
+  box-shadow: 0 24px 64px rgba(17, 17, 17, 0.08);
+}
+
+.payment-summary-card__eyebrow {
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.payment-summary-card__route,
+.payment-summary-card__legal {
+  margin: 0;
+}
+
+.payment-summary-flight {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.85rem;
+  padding: 1rem;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.payment-summary-flight__icon {
+  display: grid;
+  place-items: center;
+  width: 2.8rem;
+  height: 2.8rem;
+  border-radius: 16px;
+  background: #111111;
+  color: #ffffff;
+}
+
+.payment-summary-flight span,
+.payment-summary-flight strong {
+  display: block;
+}
+
+.payment-summary-flight span {
+  font-size: 0.82rem;
+  color: #6a6153;
+  font-weight: 700;
+}
+
+.payment-summary-flight strong {
+  color: #111111;
+  font-size: 1rem;
+}
+
+.payment-feature-list {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem 0;
+  border-top: 1px solid rgba(17, 17, 17, 0.08);
+  border-bottom: 1px solid rgba(17, 17, 17, 0.08);
+}
+
+.payment-feature-list article,
+.payment-summary-meta p,
+.payment-totals p {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: start;
+  margin: 0;
+}
+
+.payment-feature-list p {
+  display: grid;
+  gap: 0.16rem;
+  margin: 0;
+}
+
+.payment-feature-list p strong {
+  font-size: 0.94rem;
+}
+
+.payment-feature-list p span {
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.payment-feature-list__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.2rem;
+  height: 2.2rem;
+  margin-top: 0.1rem;
+  border-radius: 14px;
+  background: rgba(139, 106, 36, 0.08);
+  color: #8b6a24;
+}
+
+.payment-summary-meta,
+.payment-totals {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.payment-summary-meta p,
+.payment-totals p {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.payment-summary-meta strong,
+.payment-totals strong {
+  text-align: right;
+}
+
+.payment-totals__total {
+  padding-top: 0.85rem;
+  border-top: 1px solid rgba(17, 17, 17, 0.08);
+}
+
+.payment-submit {
+  min-height: 3.6rem;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #111111, #2b2925);
+  box-shadow: 0 16px 32px rgba(17, 17, 17, 0.14);
+}
+
 .profile-cards {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -3417,6 +4317,14 @@ button {
   .technical-sheet__body {
     grid-template-columns: 1fr;
   }
+
+  .payment-checkout {
+    grid-template-columns: 1fr;
+  }
+
+  .payment-summary-card {
+    position: static;
+  }
 }
 
 @media (max-width: 760px) {
@@ -3511,6 +4419,7 @@ button {
   .summary-band button,
   .reservation-summary button,
   .document-panel button,
+  .payment-checkout button,
   .support-card button,
   .plan-card button {
     width: 100%;
@@ -3613,6 +4522,7 @@ button {
   .plan-card,
   .support-card,
   .document-panel,
+  .payment-summary-card,
   .reservation-summary,
   .summary-band,
   .aircraft-detail,
@@ -3732,9 +4642,52 @@ button {
   }
 
   .aircraft-hero-card,
-  .aircraft-card-compact {
+  .aircraft-card-compact,
+  .payment-method-grid,
+  .payment-form-grid {
     grid-template-columns: 1fr;
     min-height: auto;
+  }
+
+  .payment-checkout {
+    gap: 1rem;
+  }
+
+  .payment-checkout__main {
+    gap: 1rem;
+  }
+
+  .payment-back {
+    width: fit-content !important;
+  }
+
+  .payment-method-card,
+  .payment-quantity-card,
+  .payment-field--card,
+  .payment-field--stacked,
+  .payment-summary-card {
+    border-radius: 18px;
+  }
+
+  .payment-method-card,
+  .payment-quantity-card,
+  .payment-field--card,
+  .payment-field--stacked {
+    padding: 0.9rem;
+  }
+
+  .payment-field input {
+    min-height: 2.7rem;
+  }
+
+  .payment-summary-card {
+    gap: 0.8rem;
+  }
+
+  .payment-feature-list article,
+  .payment-summary-meta p,
+  .payment-totals p {
+    gap: 0.55rem;
   }
 
   .aircraft-thumb-hero,
