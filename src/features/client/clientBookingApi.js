@@ -365,6 +365,71 @@ function resolveSegmentCount(payload = {}, itinerary = {}) {
 }
 
 function buildPricingBreakdown(match = {}, aircraftRecord = {}, payload = {}, itinerary = {}) {
+  const backendPricing =
+    match.pricing_breakdown && typeof match.pricing_breakdown === 'object' ? match.pricing_breakdown : null
+  if (backendPricing) {
+    const billableHours = asNumber(match.billable_hours || backendPricing.billable_hours)
+    const segmentCount = asNumber(
+      match.segment_count || backendPricing.segment_count || backendPricing.client_legs?.length,
+      1,
+    )
+    const subtotal = asNumber(match.subtotal || backendPricing.subtotal)
+    const total = asNumber(match.total || backendPricing.total)
+
+    return {
+      hasFormulaInputs: total > 0 || subtotal > 0,
+      source: 'backend',
+      billableHours,
+      segmentCount,
+      jetAPrice: asNumber(match.jet_a_price || backendPricing.jet_a_price),
+      fuelBurnGallonsPerHour: 0,
+      engineReserveRate: 0,
+      insuranceRate: 0,
+      maintenanceRate: 0,
+      crewRate: 0,
+      repositioningFee: asNumber(
+        match.repositioning_cost ||
+          match.repositioning_fee ||
+          backendPricing.initial_repositioning_cost ||
+          backendPricing.repositioning_cost,
+      ),
+      overnightFee: asNumber(
+        match.overnight_cost || match.overnight_fees || backendPricing.overnight_cost,
+      ),
+      additionalOperationalCost: asNumber(
+        match.return_to_base_cost || backendPricing.return_to_base_cost,
+      ),
+      fixedFee: 0,
+      fixedFeeTotal: 0,
+      marginPercent: asNumber(
+        match.margin_percentage ||
+          backendPricing.margin_percentage ||
+          backendPricing.margin_percent,
+      ),
+      operational: asNumber(match.base_price || backendPricing.client_flight_cost || backendPricing.base_price),
+      fuel: 0,
+      engineReserve: 0,
+      insurance: 0,
+      maintenance: 0,
+      crew: 0,
+      subtotal,
+      utility: asNumber(match.margin_amount || backendPricing.margin_amount || backendPricing.utility),
+      total,
+      subtotalBeforeMargin: asNumber(
+        match.subtotal_before_margin ||
+          backendPricing.subtotal_before_margin ||
+          backendPricing.subtotal_operativo,
+      ),
+      minimumRoutePrice: asNumber(match.minimum_route_price || backendPricing.minimum_route_price),
+      minimumAdjustment: asNumber(match.minimum_adjustment || backendPricing.minimum_adjustment),
+      airportExpenses: asNumber(match.airport_expenses || backendPricing.airport_expenses),
+      returnToBaseCost: asNumber(match.return_to_base_cost || backendPricing.return_to_base_cost),
+      returnToBaseHours: asNumber(match.return_to_base_hours || backendPricing.return_to_base_hours),
+      repositioningHours: asNumber(match.repositioning_hours || backendPricing.repositioning_hours),
+      overnightHours: asNumber(match.overnight_hours || backendPricing.overnight_hours),
+    }
+  }
+
   const billableHours = asNumber(
     match.billable_hours || match.estimated_hours || match.hours || match.flight_hours,
   )
@@ -499,6 +564,10 @@ function normalizeMatches(payload, itinerary = {}) {
   }
 
   return matches.map((match, index) => {
+    const backendPricing =
+      match.pricing_breakdown && typeof match.pricing_breakdown === 'object'
+        ? match.pricing_breakdown
+        : null
     const aircraftRecord =
       match.aircraft ||
       match.aeronave ||
@@ -555,8 +624,12 @@ function normalizeMatches(payload, itinerary = {}) {
         match.quoted_price ||
         (resolvedTotal ? asMoney(resolvedTotal) : asMoney(match.total || '')),
       base_price: asNumber(
-        match.flight_base ||
+        match.base_cost ||
+          match.client_flight_cost ||
+          match.flight_base ||
           match.base_price ||
+          backendPricing?.client_flight_cost ||
+          backendPricing?.base_price ||
           aircraftRecord?.base_price ||
           resolvedTotal ||
           match.total ||
@@ -571,7 +644,7 @@ function normalizeMatches(payload, itinerary = {}) {
       fbo_fees: asNumber(match.fbo_fees || match.fbo || 0, 0),
       fuel_surcharge: asNumber(match.fuel_surcharge || 0, 0),
       expense_fee: asNumber(match.expense_fee || match.airport_expenses || 0, 0),
-      overnight_fees: asNumber(match.overnight_fees || match.overnight_fee || 0, 0),
+      overnight_fees: asNumber(match.overnight_cost || match.overnight_fees || match.overnight_fee || 0, 0),
       taxes: asNumber(match.iva_amount || match.taxes || match.tax || 0, 0),
       hidden_operator: match.hidden_operator ?? true,
       amenities: Array.isArray(match.amenities)
@@ -595,6 +668,7 @@ function normalizeMatches(payload, itinerary = {}) {
         : match.utility || match.margin || '',
       margin_percent:
         pricing.marginPercent ||
+        match.margin_percentage ||
         match.margin_percent ||
         match.utility_percent ||
         match.porcentaje_utilidad ||
@@ -631,6 +705,7 @@ function normalizeMatches(payload, itinerary = {}) {
       minimum_route_price:
         match.minimum_route_price ||
         match.min_route_price ||
+        pricing.minimumRoutePrice ||
         aircraftRecord?.minimum_route_price ||
         aircraftRecord?.min_route_price ||
         '',
@@ -663,6 +738,7 @@ function normalizeMatches(payload, itinerary = {}) {
         match.urgent_schedule_fee || match.rush_fee || aircraftRecord?.urgent_schedule_fee || '',
       commercial_margin:
         match.commercial_margin ||
+        match.margin_percentage ||
         match.margin_factor ||
         aircraftRecord?.commercial_margin ||
         aircraftRecord?.margin_factor ||
@@ -674,9 +750,27 @@ function normalizeMatches(payload, itinerary = {}) {
       insurance_rate: pricing.insuranceRate || match.insurance_rate || '',
       maintenance_rate: pricing.maintenanceRate || match.maintenance_rate || '',
       crew_rate: pricing.crewRate || match.crew_rate || '',
-      repositioning_fee: pricing.repositioningFee || match.repositioning_fee || '',
-      overnight_fee: pricing.overnightFee || match.overnight_fee || '',
-      pricing_breakdown: pricing.hasFormulaInputs
+      repositioning_fee:
+        pricing.repositioningFee || match.repositioning_cost || match.repositioning_fee || '',
+      repositioning_cost:
+        pricing.repositioningFee || match.repositioning_cost || match.repositioning_fee || '',
+      return_to_base_cost:
+        pricing.returnToBaseCost || match.return_to_base_cost || '',
+      return_to_base_hours:
+        pricing.returnToBaseHours || match.return_to_base_hours || '',
+      overnight_fee: pricing.overnightFee || match.overnight_cost || match.overnight_fee || '',
+      overnight_cost: pricing.overnightFee || match.overnight_cost || match.overnight_fee || '',
+      airport_expenses:
+        pricing.airportExpenses || match.airport_expenses || match.expense_fee || '',
+      minimum_adjustment:
+        pricing.minimumAdjustment || match.minimum_adjustment || '',
+      margin_amount: pricing.utility || match.margin_amount || '',
+      subtotal_before_margin:
+        pricing.subtotalBeforeMargin || match.subtotal_before_margin || '',
+      pricing_context: backendPricing || null,
+      pricing_breakdown: backendPricing
+        ? backendPricing
+        : pricing.hasFormulaInputs
         ? {
             billable_hours: Number(pricing.billableHours.toFixed(2)),
             segment_count: pricing.segmentCount,

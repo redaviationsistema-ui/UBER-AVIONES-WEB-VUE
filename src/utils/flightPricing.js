@@ -155,6 +155,31 @@ function convertDistanceToKm(distance = 0, unit = '') {
   return normalizedDistance
 }
 
+function distanceKmBetweenAirports(origin = null, destination = null) {
+  const originLat = asNumber(origin?.latitude || origin?.lat)
+  const originLng = asNumber(origin?.longitude || origin?.lng)
+  const destinationLat = asNumber(destination?.latitude || destination?.lat)
+  const destinationLng = asNumber(destination?.longitude || destination?.lng)
+
+  if (!originLat || !originLng || !destinationLat || !destinationLng) return 0
+
+  const earthRadiusKm = 6371
+  const latDelta = ((destinationLat - originLat) * Math.PI) / 180
+  const lngDelta = ((destinationLng - originLng) * Math.PI) / 180
+  const originLatRad = (originLat * Math.PI) / 180
+  const destinationLatRad = (destinationLat * Math.PI) / 180
+
+  const angle =
+    Math.sin(latDelta / 2) ** 2 +
+    Math.cos(originLatRad) * Math.cos(destinationLatRad) * Math.sin(lngDelta / 2) ** 2
+
+  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(angle), Math.sqrt(1 - angle))
+}
+
+function roundUpQuarterHours(hours = 0) {
+  return Math.ceil(Math.max(asNumber(hours), 0) * 4) / 4
+}
+
 function normalizeCode(value = '') {
   return String(value || '')
     .trim()
@@ -781,10 +806,18 @@ function resolveContextDistanceKm(context = {}) {
   const totalFromLegs = legs.reduce(
     (sum, leg) =>
       sum +
-      convertDistanceToKm(
-        leg.distance_km || leg.distanceKm,
-        leg.distance_unit || leg.distanceUnit || context.distance_unit || context.distanceUnit,
-      ),
+      (() => {
+        const explicitDistanceKm = convertDistanceToKm(
+          leg.distance_km || leg.distanceKm,
+          leg.distance_unit || leg.distanceUnit || context.distance_unit || context.distanceUnit,
+        )
+        if (explicitDistanceKm > 0) return explicitDistanceKm
+
+        return distanceKmBetweenAirports(
+          leg.originAirport || leg.origin_airport || null,
+          leg.destinationAirport || leg.destination_airport || null,
+        )
+      })(),
     0,
   )
   if (totalFromLegs > 0) return totalFromLegs
@@ -1021,6 +1054,47 @@ function resolveCalculatedDisplayFlightHours(record = {}, context = {}, cruiseSp
   return adjustedFlightHours + climbDescentHours + visibleMarginHours
 }
 
+function resolveCalculatedLegMetrics(record = {}, context = {}, cruiseSpeedKmh = 0) {
+  const legs = resolveFlightLegs(context)
+  if (!legs.length || cruiseSpeedKmh <= 0) return []
+
+  const climbDescentMinutesPerLeg = calculateClimbDescentMinutes({
+    aircraftCategory: record.cabin || record.category || record.aircraft_category || '',
+  })
+
+  return legs
+    .map((leg) => {
+      const legDistanceKm =
+        convertDistanceToKm(
+          leg.distance_km || leg.distanceKm,
+          leg.distance_unit || leg.distanceUnit || context.distance_unit || context.distanceUnit,
+        ) ||
+        distanceKmBetweenAirports(
+          leg.originAirport || leg.origin_airport || null,
+          leg.destinationAirport || leg.destination_airport || null,
+        )
+
+      if (!(legDistanceKm > 0)) return null
+
+      const rawLegHours = legDistanceKm / cruiseSpeedKmh
+      const adjustedLegHours = applyRouteFlightTimeAdjustment({
+        flightHours: rawLegHours,
+        distanceKm: legDistanceKm,
+        aircraft: record,
+      })
+      const pureAdjustmentHours = Math.max(adjustedLegHours - rawLegHours, 0)
+      const displayHours = rawLegHours + pureAdjustmentHours + climbDescentMinutesPerLeg / 60
+
+      return {
+        distanceKm: legDistanceKm,
+        rawLegHours,
+        displayHours,
+        billableHours: roundUpQuarterHours(displayHours),
+      }
+    })
+    .filter(Boolean)
+}
+
 function resolveExtraServices(record = {}, context = {}) {
   const overnightKey = normalizeCode(context.overnight || 'no')
   const overnightNights = Math.max(asNumber(context.overnightNights || context.itineraryDays), 0)
@@ -1098,6 +1172,7 @@ export function buildFlightPricingFormula(record = {}, context = {}) {
     context,
   )
   const minimumRoutePrice = inferMinimumRoutePrice(record, distanceKm)
+  const calculatedLegMetrics = resolveCalculatedLegMetrics(record, context, cruiseSpeedKmh)
   const repositioningBreakdown = resolveRepositioningAmount(
     record,
     context,
@@ -1119,7 +1194,10 @@ export function buildFlightPricingFormula(record = {}, context = {}) {
   const outboundHours = legCount > 0 ? Math.max(asNumber(context.legs?.[0]?.estimated_hours || 0), 0) : 0
   const overnightHours = Math.max(asNumber(context.overnightNights || context.itineraryDays), 0) * 0.5
   const returnHours = Math.max(displayFlightHours - outboundHours, 0)
-  const billableHours = Math.max(outboundHours + returnHours + repositioningHours + overnightHours, 0)
+  const roundedClientLegHours = calculatedLegMetrics.reduce((sum, leg) => sum + leg.billableHours, 0)
+  const clientBillableHours =
+    roundedClientLegHours > 0 ? roundedClientLegHours : Math.max(outboundHours + returnHours, 0)
+  const billableHours = Math.max(clientBillableHours + repositioningHours, 0)
   const billableMinutes = Math.max(billableHours * 60, 0)
   const rawBaseCost = billableMinutes * costPerMinute
   const subtotalFlight = rawBaseCost
@@ -1145,7 +1223,7 @@ export function buildFlightPricingFormula(record = {}, context = {}) {
   const extraServicesTotal = overnightCrew + extraServicesWithoutOvernight
   const expensesTotal = airportFees + overnightCrew + operationalExpenses
   const ivaRate = baseCost > 0 ? resolveIvaRateForRoute(context) : 0
-  const taxableSubtotal = subtotalFlight + airportFees
+  const taxableSubtotal = subtotalFlight + airportFees + overnightCrew
   const ivaAmount = taxableSubtotal * ivaRate
   const subtotalBeforeMultipliers = taxableSubtotal + extraServicesWithoutOvernight
   const commercialMargin = 1

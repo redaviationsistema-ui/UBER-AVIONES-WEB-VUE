@@ -39,7 +39,7 @@ const ui = useUiStore()
 const tripType = ref('Ida')
 const selectedPriorityType = ref('essential')
 const profileMenuOpen = ref(false)
-const RESULTS_SURCHARGE_USD = 500
+const RESULTS_SURCHARGE_USD = 0
 const searching = ref(false)
 const loadingServerData = ref(false)
 const serverSearchError = ref('')
@@ -546,12 +546,18 @@ function createEmptyLeg(overrides = {}) {
 }
 
 function normalizeLegForQuote(leg = {}, fallback = {}) {
+  const origin = leg.origin || fallback.origin || ''
+  const destination = leg.destination || fallback.destination || ''
+
   return {
     ...leg,
-    origin: leg.origin || fallback.origin || '',
-    originAirport: leg.originAirport || fallback.originAirport || null,
-    destination: leg.destination || fallback.destination || '',
-    destinationAirport: leg.destinationAirport || fallback.destinationAirport || null,
+    origin,
+    originAirport: resolveAirportSelection(origin, leg.originAirport || fallback.originAirport || null),
+    destination,
+    destinationAirport: resolveAirportSelection(
+      destination,
+      leg.destinationAirport || fallback.destinationAirport || null,
+    ),
     date: leg.date || fallback.date || '',
     time: leg.time || fallback.time || '09:00',
   }
@@ -722,6 +728,46 @@ function airportDisplayName(code = '') {
   )
 
   return destination?.city || destination?.name || normalizedCode
+}
+
+function resolveAirportSelection(value = '', airport = null) {
+  if (airport && (airport.latitude || airport.longitude || airport.code || airport.iata)) {
+    return airport
+  }
+
+  const normalizedCode = String(value || '')
+    .trim()
+    .toUpperCase()
+  if (!normalizedCode) return null
+
+  const catalogAirport = featuredAirports.find((item) =>
+    [item.code, item.iata]
+      .filter(Boolean)
+      .some((candidate) => String(candidate).trim().toUpperCase() === normalizedCode),
+  )
+  if (catalogAirport) return catalogAirport
+
+  const destinationAirport = featuredDestinations.value.find((item) =>
+    [item.code, item.iata]
+      .filter(Boolean)
+      .some((candidate) => String(candidate).trim().toUpperCase() === normalizedCode),
+  )
+
+  if (!destinationAirport) return null
+
+  return (
+    featuredAirports.find((item) =>
+      [item.code, item.iata]
+        .filter(Boolean)
+        .some(
+          (candidate) =>
+            String(candidate).trim().toUpperCase() ===
+            String(destinationAirport.code || destinationAirport.iata || '')
+              .trim()
+              .toUpperCase(),
+        ),
+    ) || destinationAirport
+  )
 }
 
 function formatTravelDate(date = '', time = '') {
@@ -1053,6 +1099,15 @@ function inferredFlightWindowHours(aircraft = {}) {
 }
 
 function aircraftDurationLabel(aircraft = {}) {
+  if (hasBackendQuotedPricing(aircraft)) {
+    const backendBillableHours = Number(aircraft.billable_hours || 0)
+    const backendVisibleHours = aircraftDisplayFlightHours(aircraft)
+    const durationReferenceHours =
+      backendBillableHours > backendVisibleHours ? backendBillableHours : backendVisibleHours
+    const durationReferenceLabel = formatDurationFromHours(durationReferenceHours)
+    if (durationReferenceLabel) return durationReferenceLabel
+  }
+
   const flightWindow = inferredFlightWindowHours(aircraft)
   if (flightWindow) {
     const minLabel = formatDurationFromHours(flightWindow.min)
@@ -1230,11 +1285,14 @@ function calculatePriorityPricing(basePrice = 0, operationalFees = 0, multiplier
 
 function resolveAircraftOperationalFees(aircraft = {}) {
   const explicitFees =
+    Number(aircraft.repositioning_cost || aircraft.repositioning_fee || 0) +
+    Number(aircraft.return_to_base_cost || 0) +
     Number(aircraft.landing_fees || 0) +
     Number(aircraft.fbo_fees || 0) +
     Number(aircraft.fuel_surcharge || 0) +
-    Number(aircraft.expense_fee || 0) +
-    Number(aircraft.overnight_fees || 0) +
+    Number(aircraft.airport_expenses || aircraft.expense_fee || 0) +
+    Number(aircraft.overnight_cost || aircraft.overnight_fees || 0) +
+    Number(aircraft.margin_amount || 0) +
     Number(aircraft.taxes || 0)
 
   return explicitFees > 0 ? explicitFees : 0
@@ -1265,11 +1323,11 @@ function aircraftPricingForType(aircraft = {}, priorityType = 'essential') {
         0,
     )
     const billableHours = Number(aircraft.billable_hours || 0)
-    const overnightCost = Number(aircraft.overnight_fees || aircraft.overnight_fee || 0)
-    const expenseFee = Number(aircraft.expense_fee || aircraft.airport_expenses || 0)
+    const overnightCost = Number(aircraft.overnight_cost || aircraft.overnight_fees || aircraft.overnight_fee || 0)
+    const expenseFee = Number(aircraft.airport_expenses || aircraft.expense_fee || 0)
     const ivaAmount = Number(aircraft.iva_amount || aircraft.taxes || aircraft.tax || 0)
     const subtotalBeforeMultipliers =
-      Number(aircraft.subtotal_before_multipliers || aircraft.subtotal || 0) ||
+      Number(aircraft.subtotal_before_margin || aircraft.subtotal_before_multipliers || aircraft.subtotal || 0) ||
       basePrice + expenseFee
 
     return {
@@ -1299,20 +1357,20 @@ function aircraftPricingForType(aircraft = {}, priorityType = 'essential') {
       minimumHours: Number(aircraft.minimum_hours || 0),
       minimumRoutePrice: Number(aircraft.minimum_route_price || 0),
       rawBaseCost: basePrice,
-      repositioning: Number(aircraft.repositioning_fee || 0),
+      repositioning: Number(aircraft.repositioning_cost || aircraft.repositioning_fee || 0),
       repositioningHours: Number(aircraft.repositioning_hours || 0),
       repositioningRequired:
-        Number(aircraft.repositioning_fee || 0) > 0 ||
+        Number(aircraft.repositioning_cost || aircraft.repositioning_fee || 0) > 0 ||
         Number(aircraft.repositioning_hours || 0) > 0,
       repositioningPolicy: null,
       operationalCostBreakdown: 0,
-      overnightCost,
+      overnightCost: Number(aircraft.overnight_cost || overnightCost || 0),
       extraServicesTotal: overnightCost,
       expenseFee,
       ivaRate: 0,
       ivaAmount,
       dynamicMarketFloor: null,
-      commercialMargin: 1,
+      commercialMargin: Number(aircraft.margin_percentage || 0),
       attentionFactor: 1,
       subtotalBeforeMultipliers,
       formattedBasePrice: formatCurrency(basePrice),
@@ -1719,13 +1777,15 @@ watch(
 )
 
 function selectDestination(destination) {
+  const resolvedAirport = resolveAirportSelection(destination?.code, destination)
+
   if (tripType.value === 'Multi-destino') {
     const lastLeg = searchForm.legs[searchForm.legs.length - 1]
     const hasEmptyLastDestination = lastLeg && !lastLeg.destination
 
     if (hasEmptyLastDestination) {
       lastLeg.destination = destination.code
-      lastLeg.destinationAirport = destination
+      lastLeg.destinationAirport = resolvedAirport
       syncMultiDestinationChain(searchForm.legs.length)
       return
     }
@@ -1735,7 +1795,7 @@ function selectDestination(destination) {
         origin: lastLeg?.destination || searchForm.destination,
         originAirport: lastLeg?.destinationAirport || searchForm.destinationAirport,
         destination: destination.code,
-        destinationAirport: destination,
+        destinationAirport: resolvedAirport,
         date: lastLeg?.date || searchForm.departureDate,
         time: lastLeg?.time || searchForm.departureTime || '09:00',
       }),
@@ -1744,6 +1804,7 @@ function selectDestination(destination) {
   }
 
   searchForm.destination = destination.code
+  searchForm.destinationAirport = resolvedAirport
 }
 
 function updateSearchField({ field, value }) {
@@ -1984,6 +2045,8 @@ async function submitSearch() {
       trip_type: tripTypeKey.value,
       trip_label: tripType.value,
       passengers: normalizedPassengers,
+      days: itineraryDays.value,
+      overnight_nights: itineraryDays.value,
       pets: searchForm.pets,
       special_baggage: searchForm.specialBaggage,
       preference: searchForm.preference,
