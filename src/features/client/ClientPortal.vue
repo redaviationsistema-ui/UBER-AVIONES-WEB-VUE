@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ActiveTrips from './ActiveTrips.vue'
 import ClientContractPreview from './ClientContractPreview.vue'
@@ -16,6 +16,8 @@ import {
 } from '../../utils/flightPricing'
 import {
   createClientFlightRequest,
+  createClientPaymentIntent,
+  createClientWireIntent,
   getClientDestinations,
   getClientFlightPackages,
   markClientTripReadyForPayment,
@@ -336,23 +338,33 @@ const paymentMethodCards = [
   {
     id: 'card',
     label: 'Tarjeta corporativa',
-    note: 'Autorizacion inmediata y validacion segura.',
+    note: 'Checkout seguro hospedado por Stripe.',
     icon: 'card',
   },
   {
     id: 'wire',
     label: 'Transferencia / wire',
-    note: 'Coordinacion con concierge y comprobante bancario.',
+    note: 'Instrucciones bancarias y validacion manual del comprobante.',
     icon: 'bank',
   },
 ]
 const paymentForm = reactive({
   contactEmail: '',
-  cardNumber: '',
-  expiryDate: '',
-  securityCode: '',
 })
 const selectedPaymentMethod = ref('card')
+const paymentSubmitting = ref(false)
+const paymentInlineError = ref('')
+const wireInstructions = ref(null)
+const paymentLastReference = ref('')
+const paymentCardHost = ref(null)
+const paymentElementReady = ref(false)
+const paymentElementLoading = ref(false)
+const paymentCardComplete = ref(false)
+
+let stripeClient = null
+let stripeElements = null
+let stripeCardElement = null
+let stripeIntentSecret = ''
 const accountAccessCopy = computed(() => {
   const access = auth.access || {}
   const subscription = access.subscription || access.membership || {}
@@ -429,6 +441,16 @@ const activeSection = computed(() => {
   if (props.section === 'soporte') return 'viajes'
   if (props.section === 'perfil') return 'perfil'
   return 'reservar'
+})
+const needsReservationContext = computed(() =>
+  ['contrato', 'pago', 'reserva-confirmada', 'soporte'].includes(props.section),
+)
+const hasReservationsLoaded = computed(
+  () => !loadingServerData.value && !refreshingReservations.value && Array.isArray(reservations.value),
+)
+const canRenderReservationWorkflow = computed(() => {
+  if (!needsReservationContext.value) return true
+  return Boolean(selectedReservation.value)
 })
 const bookingStep = computed(() => {
   if (['paquete-vuelo', 'aeronave', 'reserva'].includes(props.section)) return 'resultados'
@@ -553,47 +575,123 @@ function moneyValue(value) {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
-function digitsOnly(value = '') {
-  return String(value || '').replace(/\D/g, '')
-}
-
-function formatCardNumber(value = '') {
-  return digitsOnly(value)
-    .slice(0, 19)
-    .replace(/(.{4})/g, '$1 ')
-    .trim()
-}
-
-function formatExpiryDate(value = '') {
-  const digits = digitsOnly(value).slice(0, 4)
-  if (!digits) return ''
-
-  let month = digits.slice(0, 2)
-  const year = digits.slice(2, 4)
-
-  if (month.length === 1 && Number(month) > 1) {
-    month = `0${month}`
-  }
-
-  if (month.length === 2) {
-    const numericMonth = Number(month)
-    if (numericMonth <= 0) month = '01'
-    if (numericMonth > 12) month = '12'
-  }
-
-  return year ? `${month}/${year}` : month
-}
-
-function formatSecurityCode(value = '') {
-  return digitsOnly(value).slice(0, 4)
-}
-
 function formatCurrency(value) {
   return new Intl.NumberFormat('es-MX', {
     style: 'currency',
     currency: 'USD',
     maximumFractionDigits: 0,
   }).format(Number(value || 0))
+}
+
+function buildClientAbsoluteUrl(section = '', id = '', query = {}) {
+  if (typeof window === 'undefined') return ''
+
+  const path = id ? `/cliente/${section}/${id}` : `/cliente/${section}`
+  const url = new URL(path, window.location.origin)
+
+  Object.entries(query).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') return
+    url.searchParams.set(key, String(value))
+  })
+
+  return url.toString()
+}
+
+async function ensureStripePaymentElement() {
+  const flightRequestId = String(routeId.value || selectedReservation.value?.id || '').trim()
+
+  if (
+    selectedPaymentMethod.value !== 'card' ||
+    props.section !== 'pago' ||
+    !flightRequestId ||
+    !paymentCardHost.value
+  ) {
+    return
+  }
+
+  if (paymentElementLoading.value || paymentElementReady.value) {
+    return
+  }
+
+  paymentElementLoading.value = true
+  paymentInlineError.value = ''
+
+  try {
+    const { loadStripe } = await import('@stripe/stripe-js')
+    const publishableKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || ''
+
+    if (!publishableKey) {
+      throw new Error('Falta configurar VITE_STRIPE_PUBLISHABLE_KEY para renderizar la tarjeta.')
+    }
+
+    stripeClient = await loadStripe(publishableKey)
+
+    if (!stripeClient) {
+      throw new Error('No se pudo inicializar Stripe en esta vista.')
+    }
+
+    stripeElements = stripeClient.elements({
+      locale: 'es',
+    })
+
+    const stripeFieldStyle = {
+      base: {
+        color: '#111111',
+        fontFamily: 'Manrope, ui-sans-serif, system-ui, sans-serif',
+        fontSize: '16px',
+        fontWeight: '600',
+        '::placeholder': {
+          color: '#9d9589',
+        },
+      },
+      invalid: {
+        color: '#8e2d2d',
+        iconColor: '#8e2d2d',
+      },
+    }
+
+    const elementOptions = {
+      style: stripeFieldStyle,
+      disabled: false,
+      hidePostalCode: true,
+      disableLink: true,
+    }
+
+    stripeCardElement = stripeElements.create('card', elementOptions)
+
+    const handleStripeFieldChange = (event) => {
+      paymentCardComplete.value = Boolean(event?.complete)
+
+      if (event?.empty) {
+        paymentInlineError.value = ''
+        return
+      }
+
+      paymentInlineError.value = event?.error?.message || ''
+    }
+
+    stripeCardElement.on('change', handleStripeFieldChange)
+
+    stripeCardElement.mount(paymentCardHost.value)
+    paymentElementReady.value = true
+  } catch (error) {
+    paymentInlineError.value =
+      error?.message || 'No se pudo cargar el formulario seguro de tarjeta.'
+  } finally {
+    paymentElementLoading.value = false
+  }
+}
+
+function destroyStripePaymentElement() {
+  if (stripeCardElement) stripeCardElement.destroy()
+
+  stripeCardElement = null
+  stripeElements = null
+  stripeClient = null
+  stripeIntentSecret = ''
+  paymentCardComplete.value = false
+  paymentElementReady.value = false
+  paymentElementLoading.value = false
 }
 
 function resultDisplayPrice(value = 0) {
@@ -1354,6 +1452,35 @@ function go(section, id = '') {
   router.push(id ? `/cliente/${section}/${id}` : `/cliente/${section}`)
 }
 
+function alignReservationWorkflowRoute() {
+  if (!needsReservationContext.value) return
+  if (!hasReservationsLoaded.value) return
+
+  const currentReservationId = String(routeId.value || '').trim()
+  const fallbackReservationId = String(selectedReservation.value?.id || '').trim()
+
+  if (currentReservationId && selectedReservation.value) return
+
+  if (!currentReservationId && fallbackReservationId) {
+    router.replace(`/cliente/${props.section}/${fallbackReservationId}`)
+    return
+  }
+
+  if (currentReservationId && !selectedReservation.value) {
+    if (fallbackReservationId) {
+      router.replace(`/cliente/${props.section}/${fallbackReservationId}`)
+      return
+    }
+
+    router.replace('/cliente/viajes')
+    return
+  }
+
+  if (!fallbackReservationId) {
+    router.replace('/cliente/viajes')
+  }
+}
+
 function goToContract(reservationId = '') {
   go('contrato', reservationId || selectedReservation.value?.id || '')
 }
@@ -1426,11 +1553,166 @@ async function handleContractConfirm() {
   }
 }
 
+async function handlePaymentSubmit() {
+  const flightRequestId = String(routeId.value || selectedReservation.value?.id || '').trim()
+
+  if (!flightRequestId) {
+    paymentInlineError.value = 'No encontramos la reserva para iniciar el pago.'
+    return
+  }
+
+  paymentInlineError.value = ''
+
+  if (!paymentForm.contactEmail.trim()) {
+    paymentInlineError.value = 'Agrega un correo electronico de contacto para continuar.'
+    return
+  }
+
+  paymentSubmitting.value = true
+
+  try {
+    if (selectedPaymentMethod.value === 'wire') {
+      destroyStripePaymentElement()
+
+      const payload = await createClientWireIntent(
+        flightRequestId,
+        {
+          contact_email: paymentForm.contactEmail.trim(),
+          payment_method: 'wire',
+        },
+        { timeoutMs: 30000 },
+      )
+
+      wireInstructions.value = payload?.wire_instructions || payload?.instructions || payload?.data || null
+      paymentLastReference.value =
+        wireInstructions.value?.reference ||
+        payload?.reference ||
+        payload?.payment_reference ||
+        ''
+
+      mergeReservationUpdate({
+        id: flightRequestId,
+        status: 'payment_pending',
+        workflow_status: 'pago pendiente',
+        payment_status: 'Pendiente de confirmacion bancaria',
+        updated_at: new Date().toISOString(),
+      })
+
+      ui.pushToast({
+        tone: 'success',
+        title: 'Transferencia preparada',
+        message: 'Ya puedes copiar la referencia bancaria y subir tu comprobante con concierge o admin.',
+      })
+
+      return
+    }
+
+    if (!stripeClient || !stripeElements || !stripeCardElement) {
+      await ensureStripePaymentElement()
+    }
+
+    if (!stripeClient || !stripeCardElement) {
+      throw new Error('El formulario de tarjeta segura todavia no esta listo.')
+    }
+
+    if (!paymentCardComplete.value) {
+      throw new Error('Completa correctamente los datos de la tarjeta antes de continuar.')
+    }
+
+    if (!stripeIntentSecret) {
+      const payload = await createClientPaymentIntent(
+        flightRequestId,
+        {
+          contact_email: paymentForm.contactEmail.trim() || customerEmail.value,
+        },
+        { timeoutMs: 30000 },
+      )
+
+      stripeIntentSecret = payload?.client_secret || ''
+      paymentLastReference.value = payload?.payment_intent_id || paymentLastReference.value
+
+      if (!stripeIntentSecret) {
+        throw new Error('El backend no devolvio client_secret para confirmar el pago.')
+      }
+    }
+
+    const result = await stripeClient.confirmCardPayment(stripeIntentSecret, {
+      payment_method: {
+        card: stripeCardElement,
+        billing_details: {
+          email: paymentForm.contactEmail.trim(),
+        },
+      },
+      receipt_email: paymentForm.contactEmail.trim(),
+    })
+
+    if (result.error) {
+      throw new Error(result.error.message || 'Stripe no pudo confirmar el pago.')
+    }
+
+    paymentLastReference.value = result.paymentIntent?.id || paymentLastReference.value
+
+    mergeReservationUpdate({
+      id: flightRequestId,
+      status:
+        result.paymentIntent?.status === 'succeeded' ? 'payment_confirmed' : 'payment_pending',
+      workflow_status:
+        result.paymentIntent?.status === 'succeeded' ? 'pago confirmado' : 'pago pendiente',
+      payment_status:
+        result.paymentIntent?.status === 'succeeded' ? 'Pagado' : 'Pago en revision',
+      updated_at: new Date().toISOString(),
+    })
+
+    if (result.paymentIntent?.status === 'succeeded') {
+      ui.pushToast({
+        tone: 'success',
+        title: 'Pago confirmado',
+        message: 'La tarjeta fue autorizada y Stripe ya marco la operacion como exitosa.',
+      })
+      go('reserva-confirmada', flightRequestId)
+      return
+    }
+
+    ui.pushToast({
+      tone: 'success',
+      title: 'Pago enviado',
+      message: 'Stripe recibio la autorizacion. Estamos esperando la confirmacion final del webhook.',
+    })
+  } catch (error) {
+    paymentInlineError.value =
+      error?.message || 'No fue posible iniciar el flujo de pago. Intenta de nuevo.'
+    ui.pushToast({
+      tone: 'error',
+      title: 'No se pudo iniciar el pago',
+      message: paymentInlineError.value,
+    })
+  } finally {
+    paymentSubmitting.value = false
+  }
+}
+
 watch(
   customerEmail,
   (value) => {
     if (!paymentForm.contactEmail || paymentForm.contactEmail === 'cliente@skygroup.com') {
       paymentForm.contactEmail = value
+    }
+  },
+  { immediate: true },
+)
+
+watch(
+  () => [props.section, selectedPaymentMethod.value, routeId.value],
+  async ([section, method]) => {
+    if (section === 'pago' && method === 'card') {
+      wireInstructions.value = null
+      await nextTick()
+      await ensureStripePaymentElement()
+      return
+    }
+
+    if (method !== 'card') {
+      destroyStripePaymentElement()
     }
   },
   { immediate: true },
@@ -1987,6 +2269,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   clearReservationsPolling()
+  destroyStripePaymentElement()
 
   if (typeof window !== 'undefined') {
     window.removeEventListener('focus', handleVisibilityRefresh)
@@ -2051,7 +2334,16 @@ watch(
     if (shouldAutoRefreshTrips()) {
       void refreshReservations({ silent: true })
     }
+    alignReservationWorkflowRoute()
   },
+)
+
+watch(
+  () => [props.section, routeId.value, reservations.value.length, loadingServerData.value, refreshingReservations.value],
+  () => {
+    alignReservationWorkflowRoute()
+  },
+  { immediate: true },
 )
 </script>
 
@@ -2228,7 +2520,10 @@ watch(
       </section>
 
       <section v-else-if="activeSection === 'viajes'" class="screen">
-        <article v-if="props.section === 'contrato'" class="document-panel">
+        <article
+          v-if="props.section === 'contrato' && canRenderReservationWorkflow"
+          class="document-panel"
+        >
           <ClientContractPreview
             :reservation="selectedReservation"
             :reservation-id="routeId"
@@ -2238,7 +2533,31 @@ watch(
           />
         </article>
 
-        <article v-else-if="props.section === 'pago'" class="payment-checkout">
+        <article
+          v-else-if="props.section === 'contrato' && !canRenderReservationWorkflow"
+          class="document-panel confirmation-panel"
+        >
+          <span class="eyebrow">Contrato</span>
+          <h2>{{ hasReservationsLoaded ? 'No encontramos una reserva activa' : 'Cargando contrato' }}</h2>
+          <p v-if="hasReservationsLoaded">
+            Necesitamos una reserva valida para abrir el contrato. En cuanto tengas una reserva
+            activa, aparecera aqui automaticamente.
+          </p>
+          <p v-else>
+            Estamos sincronizando tus reservas para preparar el contrato correcto.
+          </p>
+          <div class="confirmation-actions">
+            <button type="button" @click="go('viajes')">Ver mis vuelos</button>
+            <button class="secondary-button" type="button" @click="go('reservar')">
+              Reservar vuelo
+            </button>
+          </div>
+        </article>
+
+        <article
+          v-else-if="props.section === 'pago' && canRenderReservationWorkflow"
+          class="payment-checkout"
+        >
           <div class="payment-checkout__main">
             <button class="payment-back" type="button" @click="go('contrato', routeId)">
               <span aria-hidden="true">←</span>
@@ -2381,96 +2700,62 @@ watch(
 
             <section class="payment-section">
               <h3>Metodo de pago</h3>
-              <div class="payment-form-grid">
-                <label class="payment-field payment-field--card payment-field--full">
-                  <span>Numero de tarjeta</span>
-                  <div class="payment-field__input-shell">
-                    <input
-                      v-model="paymentForm.cardNumber"
-                      inputmode="numeric"
-                      autocomplete="cc-number"
-                      maxlength="23"
-                      placeholder="1234 5678 9012 3456"
-                      @input="paymentForm.cardNumber = formatCardNumber(paymentForm.cardNumber)"
-                    />
-                    <div class="payment-card-brands" aria-hidden="true">
-                      <span class="brand-chip brand-chip--visa">VISA</span>
-                      <span class="brand-chip brand-chip--mc">
-                        <i></i>
-                        <i></i>
-                      </span>
-                      <span class="brand-chip brand-chip--amex">AMEX</span>
-                    </div>
+              <div class="payment-mode-panel">
+                <div v-if="selectedPaymentMethod === 'card'" class="payment-mode-panel__copy">
+                  <strong>Tarjeta segura integrada</strong>
+                  <p>
+                    Escribe aqui mismo tu numero de tarjeta, fecha y CVC. Los campos reales los
+                    renderiza Stripe dentro de esta vista y Red Aviation no guarda esos datos.
+                  </p>
+                  <div class="payment-card-frame">
+                    <label class="payment-card-field payment-card-field--full">
+                      <span>Tarjeta</span>
+                      <div
+                        v-if="paymentElementLoading"
+                        class="payment-element-shell payment-element-shell--loading payment-element-shell--full"
+                      >
+                        Cargando formulario seguro de tarjeta...
+                      </div>
+                      <div
+                        v-show="!paymentElementLoading"
+                        ref="paymentCardHost"
+                        class="payment-element-shell payment-element-shell--full"
+                      ></div>
+                    </label>
                   </div>
-                  <small>Visa, Mastercard, Amex y tarjetas corporativas.</small>
-                </label>
+                  <div class="payment-card-brands" aria-hidden="true">
+                    <span class="brand-chip brand-chip--visa">VISA</span>
+                    <span class="brand-chip brand-chip--mc">
+                      <i></i>
+                      <i></i>
+                    </span>
+                    <span class="brand-chip brand-chip--amex">AMEX</span>
+                    <span class="brand-chip brand-chip--discover">DISCOVER</span>
+                  </div>
+                </div>
 
-                <label class="payment-field payment-field--card">
-                  <span>Fecha de caducidad</span>
-                  <div class="payment-field__input-shell payment-field__input-shell--compact">
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <rect
-                        x="4"
-                        y="5"
-                        width="16"
-                        height="15"
-                        rx="3"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.8"
-                      />
-                      <path
-                        d="M8 3v4M16 3v4M4 10h16"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-linecap="round"
-                        stroke-width="1.8"
-                      />
-                    </svg>
-                    <input
-                      v-model="paymentForm.expiryDate"
-                      inputmode="numeric"
-                      autocomplete="cc-exp"
-                      maxlength="5"
-                      placeholder="MM/AA"
-                      @input="paymentForm.expiryDate = formatExpiryDate(paymentForm.expiryDate)"
-                    />
-                  </div>
-                </label>
-
-                <label class="payment-field payment-field--card">
-                  <span>Codigo de seguridad</span>
-                  <div class="payment-field__input-shell payment-field__input-shell--compact">
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <rect
-                        x="3"
-                        y="6"
-                        width="18"
-                        height="12"
-                        rx="3"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.8"
-                      />
-                      <path
-                        d="M3 10h18M16 15h2"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-linecap="round"
-                        stroke-width="1.8"
-                      />
-                    </svg>
-                    <input
-                      v-model="paymentForm.securityCode"
-                      inputmode="numeric"
-                      autocomplete="cc-csc"
-                      maxlength="4"
-                      placeholder="CVC"
-                      @input="paymentForm.securityCode = formatSecurityCode(paymentForm.securityCode)"
-                    />
-                  </div>
-                </label>
+                <div v-else class="payment-mode-panel__copy">
+                  <strong>Transferencia / wire manual</strong>
+                  <p>
+                    Generamos referencia bancaria y el pago queda pendiente hasta validar
+                    comprobante. Puedes operar este flujo sin Stripe card checkout.
+                  </p>
+                </div>
               </div>
+
+              <div
+                v-if="selectedPaymentMethod === 'wire' && wireInstructions"
+                class="payment-wire-card"
+              >
+                <p><span>Banco</span><strong>{{ wireInstructions.bank_name || 'Por configurar' }}</strong></p>
+                <p><span>Beneficiario</span><strong>{{ wireInstructions.beneficiary || 'Red Aviation' }}</strong></p>
+                <p><span>Cuenta / IBAN</span><strong>{{ wireInstructions.account_number || wireInstructions.iban || 'Por configurar' }}</strong></p>
+                <p><span>CLABE / SWIFT</span><strong>{{ wireInstructions.clabe || wireInstructions.swift || 'Por configurar' }}</strong></p>
+                <p><span>Referencia</span><strong>{{ wireInstructions.reference || paymentLastReference || 'Pendiente' }}</strong></p>
+                <p><span>Monto</span><strong>{{ wireInstructions.amount || paymentSummaryAmountLabel }}</strong></p>
+              </div>
+
+              <p v-if="paymentInlineError" class="payment-inline-error">{{ paymentInlineError }}</p>
             </section>
           </div>
 
@@ -2589,35 +2874,85 @@ watch(
               </p>
             </div>
 
-            <button class="payment-submit" type="button" @click="go('reserva-confirmada', routeId)">
-              Pagar ahora
+            <button
+              class="payment-submit"
+              type="button"
+              :disabled="paymentSubmitting"
+              @click="handlePaymentSubmit"
+            >
+              {{
+                paymentSubmitting
+                  ? 'Procesando...'
+                  : selectedPaymentMethod === 'wire'
+                    ? 'Generar instrucciones bancarias'
+                    : 'Pagar ahora'
+              }}
             </button>
 
             <p class="payment-summary-card__legal">
-              Al confirmar el pago autorizas el cargo del importe indicado y el inicio del proceso
-              operativo con el proveedor asignado.
+              {{
+                selectedPaymentMethod === 'wire'
+                  ? 'La transferencia queda pendiente de validacion manual antes de confirmar la operacion.'
+                  : 'El cargo se procesa aqui mismo con Stripe y puede pedir validacion adicional si el banco lo requiere.'
+              }}
             </p>
           </aside>
         </article>
 
         <article
-          v-else-if="props.section === 'reserva-confirmada'"
+          v-else-if="props.section === 'pago' && !canRenderReservationWorkflow"
+          class="document-panel confirmation-panel"
+        >
+          <span class="eyebrow">Pago</span>
+          <h2>{{ hasReservationsLoaded ? 'No encontramos una reserva para pagar' : 'Preparando checkout' }}</h2>
+          <p v-if="hasReservationsLoaded">
+            Primero necesitamos identificar una reserva activa para abrir el checkout.
+          </p>
+          <p v-else>Estamos cargando la informacion de tu reserva antes de abrir el pago.</p>
+          <div class="confirmation-actions">
+            <button type="button" @click="go('viajes')">Ver mis vuelos</button>
+            <button class="secondary-button" type="button" @click="go('reservar')">
+              Reservar vuelo
+            </button>
+          </div>
+        </article>
+
+        <article
+          v-else-if="props.section === 'reserva-confirmada' && canRenderReservationWorkflow"
           class="document-panel confirmation-panel"
         >
           <span class="eyebrow">Reserva registrada</span>
-          <h2>Tu solicitud fue enviada al proveedor</h2>
+          <h2>Tu pago ya esta en proceso</h2>
           <p>
-            Ya puedes dar seguimiento desde Mis vuelos. Cuando el proveedor acepte la operacion
-            veras el avance a contrato, pago y confirmacion final del vuelo.
+            Ya puedes dar seguimiento desde Mis vuelos. Cuando Stripe confirme el pago o admin
+            valide la transferencia, la operacion continuara con el flujo final del vuelo.
           </p>
           <div class="signature-box confirmation-box">
             <strong>Estado actual</strong>
-            <span>Reserva registrada. Esperando respuesta del proveedor.</span>
+            <span>{{ selectedReservation?.payment_status || 'Pago en revision.' }}</span>
           </div>
           <div class="confirmation-actions">
             <button type="button" @click="go('viajes', routeId)">Ver mis vuelos</button>
             <button class="secondary-button" type="button" @click="go('soporte')">
               Asesor privado 24/7
+            </button>
+          </div>
+        </article>
+
+        <article
+          v-else-if="props.section === 'reserva-confirmada' && !canRenderReservationWorkflow"
+          class="document-panel confirmation-panel"
+        >
+          <span class="eyebrow">Reserva registrada</span>
+          <h2>{{ hasReservationsLoaded ? 'No encontramos esa reserva' : 'Cargando estado de reserva' }}</h2>
+          <p v-if="hasReservationsLoaded">
+            La reserva que intentas abrir ya no esta disponible o todavia no se sincroniza.
+          </p>
+          <p v-else>Estamos consultando el estado mas reciente de tu reserva.</p>
+          <div class="confirmation-actions">
+            <button type="button" @click="go('viajes')">Ver mis vuelos</button>
+            <button class="secondary-button" type="button" @click="go('reservar')">
+              Reservar vuelo
             </button>
           </div>
         </article>
@@ -3859,6 +4194,120 @@ button {
   gap: 0.6rem;
 }
 
+.payment-mode-panel,
+.payment-wire-card {
+  padding: 1rem 1.1rem;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  border-radius: 24px;
+  background: #ffffff;
+}
+
+.payment-mode-panel__copy {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.payment-card-frame {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.payment-card-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.payment-card-field {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.payment-card-field--full {
+  grid-column: 1 / -1;
+}
+
+.payment-card-field span {
+  font-size: 0.95rem;
+  color: #655d52;
+}
+
+.payment-card-field__shell {
+  position: relative;
+}
+
+.payment-card-field__hint {
+  position: absolute;
+  top: 50%;
+  right: 1rem;
+  transform: translateY(-50%);
+  color: #9d9589;
+  font-size: 0.95rem;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.payment-element-shell {
+  min-height: 4.6rem;
+  padding: 1.15rem 1.2rem;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  border-radius: 22px;
+  background: #f8f6f2;
+  display: block;
+  width: 100%;
+  cursor: text;
+  overflow: hidden;
+}
+
+.payment-element-shell--full {
+  min-height: 5rem;
+}
+
+.payment-element-shell :deep(.StripeElement),
+.payment-element-shell :deep(.__PrivateStripeElement) {
+  width: 100%;
+  display: block;
+}
+
+.payment-element-shell :deep(iframe) {
+  width: 100% !important;
+  min-height: 1.5rem;
+}
+
+.payment-element-shell--loading {
+  display: grid;
+  place-items: center;
+  color: #655d52;
+  font-weight: 600;
+}
+
+.payment-mode-panel__copy p,
+.payment-wire-card p,
+.payment-inline-error {
+  margin: 0;
+}
+
+.payment-wire-card {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.payment-wire-card p {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+}
+
+.payment-wire-card strong {
+  text-align: right;
+  color: #111111;
+}
+
+.payment-inline-error {
+  color: #8e2d2d;
+  font-weight: 700;
+}
+
 .payment-field input {
   width: 100%;
   min-height: 100%;
@@ -3924,6 +4373,12 @@ button {
   background: #ff9f1c;
   transform: translateX(-0.12rem);
   opacity: 0.88;
+}
+
+.brand-chip--discover {
+  background: #ffffff;
+  color: #323232;
+  border: 1px solid rgba(17, 17, 17, 0.12);
 }
 
 .payment-summary-card {
@@ -4058,6 +4513,11 @@ button {
   border-radius: 999px;
   background: linear-gradient(135deg, #111111, #2b2925);
   box-shadow: 0 16px 32px rgba(17, 17, 17, 0.14);
+}
+
+.payment-submit:disabled {
+  cursor: progress;
+  opacity: 0.72;
 }
 
 .profile-cards {
@@ -4656,7 +5116,8 @@ button {
   .aircraft-hero-card,
   .aircraft-card-compact,
   .payment-method-grid,
-  .payment-form-grid {
+  .payment-form-grid,
+  .payment-card-field-grid {
     grid-template-columns: 1fr;
     min-height: auto;
   }
@@ -4677,6 +5138,8 @@ button {
   .payment-quantity-card,
   .payment-field--card,
   .payment-field--stacked,
+  .payment-mode-panel,
+  .payment-wire-card,
   .payment-summary-card {
     border-radius: 18px;
   }
@@ -4684,7 +5147,9 @@ button {
   .payment-method-card,
   .payment-quantity-card,
   .payment-field--card,
-  .payment-field--stacked {
+  .payment-field--stacked,
+  .payment-mode-panel,
+  .payment-wire-card {
     padding: 0.9rem;
   }
 

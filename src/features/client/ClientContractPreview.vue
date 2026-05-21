@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { featuredAirports } from '../../utils/airports'
 
 const props = defineProps({
@@ -10,6 +10,64 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['confirm'])
+const signatureInput = ref(null)
+const uploadedSignatureName = ref('')
+const uploadedSignatureUrl = ref('')
+const signatureError = ref('')
+
+function resetUploadedSignature() {
+  if (uploadedSignatureUrl.value) {
+    URL.revokeObjectURL(uploadedSignatureUrl.value)
+  }
+
+  uploadedSignatureUrl.value = ''
+  uploadedSignatureName.value = ''
+  signatureError.value = ''
+
+  if (signatureInput.value) {
+    signatureInput.value.value = ''
+  }
+}
+
+function openSignaturePicker() {
+  signatureInput.value?.click()
+}
+
+function handleSignatureUpload(event) {
+  const [file] = Array.from(event?.target?.files || [])
+
+  if (!file) {
+    resetUploadedSignature()
+    return
+  }
+
+  const mimeType = String(file.type || '').toLowerCase()
+  const isImage = mimeType.startsWith('image/')
+  const isPngByName = String(file.name || '')
+    .trim()
+    .toLowerCase()
+    .endsWith('.png')
+
+  if (!isImage && !isPngByName) {
+    resetUploadedSignature()
+    signatureError.value = 'Sube una imagen valida para usarla como firma.'
+    return
+  }
+
+  if (uploadedSignatureUrl.value) {
+    URL.revokeObjectURL(uploadedSignatureUrl.value)
+  }
+
+  uploadedSignatureUrl.value = URL.createObjectURL(file)
+  uploadedSignatureName.value = file.name || 'firma.png'
+  signatureError.value = ''
+}
+
+onBeforeUnmount(() => {
+  if (uploadedSignatureUrl.value) {
+    URL.revokeObjectURL(uploadedSignatureUrl.value)
+  }
+})
 
 function airportMeta(code = '') {
   const normalizedCode = String(code || '')
@@ -697,7 +755,14 @@ const clauses = computed(() => [
             <strong>{{ customerLabel }}</strong>
             <small>Por: {{ customerRepresentative }}</small>
             <small>Cargo: Cliente / Representante</small>
-            <div class="signature-line"></div>
+            <div class="signature-line signature-line--client">
+              <img
+                v-if="uploadedSignatureUrl"
+                :src="uploadedSignatureUrl"
+                :alt="`Firma cargada por ${customerLabel}`"
+                class="signature-image"
+              />
+            </div>
             <small>Firma</small>
           </article>
         </div>
@@ -706,15 +771,53 @@ const clauses = computed(() => [
 
     <section class="signature-panel">
       <div class="signature-box">
-        <div class="signature-box__copy">
+        <input
+          ref="signatureInput"
+          type="file"
+          accept="image/png,image/*"
+          class="signature-input"
+          @change="handleSignatureUpload"
+        />
+        <div v-if="uploadedSignatureUrl" class="signature-uploaded">
+          <img
+            :src="uploadedSignatureUrl"
+            :alt="`Firma cargada por ${customerLabel}`"
+            class="signature-uploaded__image"
+          />
+          <div class="signature-uploaded__meta">
+            <strong>Firma cargada</strong>
+            <span>{{ uploadedSignatureName }}</span>
+          </div>
+        </div>
+        <div v-else class="signature-box__copy">
           <strong>Firma pendiente</strong>
-          <span
-            >Una vez confirmes, continuaremos con la firma protegida y el siguiente paso del
-            flujo.</span
-          >
+          <span>Sube una firma o imagen PNG para colocarla en el contrato antes de confirmar.</span>
         </div>
       </div>
-      <button type="button" :disabled="props.submitting" @click="emit('confirm')">
+      <div class="signature-actions">
+        <button
+          type="button"
+          class="signature-action signature-action--secondary"
+          @click="openSignaturePicker"
+        >
+          {{ uploadedSignatureUrl ? 'Cambiar firma' : 'Cargar firma o PNG' }}
+        </button>
+        <button
+          v-if="uploadedSignatureUrl"
+          type="button"
+          class="signature-action signature-action--ghost"
+          @click="resetUploadedSignature"
+        >
+          Quitar firma
+        </button>
+      </div>
+      <small v-if="signatureError" class="signature-error">{{ signatureError }}</small>
+      <button
+        type="button"
+        class="signature-panel__submit"
+        :disabled="props.submitting"
+        @click="emit('confirm')"
+      >
         {{ props.submitting ? 'Procesando firma...' : 'Firmar contrato' }}
       </button>
       <small class="signature-note">Fecha de emisión del contrato: {{ contractDate }}</small>
@@ -922,6 +1025,13 @@ const clauses = computed(() => [
   border-bottom: 1px solid #111111;
 }
 
+.signature-line--client {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-start;
+  overflow: hidden;
+}
+
 .signature-panel {
   display: grid;
   gap: 0.75rem;
@@ -938,13 +1048,76 @@ const clauses = computed(() => [
   background: #fbf8ef;
 }
 
+.signature-input {
+  display: none;
+}
+
 .signature-box__copy {
   display: grid;
   gap: 0.35rem;
   text-align: center;
 }
 
-.signature-panel button {
+.signature-uploaded {
+  display: grid;
+  gap: 0.9rem;
+  width: 100%;
+  justify-items: center;
+}
+
+.signature-uploaded__image,
+.signature-image {
+  display: block;
+  max-width: min(100%, 320px);
+  object-fit: contain;
+}
+
+.signature-uploaded__image {
+  max-height: 132px;
+}
+
+.signature-image {
+  max-height: 54px;
+}
+
+.signature-uploaded__meta {
+  display: grid;
+  gap: 0.2rem;
+  text-align: center;
+}
+
+.signature-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.signature-action {
+  min-height: 2.85rem;
+  padding: 0.8rem 1rem;
+  border-radius: 14px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.signature-action--secondary {
+  border: 1px solid rgba(139, 106, 36, 0.24);
+  background: #fbf8ef;
+  color: #3c3328;
+}
+
+.signature-action--ghost {
+  border: 1px solid rgba(17, 17, 17, 0.12);
+  background: #ffffff;
+  color: #625d55;
+}
+
+.signature-error {
+  color: #a63e2f;
+}
+
+.signature-panel__submit {
   min-height: 3.35rem;
   border: 0;
   border-radius: 16px;
@@ -961,6 +1134,10 @@ const clauses = computed(() => [
   .accounts-grid,
   .signatures-grid {
     grid-template-columns: 1fr;
+  }
+
+  .signature-actions {
+    flex-direction: column;
   }
 
   .annex-table,

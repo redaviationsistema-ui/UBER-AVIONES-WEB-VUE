@@ -12,18 +12,49 @@ const configuredQuotesPreviewPath = String(
   import.meta.env.VITE_CLIENT_QUOTES_PREVIEW_PATH || '',
 ).trim()
 const configuredTripsPath = String(import.meta.env.VITE_CLIENT_TRIPS_PATH || '').trim()
+const configuredTripWorkflowPath = String(import.meta.env.VITE_CLIENT_TRIP_WORKFLOW_PATH || '').trim()
 const configuredFlightPackagesPath = String(
   import.meta.env.VITE_CLIENT_FLIGHT_PACKAGES_PATH ||
     import.meta.env.VITE_CLIENT_MEMBERSHIPS_PATH ||
     '',
 ).trim()
 const configuredAircraftPath = String(import.meta.env.VITE_CLIENT_AIRCRAFT_PATH || '').trim()
+const configuredCheckoutPath = String(import.meta.env.VITE_CLIENT_CHECKOUT_PATH || '').trim()
+const configuredPaymentIntentPath = String(import.meta.env.VITE_CLIENT_PAYMENT_INTENT_PATH || '').trim()
+const configuredWirePath = String(import.meta.env.VITE_CLIENT_WIRE_PATH || '').trim()
 
 const QUOTES_PREVIEW_PATH = configuredQuotesPreviewPath || '/client/quotes/preview'
 const CLIENT_TRIPS_PATH = configuredTripsPath || '/client/flight-requests'
 const CLIENT_FLIGHT_PACKAGES_PATH = configuredFlightPackagesPath || '/plans'
 const CLIENT_AIRCRAFT_PATHS = [
   ...new Set([configuredAircraftPath, '/client/aircraft'].filter(Boolean)),
+]
+const CLIENT_CHECKOUT_PATHS = [
+  ...new Set(
+    [configuredCheckoutPath, '/cliente/stripe/checkout/create', '/stripe/checkout/create'].filter(
+      Boolean,
+    ),
+  ),
+]
+const CLIENT_PAYMENT_INTENT_PATHS = [
+  ...new Set(
+    [
+      configuredPaymentIntentPath,
+      '/cliente/stripe/payment-intent',
+      '/client/stripe/payment-intent',
+      '/stripe/payment-intent',
+    ].filter(Boolean),
+  ),
+]
+const CLIENT_WIRE_PATHS = [
+  ...new Set(
+    [
+      configuredWirePath,
+      '/cliente/stripe/wire-intent',
+      '/client/stripe/wire-intent',
+      '/stripe/wire-intent',
+    ].filter(Boolean),
+  ),
 ]
 const FALLBACK_DESTINATIONS = [
   {
@@ -1957,16 +1988,30 @@ export async function markClientTripReadyForPayment(reservationId, options = {})
     ...buildWorkflowApiPayload('payment_pending'),
     payment_status: 'Pendiente de pago',
   }
-  const candidatePaths = [
-    `${CLIENT_TRIPS_PATH}/${normalizedReservationId}`,
-    `${CLIENT_TRIPS_PATH}/${normalizedReservationId}/workflow`,
-    `${CLIENT_TRIPS_PATH}/${normalizedReservationId}/status`,
+
+  if (!configuredTripWorkflowPath) {
+    return normalizeTrip({
+      id: normalizedReservationId,
+      ...workflowPayload,
+    })
+  }
+
+  const candidateRequests = [
+    { method: 'patch', path: configuredTripWorkflowPath.replace(':id', normalizedReservationId) },
+    { method: 'put', path: configuredTripWorkflowPath.replace(':id', normalizedReservationId) },
+    { method: 'post', path: configuredTripWorkflowPath.replace(':id', normalizedReservationId) },
   ]
   let lastError = null
 
-  for (const path of candidatePaths) {
+  for (const candidate of candidateRequests) {
     try {
-      const payload = await api.put(path, workflowPayload, options)
+      const request =
+        candidate.method === 'patch'
+          ? api.patch(candidate.path, workflowPayload, options)
+          : candidate.method === 'put'
+            ? api.put(candidate.path, workflowPayload, options)
+            : api.post(candidate.path, workflowPayload, options)
+      const payload = await request
       const record =
         payload?.flight_request || payload?.reservation || payload?.trip || payload?.data || payload
 
@@ -1980,7 +2025,10 @@ export async function markClientTripReadyForPayment(reservationId, options = {})
     }
   }
 
-  throw lastError || new Error('No se pudo actualizar la reserva a pago pendiente.')
+  return normalizeTrip({
+    id: normalizedReservationId,
+    ...workflowPayload,
+  })
 }
 
 export async function searchClientFlights(itinerary) {
@@ -2090,6 +2138,81 @@ export async function searchClientFlights(itinerary) {
 
 export async function createClientFlightRequest(itinerary, options = {}) {
   return api.post(CLIENT_TRIPS_PATH, buildFlightRequestPayload(itinerary), options)
+}
+
+export async function createClientCheckout(flightRequestId, payload = {}, options = {}) {
+  const normalizedId = String(flightRequestId || '').trim()
+
+  if (!normalizedId) {
+    throw new Error('No se encontro la solicitud para iniciar el checkout.')
+  }
+
+  const body = {
+    flight_request_id: normalizedId,
+    booking_id: normalizedId,
+    ...payload,
+  }
+  let lastError = null
+
+  for (const path of CLIENT_CHECKOUT_PATHS) {
+    try {
+      return await api.post(path, body, options)
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  throw lastError || new Error('No se pudo iniciar Stripe Checkout.')
+}
+
+export async function createClientPaymentIntent(flightRequestId, payload = {}, options = {}) {
+  const normalizedId = String(flightRequestId || '').trim()
+
+  if (!normalizedId) {
+    throw new Error('No se encontro la solicitud para iniciar el pago con tarjeta.')
+  }
+
+  const body = {
+    flight_request_id: normalizedId,
+    booking_id: normalizedId,
+    ...payload,
+  }
+  let lastError = null
+
+  for (const path of CLIENT_PAYMENT_INTENT_PATHS) {
+    try {
+      return await api.post(path, body, options)
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  throw lastError || new Error('No se pudo crear el PaymentIntent.')
+}
+
+export async function createClientWireIntent(flightRequestId, payload = {}, options = {}) {
+  const normalizedId = String(flightRequestId || '').trim()
+
+  if (!normalizedId) {
+    throw new Error('No se encontro la solicitud para generar la referencia bancaria.')
+  }
+
+  const body = {
+    flight_request_id: normalizedId,
+    booking_id: normalizedId,
+    ...payload,
+  }
+  let lastError = null
+
+  for (const path of CLIENT_WIRE_PATHS) {
+    try {
+      return await api.post(path, body, options)
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  throw lastError || new Error('No se pudieron generar las instrucciones bancarias.')
 }
 
 export async function requestConcierge(message) {

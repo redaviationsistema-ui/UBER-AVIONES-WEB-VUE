@@ -423,6 +423,7 @@ export const api = {
   post: (path, body, options = {}) => apiRequest(path, { method: 'POST', body, ...options }),
   postForm: (path, formData, options = {}) =>
     apiRequest(path, { method: 'POST', formData, ...options }),
+  patch: (path, body, options = {}) => apiRequest(path, { method: 'PATCH', body, ...options }),
   put: (path, body, options = {}) => apiRequest(path, { method: 'PUT', body, ...options }),
   delete: (path, options = {}) => apiRequest(path, { method: 'DELETE', ...options }),
   download: (path, options = {}) => apiRequest(path, { ...options, responseType: 'blob' }),
