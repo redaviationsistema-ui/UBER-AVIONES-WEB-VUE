@@ -117,6 +117,17 @@ function resolveAuthPayload(payload = {}) {
   }
 }
 
+function isUnauthorizedError(error) {
+  const status = Number(error?.status || 0)
+  if (status === 401) return true
+
+  const message = String(error?.payload?.message || error?.message || '')
+    .trim()
+    .toLowerCase()
+
+  return message === 'unauthenticated.' || message === 'unauthenticated'
+}
+
 export const useAuthStore = defineStore('auth', () => {
   const token = ref(null)
   const user = ref(null)
@@ -189,7 +200,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function fetchMe() {
-    const response = await api.get('/auth/me')
+    const response = await api.get('/auth/me', { timeoutMs: AUTH_REQUEST_TIMEOUT_MS })
     applyAuth(response)
     return response
   }
@@ -217,8 +228,10 @@ export const useAuthStore = defineStore('auth', () => {
         applyStoredAuthSnapshot(storedSnapshot)
         initialized.value = true
         fetchMe()
-          .catch(() => {
-            clearAuth()
+          .catch((error) => {
+            if (isUnauthorizedError(error)) {
+              clearAuth()
+            }
           })
           .finally(() => {
             initializePromise = null
@@ -228,8 +241,10 @@ export const useAuthStore = defineStore('auth', () => {
 
       try {
         await fetchMe()
-      } catch {
-        clearAuth()
+      } catch (error) {
+        if (isUnauthorizedError(error)) {
+          clearAuth()
+        }
       } finally {
         initialized.value = true
         initializePromise = null
@@ -276,8 +291,10 @@ export const useAuthStore = defineStore('auth', () => {
   async function refreshSession() {
     try {
       return await fetchMe()
-    } catch {
-      clearAuth()
+    } catch (error) {
+      if (isUnauthorizedError(error)) {
+        clearAuth()
+      }
       return null
     }
   }

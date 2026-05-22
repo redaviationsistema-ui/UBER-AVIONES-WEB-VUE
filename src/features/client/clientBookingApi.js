@@ -11,6 +11,7 @@ import {
   normalizeAttentionLevel,
   normalizePackageCode,
 } from '../../utils/flightPricing'
+import { requestWithCandidates } from '../../lib/backendCrud'
 
 const configuredQuotesPreviewPath = String(
   import.meta.env.VITE_CLIENT_QUOTES_PREVIEW_PATH || '',
@@ -22,6 +23,9 @@ const configuredTripWorkflowPath = String(
 ).trim()
 const configuredContractSignPath = String(
   import.meta.env.VITE_CLIENT_RESERVATION_CONTRACT_SIGN_PATH || '',
+).trim()
+const configuredContractDownloadPath = String(
+  import.meta.env.VITE_CLIENT_RESERVATION_CONTRACT_DOWNLOAD_PATH || '',
 ).trim()
 const configuredFlightPackagesPath = String(
   import.meta.env.VITE_CLIENT_FLIGHT_PACKAGES_PATH ||
@@ -52,6 +56,18 @@ const CLIENT_AIRCRAFT_PATHS = [
 ]
 const CLIENT_RESERVATION_CONTRACT_SIGN_PATHS = [
   ...new Set([configuredContractSignPath, '/cliente/reservas/:id/contrato/firmar'].filter(Boolean)),
+]
+const CLIENT_RESERVATION_CONTRACT_DOWNLOAD_PATHS = [
+  ...new Set(
+    [
+      configuredContractDownloadPath,
+      '/cliente/reservas/:id/contrato/pdf',
+      '/cliente/reservas/:id/contrato/download',
+      '/cliente/reservas/:id/contrato/descargar',
+      '/client/reservations/:id/contract/pdf',
+      '/client/reservations/:id/contract/download',
+    ].filter(Boolean),
+  ),
 ]
 const CLIENT_RESERVATIONS_PATH = '/cliente/reservas'
 const CLIENT_CHECKOUT_PATHS = [
@@ -1953,9 +1969,10 @@ function mergeTripRecords(baseRecord = {}, detailRecord = {}) {
     'operator',
   ])
   const merged = { ...baseRecord }
+  const mostRelevantExplicitWorkflow = pickMostRelevantExplicitWorkflow(baseRecord, detailRecord)
 
   merged.status = preferMostAdvancedWorkflowValue(baseRecord.status, detailRecord.status)
-  merged.explicit_workflow_status = pickMostRelevantExplicitWorkflow(baseRecord, detailRecord)
+  merged.explicit_workflow_status = mostRelevantExplicitWorkflow
   merged.workflow_status = merged.explicit_workflow_status
     ? merged.explicit_workflow_status
     : preferMostAdvancedWorkflowValue(baseRecord.workflow_status, detailRecord.workflow_status)
@@ -2307,6 +2324,25 @@ function buildContractSignSnapshot(snapshot = {}, fallbackReservationId = '', fa
   }
 }
 
+function isMissingOrUnsupportedRoute(error) {
+  return [404, 405].includes(Number(error?.status || 0))
+}
+
+function isRestrictedWorkflowRoute(path = '') {
+  return String(path || '').includes('/admin/')
+}
+
+function isRecoverableWorkflowSyncError(error) {
+  const message = String(error?.payload?.message || error?.message || '').toLowerCase()
+
+  return (
+    message.includes('flight_requests_status_check') ||
+    message.includes('violates check constraint') ||
+    message.includes('payment_pending') ||
+    message.includes('workflow')
+  )
+}
+
 export async function markClientTripReadyForPayment(
   reservationId,
   contractPayload = {},
@@ -2331,6 +2367,10 @@ export async function markClientTripReadyForPayment(
           booking_id: normalizedReservationId,
           flight_request: normalizedFlightRequestId || undefined,
           flight_request_id: normalizedFlightRequestId || undefined,
+          status: 'pending_payment',
+          workflow_status: 'pago pendiente',
+          contract_status: 'signed',
+          payment_status: 'pending',
           contract_snapshot: buildContractSignSnapshot(
             contractPayload.contract_snapshot,
             normalizedReservationId,
@@ -2339,6 +2379,7 @@ export async function markClientTripReadyForPayment(
           signature: contractPayload.signature || null,
         }
       : {}
+  let contractSignError = null
 
   for (const path of CLIENT_RESERVATION_CONTRACT_SIGN_PATHS) {
     try {
@@ -2362,22 +2403,36 @@ export async function markClientTripReadyForPayment(
             : null,
         payment_status:
           record?.payment_status || payload?.payment_order?.status || 'Pendiente de pago',
+      }, {
+        entityType: payload?.reservation ? 'reservation' : 'trip',
       })
 
       if (normalizedRecord?.id) {
         return normalizedRecord
       }
-    } catch {
-      continue
+    } catch (error) {
+      if (isMissingOrUnsupportedRoute(error)) continue
+      contractSignError = error
+      break
     }
   }
 
   const workflowPayload = {
     ...buildWorkflowApiPayload('payment_pending'),
-    payment_status: 'Pendiente de pago',
+    status: 'pending_payment',
+    contract_status: 'signed',
+    payment_status: 'pending',
+  }
+  const workflowTargetId = normalizedFlightRequestId || normalizedReservationId
+  const canUseWorkflowFallback =
+    configuredTripWorkflowPath && !isRestrictedWorkflowRoute(configuredTripWorkflowPath)
+
+  if (contractSignError && !isRecoverableWorkflowSyncError(contractSignError)) {
+    throw contractSignError
   }
 
-  if (!configuredTripWorkflowPath) {
+  if (!canUseWorkflowFallback) {
+    if (contractSignError) throw contractSignError
     return normalizeTrip({
       id: normalizedReservationId,
       ...workflowPayload,
@@ -2385,11 +2440,11 @@ export async function markClientTripReadyForPayment(
   }
 
   const candidateRequests = [
-    { method: 'patch', path: configuredTripWorkflowPath.replace(':id', normalizedReservationId) },
-    { method: 'put', path: configuredTripWorkflowPath.replace(':id', normalizedReservationId) },
-    { method: 'post', path: configuredTripWorkflowPath.replace(':id', normalizedReservationId) },
+    { method: 'patch', path: configuredTripWorkflowPath.replace(':id', workflowTargetId) },
+    { method: 'put', path: configuredTripWorkflowPath.replace(':id', workflowTargetId) },
+    { method: 'post', path: configuredTripWorkflowPath.replace(':id', workflowTargetId) },
   ]
-  let lastError = null
+  let lastError = contractSignError
 
   for (const candidate of candidateRequests) {
     try {
@@ -2405,22 +2460,46 @@ export async function markClientTripReadyForPayment(
 
       return normalizeTrip({
         ...(record && typeof record === 'object' ? record : {}),
-        id: record?.id || normalizedReservationId,
+        id: record?.id || workflowTargetId,
         ...workflowPayload,
+      }, {
+        entityType: payload?.reservation ? 'reservation' : 'trip',
       })
     } catch (error) {
       lastError = error
     }
   }
 
-  return normalizeTrip({
-    id: normalizedReservationId,
-    ...workflowPayload,
-  })
-}
+  if (lastError) {
+    throw lastError
+  }
+
+    return normalizeTrip({
+      id: normalizedReservationId,
+      ...workflowPayload,
+    }, {
+      entityType: 'reservation',
+    })
+  }
 
 export async function ensureClientReservation(payload = {}, options = {}) {
   return api.post(CLIENT_RESERVATIONS_PATH, payload, options)
+}
+
+export async function downloadClientReservationContract(reservationId, options = {}) {
+  const normalizedReservationId = normalizeEntityIdentifier(reservationId)
+
+  if (!normalizedReservationId) {
+    throw new Error('No encontramos la reserva para descargar el contrato.')
+  }
+
+  return requestWithCandidates(
+    CLIENT_RESERVATION_CONTRACT_DOWNLOAD_PATHS.map((path) => ({
+      method: 'download',
+      path: replaceRouteId(path, normalizedReservationId),
+      timeoutMs: options.timeoutMs,
+    })),
+  )
 }
 
 export async function searchClientFlights(itinerary) {

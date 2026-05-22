@@ -11,7 +11,6 @@ const props = defineProps({
 
 const emit = defineEmits(['confirm'])
 const logoSrc = '/logo.png'
-const manufacturerMarks = ['Learjet', 'Hawker', 'Beechcraft', 'Cessna', 'Dassault Aviation']
 const supportPhones = ['+52 558 618 6576', '+52 722 112 6671', '+1 305 464 6394']
 const supportEmail = 'sales@redskyg.com'
 const supportWebsite = 'https://redskyg.com/mx'
@@ -124,11 +123,66 @@ function airportDisplay(code = '', airportPayload = null) {
   return `${airport.city} (${airport.code || airport.iata})`
 }
 
+const SPANISH_MONTH_INDEX = {
+  enero: 0,
+  febrero: 1,
+  marzo: 2,
+  abril: 3,
+  mayo: 4,
+  junio: 5,
+  julio: 6,
+  agosto: 7,
+  septiembre: 8,
+  setiembre: 8,
+  octubre: 9,
+  noviembre: 10,
+  diciembre: 11,
+}
+
+function parseFlexibleDate(value = '') {
+  if (!value) return null
+
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value
+  }
+
+  const parsed = new Date(value)
+  if (!Number.isNaN(parsed.getTime())) return parsed
+
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/,/g, '')
+    .replace(/\s+/g, ' ')
+  const spanishMatch = normalized.match(
+    /(\d{1,2})\s+de\s+([a-záéíóú]+)\s+de\s+(\d{4})(?:.*?(\d{1,2}):(\d{2})(?:\s*([ap])\.?\s*m\.?)?)?/i,
+  )
+
+  if (!spanishMatch) return null
+
+  const [, dayRaw, monthRaw, yearRaw, hourRaw = '0', minuteRaw = '0', meridiem = ''] = spanishMatch
+  const normalizedMonth = monthRaw.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  const monthIndex = SPANISH_MONTH_INDEX[normalizedMonth]
+  if (monthIndex === undefined) return null
+
+  let hours = Number(hourRaw)
+  const minutes = Number(minuteRaw)
+  if (meridiem === 'p' && hours < 12) hours += 12
+  if (meridiem === 'a' && hours === 12) hours = 0
+
+  const date = new Date(Number(yearRaw), monthIndex, Number(dayRaw), hours, minutes)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function padTwoDigits(value) {
+  return String(value).padStart(2, '0')
+}
+
 function formatDateTime(value = '') {
   if (!value) return 'Fecha por confirmar'
 
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return String(value)
+  const parsed = parseFlexibleDate(value)
+  if (!parsed || Number.isNaN(parsed.getTime())) return String(value)
 
   return new Intl.DateTimeFormat('es-MX', {
     day: '2-digit',
@@ -142,11 +196,38 @@ function formatDateTime(value = '') {
 function formatDate(value = '') {
   if (!value) return 'Fecha por confirmar'
 
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return String(value)
+  const parsed = parseFlexibleDate(value)
+  if (!parsed || Number.isNaN(parsed.getTime())) return String(value)
 
   return new Intl.DateTimeFormat('es-MX', {
     day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+  }).format(parsed)
+}
+
+function formatTime(value = '') {
+  if (!value) return 'Por confirmar'
+
+  const parsed = parseFlexibleDate(value)
+  if (!parsed || Number.isNaN(parsed.getTime())) return String(value)
+
+  const hours = parsed.getHours()
+  const minutes = parsed.getMinutes()
+  const meridiem = hours >= 12 ? 'p.m.' : 'a.m.'
+  const hour12 = hours % 12 || 12
+
+  return `${padTwoDigits(hour12)}:${padTwoDigits(minutes)} ${meridiem}`
+}
+
+function formatPrintableDate(value = '') {
+  if (!value) return 'Fecha por confirmar'
+
+  const parsed = parseFlexibleDate(value)
+  if (!parsed || Number.isNaN(parsed.getTime())) return String(value)
+
+  return new Intl.DateTimeFormat('es-MX', {
+    day: 'numeric',
     month: 'long',
     year: 'numeric',
   }).format(parsed)
@@ -157,6 +238,15 @@ function formatCurrency(value) {
     style: 'currency',
     currency: 'USD',
     maximumFractionDigits: 0,
+  }).format(Number(value || 0))
+}
+
+function formatCurrencyDetail(value) {
+  return new Intl.NumberFormat('es-MX', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
   }).format(Number(value || 0))
 }
 
@@ -368,19 +458,41 @@ const itinerarySegments = computed(() => {
   )
 })
 
+const routePath = computed(() => {
+  const segments = itinerarySegments.value.filter(
+    (segment) => segment.origin || segment.destination,
+  )
+  if (!segments.length) return []
+
+  const path = []
+  const firstOrigin = String(segments[0]?.origin || '').trim()
+  if (firstOrigin) path.push(firstOrigin)
+
+  segments.forEach((segment) => {
+    const destination = String(segment.destination || '').trim()
+    if (!destination) return
+    if (path[path.length - 1] !== destination) {
+      path.push(destination)
+    }
+  })
+
+  return path
+})
+
 const routeDisplay = computed(() => {
+  if (routePath.value.length >= 2) {
+    return routePath.value.join(' → ')
+  }
+
   if (resolvedContractSnapshot.value.route) {
     return resolvedContractSnapshot.value.route
   }
 
   const reservation = props.reservation || {}
-  const firstLeg = itinerarySegments.value[0]
-  const lastLeg = itinerarySegments.value[itinerarySegments.value.length - 1]
-  const origin = firstLeg?.origin || airportDisplay(reservation.origin)
-  const destination = lastLeg?.destination || airportDisplay(reservation.destination)
-
+  const origin = airportDisplay(reservation.origin)
+  const destination = airportDisplay(reservation.destination)
   if (!origin && !destination) return `Contrato ${props.reservationId || reservation.id || ''}`
-  return `${origin} → ${destination}`
+  return [origin, destination].filter(Boolean).join(' → ')
 })
 
 const passengerLabel = computed(() => {
@@ -418,10 +530,12 @@ const operatorLabel = computed(
   () =>
     resolvedContractSnapshot.value.operator ||
     props.reservation?.operator ||
-    'Operador confirmado por SKY Group',
+    'Por confirmar / asignado por Sky Group previo a la operación',
 )
+const commercialProviderLabel = 'RED AVIATION COMPANY S.A. DE C.V.'
 const customerLabel = computed(
-  () => resolvedContractSnapshot.value.customer_name || props.customerName || 'Cliente de SKY Group',
+  () =>
+    resolvedContractSnapshot.value.customer_name || props.customerName || 'Cliente de SKY Group',
 )
 const customerAddress = computed(
   () =>
@@ -494,8 +608,9 @@ const resolvedContractSnapshot = computed(() => ({
     ? persistedContractSnapshot.value.itinerary_segments
     : [],
 }))
-const contractDate = computed(() =>
-  resolvedContractSnapshot.value.contract_date ||
+const contractDate = computed(
+  () =>
+    resolvedContractSnapshot.value.contract_date ||
     formatDate(
       contractRecord.value.signed_at ||
         contractRecord.value.generated_at ||
@@ -515,8 +630,9 @@ const persistedSignatureDataUrl = computed(() => {
 const activeSignaturePreview = computed(
   () => uploadedSignatureUrl.value || persistedSignatureDataUrl.value,
 )
-const departureDate = computed(() =>
-  resolvedContractSnapshot.value.departure_date ||
+const departureDate = computed(
+  () =>
+    resolvedContractSnapshot.value.departure_date ||
     formatDateTime(props.reservation?.date || itinerarySegments.value[0]?.departure || ''),
 )
 const overnightLabel = computed(() => {
@@ -545,6 +661,17 @@ const finalPrice = computed(() => {
   )
 })
 
+const finalPriceValue = computed(() => {
+  const reservation = props.reservation || {}
+  return parsePrice(
+    resolvedContractSnapshot.value.final_price ||
+      reservation.formatted_final_price ||
+      reservation.final_price_display ||
+      resolveReservationFinalPrice(reservation) ||
+      0,
+  )
+})
+
 const depositAmount = computed(() => {
   if (resolvedContractSnapshot.value.deposit_amount) {
     return resolvedContractSnapshot.value.deposit_amount
@@ -552,8 +679,142 @@ const depositAmount = computed(() => {
 
   const reservation = props.reservation || {}
   const rawAmount = Number(reservation.deposit_amount || reservation.deposit || 0)
-  return rawAmount > 0 ? formatCurrency(rawAmount) : 'Por confirmar en Anexo A'
+  const resolvedAmount =
+    rawAmount > 0 ? rawAmount : finalPriceValue.value > 0 ? finalPriceValue.value * 0.5 : 0
+  return resolvedAmount > 0 ? formatCurrency(resolvedAmount) : 'Depósito por definir'
 })
+
+const depositAmountValue = computed(() => {
+  const reservation = props.reservation || {}
+  const rawAmount = Number(reservation.deposit_amount || reservation.deposit || 0)
+  return rawAmount > 0 ? rawAmount : finalPriceValue.value > 0 ? finalPriceValue.value * 0.5 : 0
+})
+
+const balanceAmount = computed(() => {
+  const balance = Math.max(finalPriceValue.value - depositAmountValue.value, 0)
+  return balance > 0 ? formatCurrency(balance) : formatCurrency(0)
+})
+
+const pricingContextRecord = computed(() =>
+  props.reservation?.pricing_context && typeof props.reservation.pricing_context === 'object'
+    ? props.reservation.pricing_context
+    : {},
+)
+
+const pricingRows = computed(() => {
+  const reservation = props.reservation || {}
+  const pricingContext = pricingContextRecord.value
+  const billableHours = Number(
+    pricingContext.billable_hours ||
+      pricingContext.operational_flight_hours ||
+      reservation.billable_hours ||
+      reservation.operational_flight_hours ||
+      reservation.flight_hours ||
+      0,
+  )
+  const flightRent = parsePrice(
+    pricingContext.subtotal_flight ||
+      pricingContext.flight_base ||
+      pricingContext.base_cost ||
+      reservation.base_price ||
+      reservation.flight_base ||
+      0,
+  )
+  const overnightAmount = parsePrice(
+    reservation.overnight_cost ||
+      reservation.overnight_fees ||
+      reservation.overnight_fee ||
+      pricingContext.overnight_cost ||
+      pricingContext.overnight_fees ||
+      pricingContext.overnight_fee ||
+      0,
+  )
+  const additionalServices = Math.max(
+    parsePrice(pricingContext.extra_services_total || reservation.extra_services_total || 0) -
+      overnightAmount,
+    0,
+  )
+  const operationalAmount = parsePrice(
+    pricingContext.fbo_total ||
+      pricingContext.expense_fee ||
+      pricingContext.airport_expenses ||
+      reservation.airport_expenses ||
+      reservation.operational_fee ||
+      0,
+  )
+
+  const rows = [
+    {
+      label: 'Horas cobrables',
+      detail:
+        billableHours > 0
+          ? `${billableHours.toFixed(2).replace(/\.00$/, '')} hrs`
+          : 'Por confirmar',
+    },
+    {
+      label: 'Renta de vuelo',
+      amount: flightRent || 0,
+    },
+    {
+      label: 'Pernocta tripulación',
+      amount: overnightAmount || 0,
+    },
+    {
+      label: 'Gastos operativos',
+      amount: operationalAmount || 0,
+    },
+    {
+      label: 'Servicios adicionales',
+      amount: additionalServices || 0,
+    },
+    {
+      label: 'IVA / impuestos',
+      amount:
+        parsePrice(
+          pricingContext.iva_amount ||
+            pricingContext.taxes ||
+            pricingContext.tax ||
+            reservation.taxes ||
+            reservation.tax ||
+            0,
+        ) || 0,
+    },
+  ]
+
+  const visibleRows = rows.filter((row) => row.detail || row.amount > 0)
+  return [
+    ...visibleRows,
+    {
+      label: 'Total',
+      amount: finalPriceValue.value,
+      highlight: true,
+    },
+  ]
+})
+
+const includesItems = [
+  'Aeronave y tripulación asignada para la ruta contratada.',
+  'Coordinación operativa y seguimiento comercial de SKY Group / Red Aviation.',
+  'Combustible y operación contemplados en la cotización validada.',
+  'Uso de aeronave conforme al itinerario confirmado en este Anexo A.',
+]
+
+const excludesItems = [
+  'Catering especial no contemplado expresamente.',
+  'Transporte terrestre, hospedaje o concierge fuera del alcance contratado.',
+  'Cambios de itinerario solicitados por el Cliente después de la firma.',
+  'Tiempos de espera extraordinarios, permisos especiales o costos por reprogramación.',
+]
+
+const coverSummaryRows = computed(() => [
+  { label: 'Cliente', value: customerLabel.value },
+  { label: 'Reserva', value: reservationCode.value },
+  { label: 'Ruta', value: routeDisplay.value },
+  { label: 'Aeronave', value: aircraftLabel.value },
+  { label: 'Salida', value: departureDate.value },
+  { label: 'Total', value: finalPrice.value },
+  { label: 'Depósito', value: depositAmount.value },
+])
 
 const bankAccounts = [
   {
@@ -614,7 +875,7 @@ const clauses = computed(() => [
     title: '4. COSTO TOTAL DEL SERVICIO Y DEPÓSITO',
     paragraphs: [
       `Con sujeción a las Secciones 5 y 15 del presente Contrato, el Cliente pagará al Prestador del Servicio el Costo Total del Servicio respecto de los servicios objeto del presente Contrato, conforme al Anexo A, más los Impuestos y Tasas. Para esta operación, el costo total identificado en el flujo es ${finalPrice.value}.`,
-      `Al firmar este Contrato, el Cliente acepta pagar al Prestador del Servicio un Depósito en el monto indicado en el Anexo A. Para esta reserva, el depósito mostrado es ${depositAmount.value}. El Depósito se realizará mediante transferencia bancaria, al menos 48 horas antes de la salida.`,
+      `Al firmar este Contrato, el Cliente acepta pagar al Prestador del Servicio un Depósito en el monto indicado en el Anexo A. Para esta reserva, el depósito requerido es ${depositAmount.value} y el saldo restante estimado es ${balanceAmount.value}. El depósito deberá cubrirse mediante transferencia bancaria y el saldo deberá quedar liquidado, salvo acuerdo distinto por escrito, al menos 48 horas antes de la salida.`,
     ],
   },
   {
@@ -755,6 +1016,12 @@ const clauses = computed(() => [
       'Las partes acuerdan que la firma del presente Contrato podrá realizarse de manera electrónica. RED AVIATION COMPANY S.A. DE C.V. hará uso de la plataforma DocuSign para la firma electrónica, la cual tendrá plena validez legal. El Cliente podrá firmar por cualquier medio digital que elija, y al hacerlo, reconoce y acepta expresamente la legalidad, validez y plena eficacia del acto de firma electrónica, asumiendo toda responsabilidad derivada de su utilización. Las firmas electrónicas tendrán la misma fuerza y efecto que una firma autógrafa para todos los efectos legales.',
     ],
   },
+  {
+    title: '18. CUENTAS RECAUDADORAS AUTORIZADAS',
+    paragraphs: [
+      'El Cliente reconoce que las cuentas bancarias señaladas corresponden a terceros autorizados por el Prestador del Servicio exclusivamente para fines de cobranza, administración operativa o coordinación del servicio, sin que ello modifique la identidad del Prestador del Servicio ni las obligaciones asumidas en el presente Contrato.',
+    ],
+  },
 ])
 
 function buildContractSnapshot() {
@@ -787,7 +1054,8 @@ function buildContractSnapshot() {
       order: segment.order,
       origin: segment.origin,
       destination: segment.destination,
-      departure: formatDateTime(segment.departure),
+      departure: segment.departure,
+      departure_label: formatDateTime(segment.departure),
     })),
   }
 }
@@ -829,13 +1097,6 @@ function handleConfirmClick() {
       <header class="contract-brandbar">
         <div class="contract-brandbar__main">
           <img :src="logoSrc" alt="Sky Group" class="contract-brandbar__logo" />
-          <p>
-            Aircraft maintenance services including airframe, turbines, reciprocating engines,
-            avionics, component repair, and air taxi operations.
-          </p>
-        </div>
-        <div class="contract-brandbar__marks">
-          <span v-for="mark in manufacturerMarks" :key="mark">{{ mark }}</span>
         </div>
       </header>
 
@@ -844,13 +1105,37 @@ function handleConfirmClick() {
           <img :src="logoSrc" alt="" />
         </div>
 
+        <section class="contract-cover">
+          <div class="contract-cover__eyebrow-row">
+            <span class="eyebrow">Reserva {{ reservationCode }}</span>
+            <span class="contract-badge">CONFIDENCIAL · DOCUMENTO PARA FIRMA</span>
+          </div>
+          <h1>Contrato de prestación de servicios de aviación ejecutiva</h1>
+          <p class="contract-cover__route">{{ routeDisplay }}</p>
+          <div class="contract-cover__meta">
+            <span>📅 {{ departureDate }}</span>
+            <span>👥 {{ passengerLabel }}</span>
+            <span>🛩 {{ aircraftLabel }}</span>
+            <span
+              >✈ {{ itinerarySegments.length }}
+              {{ itinerarySegments.length === 1 ? 'tramo' : 'tramos' }}</span
+            >
+            <span>💵 {{ finalPrice }}</span>
+          </div>
+          <div class="contract-cover__brief">
+            <article v-for="row in coverSummaryRows" :key="row.label" class="cover-brief-card">
+              <span>{{ row.label }}</span>
+              <strong>{{ row.value }}</strong>
+            </article>
+          </div>
+        </section>
+
         <div class="contract-sheet__head">
           <span class="eyebrow">Contrato {{ reservationId || reservation?.id || '' }}</span>
-          <strong>ANEXO “A”</strong>
+          <strong>ANEXO A — DATOS COMERCIALES DE LA RESERVA</strong>
           <small>
-            {{ contractRecord.contract_code || reservationCode }}
             <span v-if="contractRecord.signed_at || contractRecord.generated_at">
-              · {{ formatDate(contractRecord.signed_at || contractRecord.generated_at) }}
+              {{ formatDate(contractRecord.signed_at || contractRecord.generated_at) }}
             </span>
           </small>
         </div>
@@ -874,7 +1159,7 @@ function handleConfirmClick() {
           <article class="summary-card">
             <span>Costo total</span>
             <strong>{{ finalPrice }}</strong>
-            <small>Deposito: {{ depositAmount }}</small>
+            <small>Depósito: {{ depositAmount }}</small>
           </article>
         </section>
 
@@ -911,6 +1196,7 @@ function handleConfirmClick() {
         </div>
 
         <div class="contract-block">
+          <h3>ANEXO A — RESUMEN COMERCIAL</h3>
           <div class="annex-table-wrap">
             <table class="annex-table">
               <tbody>
@@ -919,20 +1205,20 @@ function handleConfirmClick() {
                   <td>{{ reservationCode }}</td>
                   <th scope="row">Cliente</th>
                   <td>{{ customerLabel }}</td>
+                  <th scope="row">Prestador comercial</th>
+                  <td>{{ commercialProviderLabel }}</td>
                 </tr>
                 <tr>
-                  <th scope="row">Operador</th>
+                  <th scope="row">Operador aéreo</th>
                   <td>{{ operatorLabel }}</td>
                   <th scope="row">Ruta</th>
                   <td>{{ routeDisplay }}</td>
-                </tr>
-                <tr>
                   <th scope="row">Salida</th>
                   <td>{{ departureDate }}</td>
-                  <th scope="row">Aeronave</th>
-                  <td>{{ aircraftLabel }}</td>
                 </tr>
                 <tr>
+                  <th scope="row">Aeronave</th>
+                  <td>{{ aircraftLabel }}</td>
                   <th scope="row">Cabina</th>
                   <td>{{ aircraftCategory }}</td>
                   <th scope="row">Pasajeros</th>
@@ -943,12 +1229,16 @@ function handleConfirmClick() {
                   <td>{{ overnightLabel }}</td>
                   <th scope="row">Servicio</th>
                   <td>{{ serviceTier }}</td>
+                  <th scope="row">Tramos</th>
+                  <td>{{ itinerarySegments.length }}</td>
                 </tr>
                 <tr>
                   <th scope="row">Costo total</th>
                   <td>{{ finalPrice }}</td>
                   <th scope="row">Depósito</th>
                   <td>{{ depositAmount }}</td>
+                  <th scope="row">Saldo estimado</th>
+                  <td>{{ balanceAmount }}</td>
                 </tr>
               </tbody>
             </table>
@@ -956,12 +1246,73 @@ function handleConfirmClick() {
 
           <div class="annex-legs">
             <strong>Itinerario</strong>
-            <ul class="contract-list">
-              <li v-for="segment in itinerarySegments" :key="segment.key">
-                Tramo {{ segment.order }}: {{ segment.origin }} → {{ segment.destination }}
-                <span v-if="segment.departure"> · {{ formatDateTime(segment.departure) }}</span>
-              </li>
-            </ul>
+            <div class="annex-table-wrap">
+              <table class="annex-table">
+                <thead>
+                  <tr>
+                    <th>Tramo</th>
+                    <th>Origen</th>
+                    <th>Destino</th>
+                    <th>Fecha</th>
+                    <th>Hora</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="segment in itinerarySegments" :key="segment.key">
+                    <td>{{ segment.order }}</td>
+                    <td>{{ segment.origin }}</td>
+                    <td>{{ segment.destination }}</td>
+                    <td>{{ formatPrintableDate(segment.departure) }}</td>
+                    <td>{{ formatTime(segment.departure) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="annex-legs">
+            <strong>Desglose comercial</strong>
+            <div class="annex-table-wrap">
+              <table class="annex-table">
+                <thead>
+                  <tr>
+                    <th>Concepto</th>
+                    <th>Monto</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="row in pricingRows" :key="row.label">
+                    <td>{{ row.label }}</td>
+                    <td :class="{ 'annex-table__total': row.highlight }">
+                      {{ row.detail || formatCurrencyDetail(row.amount) }}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>Depósito requerido</td>
+                    <td>{{ formatCurrencyDetail(depositAmountValue) }}</td>
+                  </tr>
+                  <tr>
+                    <td>Saldo estimado</td>
+                    <td>{{ balanceAmount }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="annex-grid">
+            <article class="annex-note-card">
+              <strong>Incluye</strong>
+              <ul class="contract-list">
+                <li v-for="item in includesItems" :key="item">{{ item }}</li>
+              </ul>
+            </article>
+            <article class="annex-note-card">
+              <strong>No incluye, salvo pacto expreso</strong>
+              <ul class="contract-list">
+                <li v-for="item in excludesItems" :key="item">{{ item }}</li>
+              </ul>
+            </article>
           </div>
         </div>
 
@@ -993,7 +1344,7 @@ function handleConfirmClick() {
           </div>
         </div>
 
-        <div class="contract-block">
+        <div class="contract-block signatures-section">
           <h3>FIRMAS</h3>
           <div class="signatures-grid">
             <article class="signature-card">
@@ -1001,7 +1352,13 @@ function handleConfirmClick() {
               <strong>RED AVIATION COMPANY S.A. DE C.V.</strong>
               <small>Nombre: José Luis Hernández Ortiz</small>
               <small>Cargo: Representante Legal</small>
-              <div class="signature-line"></div>
+              <div class="signature-line signature-line--provider">
+                <img
+                  src="/AUTOGRAFO/AUTOGRAFO JEFE.png"
+                  alt="Firma del representante legal"
+                  class="provider-signature-image"
+                />
+              </div>
               <small>Firma</small>
             </article>
             <article class="signature-card">
@@ -1025,15 +1382,14 @@ function handleConfirmClick() {
         <footer class="contract-footer">
           <div class="contract-footer__line"></div>
           <div class="contract-footer__meta">
-            <p>Números telefónicos: {{ supportPhones.join(' I ') }}</p>
+            <p>Números telefónicos: {{ supportPhones.join(' | ') }}</p>
             <p>
               Correo electrónico:
               <a :href="`mailto:${supportEmail}`">{{ supportEmail }}</a>
-              I Página web:
+              | Página web:
               <a :href="supportWebsite" target="_blank" rel="noreferrer">{{ supportWebsite }}</a>
             </p>
           </div>
-          <span class="contract-footer__page">Página 1 de 8</span>
         </footer>
       </div>
     </section>
@@ -1125,6 +1481,89 @@ function handleConfirmClick() {
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.contract-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.45rem 0.85rem;
+  border-radius: 999px;
+  background: rgba(139, 106, 36, 0.12);
+  color: #8b6a24;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.contract-cover {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 0.9rem;
+  padding: 0.15rem 0 0.75rem;
+}
+
+.contract-cover__eyebrow-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.contract-cover h1 {
+  margin: 0;
+  color: #111111;
+  font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  font-size: clamp(2rem, 4vw, 2.7rem);
+  line-height: 1.02;
+}
+
+.contract-cover__route {
+  margin: 0;
+  color: #3c3328;
+  font-size: clamp(1.15rem, 2vw, 1.5rem);
+  font-weight: 700;
+}
+
+.contract-cover__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 1.2rem;
+  color: #625d55;
+  font-size: 0.98rem;
+  font-weight: 700;
+}
+
+.contract-cover__brief {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+  margin-top: 0.45rem;
+}
+
+.cover-brief-card {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid rgba(139, 106, 36, 0.16);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(250, 248, 243, 0.96), rgba(255, 255, 255, 0.98));
+}
+
+.cover-brief-card span {
+  color: #8a7d6a;
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.cover-brief-card strong {
+  color: #1a1816;
+  font-size: 1rem;
+  line-height: 1.35;
 }
 
 .contract-summary {
@@ -1319,17 +1758,24 @@ function handleConfirmClick() {
 
 .annex-table td {
   font-weight: 700;
-  text-transform: uppercase;
+  line-height: 1.35;
+}
+
+.annex-table__total {
+  color: #8b6a24 !important;
+  font-size: 1rem;
 }
 
 .account-card,
 .signature-card {
   display: grid;
-  gap: 0.2rem;
-  padding: 0.9rem;
+  gap: 0.35rem;
+  padding: 1rem;
   border: 1px solid #e9e2d4;
   border-radius: 16px;
   background: rgba(250, 248, 243, 0.94);
+  break-inside: avoid;
+  page-break-inside: avoid;
 }
 
 .accounts-grid,
@@ -1342,9 +1788,31 @@ function handleConfirmClick() {
   gap: 0.45rem;
 }
 
+.annex-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.annex-note-card {
+  display: grid;
+  gap: 0.55rem;
+  padding: 1rem;
+  border: 1px solid #e9e2d4;
+  border-radius: 16px;
+  background: rgba(250, 248, 243, 0.94);
+}
+
 .signature-line {
-  min-height: 2.5rem;
+  min-height: 4rem;
   border-bottom: 1px solid #111111;
+}
+
+.signature-line--provider {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-start;
+  overflow: hidden;
 }
 
 .signature-line--client {
@@ -1352,6 +1820,14 @@ function handleConfirmClick() {
   align-items: flex-end;
   justify-content: flex-start;
   overflow: hidden;
+}
+
+.provider-signature-image {
+  max-width: 240px;
+  max-height: 72px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
 }
 
 .contract-footer {
@@ -1380,6 +1856,10 @@ function handleConfirmClick() {
 
 .contract-footer__meta a {
   color: #2b69d6;
+}
+
+.signatures-section {
+  padding-top: 0.2rem;
 }
 
 .contract-footer__page {
@@ -1498,6 +1978,8 @@ function handleConfirmClick() {
 
 @media (max-width: 900px) {
   .contract-summary,
+  .contract-cover__brief,
+  .annex-grid,
   .accounts-grid,
   .signatures-grid {
     grid-template-columns: 1fr;
@@ -1551,6 +2033,17 @@ function handleConfirmClick() {
 
   .contract-sheet {
     box-shadow: none;
+  }
+
+  .contract-badge {
+    background: rgba(139, 106, 36, 0.16) !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .signatures-section {
+    break-before: page;
+    page-break-before: always;
   }
 }
 </style>

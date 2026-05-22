@@ -2,6 +2,8 @@
 import { computed, reactive, ref, watch } from 'vue'
 import {
   buildSharedFlowStepStates,
+  getSharedWorkflowActionCopy,
+  getSharedWorkflowStepDescription,
   normalizeWorkflowLabel,
   resolveSharedVisualWorkflowStepId,
   resolveSharedWorkflowStageTitle,
@@ -21,46 +23,8 @@ const emit = defineEmits(['update-flow', 'delay-flow', 'resume-flow'])
 
 const flowSteps = SHARED_WORKFLOW_STEPS.map((step) => ({
   ...step,
-  description:
-    step.id === 'reserved'
-      ? 'El cliente ya dejo activa la solicitud inicial.'
-      : step.id === 'provider_accepted'
-        ? 'El operador o proveedor ya acepto ejecutar la operacion.'
-        : step.id === 'contract_pending'
-          ? 'Aqui se genera el contrato y el cliente debe firmarlo antes de pasar a pago.'
-          : step.id === 'payment_pending'
-            ? 'El cobro se valida y confirma antes de liberar el vuelo.'
-            : step.id === 'flight_confirmed'
-              ? 'La operacion ya tiene aeronave, tripulacion y salida cerrada.'
-              : 'El admin puede seguir la ejecucion y las novedades del servicio.',
+  description: getSharedWorkflowStepDescription(step.id, 'pending'),
 }))
-
-const dynamicStepDescriptions = {
-  reserved: {
-    current: 'La solicitud ya entro al flujo y ahora toca conseguir respuesta operativa real del proveedor.',
-    done: 'La reserva ya quedo creada y supero la activacion inicial.',
-  },
-  provider_accepted: {
-    current: 'El proveedor ya respondio o estamos cerrando esa validacion operativa.',
-    done: 'La respuesta del proveedor ya se resolvio y la reserva siguio avanzando.',
-  },
-  contract_pending: {
-    current: 'El contrato esta en preparacion o esperando firma del cliente.',
-    done: 'La parte contractual ya quedo resuelta para esta reserva.',
-  },
-  payment_pending: {
-    current: 'El pago esta pendiente o en revision antes de liberar el vuelo.',
-    done: 'La validacion de pago ya no es bloqueo para esta reserva.',
-  },
-  flight_confirmed: {
-    current: 'Se esta cerrando la liberacion operativa final del vuelo.',
-    done: 'La salida operativa ya fue confirmada con aeronave y servicio.',
-  },
-  tracking_live: {
-    current: 'La reserva ya entro a seguimiento vivo y concierge operativo.',
-    done: 'El seguimiento del servicio ya esta corriendo para este caso.',
-  },
-}
 
 const selectedReservationId = ref(null)
 const flowDrafts = reactive({})
@@ -156,8 +120,8 @@ const signatureStatus = computed(() => {
   if (workflowState === 'contract_pending') {
     return {
       tone: 'warning',
-      title: 'Firma pendiente del cliente',
-      detail: 'Aqui es donde debe firmarse el contrato antes de liberar el paso de pago.',
+      title: getSharedWorkflowActionCopy('contract_pending').title,
+      detail: getSharedWorkflowActionCopy('contract_pending').detail,
     }
   }
 
@@ -171,8 +135,8 @@ const signatureStatus = computed(() => {
 
   return {
     tone: 'neutral',
-    title: 'Aún no llega a firma',
-    detail: 'La reserva todavía no entra al paso de contrato. Primero debe completar la respuesta del proveedor.',
+    title: getSharedWorkflowActionCopy('provider_pending').title,
+    detail: getSharedWorkflowActionCopy('provider_pending').detail,
   }
 })
 
@@ -189,13 +153,15 @@ watch(
     }
 
     reservations.forEach((reservation) => {
+      const currentStage = visualWorkflowStepId(effectiveWorkflowValue(reservation))
+
       if (!flowDrafts[reservation.id]) {
         flowDrafts[reservation.id] = {
-          stage: visualWorkflowStepId(effectiveWorkflowValue(reservation)),
+          stage: currentStage,
           note: '',
         }
-      } else {
-        flowDrafts[reservation.id].stage = visualWorkflowStepId(effectiveWorkflowValue(reservation))
+      } else if (flowDrafts[reservation.id].stage !== currentStage) {
+        flowDrafts[reservation.id].stage = currentStage
       }
 
       if (!holdDrafts[reservation.id]) {
@@ -238,7 +204,8 @@ function normalizeStatusToken(value = '') {
 }
 
 function effectiveWorkflowValue(reservation = {}) {
-  return (
+  const explicitWorkflowValue = reservation.workflowStatus || reservation.status || ''
+  const derivedWorkflowValue =
     resolveSharedWorkflowStatus({
       workflow_status: reservation.workflowStatus,
       status: reservation.status,
@@ -250,7 +217,11 @@ function effectiveWorkflowValue(reservation = {}) {
     reservation.workflowStatus ||
     reservation.status ||
     ''
-  )
+
+  if (explicitWorkflowValue && resolveWorkflowState(explicitWorkflowValue).id !== 'draft')
+    return explicitWorkflowValue
+
+  return derivedWorkflowValue
 }
 
 function visualWorkflowStepId(value = '') {
@@ -264,7 +235,8 @@ function workflowStageTitle(value = '') {
 function humanizeContractStatus(value = '') {
   const normalized = normalizeStatusToken(value)
   if (normalized === 'signed') return 'Firmado'
-  if (normalized === 'generated') return 'En firma'
+  // Keep the contract status label aligned with the workflow stage shown in the admin flow.
+  if (normalized === 'generated') return 'Contrato pendiente'
   return value || 'Pendiente'
 }
 
@@ -290,21 +262,20 @@ function stepDescription(reservation, step) {
   const currentState = stepState(reservation, step.id)
   const paymentStatus = humanizePaymentStatus(reservation?.paymentStatus || '')
   const contractStatus = humanizeContractStatus(reservation?.contractStatus || '')
-  const dynamicCopy = dynamicStepDescriptions[step.id] || {}
 
   if (step.id === 'contract_pending' && currentState !== 'pending') {
     return currentState === 'done'
       ? `Contrato ${contractStatus.toLowerCase()} y flujo listo para continuar.`
-      : dynamicCopy.current || step.description
+      : getSharedWorkflowStepDescription(step.id, 'current') || step.description
   }
 
   if (step.id === 'payment_pending' && currentState !== 'pending') {
     return currentState === 'done'
       ? `Pago ${paymentStatus.toLowerCase()} y validado dentro del flujo.`
-      : dynamicCopy.current || step.description
+      : getSharedWorkflowStepDescription(step.id, 'current') || step.description
   }
 
-  return dynamicCopy[currentState] || step.description
+  return getSharedWorkflowStepDescription(step.id, currentState) || step.description
 }
 
 function adminStateLabel(value) {

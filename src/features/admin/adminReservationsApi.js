@@ -2,6 +2,7 @@ import { api } from '../../lib/api'
 import { pickCollection, requestWithCandidates } from '../../lib/backendCrud'
 import {
   buildWorkflowApiPayload,
+  resolveMostAdvancedWorkflowValue,
   resolveSharedWorkflowStatus,
   resolveWorkflowState,
 } from '../../utils/flightWorkflow'
@@ -11,20 +12,25 @@ const configuredTripWorkflowPath = String(
   import.meta.env.VITE_CLIENT_TRIP_WORKFLOW_PATH || '',
 ).trim()
 const configuredAdminRequestsPath = String(import.meta.env.VITE_ADMIN_REQUESTS_PATH || '').trim()
+const normalizedConfiguredAdminRequestsPath = configuredAdminRequestsPath.startsWith('/admin/')
+  ? configuredAdminRequestsPath
+  : ''
+const normalizedConfiguredWorkflowPath = configuredTripWorkflowPath.startsWith('/admin/')
+  ? configuredTripWorkflowPath
+  : ''
 const ADMIN_REQUESTS_PATH_CANDIDATES = [
-  configuredAdminRequestsPath,
   '/admin/requests',
-  '/admin/solicitudes',
+  normalizedConfiguredAdminRequestsPath,
 ].filter(Boolean)
 
 const ADMIN_UPDATE_PATH_CANDIDATES = [
-  configuredTripWorkflowPath,
   '/admin/requests/:id/workflow',
+  normalizedConfiguredWorkflowPath,
 ].filter(Boolean)
 
 function shouldTryNextWorkflowCandidate(error) {
   const status = Number(error?.status || 0)
-  return status === 404 || status === 405 || status === 0
+  return status === 404 || status === 405
 }
 
 function normalizeEntityIdentifier(value) {
@@ -83,40 +89,11 @@ function buildAdminIdentifiers(record = {}) {
   }
 }
 
-function workflowRank(value = '') {
-  const order = [
-    'draft',
-    'quoted',
-    'package_selected',
-    'reserved',
-    'provider_pending',
-    'provider_accepted',
-    'contract_pending',
-    'contract_signed',
-    'payment_pending',
-    'payment_confirmed',
-    'flight_confirmed',
-    'tracking_live',
-    'completed',
-    'rejected',
-    'cancelled',
-  ]
-  const index = order.indexOf(resolveWorkflowState(value).id)
-  return index === -1 ? 0 : index
-}
-
-function preferMostAdvancedWorkflowValue(baseValue = '', detailValue = '') {
-  if (!String(baseValue || '').trim()) return detailValue
-  if (!String(detailValue || '').trim()) return baseValue
-  return workflowRank(detailValue) >= workflowRank(baseValue) ? detailValue : baseValue
-}
-
 function buildAdminReservationRecord(record = {}) {
   const normalizedTrip = normalizeTrip(record, {
     entityType: record.is_reservation ? 'reservation' : 'flight_request',
   })
-  const explicitWorkflowValue =
-    record.workflow_status || record.workflow || normalizedTrip.workflow_status || ''
+  const explicitWorkflowValue = record.workflow_status || record.workflow || ''
   const explicitWorkflowId = resolveWorkflowState(explicitWorkflowValue).id
   const enrichedRecord = {
     ...record,
@@ -144,7 +121,7 @@ function buildAdminReservationRecord(record = {}) {
     ''
   const resolvedWorkflowValue =
     explicitWorkflowValue && explicitWorkflowId !== 'draft'
-      ? preferMostAdvancedWorkflowValue(explicitWorkflowValue, sharedWorkflowValue)
+      ? resolveMostAdvancedWorkflowValue(explicitWorkflowValue, sharedWorkflowValue)
       : sharedWorkflowValue
 
   return {
@@ -247,9 +224,13 @@ function extractUpdatedRecord(payload = {}, fallback = {}) {
   )
 }
 
-export async function getAdminReservations() {
+export async function getAdminReservations(options = {}) {
   const response = await requestWithCandidates(
-    ADMIN_REQUESTS_PATH_CANDIDATES.map((path) => ({ method: 'get', path })),
+    ADMIN_REQUESTS_PATH_CANDIDATES.map((path) => ({
+      method: 'get',
+      path,
+      timeoutMs: options.timeoutMs,
+    })),
   )
 
   return pickCollection(response, ['operations', 'operaciones', 'requests', 'solicitudes', 'data']).map(
@@ -325,12 +306,24 @@ export async function updateAdminReservationStage(record, nextStage, note = '', 
     notes: note ? `${record?.notes || ''} · ${note}`.replace(/^ · /, '') : record?.notes || '',
   }
 
-  if (nextStage === 'contract_signed') {
-    patch.contract_status = 'signed'
+  if (['reserved', 'provider_pending'].includes(nextStage)) {
+    patch.contract_status = ''
+    patch.payment_status = ''
   }
 
-  if (nextStage === 'contract_pending' || nextStage === 'provider_accepted') {
+  if (nextStage === 'provider_accepted') {
     patch.contract_status = 'generated'
+    patch.payment_status = ''
+  }
+
+  if (nextStage === 'contract_pending') {
+    patch.contract_status = 'generated'
+    patch.payment_status = ''
+  }
+
+  if (nextStage === 'contract_signed') {
+    patch.contract_status = 'signed'
+    patch.payment_status = ''
   }
 
   if (nextStage === 'payment_pending') {
@@ -338,7 +331,8 @@ export async function updateAdminReservationStage(record, nextStage, note = '', 
     patch.payment_status = 'Pendiente de pago'
   }
 
-  if (nextStage === 'payment_confirmed') {
+  if (['payment_confirmed', 'flight_confirmed', 'tracking_live', 'completed'].includes(nextStage)) {
+    patch.contract_status = 'signed'
     patch.payment_status = 'Pagado'
   }
 

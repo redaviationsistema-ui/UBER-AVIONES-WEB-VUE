@@ -24,10 +24,15 @@ import {
   getClientTrips,
   inferDistanceUnit,
   inferEngineType,
+  markClientTripReadyForPayment,
   normalizeTrip,
 } from '../features/client/clientBookingApi'
 import { api } from '../lib/api'
-import { resolveSharedWorkflowStatus, resolveWorkflowState } from '../utils/flightWorkflow'
+import {
+  resolveMostAdvancedWorkflowValue,
+  resolveSharedWorkflowStatus,
+  resolveWorkflowState,
+} from '../utils/flightWorkflow'
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -235,6 +240,11 @@ describe('resolveWorkflowState', () => {
     expect(resolveWorkflowState('payment_confirmed').label).toBe('Pago confirmado')
   })
 
+  it('maps pending_payment from the backend to the shared payment_pending step', () => {
+    expect(resolveWorkflowState('pending_payment').id).toBe('payment_pending')
+    expect(resolveWorkflowState('pending_payment').label).toBe('Pago pendiente')
+  })
+
   it('labels provider_accepted as respuesta proveedor for client-facing workflow copy', () => {
     expect(resolveWorkflowState('accepted').id).toBe('provider_accepted')
     expect(resolveWorkflowState('accepted').label).toBe('Respuesta proveedor')
@@ -268,6 +278,18 @@ describe('resolveSharedWorkflowStatus', () => {
         operation_id: 9002,
       }),
     ).toBe('payment_pending')
+  })
+})
+
+describe('resolveMostAdvancedWorkflowValue', () => {
+  it('prefers contract_pending over an outdated provider accepted workflow', () => {
+    expect(resolveMostAdvancedWorkflowValue('proveedor aceptado', 'contract_pending')).toBe(
+      'contract_pending',
+    )
+  })
+
+  it('keeps terminal states over older derived stages', () => {
+    expect(resolveMostAdvancedWorkflowValue('rejected', 'contract_pending')).toBe('rejected')
   })
 })
 
@@ -450,5 +472,56 @@ describe('getClientTrips', () => {
     expect(trips).toHaveLength(1)
     expect(trips[0].workflow_status).toBe('contrato pendiente')
     expect(resolveWorkflowState(trips[0].workflow_status).id).toBe('contract_pending')
+  })
+})
+
+describe('markClientTripReadyForPayment', () => {
+  it('sends backend-compatible payment status fields when signing the contract', async () => {
+    api.post.mockResolvedValue({
+      reservation: {
+        id: 2,
+        flight_request_id: 111,
+        status: 'pending_payment',
+        workflow_status: 'pago pendiente',
+        contract_status: 'signed',
+        payment_status: 'pending',
+      },
+    })
+
+    const trip = await markClientTripReadyForPayment(2, {
+      reservation_id: 2,
+      flight_request_id: 111,
+      contract_snapshot: {},
+      signature: { data_url: 'data:image/png;base64,firma' },
+    })
+
+    expect(api.post).toHaveBeenCalledWith(
+      '/cliente/reservas/2/contrato/firmar',
+      expect.objectContaining({
+        reservation_id: '2',
+        flight_request_id: '111',
+        status: 'pending_payment',
+        workflow_status: 'pago pendiente',
+        contract_status: 'signed',
+        payment_status: 'pending',
+      }),
+      {},
+    )
+    expect(resolveWorkflowState(trip.status).id).toBe('payment_pending')
+  })
+
+  it('surfaces the signing error instead of pretending the reservation advanced', async () => {
+    const error = new Error('SQLSTATE[23514]: Check violation')
+    error.status = 500
+    error.payload = { message: 'SQLSTATE[23514]: Check violation' }
+    api.post.mockRejectedValue(error)
+
+    await expect(
+      markClientTripReadyForPayment(2, {
+        reservation_id: 2,
+        contract_snapshot: {},
+        signature: { data_url: 'data:image/png;base64,firma' },
+      }),
+    ).rejects.toThrow('SQLSTATE[23514]: Check violation')
   })
 })

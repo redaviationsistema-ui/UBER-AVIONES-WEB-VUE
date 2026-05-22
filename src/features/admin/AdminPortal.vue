@@ -41,7 +41,13 @@ const reservationFlowLoading = ref(false)
 const reservationFlowLoadingLabel = ref('')
 let removeWorkflowSyncSubscription = null
 let reservationsPollTimer = null
+let operationsRequestPromise = null
+const adminPortalInstanceId = `admin-${Math.random().toString(16).slice(2, 10)}`
+let lastReservationsRefreshAt = 0
 const ADMIN_RESERVATIONS_POLL_INTERVAL_MS = 10000
+const ADMIN_RESERVATIONS_TIMEOUT_MS = Number(import.meta.env.VITE_ADMIN_RESERVATIONS_TIMEOUT_MS || 8000)
+const ADMIN_FLOW_UPDATE_TIMEOUT_MS = Number(import.meta.env.VITE_ADMIN_FLOW_UPDATE_TIMEOUT_MS || 12000)
+const ADMIN_RESERVATIONS_REFRESH_COOLDOWN_MS = 4000
 
 const displayKpis = [
   { label: 'Ventas del dia', value: '$286,000 MXN', detail: 'Ingresos confirmados durante la jornada.' },
@@ -634,12 +640,44 @@ async function loadCrewMembers() {
     .filter(Boolean)
 }
 
-async function loadOperations() {
-  try {
-    operations.value = await getAdminReservations()
-  } catch {
-    operations.value = []
-  }
+function isTimeoutLikeError(error) {
+  return (
+    error?.name === 'AbortError' ||
+    String(error?.message || '')
+      .toLowerCase()
+      .includes('timeout')
+  )
+}
+
+async function loadOperations(options = {}) {
+  const preserveExistingOnEmpty = options.preserveExistingOnEmpty !== false
+  if (operationsRequestPromise) return operationsRequestPromise
+
+  operationsRequestPromise = (async () => {
+    try {
+      const nextOperations = await getAdminReservations({ timeoutMs: ADMIN_RESERVATIONS_TIMEOUT_MS })
+
+      if (
+        preserveExistingOnEmpty &&
+        Array.isArray(nextOperations) &&
+        nextOperations.length === 0 &&
+        operations.value.length > 0
+      ) {
+        return
+      }
+
+      operations.value = nextOperations
+      lastReservationsRefreshAt = Date.now()
+    } catch {
+      if (!preserveExistingOnEmpty) {
+        operations.value = []
+      }
+    } finally {
+      operationsRequestPromise = null
+    }
+  })()
+
+  return operationsRequestPromise
 }
 
 async function loadPortalSection(section) {
@@ -704,6 +742,8 @@ function startReservationsPolling() {
 
   reservationsPollTimer = setInterval(() => {
     if (typeof document !== 'undefined' && document.hidden) return
+    if (reservationFlowLoading.value) return
+    if (Date.now() - lastReservationsRefreshAt < ADMIN_RESERVATIONS_REFRESH_COOLDOWN_MS) return
     void loadPortalSection('reservas')
   }, ADMIN_RESERVATIONS_POLL_INTERVAL_MS)
 }
@@ -711,6 +751,8 @@ function startReservationsPolling() {
 function handleReservationsVisibilityRefresh() {
   if (typeof document !== 'undefined' && document.hidden) return
   if (!shouldAutoRefreshReservations()) return
+  if (reservationFlowLoading.value) return
+  if (Date.now() - lastReservationsRefreshAt < ADMIN_RESERVATIONS_REFRESH_COOLDOWN_MS) return
   void loadPortalSection('reservas')
 }
 
@@ -940,7 +982,7 @@ async function handleUpdateReservationFlow({ reservationId, nextStage, note }) {
     reservationFlowLoading.value = true
     reservationFlowLoadingLabel.value = normalizeWorkflowLabel(nextStage)
     const updatedReservation = await updateAdminReservationStage(currentReservation, nextStage, note, {
-      timeoutMs: 45000,
+      timeoutMs: ADMIN_FLOW_UPDATE_TIMEOUT_MS,
     })
     updateReservationLocalState(reservationId, updatedReservation)
     emitWorkflowSync({
@@ -948,6 +990,7 @@ async function handleUpdateReservationFlow({ reservationId, nextStage, note }) {
       reservationId,
       nextStage,
       action: 'updated',
+      source: adminPortalInstanceId,
     })
 
     pushReservationAudit(
@@ -963,7 +1006,9 @@ async function handleUpdateReservationFlow({ reservationId, nextStage, note }) {
     ui.pushToast({
       tone: 'error',
       title: 'No se pudo actualizar el flujo',
-      message: error?.message || 'El backend no confirmó el cambio de etapa.',
+      message: isTimeoutLikeError(error)
+        ? 'El backend tardó demasiado en responder. El cambio de flujo no fue confirmado.'
+        : error?.message || 'El backend no confirmó el cambio de etapa.',
     })
   } finally {
     reservationFlowLoading.value = false
@@ -988,6 +1033,7 @@ async function handleDelayReservationFlow({ reservationId, reason, eta, note, mo
       scope: 'reservation-workflow',
       reservationId,
       action: nextMode === 'blocked' ? 'blocked' : 'delayed',
+      source: adminPortalInstanceId,
     })
 
     const label = nextMode === 'blocked' ? 'bloqueada' : 'retrasada'
@@ -1022,6 +1068,7 @@ async function handleResumeReservationFlow({ reservationId, note }) {
       scope: 'reservation-workflow',
       reservationId,
       action: 'resumed',
+      source: adminPortalInstanceId,
     })
 
     pushReservationAudit(
@@ -1093,7 +1140,9 @@ onMounted(() => {
   removeWorkflowSyncSubscription = subscribeWorkflowSync((payload = {}) => {
     if (payload.scope !== 'reservation-workflow') return
     if (props.section !== 'reservas') return
+    if (payload.source === adminPortalInstanceId) return
     applyExternalWorkflowSync(payload)
+    if (Date.now() - lastReservationsRefreshAt < ADMIN_RESERVATIONS_REFRESH_COOLDOWN_MS) return
     loadPortalSection('reservas')
   })
   startReservationsPolling()

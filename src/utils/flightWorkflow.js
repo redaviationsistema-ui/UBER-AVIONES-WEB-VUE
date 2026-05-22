@@ -89,7 +89,7 @@ const WORKFLOW_DEFINITIONS = {
     label: 'Pago pendiente',
     apiStatus: 'payment_pending',
     apiWorkflow: 'pago pendiente',
-    matches: ['payment_pending', 'pago pendiente', 'checkout', 'payment'],
+    matches: ['payment_pending', 'pending_payment', 'pago pendiente', 'checkout', 'payment'],
   },
   payment_confirmed: {
     label: 'Pago confirmado',
@@ -186,6 +186,120 @@ export const SHARED_WORKFLOW_STEPS = [
   },
 ]
 
+const SHARED_WORKFLOW_VISUAL_META = {
+  draft: { icon: '●', tone: 'neutral', progress: 8 },
+  quoted: { icon: '🧾', tone: 'info', progress: 14 },
+  package_selected: { icon: '🎯', tone: 'info', progress: 22 },
+  reserved: { icon: '📨', tone: 'info', progress: 28 },
+  provider_pending: { icon: '🔍', tone: 'searching', progress: 36 },
+  provider_accepted: { icon: '✅', tone: 'confirmed', progress: 44 },
+  contract_pending: { icon: '📄', tone: 'pending', progress: 58 },
+  contract_signed: { icon: '✍', tone: 'confirmed', progress: 66 },
+  payment_pending: { icon: '💳', tone: 'pending', progress: 78 },
+  payment_confirmed: { icon: '💳', tone: 'paid', progress: 86 },
+  flight_confirmed: { icon: '🛫', tone: 'confirmed', progress: 93 },
+  tracking_live: { icon: '📡', tone: 'confirmed', progress: 97 },
+  completed: { icon: '✈', tone: 'completed', progress: 100 },
+  cancelled: { icon: '✕', tone: 'cancelled', progress: 0 },
+  rejected: { icon: '✕', tone: 'cancelled', progress: 0 },
+}
+
+const SHARED_WORKFLOW_ACTION_COPY = {
+  draft: {
+    title: 'Completar solicitud',
+    detail: 'Aun faltan datos para activar la reserva con el equipo comercial.',
+  },
+  quoted: {
+    title: 'Elegir opcion',
+    detail: 'Selecciona aeronave y paquete para convertir la cotizacion en reserva.',
+  },
+  package_selected: {
+    title: 'Confirmar reserva',
+    detail: 'Tu seleccion ya esta lista para enviarse al flujo operativo.',
+  },
+  reserved: {
+    title: 'Respuesta del proveedor',
+    detail: 'La reserva ya quedo creada y supero la activacion inicial.',
+  },
+  provider_pending: {
+    title: 'Respuesta del proveedor',
+    detail: 'Red Aviation valida disponibilidad, aeronave y ventana operativa.',
+  },
+  provider_accepted: {
+    title: 'Firma de contrato',
+    detail: 'La respuesta del proveedor ya se resolvio y la reserva siguio avanzando.',
+  },
+  contract_pending: {
+    title: 'Firma de contrato',
+    detail: 'El contrato esta en preparacion o esperando firma del cliente.',
+  },
+  contract_signed: {
+    title: 'Confirmacion de pago',
+    detail: 'La firma se completo y el siguiente paso es validar el pago.',
+  },
+  payment_pending: {
+    title: 'Confirmacion de pago',
+    detail: 'El cobro se valida y confirma antes de liberar el vuelo.',
+  },
+  payment_confirmed: {
+    title: 'Confirmacion de vuelo',
+    detail: 'El pago ya quedo confirmado y seguimos con la liberacion operativa.',
+  },
+  flight_confirmed: {
+    title: 'Tracking de servicio',
+    detail: 'La operacion ya tiene aeronave, tripulacion y salida cerrada.',
+  },
+  tracking_live: {
+    title: 'Tracking y concierge',
+    detail: 'El admin puede seguir la ejecucion y las novedades del servicio.',
+  },
+  completed: {
+    title: 'Viaje completado',
+    detail: 'La operacion ya termino y queda disponible en tu historial.',
+  },
+  cancelled: {
+    title: 'Viaje cancelado',
+    detail: 'La reserva fue cancelada. Si quieres, armamos una nueva opcion.',
+  },
+  rejected: {
+    title: 'Nueva alternativa',
+    detail: 'El operador rechazo este vuelo. Podemos buscar otra opcion de inmediato.',
+  },
+}
+
+const SHARED_WORKFLOW_STEP_DESCRIPTIONS = {
+  reserved: {
+    pending: 'El cliente ya dejo activa la solicitud inicial.',
+    current: 'La reserva ya quedo creada y supero la activacion inicial.',
+    done: 'La reserva ya quedo creada y supero la activacion inicial.',
+  },
+  provider_accepted: {
+    pending: 'El operador o proveedor debe responder para que la reserva siga avanzando.',
+    current: 'Red Aviation valida disponibilidad, aeronave y ventana operativa.',
+    done: 'La respuesta del proveedor ya se resolvio y la reserva siguio avanzando.',
+  },
+  contract_pending: {
+    pending: 'Aqui se genera el contrato y el cliente debe firmarlo antes de pasar a pago.',
+    current: 'El contrato esta en preparacion o esperando firma del cliente.',
+    done: 'La parte contractual ya quedo resuelta para esta reserva.',
+  },
+  payment_pending: {
+    pending: 'El cobro se valida y confirma antes de liberar el vuelo.',
+    current: 'El cobro se valida y confirma antes de liberar el vuelo.',
+    done: 'La validacion de pago ya no es bloqueo para esta reserva.',
+  },
+  flight_confirmed: {
+    pending: 'La operacion ya tiene aeronave, tripulacion y salida cerrada.',
+    current: 'La operacion ya tiene aeronave, tripulacion y salida cerrada.',
+    done: 'La salida operativa ya fue confirmada con aeronave y servicio.',
+  },
+  tracking_live: {
+    pending: 'El admin puede seguir la ejecucion y las novedades del servicio.',
+    current: 'El admin puede seguir la ejecucion y las novedades del servicio.',
+    done: 'El seguimiento del servicio ya esta corriendo para este caso.',
+  },
+}
+
 function normalizeTerm(value) {
   return String(value || '')
     .trim()
@@ -269,14 +383,19 @@ export function resolveSharedWorkflowStatus(record = {}) {
   }
 
   const nestedReservation = nestedReservationRecord(record)
-  const rawWorkflow =
+  const explicitWorkflow =
     record.workflow_status ||
     record.workflow ||
     nestedReservation?.workflow_status ||
+    nestedReservation?.workflow ||
+    ''
+  const rawWorkflow =
+    explicitWorkflow ||
     record.status ||
     nestedReservation?.status ||
     ''
   const normalizedWorkflow = normalizeWorkflowToken(rawWorkflow)
+  const explicitWorkflowId = resolveWorkflowState(explicitWorkflow).id
   const normalizedContractStatus = normalizeWorkflowToken(
     record.contract?.status ||
       record.contract_status ||
@@ -391,6 +510,10 @@ export function resolveSharedWorkflowStatus(record = {}) {
     'requires_payment_method',
   ])
 
+  if (explicitWorkflowId !== 'draft') {
+    return explicitWorkflow
+  }
+
   if (contractOrLaterStates.has(normalizedWorkflow)) {
     return rawWorkflow
   }
@@ -492,6 +615,34 @@ export function buildSharedFlowStepStates(value = '') {
   }))
 }
 
+export function getSharedWorkflowStatusMeta(value = '') {
+  const state = resolveWorkflowState(value)
+
+  return {
+    label: state.label,
+    ...(SHARED_WORKFLOW_VISUAL_META[state.id] || {
+      icon: '●',
+      tone: 'neutral',
+      progress: 10,
+    }),
+  }
+}
+
+export function getSharedWorkflowActionCopy(value = '') {
+  const stateId = resolveWorkflowState(value).id
+  return SHARED_WORKFLOW_ACTION_COPY[stateId] || SHARED_WORKFLOW_ACTION_COPY.reserved
+}
+
+export function getSharedWorkflowStepDescription(stepId, state = 'pending') {
+  const stepDescriptions = SHARED_WORKFLOW_STEP_DESCRIPTIONS[stepId] || {}
+  return (
+    stepDescriptions[state] ||
+    stepDescriptions.current ||
+    stepDescriptions.pending ||
+    ''
+  )
+}
+
 export function normalizeWorkflowLabel(value) {
   return resolveWorkflowState(value).label
 }
@@ -508,6 +659,15 @@ function getWorkflowIndex(value) {
   const state = resolveWorkflowState(value)
   const index = WORKFLOW_ORDER.indexOf(state.id)
   return index === -1 ? 0 : index
+}
+
+export function resolveMostAdvancedWorkflowValue(...values) {
+  return values
+    .filter((value) => String(value || '').trim())
+    .reduce((selected, candidate) => {
+      if (!selected) return candidate
+      return getWorkflowIndex(candidate) > getWorkflowIndex(selected) ? candidate : selected
+    }, '')
 }
 
 export function hasReachedWorkflowStage(value, stageId) {

@@ -1604,6 +1604,49 @@ function goToConcierge(reservationId = '') {
   go('soporte', reservationId || reservationContextId.value)
 }
 
+function downloadBlob(blob, fileName) {
+  if (!(blob instanceof Blob)) return
+
+  const objectUrl = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = objectUrl
+  link.download = fileName
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(objectUrl)
+}
+
+function clearInlineContractPrintMode() {
+  if (typeof document === 'undefined') return
+  document.body.classList.remove('contract-print-mode')
+}
+
+function openInlineContractPrint() {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return false
+
+  const contractPanel = document.querySelector('.document-panel')
+  const contractPreview = document.querySelector('.contract-preview')
+
+  if (!(contractPanel instanceof HTMLElement) || !(contractPreview instanceof HTMLElement)) {
+    return false
+  }
+
+  clearInlineContractPrintMode()
+  document.body.classList.add('contract-print-mode')
+
+  const handleAfterPrint = () => {
+    clearInlineContractPrintMode()
+  }
+
+  window.addEventListener('afterprint', handleAfterPrint, { once: true })
+  window.setTimeout(() => {
+    window.print()
+  }, 80)
+
+  return true
+}
+
 function mergeReservationUpdate(updatedReservation = null) {
   const normalizedReservationId = String(updatedReservation?.id || '').trim()
   if (!normalizedReservationId) return
@@ -1626,11 +1669,18 @@ function mergeReservationUpdate(updatedReservation = null) {
 async function handleContractConfirm(contractPayload = {}) {
   const reservationId = reservationContextId.value
   if (!reservationId || signingContract.value) return
+  const baseReservation =
+    selectedReservation.value && String(selectedReservation.value.id) === String(reservationId)
+      ? selectedReservation.value
+      : {}
 
   const optimisticReservation = {
+    ...baseReservation,
     id: reservationId,
-    status: 'payment_pending',
+    is_reservation: true,
+    status: 'pending_payment',
     workflow_status: 'pago pendiente',
+    contract_status: 'signed',
     payment_status: 'Pendiente de pago',
     updated_at: new Date().toISOString(),
   }
@@ -1642,13 +1692,30 @@ async function handleContractConfirm(contractPayload = {}) {
     const updatedReservation = await markClientTripReadyForPayment(reservationId, contractPayload, {
       timeoutMs: 20000,
     })
+    const completedContractReservation = {
+      ...baseReservation,
+      ...(updatedReservation?.id ? updatedReservation : optimisticReservation),
+      id: reservationId,
+      is_reservation: true,
+      status: 'pending_payment',
+      workflow_status: 'pago pendiente',
+      contract_status: 'signed',
+      payment_status: 'Pendiente de pago',
+      updated_at: new Date().toISOString(),
+    }
 
-    mergeReservationUpdate(updatedReservation?.id ? updatedReservation : optimisticReservation)
+    mergeReservationUpdate(completedContractReservation)
     await refreshReservations({ silent: true })
+    mergeReservationUpdate(completedContractReservation)
+    await nextTick()
+    const openedStyledPrint = openInlineContractPrint()
     ui.pushToast({
       tone: 'success',
       title: 'Contrato firmado',
-      message: 'La reserva avanzo a pago y ya puedes completar el cobro.',
+      message:
+        openedStyledPrint
+          ? 'El contrato quedo listo. Usa "Guardar como PDF" en la ventana de impresion para conservar el diseño.'
+          : 'La reserva avanzo a pago. Si quieres descargarlo con diseño, vuelve a abrir el contrato e imprime desde ahi.',
     })
   } catch (error) {
     ui.pushToast({
@@ -1660,7 +1727,6 @@ async function handleContractConfirm(contractPayload = {}) {
     })
   } finally {
     signingContract.value = false
-    go('viajes')
   }
 }
 
@@ -1701,7 +1767,7 @@ async function handlePaymentSubmit() {
 
       mergeReservationUpdate({
         id: flightRequestId,
-        status: 'payment_pending',
+        status: 'pending_payment',
         workflow_status: 'pago pendiente',
         payment_status: 'Pendiente de confirmacion bancaria',
         updated_at: new Date().toISOString(),
@@ -5472,6 +5538,115 @@ button {
   .mobile-bottom-nav button.active {
     background: #111111;
     color: #ffffff;
+  }
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 0;
+  }
+
+  :global(body.contract-print-mode) {
+    background: #ffffff !important;
+  }
+
+  :global(body.contract-print-mode *) {
+    visibility: hidden !important;
+  }
+
+  :global(body.contract-print-mode .document-panel),
+  :global(body.contract-print-mode .document-panel *) {
+    visibility: visible !important;
+  }
+
+  :global(body.contract-print-mode .document-panel) {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+    border: 0 !important;
+  }
+
+  :global(body.contract-print-mode .contract-preview) {
+    display: block !important;
+    padding: 0 !important;
+  }
+
+  :global(body.contract-print-mode .contract-sheet) {
+    width: 190mm !important;
+    max-width: 190mm !important;
+    min-height: 267mm !important;
+    margin: 0 auto !important;
+    box-shadow: none !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: #ffffff !important;
+  }
+
+  :global(body.contract-print-mode .contract-sheet__body) {
+    padding: 14mm 10mm 12mm !important;
+  }
+
+  :global(body.contract-print-mode .contract-brandbar) {
+    print-color-adjust: exact !important;
+    -webkit-print-color-adjust: exact !important;
+  }
+
+  :global(body.contract-print-mode .contract-block),
+  :global(body.contract-print-mode .contract-summary),
+  :global(body.contract-print-mode .contract-footer),
+  :global(body.contract-print-mode .signature-card),
+  :global(body.contract-print-mode .account-card),
+  :global(body.contract-print-mode .annex-table),
+  :global(body.contract-print-mode .signatures-grid),
+  :global(body.contract-print-mode .accounts-grid) {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  :global(body.contract-print-mode .signatures-grid),
+  :global(body.contract-print-mode .accounts-grid) {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 6mm !important;
+  }
+
+  :global(body.contract-print-mode .signature-line) {
+    min-height: 18mm !important;
+  }
+
+  :global(body.contract-print-mode .provider-signature-image),
+  :global(body.contract-print-mode .signature-uploaded__image) {
+    max-width: 56mm !important;
+    max-height: 18mm !important;
+    object-fit: contain !important;
+  }
+
+  :global(body.contract-print-mode .annex-table) {
+    font-size: 10px !important;
+  }
+
+  :global(body.contract-print-mode .annex-table th),
+  :global(body.contract-print-mode .annex-table td) {
+    padding: 2.5mm !important;
+  }
+
+  :global(body.contract-print-mode .contract-watermark) {
+    opacity: 0.05 !important;
+  }
+
+  :global(body.contract-print-mode .signature-panel),
+  :global(body.contract-print-mode .signature-actions),
+  :global(body.contract-print-mode .signature-input),
+  :global(body.contract-print-mode .signature-panel__submit),
+  :global(body.contract-print-mode .signature-note),
+  :global(body.contract-print-mode .signature-uploaded__meta),
+  :global(body.contract-print-mode .signature-ready-badge) {
+    display: none !important;
   }
 }
 </style>

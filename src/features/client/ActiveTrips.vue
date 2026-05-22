@@ -3,6 +3,8 @@ import { computed, ref, watch } from 'vue'
 import { featuredAirports } from '../../utils/airports'
 import {
   buildSharedFlowStepStates,
+  getSharedWorkflowActionCopy,
+  getSharedWorkflowStatusMeta,
   resolveSharedWorkflowStatus,
   resolveWorkflowState,
   SHARED_WORKFLOW_STEPS,
@@ -43,94 +45,8 @@ const PROGRESS_STEPS = SHARED_WORKFLOW_STEPS.map((step) => ({
   label: step.clientLabel,
 }))
 
-const STEP_ACTION_COPY = {
-  draft: {
-    title: 'Completar solicitud',
-    detail: 'Aun faltan datos para activar la reserva con el equipo comercial.',
-  },
-  quoted: {
-    title: 'Elegir opcion',
-    detail: 'Selecciona aeronave y paquete para convertir la cotizacion en reserva.',
-  },
-  package_selected: {
-    title: 'Confirmar reserva',
-    detail: 'Tu seleccion ya esta lista para enviarse al flujo operativo.',
-  },
-  reserved: {
-    title: 'Respuesta del proveedor',
-    detail: 'Estamos esperando la aceptacion operativa del proveedor asignado.',
-  },
-  provider_pending: {
-    title: 'Respuesta del proveedor',
-    detail: 'Red Aviation valida disponibilidad, aeronave y ventana operativa.',
-  },
-  provider_accepted: {
-    title: 'Firma de contrato',
-    detail: 'La operacion fue aceptada y ahora toca cerrar el contrato.',
-  },
-  contract_pending: {
-    title: 'Firma de contrato',
-    detail: 'El contrato ya esta listo para firma del cliente.',
-  },
-  contract_signed: {
-    title: 'Confirmacion de pago',
-    detail: 'La firma se completo y el siguiente paso es validar el pago.',
-  },
-  payment_pending: {
-    title: 'Confirmacion de pago',
-    detail: 'Estamos validando el cobro antes de liberar el vuelo.',
-  },
-  payment_confirmed: {
-    title: 'Confirmacion de vuelo',
-    detail: 'El pago ya quedo confirmado y seguimos con la liberacion operativa.',
-  },
-  flight_confirmed: {
-    title: 'Tracking de servicio',
-    detail: 'La aeronave y la salida ya estan confirmadas para el servicio.',
-  },
-  tracking_live: {
-    title: 'Tracking y concierge',
-    detail: 'Tu vuelo ya esta en seguimiento activo con concierge disponible.',
-  },
-  completed: {
-    title: 'Viaje completado',
-    detail: 'La operacion ya termino y queda disponible en tu historial.',
-  },
-  cancelled: {
-    title: 'Viaje cancelado',
-    detail: 'La reserva fue cancelada. Si quieres, armamos una nueva opcion.',
-  },
-  rejected: {
-    title: 'Nueva alternativa',
-    detail: 'El operador rechazo este vuelo. Podemos buscar otra opcion de inmediato.',
-  },
-}
-
 function statusMeta(status = '') {
-  const state = resolveWorkflowState(status)
-
-  const metaByState = {
-    draft: { icon: '●', tone: 'neutral', step: 'booking', progress: 8 },
-    quoted: { icon: '🧾', tone: 'info', step: 'booking', progress: 14 },
-    package_selected: { icon: '🎯', tone: 'info', step: 'booking', progress: 22 },
-    reserved: { icon: '📨', tone: 'info', step: 'booking', progress: 34 },
-    provider_pending: { icon: '🔍', tone: 'searching', step: 'provider', progress: 48 },
-    provider_accepted: { icon: '✅', tone: 'confirmed', step: 'provider', progress: 58 },
-    contract_pending: { icon: '📄', tone: 'pending', step: 'contract', progress: 68 },
-    contract_signed: { icon: '✍', tone: 'confirmed', step: 'contract', progress: 76 },
-    payment_pending: { icon: '💳', tone: 'pending', step: 'payment', progress: 84 },
-    payment_confirmed: { icon: '💳', tone: 'paid', step: 'payment', progress: 90 },
-    flight_confirmed: { icon: '🛫', tone: 'confirmed', step: 'flight', progress: 95 },
-    tracking_live: { icon: '📡', tone: 'confirmed', step: 'tracking', progress: 98 },
-    completed: { icon: '✈', tone: 'completed', step: 'tracking', progress: 100 },
-    cancelled: { icon: '✕', tone: 'cancelled', step: 'booking', progress: 0 },
-    rejected: { icon: '✕', tone: 'cancelled', step: 'booking', progress: 0 },
-  }
-
-  return {
-    label: state.label,
-    ...(metaByState[state.id] || { icon: '●', tone: 'neutral', step: 'booking', progress: 10 }),
-  }
+  return getSharedWorkflowStatusMeta(status)
 }
 
 function workflowId(status = '') {
@@ -294,14 +210,37 @@ function countdownLabel(value = '') {
 }
 
 function nextAction(status = '') {
-  const stateId = workflowId(status)
-  const copy = STEP_ACTION_COPY[stateId] || STEP_ACTION_COPY.reserved
-  return `Siguiente paso: ${copy.title}`
+  return getSharedWorkflowActionCopy(status).title
 }
 
 function nextActionDetail(status = '') {
-  const stateId = workflowId(status)
-  return (STEP_ACTION_COPY[stateId] || STEP_ACTION_COPY.reserved).detail
+  return getSharedWorkflowActionCopy(status).detail
+}
+
+function workflowSupportLines(reservation = {}) {
+  const workflowValue = reservationWorkflowValue(reservation)
+  const stateId = workflowId(workflowValue)
+  const lines = []
+
+  if (reservation.flight_package) {
+    lines.push(`🎟 ${reservation.flight_package}`)
+  }
+
+  if (stateId === 'contract_pending' || stateId === 'contract_signed') {
+    lines.push('📄 Contrato en gestion')
+  } else if (stateId === 'payment_pending' || stateId === 'payment_confirmed') {
+    lines.push(`💳 ${reservation.payment_status || 'Pago en proceso'}`)
+  } else if (stateId === 'flight_confirmed' || stateId === 'tracking_live') {
+    lines.push('🛫 Operacion en liberacion final')
+  }
+
+  if (reservation.operator) {
+    lines.push(`🏢 Operado por: ${reservation.operator}`)
+  }
+
+  lines.push('🎧 Concierge 24/7 disponible')
+
+  return lines
 }
 
 function flightActionLabel(reservation = {}) {
@@ -571,16 +510,10 @@ watch(
           <span>{{
             nextActionDetail(reservationWorkflowValue(selectedReservation))
           }}</span>
-          <span v-if="selectedReservation.flight_package"
-            >🎟 {{ selectedReservation.flight_package }}</span
-          >
-          <span v-if="selectedReservation.payment_status"
-            >💳 {{ selectedReservation.payment_status }}</span
-          >
-          <span v-if="selectedReservation.operator"
-            >🏢 Operado por: {{ selectedReservation.operator }}</span
-          >
-          <span>🎧 Concierge 24/7 disponible</span>
+          <span
+            v-for="line in workflowSupportLines(selectedReservation)"
+            :key="line"
+          >{{ line }}</span>
         </article>
       </div>
 

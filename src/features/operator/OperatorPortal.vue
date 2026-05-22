@@ -6,6 +6,8 @@ import { resolveMediaUrl } from '../../lib/api'
 import { resolveProviderIdForUser } from '../../lib/providerContext'
 import {
   buildSharedFlowStepStates,
+  getSharedWorkflowActionCopy,
+  getSharedWorkflowStepDescription,
   buildWorkflowApiPayload,
   normalizeWorkflowLabel,
   resolveSharedVisualWorkflowStepId,
@@ -32,6 +34,9 @@ const refreshingRequests = ref(false)
 const portalLoadSequence = ref(0)
 let portalLoadScheduled = false
 const OPERATOR_REQUESTS_POLL_INTERVAL_MS = 10000
+const OPERATOR_BOOT_TIMEOUT_MS = 45000
+const OPERATOR_SECTION_TIMEOUT_MS = 45000
+const OPERATOR_BACKGROUND_TIMEOUT_MS = 15000
 let requestsPollTimer = null
 let removeWorkflowSyncSubscription = null
 const OPERATOR_FLOW_STEPS = SHARED_WORKFLOW_STEPS
@@ -228,6 +233,18 @@ const requestStatusUpdate = reactive({
   action: '',
 })
 const requestsConnectionWarningShown = ref(false)
+const sectionLoadState = reactive({
+  dashboard: false,
+  empresa: false,
+  aeronaves: false,
+  solicitudes: false,
+  operaciones: false,
+  tripulacion: false,
+  incidencias: false,
+  pagos: false,
+  historial: false,
+  disponibilidad: false,
+})
 const aircraftDecisionMode = ref('best_match')
 const aircraftFilterBase = ref('all')
 const aircraftFilterType = ref('all')
@@ -1262,12 +1279,16 @@ function applyDashboardResponse(dashboard) {
   if (dashboardCrew.length) {
     crew.value = dashboardCrew.map(normalizeCrew)
   }
+
+  sectionLoadState.dashboard = true
+  sectionLoadState.empresa = true
 }
 
 function applyAircraftResponse(payload) {
   const collection = pickCollection(payload, ['aircraft', 'data', 'items'])
   aircraft.value = collection.map(normalizeAircraft)
   syncAircraftScopedForms()
+  sectionLoadState.aeronaves = true
 }
 
 function applyRequestsResponse(payload) {
@@ -1281,40 +1302,48 @@ function applyRequestsResponse(payload) {
     'data',
   ])
   requests.value = collection.map(normalizeRequest)
+  sectionLoadState.solicitudes = true
 }
 
 function applyOperationsResponse(payload) {
   const collection = pickCollection(payload, ['operations', 'data', 'items'])
   operations.value = collection.map(normalizeOperation)
+  sectionLoadState.operaciones = true
 }
 
 function applyIncidentsResponse(payload) {
   const collection = pickCollection(payload, ['incidents', 'data', 'items'])
   incidents.value = collection.map(normalizeIncident)
+  sectionLoadState.incidencias = true
 }
 
 function applyPaymentsResponse(payload) {
   const collection = pickCollection(payload, ['payments', 'liquidations', 'data'])
   payments.value = collection.map(normalizePayment)
+  sectionLoadState.pagos = true
 }
 
 function applyHistoryResponse(payload) {
   const collection = pickCollection(payload, ['history', 'events', 'data'])
   history.value = collection.map(normalizeHistory)
+  sectionLoadState.historial = true
 }
 
 function applyCrewResponse(payload) {
   const collection = pickCollection(payload, ['crew', 'tripulation', 'tripulacion'])
   crew.value = collection.map(normalizeCrew)
+  sectionLoadState.tripulacion = true
 }
 
 function applySettingsResponse(payload) {
   hydrateSettings(pickRecord(payload, ['settings', 'data']))
+  sectionLoadState.empresa = true
 }
 
 function applyAvailabilityResponse(payload) {
   const collection = pickCollection(payload, ['availability', 'data', 'items'])
   availability.value = collection.map(normalizeAvailability)
+  sectionLoadState.disponibilidad = true
 }
 
 function goToSection(section) {
@@ -3099,25 +3128,29 @@ function getRequestStatusCopy(status = '') {
 function resolveRequestWorkflowValue(requestOrStatus = '') {
   if (requestOrStatus && typeof requestOrStatus === 'object') {
     const linkedOperation = findLinkedOperationForRequest(requestOrStatus)
-    return (
+    const explicitWorkflowValue =
+      linkedOperation?.workflowStatus ||
+      requestOrStatus.workflowStatus ||
+      requestOrStatus.rawWorkflowStatus ||
+      requestOrStatus.status ||
+      ''
+    const derivedWorkflowValue =
       resolveSharedWorkflowStatus({
         ...(requestOrStatus.raw && typeof requestOrStatus.raw === 'object' ? requestOrStatus.raw : {}),
         ...(linkedOperation?.raw && typeof linkedOperation.raw === 'object' ? linkedOperation.raw : {}),
-        workflow_status:
-          linkedOperation?.workflowStatus ||
-          requestOrStatus.workflowStatus ||
-          requestOrStatus.rawWorkflowStatus ||
-          requestOrStatus.status ||
-          '',
+        workflow_status: explicitWorkflowValue,
         status: linkedOperation?.status || requestOrStatus.status || requestOrStatus.rawStatus || '',
         contract_status: linkedOperation?.contractStatus || requestOrStatus.contractStatus || '',
         payment_status: linkedOperation?.paymentStatus || requestOrStatus.paymentStatus || '',
         operation_id: linkedOperation?.id || requestOrStatus.operationId || '',
       }) ||
-      requestOrStatus.workflowStatus ||
-      requestOrStatus.status ||
-      ''
-    )
+      explicitWorkflowValue
+
+    if (explicitWorkflowValue && resolveWorkflowState(explicitWorkflowValue).id !== 'draft') {
+      return explicitWorkflowValue
+    }
+
+    return derivedWorkflowValue
   }
   return requestOrStatus
 }
@@ -3147,19 +3180,23 @@ function getRequestPrimaryActionLabel(request = {}) {
   return 'Aceptar'
 }
 
+function shouldDisableRequestPrimaryAction(request = {}) {
+  return getRequestPrimaryActionLabel(request) === 'Pasar a contrato'
+}
+
 function getRequestHelperCopy(request = {}) {
-  const workflowId = resolveWorkflowState(resolveRequestWorkflowValue(request)).id
-  if (workflowId === 'provider_accepted') {
-    return 'La respuesta operativa ya quedo registrada en la base de datos. Desde este punto admin y cliente deben ver la misma respuesta del proveedor.'
+  const workflowValue = resolveRequestWorkflowValue(request)
+  const workflowId = resolveWorkflowState(workflowValue).id
+  const visualStepId = resolveOperatorVisualStepId(workflowValue)
+
+  if (workflowId === 'rejected' || workflowId === 'cancelled') {
+    return getSharedWorkflowActionCopy(workflowValue).detail
   }
-  if (
-    ['contract_pending', 'contract_signed', 'payment_pending', 'payment_confirmed', 'flight_confirmed', 'tracking_live', 'completed'].includes(
-      workflowId,
-    )
-  ) {
-    return 'Esta solicitud ya avanzo mas alla de la respuesta del proveedor y ahora forma parte del mismo flujo compartido que ven admin y cliente.'
-  }
-  return 'Esta es la zona del proveedor para responder la solicitud. Si aceptas, la operacion se asigna; si rechazas, Red Aviation puede reintentar con otra opcion sin exponer tu rechazo al cliente.'
+
+  return (
+    getSharedWorkflowStepDescription(visualStepId, 'current') ||
+    getSharedWorkflowActionCopy(workflowValue).detail
+  )
 }
 
 function resolveOperatorDecisionState(request, status) {
@@ -3585,64 +3622,35 @@ async function loadPortal() {
   }
 
   const currentLoadSequence = ++portalLoadSequence.value
-  const portalLoadTimeoutMs = 45000
   loading.value = true
 
   try {
     const requestJobs = [
       {
         request: requestWithCandidates([
-          { method: 'get', path: '/proveedor/dashboard', timeoutMs: portalLoadTimeoutMs },
-          { method: 'get', path: '/proveedor/empresa', timeoutMs: portalLoadTimeoutMs },
-          { method: 'get', path: '/operator/dashboard', timeoutMs: portalLoadTimeoutMs },
+          { method: 'get', path: '/proveedor/dashboard', timeoutMs: OPERATOR_BOOT_TIMEOUT_MS },
+          { method: 'get', path: '/proveedor/empresa', timeoutMs: OPERATOR_BOOT_TIMEOUT_MS },
+          { method: 'get', path: '/operator/dashboard', timeoutMs: OPERATOR_BOOT_TIMEOUT_MS },
         ]),
         apply: applyDashboardResponse,
       },
       {
         request: requestWithCandidates([
-          { method: 'get', path: '/proveedor/mis-aeronaves', timeoutMs: portalLoadTimeoutMs },
-          { method: 'get', path: '/proveedor/aeronaves', timeoutMs: portalLoadTimeoutMs },
-          { method: 'get', path: '/operator/my-aircraft', timeoutMs: portalLoadTimeoutMs },
-          { method: 'get', path: '/operator/aircraft', timeoutMs: portalLoadTimeoutMs },
+          { method: 'get', path: '/proveedor/mis-aeronaves', timeoutMs: OPERATOR_BOOT_TIMEOUT_MS },
+          { method: 'get', path: '/proveedor/aeronaves', timeoutMs: OPERATOR_BOOT_TIMEOUT_MS },
+          { method: 'get', path: '/operator/my-aircraft', timeoutMs: OPERATOR_BOOT_TIMEOUT_MS },
+          { method: 'get', path: '/operator/aircraft', timeoutMs: OPERATOR_BOOT_TIMEOUT_MS },
         ]),
         apply: applyAircraftResponse,
       },
       {
         request: requestWithCandidates([
-          { method: 'get', path: '/proveedor/mis-solicitudes', timeoutMs: portalLoadTimeoutMs },
-          { method: 'get', path: '/proveedor/solicitudes', timeoutMs: portalLoadTimeoutMs },
-          { method: 'get', path: '/operator/my-requests', timeoutMs: portalLoadTimeoutMs },
-          { method: 'get', path: '/operator/requests', timeoutMs: portalLoadTimeoutMs },
+          { method: 'get', path: '/proveedor/mis-solicitudes', timeoutMs: OPERATOR_BOOT_TIMEOUT_MS },
+          { method: 'get', path: '/proveedor/solicitudes', timeoutMs: OPERATOR_BOOT_TIMEOUT_MS },
+          { method: 'get', path: '/operator/my-requests', timeoutMs: OPERATOR_BOOT_TIMEOUT_MS },
+          { method: 'get', path: '/operator/requests', timeoutMs: OPERATOR_BOOT_TIMEOUT_MS },
         ]),
         apply: applyRequestsResponse,
-      },
-      {
-        request: requestWithCandidates([{ method: 'get', path: '/proveedor/operaciones', timeoutMs: portalLoadTimeoutMs }]),
-        apply: applyOperationsResponse,
-      },
-      {
-        request: requestWithCandidates([{ method: 'get', path: '/proveedor/incidencias', timeoutMs: portalLoadTimeoutMs }]),
-        apply: applyIncidentsResponse,
-      },
-      {
-        request: requestWithCandidates([{ method: 'get', path: '/proveedor/pagos', timeoutMs: portalLoadTimeoutMs }]),
-        apply: applyPaymentsResponse,
-      },
-      {
-        request: requestWithCandidates([{ method: 'get', path: '/proveedor/historial', timeoutMs: portalLoadTimeoutMs }]),
-        apply: applyHistoryResponse,
-      },
-      {
-        request: requestWithCandidates([{ method: 'get', path: '/proveedor/tripulacion', timeoutMs: portalLoadTimeoutMs }]),
-        apply: applyCrewResponse,
-      },
-      {
-        request: requestWithCandidates([{ method: 'get', path: '/proveedor/configuracion', timeoutMs: portalLoadTimeoutMs }]),
-        apply: applySettingsResponse,
-      },
-      {
-        request: requestWithCandidates([{ method: 'get', path: '/proveedor/disponibilidad', timeoutMs: portalLoadTimeoutMs }]),
-        apply: applyAvailabilityResponse,
       },
     ]
 
@@ -3677,6 +3685,10 @@ async function loadPortal() {
       })
       return
     }
+
+    if (!sectionLoadState[props.section]) {
+      await ensureSectionDataLoaded(props.section, { timeoutMs: OPERATOR_SECTION_TIMEOUT_MS })
+    }
   } catch (error) {
     if (currentLoadSequence !== portalLoadSequence.value) {
       return
@@ -3692,6 +3704,70 @@ async function loadPortal() {
       loading.value = false
     }
   }
+}
+
+async function ensureSectionDataLoaded(section = props.section, options = {}) {
+  if (!canLoadProviderData.value) return
+
+  const normalizedSection = String(section || '').trim().toLowerCase()
+  const force = options.force === true
+  const timeoutMs = Number.isFinite(Number(options.timeoutMs))
+    ? Number(options.timeoutMs)
+    : OPERATOR_SECTION_TIMEOUT_MS
+
+  if (!normalizedSection || (!force && sectionLoadState[normalizedSection])) {
+    return
+  }
+
+  let request = null
+  let apply = null
+
+  if (normalizedSection === 'empresa') {
+    request = requestWithCandidates([
+      { method: 'get', path: '/proveedor/empresa', timeoutMs },
+      { method: 'get', path: '/proveedor/dashboard', timeoutMs },
+    ])
+    apply = applyDashboardResponse
+  } else if (normalizedSection === 'aeronaves') {
+    request = requestWithCandidates([
+      { method: 'get', path: '/proveedor/mis-aeronaves', timeoutMs },
+      { method: 'get', path: '/proveedor/aeronaves', timeoutMs },
+      { method: 'get', path: '/operator/my-aircraft', timeoutMs },
+      { method: 'get', path: '/operator/aircraft', timeoutMs },
+    ])
+    apply = applyAircraftResponse
+  } else if (normalizedSection === 'solicitudes') {
+    request = requestWithCandidates([
+      { method: 'get', path: '/proveedor/mis-solicitudes', timeoutMs },
+      { method: 'get', path: '/proveedor/solicitudes', timeoutMs },
+      { method: 'get', path: '/operator/my-requests', timeoutMs },
+      { method: 'get', path: '/operator/requests', timeoutMs },
+    ])
+    apply = applyRequestsResponse
+  } else if (normalizedSection === 'operaciones') {
+    request = requestWithCandidates([{ method: 'get', path: '/proveedor/operaciones', timeoutMs }])
+    apply = applyOperationsResponse
+  } else if (normalizedSection === 'tripulacion') {
+    request = requestWithCandidates([{ method: 'get', path: '/proveedor/tripulacion', timeoutMs }])
+    apply = applyCrewResponse
+  } else if (normalizedSection === 'incidencias') {
+    request = requestWithCandidates([{ method: 'get', path: '/proveedor/incidencias', timeoutMs }])
+    apply = applyIncidentsResponse
+  } else if (normalizedSection === 'pagos') {
+    request = requestWithCandidates([{ method: 'get', path: '/proveedor/pagos', timeoutMs }])
+    apply = applyPaymentsResponse
+  } else if (normalizedSection === 'historial') {
+    request = requestWithCandidates([{ method: 'get', path: '/proveedor/historial', timeoutMs }])
+    apply = applyHistoryResponse
+  } else if (normalizedSection === 'disponibilidad') {
+    request = requestWithCandidates([{ method: 'get', path: '/proveedor/disponibilidad', timeoutMs }])
+    apply = applyAvailabilityResponse
+  }
+
+  if (!request || !apply) return
+
+  const payload = await request
+  apply(payload)
 }
 
 function schedulePortalLoad() {
@@ -4283,10 +4359,10 @@ async function savePricing(id) {
 
 async function reloadRequestsList() {
   const response = await requestWithCandidates([
-    { method: 'get', path: '/proveedor/mis-solicitudes' },
-    { method: 'get', path: '/proveedor/solicitudes' },
-    { method: 'get', path: '/operator/my-requests' },
-    { method: 'get', path: '/operator/requests' },
+    { method: 'get', path: '/proveedor/mis-solicitudes', timeoutMs: OPERATOR_BACKGROUND_TIMEOUT_MS },
+    { method: 'get', path: '/proveedor/solicitudes', timeoutMs: OPERATOR_BACKGROUND_TIMEOUT_MS },
+    { method: 'get', path: '/operator/my-requests', timeoutMs: OPERATOR_BACKGROUND_TIMEOUT_MS },
+    { method: 'get', path: '/operator/requests', timeoutMs: OPERATOR_BACKGROUND_TIMEOUT_MS },
   ])
 
   const collection = pickCollection(response, [
@@ -4307,6 +4383,7 @@ function shouldAutoRefreshRequests() {
 
 async function refreshRequestsList({ silent = true } = {}) {
   if (refreshingRequests.value) return
+  if (silent && loading.value) return
   if (!silent) {
     loading.value = true
   }
@@ -4369,8 +4446,8 @@ function handleRequestsVisibilityRefresh() {
 
 async function reloadOperationsList() {
   const response = await requestWithCandidates([
-    { method: 'get', path: '/proveedor/operaciones' },
-    { method: 'get', path: '/operator/operations' },
+    { method: 'get', path: '/proveedor/operaciones', timeoutMs: OPERATOR_BACKGROUND_TIMEOUT_MS },
+    { method: 'get', path: '/operator/operations', timeoutMs: OPERATOR_BACKGROUND_TIMEOUT_MS },
   ])
 
   const collection = pickCollection(response, ['operations', 'operaciones', 'data', 'items'])
@@ -5183,10 +5260,24 @@ onBeforeUnmount(() => {
 
 watch(
   () => props.section,
-  () => {
+  async (nextSection) => {
     startRequestsPolling()
     if (shouldAutoRefreshRequests()) {
       void refreshRequestsList({ silent: true })
+    }
+
+    if (!sectionLoadState[nextSection]) {
+      try {
+        loading.value = true
+        await ensureSectionDataLoaded(nextSection, { timeoutMs: OPERATOR_SECTION_TIMEOUT_MS })
+      } catch (error) {
+        showError(
+          'No se pudo cargar la seccion',
+          error.message || 'La seccion seleccionada no pudo sincronizarse con el backend.',
+        )
+      } finally {
+        loading.value = false
+      }
     }
   },
 )
@@ -7083,7 +7174,8 @@ watch(
                   :disabled="
                     !canOperatorAcceptRequest(selectedRequest) ||
                     isRequestPendingValidation(selectedRequest) ||
-                    isUpdatingRequestStatus(selectedRequest.id)
+                    isUpdatingRequestStatus(selectedRequest.id) ||
+                    shouldDisableRequestPrimaryAction(selectedRequest)
                   "
                   @click="updateRequestStatus(selectedRequest.id, 'Aceptada')"
                 >
