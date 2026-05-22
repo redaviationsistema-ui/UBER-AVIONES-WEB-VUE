@@ -36,7 +36,7 @@ const WORKFLOW_DEFINITIONS = {
     matches: ['package_selected', 'paquete elegido', 'paquete seleccionado', 'service tier'],
   },
   reserved: {
-    label: 'Pendiente',
+    label: 'Reserva solicitada',
     apiStatus: 'reserved',
     apiWorkflow: 'reserva solicitada',
     matches: ['reserved', 'reserva', 'reservada', 'reservado', 'solicitada', 'pending', 'pendiente'],
@@ -57,7 +57,7 @@ const WORKFLOW_DEFINITIONS = {
     ],
   },
   provider_accepted: {
-    label: 'Proveedor confirmado',
+    label: 'Respuesta proveedor',
     apiStatus: 'provider_accepted',
     apiWorkflow: 'proveedor aceptado',
     matches: [
@@ -74,25 +74,25 @@ const WORKFLOW_DEFINITIONS = {
     ],
   },
   contract_pending: {
-    label: 'Pendiente',
+    label: 'Contrato pendiente',
     apiStatus: 'contract_pending',
     apiWorkflow: 'contrato pendiente',
     matches: ['contract_pending', 'contrato pendiente', 'in_contract', 'en contrato', 'firma pendiente'],
   },
   contract_signed: {
-    label: 'Pendiente',
+    label: 'Contrato firmado',
     apiStatus: 'contract_signed',
     apiWorkflow: 'contrato firmado',
     matches: ['contract_signed', 'contrato firmado', 'firma completada', 'signed'],
   },
   payment_pending: {
-    label: 'Pendiente',
+    label: 'Pago pendiente',
     apiStatus: 'payment_pending',
     apiWorkflow: 'pago pendiente',
     matches: ['payment_pending', 'pago pendiente', 'checkout', 'payment'],
   },
   payment_confirmed: {
-    label: 'Confirmado',
+    label: 'Pago confirmado',
     apiStatus: 'payment_confirmed',
     apiWorkflow: 'pago confirmado',
     matches: ['payment_confirmed', 'paid', 'pagada', 'pagado', 'pago aprobado'],
@@ -164,12 +164,22 @@ export function resolveWorkflowState(value) {
     return { id: 'draft', ...WORKFLOW_DEFINITIONS.draft }
   }
 
-  const match = Object.entries(WORKFLOW_DEFINITIONS).find(([, definition]) =>
-    definition.matches.some((token) => normalized.includes(normalizeTerm(token))),
+  const exactMatch = Object.entries(WORKFLOW_DEFINITIONS).find(([, definition]) =>
+    definition.matches.some((token) => normalized === normalizeTerm(token)),
   )
 
-  if (match) {
-    return { id: match[0], ...match[1] }
+  if (exactMatch) {
+    return { id: exactMatch[0], ...exactMatch[1] }
+  }
+
+  const partialMatch = Object.entries(WORKFLOW_DEFINITIONS).find(([, definition]) =>
+    [...definition.matches]
+      .sort((first, second) => normalizeTerm(second).length - normalizeTerm(first).length)
+      .some((token) => normalized.includes(normalizeTerm(token))),
+  )
+
+  if (partialMatch) {
+    return { id: partialMatch[0], ...partialMatch[1] }
   }
 
   return { id: 'draft', ...WORKFLOW_DEFINITIONS.draft }

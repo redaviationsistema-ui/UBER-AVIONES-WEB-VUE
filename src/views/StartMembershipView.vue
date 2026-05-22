@@ -21,7 +21,7 @@
           <li>Perfecto para probar el producto antes de comprometerte.</li>
         </ul>
 
-        <RouterLink to="/vuelos" class="primary-btn"> Cotizar vuelo </RouterLink>
+        <RouterLink to="/renta-aeronaves" class="primary-btn"> Cotizar renta </RouterLink>
       </article>
 
       <article class="option-card">
@@ -45,15 +45,17 @@
     <section class="resources">
       <h2>¿Necesitas más tiempo para comenzar?</h2>
       <p>
-        Consulta estos recursos para entender como Sky Group combina reserva libre,
-        membresia opcional y operacion aerea premium.
+        Consulta estos recursos para entender como Sky Group combina reserva libre, membresia
+        opcional y operacion aerea premium.
       </p>
 
       <div class="resources-grid">
         <article>
           <span>▣</span>
           <h3>Guia Sky Access</h3>
-          <p>Conoce cuando conviene subir de nivel y que beneficios se activan despues de reservar.</p>
+          <p>
+            Conoce cuando conviene subir de nivel y que beneficios se activan despues de reservar.
+          </p>
           <RouterLink to="/membresias">Ver beneficios</RouterLink>
         </article>
 
@@ -61,7 +63,7 @@
           <span>✈</span>
           <h3>Prioriza viajes ejecutivos</h3>
           <p>Organiza vuelos para directivos, equipos comerciales o clientes importantes.</p>
-          <RouterLink to="/vuelos">Cotizar vuelo</RouterLink>
+          <RouterLink to="/renta-aeronaves">Cotizar renta</RouterLink>
         </article>
 
         <article>

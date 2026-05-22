@@ -17,6 +17,7 @@ import {
 import {
   createClientFlightRequest,
   createClientPaymentIntent,
+  ensureClientReservation,
   createClientWireIntent,
   getClientDestinations,
   getClientFlightPackages,
@@ -26,6 +27,7 @@ import {
 } from './clientBookingApi'
 import { useAuthStore } from '../../stores/auth'
 import { useUiStore } from '../../stores/ui'
+import { subscribeWorkflowSync } from '../../lib/workflowSync'
 
 const props = defineProps({
   section: { type: String, required: true },
@@ -54,8 +56,10 @@ const submittedItinerary = ref(null)
 const activeResultFilter = ref('best_value')
 const technicalSheetOpen = ref(false)
 const technicalAircraft = ref(null)
-const CLIENT_TRIPS_POLL_INTERVAL_MS = 15000
+const CLIENT_TRIPS_POLL_INTERVAL_MS = 5000
 let reservationsPollTimer = null
+let removeWorkflowSyncSubscription = null
+let workflowSyncRefreshTimer = null
 
 const searchForm = reactive({
   origin: '',
@@ -214,16 +218,49 @@ const tripTypeKey = computed(() => {
 })
 const routeId = computed(() => String(route.params.id || ''))
 const selectedTripId = computed(() => String(route.params.id || ''))
+function resolveEntityIdentifier(value) {
+  if (value === null || value === undefined) return ''
+
+  if (typeof value === 'string' || typeof value === 'number') {
+    return String(value).trim()
+  }
+
+  if (typeof value === 'object') {
+    return (
+      resolveEntityIdentifier(value.id) ||
+      resolveEntityIdentifier(value.reservation_id) ||
+      resolveEntityIdentifier(value.flight_request_id) ||
+      resolveEntityIdentifier(value.request_id) ||
+      ''
+    )
+  }
+
+  return ''
+}
 const selectedReservation = computed(() => {
   const exactMatch = reservations.value.find(
     (reservation) => String(reservation.id) === selectedTripId.value,
   )
 
   if (exactMatch) return exactMatch
+
+  const flightRequestMatch = reservations.value.find(
+    (reservation) => String(reservation.flight_request_id || '') === selectedTripId.value,
+  )
+
+  if (flightRequestMatch) return flightRequestMatch
   if (selectedTripId.value) return null
 
   return reservations.value[0] || null
 })
+const reservationContextId = computed(() =>
+  resolveEntityIdentifier(selectedReservation.value?.id) || String(routeId.value || '').trim(),
+)
+const flightRequestContextId = computed(() =>
+  resolveEntityIdentifier(selectedReservation.value?.flight_request_id) ||
+    resolveEntityIdentifier(selectedReservation.value?.id) ||
+    String(routeId.value || '').trim(),
+)
 const selectedReservationPriceLabel = computed(() => {
   const pricingContext =
     selectedReservation.value?.pricing_context &&
@@ -240,8 +277,12 @@ const selectedReservationPriceLabel = computed(() => {
     (selectedReservation.value?.selected_card_price
       ? formatCurrency(selectedReservation.value.selected_card_price)
       : '') ||
-    (pricingContext.selected_card_price ? formatCurrency(pricingContext.selected_card_price) : '') ||
-    (snapshotRecord.selected_card_price ? formatCurrency(snapshotRecord.selected_card_price) : '') ||
+    (pricingContext.selected_card_price
+      ? formatCurrency(pricingContext.selected_card_price)
+      : '') ||
+    (snapshotRecord.selected_card_price
+      ? formatCurrency(snapshotRecord.selected_card_price)
+      : '') ||
     selectedReservation.value?.formatted_final_price ||
     selectedReservation.value?.final_price_display ||
     selectedReservation.value?.estimated_total ||
@@ -442,14 +483,22 @@ const activeSection = computed(() => {
   if (props.section === 'perfil') return 'perfil'
   return 'reservar'
 })
+const tripsInitialTab = computed(() => {
+  if (props.section === 'historial') return 'historial'
+  return 'proximos'
+})
 const needsReservationContext = computed(() =>
   ['contrato', 'pago', 'reserva-confirmada', 'soporte'].includes(props.section),
 )
 const hasReservationsLoaded = computed(
-  () => !loadingServerData.value && !refreshingReservations.value && Array.isArray(reservations.value),
+  () =>
+    !loadingServerData.value && !refreshingReservations.value && Array.isArray(reservations.value),
 )
 const canRenderReservationWorkflow = computed(() => {
   if (!needsReservationContext.value) return true
+  if (['contrato', 'pago'].includes(props.section)) {
+    return Boolean(selectedReservation.value?.is_reservation)
+  }
   return Boolean(selectedReservation.value)
 })
 const bookingStep = computed(() => {
@@ -464,6 +513,23 @@ const userFirstName = computed(() => {
 const selectedPriorityMeta = computed(
   () => flightPackages.value.find((item) => item.code === selectedPriorityType.value) || null,
 )
+
+function redirectLegacyInProgressSection() {
+  if (props.section !== 'en-proceso') return
+
+  router.replace({
+    name: route.params.subsection
+      ? 'cliente-subdetalle'
+      : route.params.id
+        ? 'cliente-detalle'
+        : 'cliente',
+    params: {
+      ...route.params,
+      section: 'viajes',
+    },
+    query: route.query,
+  })
+}
 const resultFilterOptions = [
   { key: 'best_value', label: 'Recomendado por asesor' },
   { key: 'price', label: 'Mejor inversion' },
@@ -552,7 +618,10 @@ function normalizeLegForQuote(leg = {}, fallback = {}) {
   return {
     ...leg,
     origin,
-    originAirport: resolveAirportSelection(origin, leg.originAirport || fallback.originAirport || null),
+    originAirport: resolveAirportSelection(
+      origin,
+      leg.originAirport || fallback.originAirport || null,
+    ),
     destination,
     destinationAirport: resolveAirportSelection(
       destination,
@@ -604,7 +673,7 @@ function buildClientAbsoluteUrl(section = '', id = '', query = {}) {
 }
 
 async function ensureStripePaymentElement() {
-  const flightRequestId = String(routeId.value || selectedReservation.value?.id || '').trim()
+  const flightRequestId = reservationContextId.value
 
   if (
     selectedPaymentMethod.value !== 'card' ||
@@ -757,15 +826,13 @@ function resolveAirportSelection(value = '', airport = null) {
 
   return (
     featuredAirports.find((item) =>
-      [item.code, item.iata]
-        .filter(Boolean)
-        .some(
-          (candidate) =>
-            String(candidate).trim().toUpperCase() ===
-            String(destinationAirport.code || destinationAirport.iata || '')
-              .trim()
-              .toUpperCase(),
-        ),
+      [item.code, item.iata].filter(Boolean).some(
+        (candidate) =>
+          String(candidate).trim().toUpperCase() ===
+          String(destinationAirport.code || destinationAirport.iata || '')
+            .trim()
+            .toUpperCase(),
+      ),
     ) || destinationAirport
   )
 }
@@ -1099,14 +1166,9 @@ function inferredFlightWindowHours(aircraft = {}) {
 }
 
 function aircraftDurationLabel(aircraft = {}) {
-  if (hasBackendQuotedPricing(aircraft)) {
-    const backendBillableHours = Number(aircraft.billable_hours || 0)
-    const backendVisibleHours = aircraftDisplayFlightHours(aircraft)
-    const durationReferenceHours =
-      backendBillableHours > backendVisibleHours ? backendBillableHours : backendVisibleHours
-    const durationReferenceLabel = formatDurationFromHours(durationReferenceHours)
-    if (durationReferenceLabel) return durationReferenceLabel
-  }
+  const backendVisibleHours = aircraftDisplayFlightHours(aircraft)
+  const backendVisibleLabel = formatDurationFromHours(backendVisibleHours)
+  if (backendVisibleLabel) return backendVisibleLabel
 
   const flightWindow = inferredFlightWindowHours(aircraft)
   if (flightWindow) {
@@ -1130,43 +1192,15 @@ function aircraftDurationLabel(aircraft = {}) {
 
 function aircraftBillingNote(aircraft = {}) {
   if (hasBackendQuotedPricing(aircraft)) {
-    const displayFlightHours = Number(
-      aircraft.display_flight_hours ||
-        aircraft.real_flight_hours ||
-        aircraft.flight_hours ||
-        aircraft.estimated_hours ||
-        0,
-    )
-    const repositioningHours = Number(aircraft.repositioning_hours || 0)
-    const billableHours = Number(aircraft.billable_hours || 0)
-
-    if (displayFlightHours > 0 && repositioningHours > 0 && billableHours > 0) {
-      return `${formatDurationFromHours(displayFlightHours)} vuelo + ${formatDurationFromHours(repositioningHours)} reposicion = ${formatDurationFromHours(billableHours)} cobrables.`
-    }
-
-    if (displayFlightHours > 0 && billableHours > displayFlightHours) {
-      return `Backend cobra ${formatDurationFromHours(billableHours)} sobre un vuelo visible de ${formatDurationFromHours(displayFlightHours)}.`
-    }
-
-    if (billableHours > 0) {
-      return ''
-    }
+    return ''
   }
 
   const formula = buildFlightPricingFormula(aircraft, aircraftPricingContext())
   const minimumHours = Number(formula.minimumHours || aircraft.minimum_hours || 0)
-  const displayFlightHours = Number(
-    formula.displayFlightHours || aircraft.display_flight_hours || 0,
-  )
   const operationalHours = Number(
     formula.operationalFlightHours || aircraft.operational_flight_hours || 0,
   )
-  const repositioningHours = Number(formula.repositioningHours || aircraft.repositioning_hours || 0)
   const billableHours = Number(formula.billableHours || aircraft.billable_hours || 0)
-
-  if (displayFlightHours > 0 && repositioningHours > 0 && billableHours > 0) {
-    return `${formatDurationFromHours(displayFlightHours)} vuelo + ${formatDurationFromHours(repositioningHours)} reposicion = ${formatDurationFromHours(billableHours)} cobrables.`
-  }
 
   if (minimumHours > 0 && billableHours >= minimumHours && minimumHours > operationalHours) {
     return `Tarifa calculada con minimo operativo de ${formatDurationFromHours(minimumHours)}.`
@@ -1323,12 +1357,18 @@ function aircraftPricingForType(aircraft = {}, priorityType = 'essential') {
         0,
     )
     const billableHours = Number(aircraft.billable_hours || 0)
-    const overnightCost = Number(aircraft.overnight_cost || aircraft.overnight_fees || aircraft.overnight_fee || 0)
+    const overnightCost = Number(
+      aircraft.overnight_cost || aircraft.overnight_fees || aircraft.overnight_fee || 0,
+    )
     const expenseFee = Number(aircraft.airport_expenses || aircraft.expense_fee || 0)
     const ivaAmount = Number(aircraft.iva_amount || aircraft.taxes || aircraft.tax || 0)
     const subtotalBeforeMultipliers =
-      Number(aircraft.subtotal_before_margin || aircraft.subtotal_before_multipliers || aircraft.subtotal || 0) ||
-      basePrice + expenseFee
+      Number(
+        aircraft.subtotal_before_margin ||
+          aircraft.subtotal_before_multipliers ||
+          aircraft.subtotal ||
+          0,
+      ) || basePrice + expenseFee
 
     return {
       basePrice,
@@ -1515,11 +1555,25 @@ function alignReservationWorkflowRoute() {
   if (!hasReservationsLoaded.value) return
 
   const currentReservationId = String(routeId.value || '').trim()
-  const fallbackReservationId = String(selectedReservation.value?.id || '').trim()
+  const fallbackReservationId = reservationContextId.value
 
-  if (currentReservationId && selectedReservation.value) return
+  if (
+    currentReservationId &&
+    selectedReservation.value &&
+    currentReservationId === fallbackReservationId
+  )
+    return
 
   if (!currentReservationId && fallbackReservationId) {
+    router.replace(`/cliente/${props.section}/${fallbackReservationId}`)
+    return
+  }
+
+  if (
+    currentReservationId &&
+    fallbackReservationId &&
+    currentReservationId !== fallbackReservationId
+  ) {
     router.replace(`/cliente/${props.section}/${fallbackReservationId}`)
     return
   }
@@ -1540,15 +1594,16 @@ function alignReservationWorkflowRoute() {
 }
 
 function goToContract(reservationId = '') {
-  go('contrato', reservationId || selectedReservation.value?.id || '')
+  const targetId = String(reservationId || reservationContextId.value || '').trim()
+  go('contrato', targetId)
 }
 
 function goToPayment(reservationId = '') {
-  go('pago', reservationId || selectedReservation.value?.id || '')
+  go('pago', reservationId || reservationContextId.value)
 }
 
 function goToConcierge(reservationId = '') {
-  go('soporte', reservationId || selectedReservation.value?.id || '')
+  go('soporte', reservationId || reservationContextId.value)
 }
 
 function mergeReservationUpdate(updatedReservation = null) {
@@ -1570,8 +1625,8 @@ function mergeReservationUpdate(updatedReservation = null) {
   )
 }
 
-async function handleContractConfirm() {
-  const reservationId = String(routeId.value || selectedReservation.value?.id || '').trim()
+async function handleContractConfirm(contractPayload = {}) {
+  const reservationId = reservationContextId.value
   if (!reservationId || signingContract.value) return
 
   const optimisticReservation = {
@@ -1586,7 +1641,7 @@ async function handleContractConfirm() {
   signingContract.value = true
 
   try {
-    const updatedReservation = await markClientTripReadyForPayment(reservationId, {
+    const updatedReservation = await markClientTripReadyForPayment(reservationId, contractPayload, {
       timeoutMs: 20000,
     })
 
@@ -1607,12 +1662,12 @@ async function handleContractConfirm() {
     })
   } finally {
     signingContract.value = false
-    go('pago', reservationId)
+    go('viajes')
   }
 }
 
 async function handlePaymentSubmit() {
-  const flightRequestId = String(routeId.value || selectedReservation.value?.id || '').trim()
+  const flightRequestId = flightRequestContextId.value
 
   if (!flightRequestId) {
     paymentInlineError.value = 'No encontramos la reserva para iniciar el pago.'
@@ -1641,12 +1696,10 @@ async function handlePaymentSubmit() {
         { timeoutMs: 30000 },
       )
 
-      wireInstructions.value = payload?.wire_instructions || payload?.instructions || payload?.data || null
+      wireInstructions.value =
+        payload?.wire_instructions || payload?.instructions || payload?.data || null
       paymentLastReference.value =
-        wireInstructions.value?.reference ||
-        payload?.reference ||
-        payload?.payment_reference ||
-        ''
+        wireInstructions.value?.reference || payload?.reference || payload?.payment_reference || ''
 
       mergeReservationUpdate({
         id: flightRequestId,
@@ -1659,7 +1712,8 @@ async function handlePaymentSubmit() {
       ui.pushToast({
         tone: 'success',
         title: 'Transferencia preparada',
-        message: 'Ya puedes copiar la referencia bancaria y subir tu comprobante con concierge o admin.',
+        message:
+          'Ya puedes copiar la referencia bancaria y subir tu comprobante con concierge o admin.',
       })
 
       return
@@ -1716,8 +1770,7 @@ async function handlePaymentSubmit() {
         result.paymentIntent?.status === 'succeeded' ? 'payment_confirmed' : 'payment_pending',
       workflow_status:
         result.paymentIntent?.status === 'succeeded' ? 'pago confirmado' : 'pago pendiente',
-      payment_status:
-        result.paymentIntent?.status === 'succeeded' ? 'Pagado' : 'Pago en revision',
+      payment_status: result.paymentIntent?.status === 'succeeded' ? 'Pagado' : 'Pago en revision',
       updated_at: new Date().toISOString(),
     })
 
@@ -1734,7 +1787,8 @@ async function handlePaymentSubmit() {
     ui.pushToast({
       tone: 'success',
       title: 'Pago enviado',
-      message: 'Stripe recibio la autorizacion. Estamos esperando la confirmacion final del webhook.',
+      message:
+        'Stripe recibio la autorizacion. Estamos esperando la confirmacion final del webhook.',
     })
   } catch (error) {
     paymentInlineError.value =
@@ -1746,6 +1800,57 @@ async function handlePaymentSubmit() {
     })
   } finally {
     paymentSubmitting.value = false
+  }
+}
+
+async function ensureReservationForSelectedTrip() {
+  const trip = selectedReservation.value
+
+  if (!trip) {
+    throw new Error('No encontramos un viaje activo para abrir el contrato.')
+  }
+
+  if (trip.is_reservation) {
+    return trip
+  }
+
+  const flightRequestId = String(trip.flight_request_id || trip.id || '').trim()
+
+  if (!flightRequestId) {
+    throw new Error('La solicitud no tiene un identificador valido para generar la reserva.')
+  }
+
+  const payload = await ensureClientReservation(
+    { flight_request_id: flightRequestId },
+    { timeoutMs: 20000 },
+  )
+  const reservationRecord = payload?.reservation || payload?.data || payload
+
+  if (!reservationRecord?.id) {
+    throw new Error('No se pudo crear la reserva para abrir el contrato.')
+  }
+
+  await refreshReservations({ silent: true })
+
+  return {
+    ...trip,
+    ...reservationRecord,
+    id: reservationRecord.id,
+    flight_request_id: reservationRecord.flight_request_id || flightRequestId,
+    is_reservation: true,
+  }
+}
+
+async function handleOpenContract() {
+  try {
+    const reservation = await ensureReservationForSelectedTrip()
+    go('contrato', reservation.id)
+  } catch (error) {
+    ui.pushToast({
+      tone: 'error',
+      title: 'No se pudo abrir el contrato',
+      message: error?.message || 'Necesitamos una reserva valida antes de mostrar el contrato.',
+    })
   }
 }
 
@@ -2182,18 +2287,23 @@ async function requestReservation(aircraft = selectedAircraft.value) {
     const reservation = await createClientFlightRequest(reservationPayload, { timeoutMs: 60000 })
     if (typeof console !== 'undefined') {
       const storedFlightRequest =
-        reservation?.flight_request || reservation?.data?.flight_request || reservation?.data || reservation
+        reservation?.flight_request ||
+        reservation?.data?.flight_request ||
+        reservation?.data ||
+        reservation
       console.log('[reserva-guardada] Costo del vuelo persistido en backend', {
         endpoint: '/client/flight-requests',
-        tablas: [
-          'flight_requests.final_price',
-          'request_matches.estimated_price',
-        ],
+        tablas: ['flight_requests.final_price', 'request_matches.estimated_price'],
         flight_request_id:
-          storedFlightRequest?.id || reservation?.flight_request?.id || reservation?.data?.id || reservation?.id,
+          storedFlightRequest?.id ||
+          reservation?.flight_request?.id ||
+          reservation?.data?.id ||
+          reservation?.id,
         selected_card_price: Number(selectedCardPrice.toFixed(2)),
         flight_request_final_price:
-          storedFlightRequest?.final_price || storedFlightRequest?.pricing_context?.final_price || null,
+          storedFlightRequest?.final_price ||
+          storedFlightRequest?.pricing_context?.final_price ||
+          null,
         match_quote_total:
           storedFlightRequest?.matched_options?.[0]?.estimated_price ||
           storedFlightRequest?.matches?.[0]?.estimated_price ||
@@ -2201,13 +2311,24 @@ async function requestReservation(aircraft = selectedAircraft.value) {
         response: reservation,
       })
     }
-    const createdReservationId =
-      reservation?.data?.id || reservation?.id || selectedTripId.value || ''
+    const createdFlightRequestId =
+      reservation?.flight_request?.id ||
+      reservation?.data?.flight_request?.id ||
+      reservation?.data?.id ||
+      reservation?.id ||
+      selectedTripId.value ||
+      ''
     const refreshedReservations = await getClientTrips({ timeoutMs: 20000 })
     if (refreshedReservations.length) {
       reservations.value = refreshedReservations
     }
-    const targetReservationId = createdReservationId || refreshedReservations[0]?.id || ''
+    const matchedReservation = refreshedReservations.find(
+      (item) =>
+        String(item.flight_request_id || '') === String(createdFlightRequestId) ||
+        String(item.id || '') === String(createdFlightRequestId),
+    )
+    const targetReservationId =
+      matchedReservation?.id || refreshedReservations[0]?.id || createdFlightRequestId || ''
     ui.pushToast({
       tone: 'success',
       title: 'Tu vuelo esta siendo confirmado por Red Aviation',
@@ -2275,6 +2396,23 @@ function clearReservationsPolling() {
   }
 }
 
+function clearWorkflowSyncRefreshTimer() {
+  if (workflowSyncRefreshTimer) {
+    clearTimeout(workflowSyncRefreshTimer)
+    workflowSyncRefreshTimer = null
+  }
+}
+
+function scheduleWorkflowSyncRefresh() {
+  if (!shouldAutoRefreshTrips()) return
+
+  clearWorkflowSyncRefreshTimer()
+  workflowSyncRefreshTimer = setTimeout(() => {
+    workflowSyncRefreshTimer = null
+    void refreshReservations({ silent: true })
+  }, 250)
+}
+
 function startReservationsPolling() {
   clearReservationsPolling()
 
@@ -2317,6 +2455,7 @@ async function loadServerData() {
 }
 
 onMounted(() => {
+  redirectLegacyInProgressSection()
   loadServerData()
 
   if (typeof window !== 'undefined') {
@@ -2327,12 +2466,30 @@ onMounted(() => {
     document.addEventListener('visibilitychange', handleVisibilityRefresh)
   }
 
+  removeWorkflowSyncSubscription = subscribeWorkflowSync((payload = {}) => {
+    if (payload.scope !== 'reservation-workflow') return
+    scheduleWorkflowSyncRefresh()
+  })
+
   startReservationsPolling()
 })
 
+watch(
+  () => props.section,
+  () => {
+    redirectLegacyInProgressSection()
+  },
+)
+
 onBeforeUnmount(() => {
   clearReservationsPolling()
+  clearWorkflowSyncRefreshTimer()
   destroyStripePaymentElement()
+
+  if (removeWorkflowSyncSubscription) {
+    removeWorkflowSyncSubscription()
+    removeWorkflowSyncSubscription = null
+  }
 
   if (typeof window !== 'undefined') {
     window.removeEventListener('focus', handleVisibilityRefresh)
@@ -2402,7 +2559,13 @@ watch(
 )
 
 watch(
-  () => [props.section, routeId.value, reservations.value.length, loadingServerData.value, refreshingReservations.value],
+  () => [
+    props.section,
+    routeId.value,
+    reservations.value.length,
+    loadingServerData.value,
+    refreshingReservations.value,
+  ],
   () => {
     alignReservationWorkflowRoute()
   },
@@ -2589,7 +2752,7 @@ watch(
         >
           <ClientContractPreview
             :reservation="selectedReservation"
-            :reservation-id="routeId"
+            :reservation-id="reservationContextId"
             :customer-name="customerDisplayName"
             :submitting="signingContract"
             @confirm="handleContractConfirm"
@@ -2601,14 +2764,14 @@ watch(
           class="document-panel confirmation-panel"
         >
           <span class="eyebrow">Contrato</span>
-          <h2>{{ hasReservationsLoaded ? 'No encontramos una reserva activa' : 'Cargando contrato' }}</h2>
+          <h2>
+            {{ hasReservationsLoaded ? 'No encontramos una reserva activa' : 'Cargando contrato' }}
+          </h2>
           <p v-if="hasReservationsLoaded">
             Necesitamos una reserva valida para abrir el contrato. En cuanto tengas una reserva
             activa, aparecera aqui automaticamente.
           </p>
-          <p v-else>
-            Estamos sincronizando tus reservas para preparar el contrato correcto.
-          </p>
+          <p v-else>Estamos sincronizando tus reservas para preparar el contrato correcto.</p>
           <div class="confirmation-actions">
             <button type="button" @click="go('viajes')">Ver mis vuelos</button>
             <button class="secondary-button" type="button" @click="go('reservar')">
@@ -2622,13 +2785,17 @@ watch(
           class="payment-checkout"
         >
           <div class="payment-checkout__main">
-            <button class="payment-back" type="button" @click="go('contrato', routeId)">
+            <button
+              class="payment-back"
+              type="button"
+              @click="go('contrato', reservationContextId)"
+            >
               <span aria-hidden="true">←</span>
               <span>Volver al contrato</span>
             </button>
 
             <div class="payment-checkout__hero">
-              <span class="eyebrow">Pago {{ routeId }}</span>
+              <span class="eyebrow">Pago {{ reservationContextId }}</span>
               <h2>{{ paymentHeroTitle }}</h2>
               <p>{{ paymentHeroCopy }}</p>
               <div class="payment-trust-strip">
@@ -2810,12 +2977,36 @@ watch(
                 v-if="selectedPaymentMethod === 'wire' && wireInstructions"
                 class="payment-wire-card"
               >
-                <p><span>Banco</span><strong>{{ wireInstructions.bank_name || 'Por configurar' }}</strong></p>
-                <p><span>Beneficiario</span><strong>{{ wireInstructions.beneficiary || 'Red Aviation' }}</strong></p>
-                <p><span>Cuenta / IBAN</span><strong>{{ wireInstructions.account_number || wireInstructions.iban || 'Por configurar' }}</strong></p>
-                <p><span>CLABE / SWIFT</span><strong>{{ wireInstructions.clabe || wireInstructions.swift || 'Por configurar' }}</strong></p>
-                <p><span>Referencia</span><strong>{{ wireInstructions.reference || paymentLastReference || 'Pendiente' }}</strong></p>
-                <p><span>Monto</span><strong>{{ wireInstructions.amount || paymentSummaryAmountLabel }}</strong></p>
+                <p>
+                  <span>Banco</span
+                  ><strong>{{ wireInstructions.bank_name || 'Por configurar' }}</strong>
+                </p>
+                <p>
+                  <span>Beneficiario</span
+                  ><strong>{{ wireInstructions.beneficiary || 'Red Aviation' }}</strong>
+                </p>
+                <p>
+                  <span>Cuenta / IBAN</span
+                  ><strong>{{
+                    wireInstructions.account_number || wireInstructions.iban || 'Por configurar'
+                  }}</strong>
+                </p>
+                <p>
+                  <span>CLABE / SWIFT</span
+                  ><strong>{{
+                    wireInstructions.clabe || wireInstructions.swift || 'Por configurar'
+                  }}</strong>
+                </p>
+                <p>
+                  <span>Referencia</span
+                  ><strong>{{
+                    wireInstructions.reference || paymentLastReference || 'Pendiente'
+                  }}</strong>
+                </p>
+                <p>
+                  <span>Monto</span
+                  ><strong>{{ wireInstructions.amount || paymentSummaryAmountLabel }}</strong>
+                </p>
               </div>
 
               <p v-if="paymentInlineError" class="payment-inline-error">{{ paymentInlineError }}</p>
@@ -2880,7 +3071,14 @@ watch(
                       stroke-linejoin="round"
                       stroke-width="1.8"
                     />
-                    <circle cx="10" cy="8" r="3" fill="none" stroke="currentColor" stroke-width="1.8" />
+                    <circle
+                      cx="10"
+                      cy="8"
+                      r="3"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.8"
+                    />
                     <path
                       d="M20 19v-1a4 4 0 0 0-3-3.87M16 5.13A3 3 0 0 1 16 11"
                       fill="none"
@@ -2899,7 +3097,14 @@ watch(
                       stroke-linejoin="round"
                       stroke-width="1.8"
                     />
-                    <circle cx="7" cy="8" r="2" fill="none" stroke="currentColor" stroke-width="1.8" />
+                    <circle
+                      cx="7"
+                      cy="8"
+                      r="2"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.8"
+                    />
                   </svg>
                 </span>
                 <p>
@@ -2967,7 +3172,13 @@ watch(
           class="document-panel confirmation-panel"
         >
           <span class="eyebrow">Pago</span>
-          <h2>{{ hasReservationsLoaded ? 'No encontramos una reserva para pagar' : 'Preparando checkout' }}</h2>
+          <h2>
+            {{
+              hasReservationsLoaded
+                ? 'No encontramos una reserva para pagar'
+                : 'Preparando checkout'
+            }}
+          </h2>
           <p v-if="hasReservationsLoaded">
             Primero necesitamos identificar una reserva activa para abrir el checkout.
           </p>
@@ -2985,17 +3196,19 @@ watch(
           class="document-panel confirmation-panel"
         >
           <span class="eyebrow">Reserva registrada</span>
-          <h2>Tu pago ya esta en proceso</h2>
+          <h2>Tu vuelo esta en proceso</h2>
           <p>
-            Ya puedes dar seguimiento desde Mis vuelos. Cuando Stripe confirme el pago o admin
-            valide la transferencia, la operacion continuara con el flujo final del vuelo.
+            Ya puedes dar seguimiento desde Mis vuelos. En este momento la solicitud sigue su flujo
+            operativo mientras recibimos la respuesta del proveedor asignado.
           </p>
           <div class="signature-box confirmation-box">
             <strong>Estado actual</strong>
-            <span>{{ selectedReservation?.payment_status || 'Pago en revision.' }}</span>
+            <span>Respuesta del proveedor.</span>
           </div>
           <div class="confirmation-actions">
-            <button type="button" @click="go('viajes', routeId)">Ver mis vuelos</button>
+            <button type="button" @click="go('viajes', reservationContextId)">
+              Ver mis vuelos
+            </button>
             <button class="secondary-button" type="button" @click="go('soporte')">
               Asesor privado 24/7
             </button>
@@ -3007,7 +3220,11 @@ watch(
           class="document-panel confirmation-panel"
         >
           <span class="eyebrow">Reserva registrada</span>
-          <h2>{{ hasReservationsLoaded ? 'No encontramos esa reserva' : 'Cargando estado de reserva' }}</h2>
+          <h2>
+            {{
+              hasReservationsLoaded ? 'No encontramos esa reserva' : 'Cargando estado de reserva'
+            }}
+          </h2>
           <p v-if="hasReservationsLoaded">
             La reserva que intentas abrir ya no esta disponible o todavia no se sincroniza.
           </p>
@@ -3024,9 +3241,10 @@ watch(
           v-else
           :reservations="reservations"
           :selected-id="selectedTripId"
+          :initial-tab="tripsInitialTab"
           :timeline="timeline"
           @open-concierge="goToConcierge($event)"
-          @open-contract="goToContract($event)"
+          @open-contract="handleOpenContract"
           @open-detail="go('viajes', $event)"
           @open-payment="goToPayment($event)"
         />

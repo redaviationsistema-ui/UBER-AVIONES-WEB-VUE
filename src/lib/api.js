@@ -1,13 +1,27 @@
-const API_BASE_URL = String(import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api/v1').replace(/\/$/, '')
-const CONFIGURED_BACKEND_ORIGIN = String(import.meta.env.VITE_BACKEND_ORIGIN || '').replace(/\/$/, '')
-const FALLBACK_API_BASE_URL = String(import.meta.env.VITE_FALLBACK_API_BASE_URL || '').replace(/\/$/, '')
-const FALLBACK_BACKEND_ORIGIN = String(import.meta.env.VITE_FALLBACK_BACKEND_ORIGIN || '').replace(/\/$/, '')
+const API_BASE_URL = String(
+  import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api/v1',
+).replace(/\/$/, '')
+const CONFIGURED_BACKEND_ORIGIN = String(import.meta.env.VITE_BACKEND_ORIGIN || '').replace(
+  /\/$/,
+  '',
+)
+const FALLBACK_API_BASE_URL = String(import.meta.env.VITE_FALLBACK_API_BASE_URL || '').replace(
+  /\/$/,
+  '',
+)
+const FALLBACK_BACKEND_ORIGIN = String(import.meta.env.VITE_FALLBACK_BACKEND_ORIGIN || '').replace(
+  /\/$/,
+  '',
+)
 const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS || 15000)
-
 
 let memoryToken = null
 const AUTH_STORAGE_KEY = 'red_aviation_auth_token'
 let activeBackendIndex = 0
+
+function isLocalOrigin(origin = '') {
+  return /^(http:\/\/)?(localhost|127\.0\.0\.1)(:\d+)?$/i.test(String(origin || '').trim())
+}
 
 function toOrigin(baseUrl = '') {
   if (!baseUrl) return ''
@@ -20,21 +34,33 @@ function toOrigin(baseUrl = '') {
 }
 
 function getBackendCandidates() {
+  const configuredOrigin = CONFIGURED_BACKEND_ORIGIN || toOrigin(API_BASE_URL)
+  const shouldDisableFallbackInLocalDev =
+    typeof window !== 'undefined' &&
+    isLocalOrigin(window.location.origin) &&
+    isLocalOrigin(configuredOrigin)
+
   const candidates = [
     {
       apiBaseUrl: API_BASE_URL,
-      origin: CONFIGURED_BACKEND_ORIGIN || toOrigin(API_BASE_URL),
+      origin: configuredOrigin,
     },
-    {
-      apiBaseUrl: FALLBACK_API_BASE_URL,
-      origin: FALLBACK_BACKEND_ORIGIN || toOrigin(FALLBACK_API_BASE_URL),
-    },
+    ...(!shouldDisableFallbackInLocalDev
+      ? [
+          {
+            apiBaseUrl: FALLBACK_API_BASE_URL,
+            origin: FALLBACK_BACKEND_ORIGIN || toOrigin(FALLBACK_API_BASE_URL),
+          },
+        ]
+      : []),
   ]
 
   return candidates.filter(
     (candidate, index, list) =>
       candidate.apiBaseUrl &&
-      list.findIndex((item) => item.apiBaseUrl === candidate.apiBaseUrl && item.origin === candidate.origin) === index,
+      list.findIndex(
+        (item) => item.apiBaseUrl === candidate.apiBaseUrl && item.origin === candidate.origin,
+      ) === index,
   )
 }
 
@@ -115,7 +141,9 @@ function buildUrl(path, query = {}, backendOverride = null) {
 }
 
 function shouldLogAircraftRequest(path = '') {
-  return String(path || '').toLowerCase().includes('aircraft')
+  return String(path || '')
+    .toLowerCase()
+    .includes('aircraft')
 }
 
 function logAircraftRequest(label, details = {}) {
@@ -129,7 +157,6 @@ function getFilenameFromDisposition(disposition = '') {
     return decodeURIComponent(utfMatch[1])
   }
 
-  
   const plainMatch = disposition.match(/filename="?([^"]+)"?/i)
   return plainMatch?.[1] || ''
 }
@@ -164,7 +191,9 @@ function extractApiErrorMessage(payload = {}, status = 0) {
     }
   }
 
-  const firstFieldErrors = Object.values(payload?.errors || {}).find((value) => Array.isArray(value) && value.length)
+  const firstFieldErrors = Object.values(payload?.errors || {}).find(
+    (value) => Array.isArray(value) && value.length,
+  )
   if (firstFieldErrors?.[0]) {
     return firstFieldErrors[0]
   }
@@ -184,9 +213,7 @@ function isTimeoutError(error) {
 }
 
 function buildNetworkErrorMessage(lastError, attemptedCandidates = [], timeoutMs = API_TIMEOUT_MS) {
-  const destinations = attemptedCandidates
-    .map((candidate) => candidate.apiBaseUrl)
-    .filter(Boolean)
+  const destinations = attemptedCandidates.map((candidate) => candidate.apiBaseUrl).filter(Boolean)
 
   if (isTimeoutError(lastError)) {
     const destinationLabel =
@@ -214,7 +241,8 @@ function redirectToClientLogin() {
   if (typeof window === 'undefined') return
 
   const currentPath = `${window.location.pathname || '/'}${window.location.search || ''}${window.location.hash || ''}`
-  const isAlreadyOnClientLogin = currentPath.startsWith('/login-cliente') || currentPath.startsWith('/login')
+  const isAlreadyOnClientLogin =
+    currentPath.startsWith('/login-cliente') || currentPath.startsWith('/login')
   if (isAlreadyOnClientLogin) return
 
   const loginUrl = new URL('/login-cliente', window.location.origin)
@@ -269,10 +297,12 @@ export function clearStoredToken() {
     window.localStorage.removeItem(AUTH_STORAGE_KEY)
   }
 }
-// checar la causa del porque no me muestra el valor presiso como en el sistema , contemplando el ascenso y el desenso 
-// guiate con el movil 
+// checar la causa del porque no me muestra el valor presiso como en el sistema , contemplando el ascenso y el desenso
+// guiate con el movil
 export async function apiRequest(path, options = {}) {
-  const timeoutMs = Number.isFinite(Number(options.timeoutMs)) ? Number(options.timeoutMs) : API_TIMEOUT_MS
+  const timeoutMs = Number.isFinite(Number(options.timeoutMs))
+    ? Number(options.timeoutMs)
+    : API_TIMEOUT_MS
   const config = {
     method: options.method || 'GET',
     headers: buildHeaders(options.headers),
@@ -300,7 +330,10 @@ export async function apiRequest(path, options = {}) {
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null
     const timeoutId =
       controller && timeoutMs > 0
-        ? window.setTimeout(() => controller.abort(new Error(`Timeout after ${timeoutMs}ms`)), timeoutMs)
+        ? window.setTimeout(
+            () => controller.abort(new Error(`Timeout after ${timeoutMs}ms`)),
+            timeoutMs,
+          )
         : null
 
     try {
@@ -362,7 +395,9 @@ export async function apiRequest(path, options = {}) {
   }
 
   if (!response) {
-    const networkError = new Error(buildNetworkErrorMessage(lastError, orderedCandidates, timeoutMs))
+    const networkError = new Error(
+      buildNetworkErrorMessage(lastError, orderedCandidates, timeoutMs),
+    )
     networkError.cause = lastError
     throw networkError
   }

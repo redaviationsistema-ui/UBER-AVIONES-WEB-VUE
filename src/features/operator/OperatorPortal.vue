@@ -1692,7 +1692,7 @@ function normalizeRequestStatus(status = '') {
   const normalized = String(status).toLowerCase()
   if (['pending_validation', 'en validacion', 'validating'].includes(normalized))
     return 'En validacion'
-  if (['accepted', 'aceptada', 'approved'].includes(normalized)) return 'Aceptada'
+  if (['accepted', 'aceptada', 'approved'].includes(normalized)) return 'Respuesta proveedor'
   if (['rejected', 'rechazada', 'declined'].includes(normalized)) return 'Rechazada'
   return 'Pendiente'
 }
@@ -2875,10 +2875,10 @@ function getRequestStatusMeta(statusOrRequest = '') {
 
   if (isRequestAccepted(status)) {
     return {
-      label: 'Aceptada',
+      label: 'Respuesta proveedor',
       tone: 'success',
       queue: 'confirmed',
-      headline: 'Solicitud aceptada',
+      headline: 'Respuesta del proveedor',
     }
   }
   if (isRequestRejected(status)) {
@@ -2914,7 +2914,7 @@ function applyLocalRequestStatusUpdate(id, status) {
     const normalizedStatus = status === 'Aceptada' ? 'accepted' : 'rejected'
     return {
       ...request,
-      status,
+      status: status === 'Aceptada' ? 'Respuesta proveedor' : status,
       rawStatus: normalizedStatus,
       rawWorkflowStatus: normalizedStatus,
     }
@@ -2973,7 +2973,7 @@ function getRequestPriorityMeta(request = {}) {
 }
 
 function getRequestStatusCopy(status = '') {
-  if (isRequestAccepted(status)) return 'Aceptada y lista para coordinacion'
+  if (isRequestAccepted(status)) return 'Respuesta del proveedor y lista para coordinacion'
   if (isRequestRejected(status)) return 'Rechazada por proveedor'
   if (isRequestPendingValidation(status)) return 'En validacion operativa'
   return 'Pendiente de decision'
@@ -6881,12 +6881,6 @@ watch(
                 <p class="muted">{{ selectedRequestAircraftComparison.detail }}</p>
               </article>
             </div>
-
-          
-
-
-
-
           </article>
         </div>
 

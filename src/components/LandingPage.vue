@@ -17,16 +17,17 @@ const currentStep = ref(1)
 
 const exploreCards = [
   {
-    title: 'Vuelos privados',
-    description: 'Cotiza rutas ejecutivas, internacionales y traslados prioritarios.',
-    link: '/vuelos',
+    title: 'Renta de aeronaves',
+    description:
+      'Consulta disponibilidad para rutas ejecutivas, internacionales y traslados prioritarios.',
+    link: '/renta-aeronaves',
     cta: 'Cotizar',
     icon: 'jet',
   },
   {
     title: 'Renta de aeronaves',
     description: 'Consulta disponibilidad por capacidad, autonomía y tipo de cabina.',
-    link: '/servicios',
+    link: '/renta-aeronaves',
     cta: 'Explorar',
     icon: 'fleet',
   },
@@ -117,8 +118,8 @@ const primaryStories = [
     description:
       'Planea viajes de descanso, hospitalidad o reuniones fuera de ciudad con una experiencia aérea más rápida y mejor coordinada.',
     cta: 'Ver escapadas',
-    link: '/vuelos',
-    image:''
+    link: '/renta-aeronaves',
+    image: '',
   },
   {
     title: 'Opera cuando quieras, responde cuando lo necesites',
@@ -157,7 +158,7 @@ function previousStep() {
 
 function openAvailability() {
   router.push({
-    name: 'vuelos',
+    name: 'renta-aeronaves',
     query: {
       origin: form.origin,
       destination: form.destination,
@@ -177,12 +178,12 @@ function openAvailability() {
         <p class="eyebrow">Aviación privada premium</p>
         <h1>Reserva tu vuelo primero. Mejora la experiencia después.</h1>
         <p class="hero-text">
-          Cotiza y reserva jets privados sin membresia obligatoria. Si vuelas mas seguido,
-          Sky Access agrega ahorros, empty legs, prioridad y concierge dentro del mismo flujo.
+          Cotiza y reserva jets privados sin membresia obligatoria. Si vuelas mas seguido, Sky
+          Access agrega ahorros, empty legs, prioridad y concierge dentro del mismo flujo.
         </p>
 
         <div class="hero-tabs" aria-label="Accesos principales">
-          <RouterLink to="/vuelos" class="tab-chip active">Reservar</RouterLink>
+          <RouterLink to="/renta-aeronaves" class="tab-chip active">Reservar</RouterLink>
           <RouterLink to="/membresias" class="tab-chip">Sky Access</RouterLink>
           <RouterLink to="/plataforma" class="tab-chip">Plataforma</RouterLink>
         </div>
@@ -387,8 +388,8 @@ function openAvailability() {
       <div class="account-copy">
         <h2>Inicia sesión para revisar tu operación en detalle</h2>
         <p>
-          Visualiza solicitudes activas, beneficios premium, documentos y seguimiento en
-          tu cuenta privada.
+          Visualiza solicitudes activas, beneficios premium, documentos y seguimiento en tu cuenta
+          privada.
         </p>
         <div class="account-actions">
           <RouterLink to="/login" class="dark-action">Ingresar a mi cuenta</RouterLink>
@@ -480,8 +481,8 @@ function openAvailability() {
       <div class="showcase-copy">
         <h2>Nuestra vitrina anual de producto ya está aquí</h2>
         <p>
-          Descubre mejoras en cotización, flujos operativos, membresías y control por
-          rol para toda la experiencia Sky Group.
+          Descubre mejoras en cotización, flujos operativos, membresías y control por rol para toda
+          la experiencia Sky Group.
         </p>
         <div class="highlight-list">
           <article v-for="item in platformHighlights" :key="item.title">
@@ -504,10 +505,10 @@ function openAvailability() {
       <div class="story-copy">
         <h2>Genera ingresos rentando capacidad aérea disponible</h2>
         <p>
-          Integra aeronaves disponibles, responde oportunidades mejor filtradas y lleva
-          control comercial y operativo desde una misma vista.
+          Integra aeronaves disponibles, responde oportunidades mejor filtradas y lleva control
+          comercial y operativo desde una misma vista.
         </p>
-        <RouterLink to="/servicios" class="dark-action compact">Ver oportunidades</RouterLink>
+        <RouterLink to="/renta-aeronaves" class="dark-action compact">Ver oportunidades</RouterLink>
       </div>
     </section>
 

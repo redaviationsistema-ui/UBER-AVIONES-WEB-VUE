@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { api } from '../../lib/api'
 import { pickCollection, requestWithCandidates } from '../../lib/backendCrud'
 import { fallbackAdminFlags, fallbackAdminKpis, fallbackAdminUsers } from '../../data/platform'
@@ -11,7 +11,16 @@ import AdminCrudSection from './AdminCrudSection.vue'
 import AdminExecutiveSection from './AdminExecutiveSection.vue'
 import AdminImportsSection from './AdminImportsSection.vue'
 import AdminProvidersNetworkSection from './AdminProvidersNetworkSection.vue'
+import AdminReservationsSection from './AdminReservationsSection.vue'
 import AdminUsersSection from './AdminUsersSection.vue'
+import { normalizeWorkflowLabel } from '../../utils/flightWorkflow'
+import { emitWorkflowSync } from '../../lib/workflowSync'
+import {
+  delayAdminReservation,
+  getAdminReservations,
+  resumeAdminReservation,
+  updateAdminReservationStage,
+} from './adminReservationsApi'
 
 const props = defineProps({
   section: { type: String, required: true },
@@ -27,6 +36,9 @@ const subscriptions = ref([])
 const crewMembers = ref([])
 const operations = ref([])
 const auditEntries = ref([])
+const reservationAuditEntries = ref([])
+const reservationFlowLoading = ref(false)
+const reservationFlowLoadingLabel = ref('')
 
 const displayKpis = [
   { label: 'Ventas del dia', value: '$286,000 MXN', detail: 'Ingresos confirmados durante la jornada.' },
@@ -470,6 +482,21 @@ function normalizeAdminOperation(item = {}, index = 0) {
   return {
     id: item.id || index + 1,
     requestId: item.request_id || item.flight_request_id || item.reservation_id || item.id || '',
+    clientName:
+      item.client_name ||
+      item.customer_name ||
+      item.passenger_name ||
+      item.user?.name ||
+      item.client?.name ||
+      item.customer?.name ||
+      'Cliente por confirmar',
+    clientCompany:
+      item.client_company ||
+      item.company_name ||
+      item.client?.company ||
+      item.customer?.company ||
+      item.user?.company ||
+      '',
     providerId: item.provider_id || item.proveedor_id || providerRecord?.id || match?.provider_id || '',
     aircraftId: item.aircraft_id || item.aeronave_id || aircraftRecord?.id || match?.aircraft_id || '',
     route: item.route || [origin || 'N/D', destination || 'N/D'].join(' - '),
@@ -490,9 +517,17 @@ function normalizeAdminOperation(item = {}, index = 0) {
     departure: item.departure_datetime || item.departure || item.departure_date || item.date || 'Pendiente',
     arrival: item.arrival_datetime || item.arrival || item.return_date || 'Pendiente',
     status: item.status || item.workflow_status || 'Confirmada',
+    workflowStatus: item.workflow_status || item.workflow || item.status || '',
+    paymentStatus: item.payment_status || item.payment?.status || 'Pendiente',
+    contractStatus: item.contract_status || item.contract?.status || 'Pendiente',
+    adminFlowState: item.admin_flow_state || item.flow_control_state || 'active',
+    adminDelayReason: item.admin_delay_reason || item.hold_reason || item.delay_reason || '',
+    adminDelayEta: item.admin_delay_eta || item.hold_eta || item.delay_eta || '',
     notes: item.notes || item.comment || item.briefing_notes || 'Sin comentarios',
   }
 }
+
+const reservationRecords = computed(() => operations.value)
 
 function pushAuditEntry(title, detail) {
   auditEntries.value.unshift({
@@ -612,13 +647,7 @@ async function loadCrewMembers() {
 
 async function loadOperations() {
   try {
-    const response = await requestWithCandidates([
-      { method: 'get', path: '/admin/requests' },
-      { method: 'get', path: '/admin/solicitudes' },
-    ])
-    operations.value = pickCollection(response, ['operations', 'operaciones', 'requests', 'solicitudes', 'data']).map(
-      normalizeAdminOperation,
-    )
+    operations.value = await getAdminReservations()
   } catch {
     operations.value = []
   }
@@ -655,6 +684,11 @@ async function loadPortalSection(section) {
     if (!auditEntries.value.length) {
       pushAuditEntry('Admin listo para auditar sobrecargos', 'Se inicializo la bitacora de validacion y asignacion.')
     }
+    return
+  }
+
+  if (section === 'reservas') {
+    await loadOperations()
     return
   }
 
@@ -829,6 +863,137 @@ async function refreshNetworkState(title, message) {
   ui.pushToast({ tone: 'success', title, message })
 }
 
+function pushReservationAudit(title, detail) {
+  reservationAuditEntries.value.unshift({
+    id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    date: new Date().toISOString().slice(0, 16).replace('T', ' '),
+    title,
+    detail,
+  })
+}
+
+function updateReservationLocalState(reservationId, patch) {
+  const source = operations.value
+  const targetIndex = source.findIndex((item) => item.id === reservationId)
+  if (targetIndex === -1) return null
+
+  const nextRecord = { ...source[targetIndex], ...patch }
+
+  operations.value.splice(targetIndex, 1, nextRecord)
+
+  return nextRecord
+}
+
+async function handleUpdateReservationFlow({ reservationId, nextStage, note }) {
+  const currentReservation = reservationRecords.value.find((item) => item.id === reservationId)
+  if (!currentReservation) return
+
+  try {
+    reservationFlowLoading.value = true
+    reservationFlowLoadingLabel.value = normalizeWorkflowLabel(nextStage)
+    const updatedReservation = await updateAdminReservationStage(currentReservation, nextStage, note, {
+      timeoutMs: 45000,
+    })
+    updateReservationLocalState(reservationId, updatedReservation)
+    emitWorkflowSync({
+      scope: 'reservation-workflow',
+      reservationId,
+      nextStage,
+      action: 'updated',
+    })
+
+    pushReservationAudit(
+      `Flujo actualizado: reserva #${reservationId}`,
+      `${currentReservation.clientName} paso a ${normalizeWorkflowLabel(nextStage)}.${note ? ` ${note}` : ''}`,
+    )
+    ui.pushToast({
+      tone: 'success',
+      title: 'Flujo actualizado',
+      message: `La reserva #${reservationId} ya quedo en ${normalizeWorkflowLabel(nextStage)}.`,
+    })
+  } catch (error) {
+    ui.pushToast({
+      tone: 'error',
+      title: 'No se pudo actualizar el flujo',
+      message: error?.message || 'El backend no confirmó el cambio de etapa.',
+    })
+  } finally {
+    reservationFlowLoading.value = false
+    reservationFlowLoadingLabel.value = ''
+  }
+}
+
+async function handleDelayReservationFlow({ reservationId, reason, eta, note, mode }) {
+  const currentReservation = reservationRecords.value.find((item) => item.id === reservationId)
+  if (!currentReservation) return
+
+  const nextMode = mode || 'delayed'
+
+  try {
+    const updatedReservation = await delayAdminReservation(
+      currentReservation,
+      { mode: nextMode, reason, eta, note },
+      { timeoutMs: 20000 },
+    )
+    updateReservationLocalState(reservationId, updatedReservation)
+    emitWorkflowSync({
+      scope: 'reservation-workflow',
+      reservationId,
+      action: nextMode === 'blocked' ? 'blocked' : 'delayed',
+    })
+
+    const label = nextMode === 'blocked' ? 'bloqueada' : 'retrasada'
+    pushReservationAudit(
+      `Reserva #${reservationId} ${label}`,
+      `${currentReservation.clientName}: ${reason || 'Se marco una pausa administrativa.'}${eta ? ` ETA ${eta}.` : ''}${note ? ` ${note}` : ''}`,
+    )
+    ui.pushToast({
+      tone: nextMode === 'blocked' ? 'warning' : 'info',
+      title: nextMode === 'blocked' ? 'Flujo bloqueado' : 'Flujo retrasado',
+      message: `La reserva #${reservationId} quedo ${label} para seguimiento admin.`,
+    })
+  } catch (error) {
+    ui.pushToast({
+      tone: 'error',
+      title: 'No se pudo guardar la pausa',
+      message: error?.message || 'El backend no confirmó el bloqueo o retraso.',
+    })
+  }
+}
+
+async function handleResumeReservationFlow({ reservationId, note }) {
+  const currentReservation = reservationRecords.value.find((item) => item.id === reservationId)
+  if (!currentReservation) return
+
+  try {
+    const updatedReservation = await resumeAdminReservation(currentReservation, note, {
+      timeoutMs: 20000,
+    })
+    updateReservationLocalState(reservationId, updatedReservation)
+    emitWorkflowSync({
+      scope: 'reservation-workflow',
+      reservationId,
+      action: 'resumed',
+    })
+
+    pushReservationAudit(
+      `Reserva #${reservationId} reactivada`,
+      `${currentReservation.clientName} regreso a flujo activo.${note ? ` ${note}` : ''}`,
+    )
+    ui.pushToast({
+      tone: 'success',
+      title: 'Flujo reanudado',
+      message: `La reserva #${reservationId} ya puede continuar su proceso.`,
+    })
+  } catch (error) {
+    ui.pushToast({
+      tone: 'error',
+      title: 'No se pudo reactivar el flujo',
+      message: error?.message || 'El backend no confirmó la reactivación.',
+    })
+  }
+}
+
 async function handleApproveAircraft(aircraftId) {
   try {
     await requestWithCandidates([
@@ -925,6 +1090,16 @@ watch(
     @suspend-crew="suspendCrew"
     @assign-crew="assignCrewToOperation"
     @audit-crew="auditCrew"
+  />
+  <AdminReservationsSection
+    v-else-if="section === 'reservas'"
+    :reservations="reservationRecords"
+    :audit-entries="reservationAuditEntries"
+    :is-flow-loading="reservationFlowLoading"
+    :flow-loading-label="reservationFlowLoadingLabel"
+    @update-flow="handleUpdateReservationFlow"
+    @delay-flow="handleDelayReservationFlow"
+    @resume-flow="handleResumeReservationFlow"
   />
   <AdminCrudSection
     v-else

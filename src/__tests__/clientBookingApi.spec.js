@@ -7,6 +7,7 @@ import {
   inferEngineType,
   normalizeTrip,
 } from '../features/client/clientBookingApi'
+import { resolveWorkflowState } from '../utils/flightWorkflow'
 
 describe('inferDistanceUnit', () => {
   it('keeps matched_options distance_km values in kilometers by default', () => {
@@ -155,9 +156,91 @@ describe('deriveClientWorkflowStatus', () => {
       }),
     ).toBe('provider_pending')
   })
+
+  it('prioritizes signed contract and pending payment over an outdated provider workflow', () => {
+    expect(
+      deriveClientWorkflowStatus({
+        id: 111,
+        workflow_status: 'proveedor aceptado',
+        contract_status: 'signed',
+        payment_status: 'Pendiente de pago',
+      }),
+    ).toBe('payment_pending')
+  })
+
+  it('prioritizes paid status over an outdated provider workflow', () => {
+    expect(
+      deriveClientWorkflowStatus({
+        id: 112,
+        workflow_status: 'proveedor aceptado',
+        contract_status: 'signed',
+        payment_status: 'Pagado',
+      }),
+    ).toBe('payment_confirmed')
+  })
+
+  it('uses nested reservation payments when the top-level workflow is stale', () => {
+    expect(
+      deriveClientWorkflowStatus({
+        id: 113,
+        workflow_status: 'reserva solicitada',
+        reservation: {
+          status: 'pending_payment',
+          contract: { status: 'generated' },
+          payments: [{ status: 'paid', paid_at: '2026-05-21T21:11:31.000000Z' }],
+        },
+      }),
+    ).toBe('payment_confirmed')
+  })
+
+  it('respects an explicit admin workflow in spanish even if payment is already paid', () => {
+    expect(
+      deriveClientWorkflowStatus({
+        id: 114,
+        workflow_status: 'contrato pendiente',
+        contract_status: 'generated',
+        payment_status: 'Pagado',
+      }),
+    ).toBe('contrato pendiente')
+  })
+})
+
+describe('resolveWorkflowState', () => {
+  it('keeps payment_confirmed out of the generic payment_pending matcher', () => {
+    expect(resolveWorkflowState('payment_confirmed').id).toBe('payment_confirmed')
+    expect(resolveWorkflowState('payment_confirmed').label).toBe('Pago confirmado')
+  })
+
+  it('labels provider_accepted as respuesta proveedor for client-facing workflow copy', () => {
+    expect(resolveWorkflowState('accepted').id).toBe('provider_accepted')
+    expect(resolveWorkflowState('accepted').label).toBe('Respuesta proveedor')
+  })
 })
 
 describe('normalizeTrip', () => {
+  it('keeps an explicit workflow_status even when reservation payment data suggests a later stage', () => {
+    const trip = normalizeTrip({
+      id: 115,
+      workflow_status: 'vuelo confirmado',
+      status: 'pending_payment',
+      payment_status: 'Pagado',
+      contract_status: 'signed',
+    })
+
+    expect(trip.explicit_workflow_status).toBe('vuelo confirmado')
+    expect(trip.workflow_status).toBe('vuelo confirmado')
+  })
+
+  it('maps accepted request status to respuesta proveedor when normalizing client trips', () => {
+    const trip = normalizeTrip({
+      id: 116,
+      status: 'accepted',
+    })
+
+    expect(trip.workflow_status).toBe('provider_accepted')
+    expect(resolveWorkflowState(trip.workflow_status).label).toBe('Respuesta proveedor')
+  })
+
   it('preserves the confirmed contract amount for the client contract view', () => {
     const trip = normalizeTrip({
       id: 91,

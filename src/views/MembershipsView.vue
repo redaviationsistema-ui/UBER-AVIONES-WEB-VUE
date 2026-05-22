@@ -5,7 +5,8 @@
       <h1>Primero reserva. Después pertenece.</h1>
       <p>
         Cualquier cliente puede cotizar y reservar vuelos privados. La membresia aparece como una
-        mejora opcional para ahorrar, obtener prioridad y sumar concierge cuando ya existe confianza.
+        mejora opcional para ahorrar, obtener prioridad y sumar concierge cuando ya existe
+        confianza.
       </p>
     </section>
 
@@ -42,92 +43,6 @@
       </div>
     </section>
 
-    <section class="plans-section">
-  <span class="section-kicker">Modelo hibrido</span>
-  <h2>Tu sistema queda en tres niveles claros</h2>
-
-  <div class="plans">
-    <article class="plan-card">
-      <div class="plan-top">
-        <span class="plan-badge">Open Market</span>
-        <h3>Reserva libre</h3>
-        <p>Para clientes ocasionales que quieren cotizar y reservar sin suscripcion.</p>
-      </div>
-
-      <div class="plan-price">
-        <strong>Tarifa estandar</strong>
-        <span>Menos friccion, mas conversion</span>
-      </div>
-
-      <ul>
-        <li>Buscar, cotizar y reservar vuelos privados</li>
-        <li>Acceso a aeronaves disponibles</li>
-        <li>Pago por vuelo sin compromiso anual</li>
-        <li>Soporte estandar y seguimiento comercial</li>
-        <li>Historial de solicitudes dentro del portal</li>
-      </ul>
-
-      <RouterLink to="/vuelos" class="plan-button">
-        Cotizar ahora
-      </RouterLink>
-    </article>
-
-    <article class="plan-card featured">
-      <div class="popular-label">Recomendado</div>
-
-      <div class="plan-top">
-        <span class="plan-badge">Member</span>
-        <h3>Sky Access</h3>
-        <p>Para usuarios frecuentes que quieren ahorrar mas y volar con prioridad.</p>
-      </div>
-
-      <div class="plan-price">
-        <strong>Beneficios premium</strong>
-        <span>La mejor experiencia sin bloquear la entrada</span>
-      </div>
-
-      <ul>
-        <li>Mejor tarifa por vuelo</li>
-        <li>Acceso a empty legs y oportunidades tacticas</li>
-        <li>Prioridad en disponibilidad y respuesta</li>
-        <li>Menor fee y experiencia premium</li>
-        <li>Concierge para cambios y requerimientos especiales</li>
-        <li>Upgrade natural despues del primer uso</li>
-      </ul>
-
-      <RouterLink to="/membresias/comenzar" class="plan-button">
-        Ver beneficios
-      </RouterLink>
-    </article>
-
-    <article class="plan-card">
-      <div class="plan-top">
-        <span class="plan-badge">Corporate</span>
-        <h3>Corporate Jet</h3>
-        <p>Para empresas con ejecutivos frecuentes, control financiero y aprobaciones internas.</p>
-      </div>
-
-      <div class="plan-price">
-        <strong>Operacion centralizada</strong>
-        <span>Credito, dashboard y facturacion consolidada</span>
-      </div>
-
-      <ul>
-        <li>Credito y aprobaciones por empresa</li>
-        <li>Dashboard corporativo y facturacion centralizada</li>
-        <li>Gestion de usuarios y ejecutivos frecuentes</li>
-        <li>Prioridad operativa y acompañamiento dedicado</li>
-        <li>Politicas de viaje y trazabilidad</li>
-        <li>Base para futuras jet cards o elite tiers</li>
-      </ul>
-
-      <RouterLink to="/membresias/contacto" class="plan-button">
-        Hablar con ventas
-      </RouterLink>
-    </article>
-  </div>
-</section>
-
     <section class="faq-section">
       <h2>Preguntas frecuentes</h2>
 
@@ -142,7 +57,10 @@
 
         <details>
           <summary>¿Cuando conviene activar Sky Access?</summary>
-          <p>Despues de uno o varios vuelos, cuando el ahorro por tarifa, la prioridad y el concierge ya te generen valor real.</p>
+          <p>
+            Despues de uno o varios vuelos, cuando el ahorro por tarifa, la prioridad y el concierge
+            ya te generen valor real.
+          </p>
         </details>
 
         <details>
@@ -155,7 +73,10 @@
 
         <details>
           <summary>¿Existe una opcion corporativa?</summary>
-          <p>Si. Empresas pueden centralizar credito, usuarios, viajes y facturacion en un mismo flujo.</p>
+          <p>
+            Si. Empresas pueden centralizar credito, usuarios, viajes y facturacion en un mismo
+            flujo.
+          </p>
         </details>
       </div>
     </section>
@@ -163,7 +84,7 @@
     <section class="cta-section">
       <h2>La mejor UX empieza con una reserva, no con una barrera.</h2>
       <p>Cotiza ahora y deja la membresia para el momento en que realmente agregue valor.</p>
-      <RouterLink to="/vuelos" class="cta-button"> Reservar vuelo </RouterLink>
+      <RouterLink to="/renta-aeronaves" class="cta-button"> Reservar renta </RouterLink>
     </section>
   </main>
 </template>
@@ -388,11 +309,11 @@ details p {
 .section-kicker {
   display: inline-flex;
   margin-bottom: 1rem;
-  padding: .45rem .8rem;
+  padding: 0.45rem 0.8rem;
   border-radius: 999px;
   background: #eef2ff;
   color: #0b3a7a;
-  font-size: .82rem;
+  font-size: 0.82rem;
   font-weight: 900;
 }
 
@@ -411,25 +332,25 @@ details p {
   border-radius: 28px;
   background: white;
   border: 1px solid #e7e7e7;
-  box-shadow: 0 18px 50px rgba(0,0,0,.06);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.06);
 }
 
 .plan-card.featured {
   background: #050505;
   color: white;
   transform: translateY(-14px);
-  box-shadow: 0 28px 70px rgba(0,0,0,.22);
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.22);
 }
 
 .popular-label {
   position: absolute;
   top: 1rem;
   right: 1rem;
-  padding: .45rem .75rem;
+  padding: 0.45rem 0.75rem;
   border-radius: 999px;
   background: white;
   color: black;
-  font-size: .78rem;
+  font-size: 0.78rem;
   font-weight: 900;
 }
 
@@ -441,28 +362,28 @@ details p {
 }
 
 .featured .plan-badge {
-  color: rgba(255,255,255,.72);
+  color: rgba(255, 255, 255, 0.72);
 }
 
 .plan-card h3 {
   margin: 0;
   font-size: 2.5rem;
-  letter-spacing: -.04em;
+  letter-spacing: -0.04em;
 }
 
 .plan-card p {
-  margin: .8rem 0 0;
+  margin: 0.8rem 0 0;
   color: #555;
   line-height: 1.6;
 }
 
 .featured p {
-  color: rgba(255,255,255,.72);
+  color: rgba(255, 255, 255, 0.72);
 }
 
 .plan-price {
   display: grid;
-  gap: .2rem;
+  gap: 0.2rem;
   margin: 1.6rem 0;
   padding: 1rem;
   border-radius: 18px;
@@ -470,7 +391,7 @@ details p {
 }
 
 .featured .plan-price {
-  background: rgba(255,255,255,.1);
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .plan-price strong {
@@ -479,11 +400,11 @@ details p {
 
 .plan-price span {
   color: #666;
-  font-size: .9rem;
+  font-size: 0.9rem;
 }
 
 .featured .plan-price span {
-  color: rgba(255,255,255,.65);
+  color: rgba(255, 255, 255, 0.65);
 }
 
 .plan-card ul {
@@ -495,21 +416,21 @@ details p {
 
 .plan-card li {
   position: relative;
-  padding: .7rem 0 .7rem 1.8rem;
+  padding: 0.7rem 0 0.7rem 1.8rem;
   border-bottom: 1px solid #eee;
   color: #333;
 }
 
 .plan-card li::before {
-  content: "✓";
+  content: '✓';
   position: absolute;
   left: 0;
   font-weight: 900;
 }
 
 .featured li {
-  color: rgba(255,255,255,.86);
-  border-bottom-color: rgba(255,255,255,.12);
+  color: rgba(255, 255, 255, 0.86);
+  border-bottom-color: rgba(255, 255, 255, 0.12);
 }
 
 .plan-button {

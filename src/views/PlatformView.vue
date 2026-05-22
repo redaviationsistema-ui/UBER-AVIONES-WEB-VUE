@@ -9,13 +9,13 @@ import SiteFooter from '../components/SiteFooter.vue'
         <span class="eyebrow">Plataforma cliente</span>
         <h1>La plataforma privada para cotizar, reservar y seguir cada vuelo con claridad.</h1>
         <p>
-          Sky Group concentra solicitudes, estados, membresias y coordinacion premium en una
-          sola experiencia clara para el cliente.
+          Sky Group concentra solicitudes, estados, membresias y coordinacion premium en una sola
+          experiencia clara para el cliente.
         </p>
 
         <div class="hero-actions">
           <RouterLink to="/login-cliente" class="primary-btn">Entrar como cliente</RouterLink>
-          <RouterLink to="/vuelos" class="secondary-btn">Explorar vuelos</RouterLink>
+          <RouterLink to="/renta-aeronaves" class="secondary-btn">Explorar renta</RouterLink>
         </div>
       </div>
 
@@ -69,8 +69,8 @@ import SiteFooter from '../components/SiteFooter.vue'
       <div class="use-grid">
         <article>
           <div class="circle">✈</div>
-          <h3>Vuelos privados</h3>
-          <p>Cotizacion y reserva con un flujo claro, premium y facil de seguir.</p>
+          <h3>Renta de aeronaves</h3>
+          <p>Disponibilidad y solicitud con un flujo claro, premium y facil de seguir.</p>
         </article>
 
         <article>

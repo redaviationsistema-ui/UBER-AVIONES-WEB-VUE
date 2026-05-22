@@ -7,6 +7,7 @@ const props = defineProps({
   reservations: { type: Array, required: true },
   selectedId: { type: String, default: '' },
   timeline: { type: Array, required: true },
+  initialTab: { type: String, default: 'proximos' },
 })
 
 defineEmits(['open-contract', 'open-detail', 'open-payment', 'open-concierge'])
@@ -21,6 +22,69 @@ const PROGRESS_STEPS = [
   { key: 'flight', label: 'Vuelo' },
   { key: 'tracking', label: 'Tracking' },
 ]
+
+const STEP_ACTION_COPY = {
+  draft: {
+    title: 'Completar solicitud',
+    detail: 'Aun faltan datos para activar la reserva con el equipo comercial.',
+  },
+  quoted: {
+    title: 'Elegir opcion',
+    detail: 'Selecciona aeronave y paquete para convertir la cotizacion en reserva.',
+  },
+  package_selected: {
+    title: 'Confirmar reserva',
+    detail: 'Tu seleccion ya esta lista para enviarse al flujo operativo.',
+  },
+  reserved: {
+    title: 'Respuesta del proveedor',
+    detail: 'Estamos esperando la aceptacion operativa del proveedor asignado.',
+  },
+  provider_pending: {
+    title: 'Respuesta del proveedor',
+    detail: 'Red Aviation valida disponibilidad, aeronave y ventana operativa.',
+  },
+  provider_accepted: {
+    title: 'Firma de contrato',
+    detail: 'La operacion fue aceptada y ahora toca cerrar el contrato.',
+  },
+  contract_pending: {
+    title: 'Firma de contrato',
+    detail: 'El contrato ya esta listo para firma del cliente.',
+  },
+  contract_signed: {
+    title: 'Confirmacion de pago',
+    detail: 'La firma se completo y el siguiente paso es validar el pago.',
+  },
+  payment_pending: {
+    title: 'Confirmacion de pago',
+    detail: 'Estamos validando el cobro antes de liberar el vuelo.',
+  },
+  payment_confirmed: {
+    title: 'Confirmacion de vuelo',
+    detail: 'El pago ya quedo confirmado y seguimos con la liberacion operativa.',
+  },
+  flight_confirmed: {
+    title: 'Tracking de servicio',
+    detail: 'La aeronave y la salida ya estan confirmadas para el servicio.',
+  },
+  tracking_live: {
+    title: 'Tracking y concierge',
+    detail: 'Tu vuelo ya esta en seguimiento activo con concierge disponible.',
+  },
+  completed: {
+    title: 'Viaje completado',
+    detail: 'La operacion ya termino y queda disponible en tu historial.',
+  },
+  cancelled: {
+    title: 'Viaje cancelado',
+    detail: 'La reserva fue cancelada. Si quieres, armamos una nueva opcion.',
+  },
+  rejected: {
+    title: 'Nueva alternativa',
+    detail: 'El operador rechazo este vuelo. Podemos buscar otra opcion de inmediato.',
+  },
+}
 
 function statusMeta(status = '') {
   const state = resolveWorkflowState(status)
@@ -112,7 +176,7 @@ function shortTripDate(value = '') {
 
 function reservationCode(reservation = {}) {
   const numericId = String(reservation.id || '').padStart(4, '0')
-  return `Reserva SKY-${numericId}`
+  return `${reservation?.is_reservation ? 'Reserva' : 'Solicitud'} SKY-${numericId}`
 }
 
 function airportMeta(code = '') {
@@ -226,29 +290,24 @@ function countdownLabel(value = '') {
 }
 
 function nextAction(status = '') {
-  const meta = statusMeta(status)
   const stateId = workflowId(status)
-
-  if (stateId === 'rejected') return 'El operador rechazo este vuelo. Nuestro equipo puede ayudarte a buscar otra opcion.'
-  if (stateId === 'reserved') return 'Siguiente paso: Respuesta del proveedor'
-  if (meta.step === 'booking') return 'Siguiente paso: cierre de reserva'
-  if (stateId === 'provider_accepted') return 'Siguiente paso: Firma de contrato'
-  if (stateId === 'contract_signed') return 'Siguiente paso: Confirmacion de pago'
-  if (meta.step === 'provider') return 'Siguiente paso: Respuesta del proveedor'
-  if (meta.step === 'contract') return 'Siguiente paso: Firma de contrato'
-  if (meta.step === 'payment') return 'Siguiente paso: Confirmacion de pago'
-  if (meta.step === 'flight') return 'Siguiente paso: Confirmacion de vuelo'
-  return 'Siguiente paso: tracking y concierge'
+  const copy = STEP_ACTION_COPY[stateId] || STEP_ACTION_COPY.reserved
+  return `Siguiente paso: ${copy.title}`
 }
 
 function nextActionDetail(status = '') {
-  const action = nextAction(status)
+  const stateId = workflowId(status)
+  return (STEP_ACTION_COPY[stateId] || STEP_ACTION_COPY.reserved).detail
+}
 
-  if (!action.startsWith('Siguiente paso: ')) {
-    return action
-  }
+function flightActionLabel(reservation = {}) {
+  const stateId = workflowId(reservation.workflow_status || reservation.status)
 
-  return action.replace('Siguiente paso: ', '')
+  if (stateId === 'tracking_live') return '📡 Tracking en vivo'
+  if (stateId === 'flight_confirmed') return '🛫 Vuelo confirmado'
+  if (stateId === 'payment_confirmed') return '🛫 Liberando vuelo'
+  if (stateId === 'payment_pending') return '🛫 Esperando validacion'
+  return '🛫 Vuelo por confirmar'
 }
 
 function hasWorkflowIn(status = '', states = []) {
@@ -263,6 +322,8 @@ function contractEnabled(reservation = {}) {
 }
 
 function paymentEnabled(reservation = {}) {
+  if (!reservation?.is_reservation) return false
+
   return hasWorkflowIn(reservation.workflow_status || reservation.status, [
     'contract_signed',
     'payment_pending',
@@ -308,7 +369,7 @@ function reservationTab(reservation = {}) {
       'payment_pending',
     ].includes(state.id)
   ) {
-    return 'en_proceso'
+    return 'proximos'
   }
 
   return 'proximos'
@@ -316,9 +377,12 @@ function reservationTab(reservation = {}) {
 
 const tabOptions = [
   { key: 'proximos', label: 'Proximos' },
-  { key: 'en_proceso', label: 'En proceso' },
   { key: 'historial', label: 'Historial' },
 ]
+
+function normalizeTabKey(value = '') {
+  return tabOptions.some((tab) => tab.key === value) ? value : 'proximos'
+}
 
 const filteredReservations = computed(() =>
   props.reservations.filter((reservation) => reservationTab(reservation) === activeTab.value),
@@ -331,6 +395,14 @@ const selectedReservation = computed(
     ) ||
     filteredReservations.value[0] ||
     null,
+)
+
+watch(
+  () => props.initialTab,
+  (nextTab) => {
+    activeTab.value = normalizeTabKey(nextTab)
+  },
+  { immediate: true },
 )
 
 watch(
@@ -429,7 +501,10 @@ watch(
           class="step-pill"
           :class="`step-pill--${step.state}`"
         >
-          {{ step.state === 'done' ? '✓' : step.state === 'active' ? '●' : '○' }} {{ step.label }}
+          <span class="step-pill__icon">
+            {{ step.state === 'done' ? '✓' : step.state === 'active' ? '●' : '○' }}
+          </span>
+          <span>{{ step.label }}</span>
         </span>
       </div>
 
@@ -465,6 +540,7 @@ watch(
 
         <article class="executive-card">
           <strong>Siguiente paso:</strong>
+          <span>{{ nextAction(selectedReservation.workflow_status || selectedReservation.status) }}</span>
           <span>{{
             nextActionDetail(selectedReservation.workflow_status || selectedReservation.status)
           }}</span>
@@ -505,7 +581,7 @@ watch(
         </button>
         <button
         >
-          🛩 pendiente
+          {{ flightActionLabel(selectedReservation) }}
         </button>
         <button
           type="button"
@@ -786,9 +862,26 @@ button:disabled {
   font-weight: 700;
 }
 
+.step-pill__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
 .step-pill--done {
   background: #e5f7ea;
   color: #14673a;
+}
+
+.step-pill--done .step-pill__icon {
+  background: #1b7a45;
+  color: #ffffff;
 }
 
 .step-pill--active {
@@ -796,9 +889,20 @@ button:disabled {
   color: #9a6500;
 }
 
+.step-pill--active .step-pill__icon {
+  background: #b57a00;
+  color: #ffffff;
+}
+
 .step-pill--todo {
   background: #f1ede7;
   color: #7a7266;
+}
+
+.step-pill--todo .step-pill__icon {
+  background: #ffffff;
+  color: #8c8376;
+  border: 1px solid #d7cfbf;
 }
 
 .legs-grid {

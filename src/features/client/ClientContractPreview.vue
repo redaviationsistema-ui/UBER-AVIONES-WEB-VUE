@@ -10,9 +10,17 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['confirm'])
+const logoSrc = '/logo.png'
+const manufacturerMarks = ['Learjet', 'Hawker', 'Beechcraft', 'Cessna', 'Dassault Aviation']
+const supportPhones = ['+52 558 618 6576', '+52 722 112 6671', '+1 305 464 6394']
+const supportEmail = 'sales@redskyg.com'
+const supportWebsite = 'https://redskyg.com/mx'
 const signatureInput = ref(null)
 const uploadedSignatureName = ref('')
 const uploadedSignatureUrl = ref('')
+const uploadedSignatureDataUrl = ref('')
+const uploadedSignatureMimeType = ref('')
+const uploadedSignatureSize = ref(0)
 const signatureError = ref('')
 
 function resetUploadedSignature() {
@@ -22,6 +30,9 @@ function resetUploadedSignature() {
 
   uploadedSignatureUrl.value = ''
   uploadedSignatureName.value = ''
+  uploadedSignatureDataUrl.value = ''
+  uploadedSignatureMimeType.value = ''
+  uploadedSignatureSize.value = 0
   signatureError.value = ''
 
   if (signatureInput.value) {
@@ -33,7 +44,16 @@ function openSignaturePicker() {
   signatureInput.value?.click()
 }
 
-function handleSignatureUpload(event) {
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(new Error('No pudimos leer la firma seleccionada.'))
+    reader.readAsDataURL(file)
+  })
+}
+
+async function handleSignatureUpload(event) {
   const [file] = Array.from(event?.target?.files || [])
 
   if (!file) {
@@ -58,9 +78,17 @@ function handleSignatureUpload(event) {
     URL.revokeObjectURL(uploadedSignatureUrl.value)
   }
 
-  uploadedSignatureUrl.value = URL.createObjectURL(file)
-  uploadedSignatureName.value = file.name || 'firma.png'
-  signatureError.value = ''
+  try {
+    uploadedSignatureDataUrl.value = await readFileAsDataUrl(file)
+    uploadedSignatureUrl.value = URL.createObjectURL(file)
+    uploadedSignatureName.value = file.name || 'firma.png'
+    uploadedSignatureMimeType.value = file.type || 'image/png'
+    uploadedSignatureSize.value = Number(file.size || 0)
+    signatureError.value = ''
+  } catch (error) {
+    resetUploadedSignature()
+    signatureError.value = error?.message || 'No pudimos procesar la firma.'
+  }
 }
 
 onBeforeUnmount(() => {
@@ -130,6 +158,26 @@ function formatCurrency(value) {
     currency: 'USD',
     maximumFractionDigits: 0,
   }).format(Number(value || 0))
+}
+
+function resolveEntityIdentifier(value) {
+  if (value === null || value === undefined) return ''
+
+  if (typeof value === 'string' || typeof value === 'number') {
+    return String(value).trim()
+  }
+
+  if (typeof value === 'object') {
+    return (
+      resolveEntityIdentifier(value.id) ||
+      resolveEntityIdentifier(value.reservation_id) ||
+      resolveEntityIdentifier(value.flight_request_id) ||
+      resolveEntityIdentifier(value.request_id) ||
+      ''
+    )
+  }
+
+  return ''
 }
 
 function parsePrice(value) {
@@ -257,11 +305,25 @@ function resolveReservationFinalPrice(reservation = {}) {
 }
 
 const reservationCode = computed(() => {
+  if (resolvedContractSnapshot.value.reservation_code) {
+    return resolvedContractSnapshot.value.reservation_code
+  }
+
   const baseId = String(props.reservationId || props.reservation?.id || '').trim()
   return baseId ? `SKY-${baseId.padStart(4, '0')}` : 'SKY-PENDIENTE'
 })
 
 const itinerarySegments = computed(() => {
+  if (resolvedContractSnapshot.value.itinerary_segments.length) {
+    return resolvedContractSnapshot.value.itinerary_segments.map((segment, index) => ({
+      key: `snapshot-leg-${index + 1}`,
+      order: segment.order || index + 1,
+      origin: segment.origin || 'Origen por confirmar',
+      destination: segment.destination || 'Destino por confirmar',
+      departure: segment.departure || '',
+    }))
+  }
+
   const reservation = props.reservation || {}
 
   if (Array.isArray(reservation.legs) && reservation.legs.length) {
@@ -307,6 +369,10 @@ const itinerarySegments = computed(() => {
 })
 
 const routeDisplay = computed(() => {
+  if (resolvedContractSnapshot.value.route) {
+    return resolvedContractSnapshot.value.route
+  }
+
   const reservation = props.reservation || {}
   const firstLeg = itinerarySegments.value[0]
   const lastLeg = itinerarySegments.value[itinerarySegments.value.length - 1]
@@ -318,6 +384,10 @@ const routeDisplay = computed(() => {
 })
 
 const passengerLabel = computed(() => {
+  if (resolvedContractSnapshot.value.passengers) {
+    return resolvedContractSnapshot.value.passengers
+  }
+
   const amount = Number(props.reservation?.passengers || 0)
   if (!amount) return 'Pasajeros por confirmar'
   return `${amount} ${amount === 1 ? 'pasajero' : 'pasajeros'}`
@@ -325,36 +395,135 @@ const passengerLabel = computed(() => {
 
 const aircraftLabel = computed(() => {
   return (
-    props.reservation?.aircraft || props.reservation?.aircraft_category || 'Aeronave por confirmar'
+    resolvedContractSnapshot.value.aircraft ||
+    props.reservation?.aircraft ||
+    props.reservation?.aircraft_category ||
+    'Aeronave por confirmar'
   )
 })
 
 const aircraftCategory = computed(
-  () => props.reservation?.aircraft_category || 'Categoría ejecutiva validada',
+  () =>
+    resolvedContractSnapshot.value.aircraft_category ||
+    props.reservation?.aircraft_category ||
+    'Categoría ejecutiva validada',
 )
 const serviceTier = computed(
-  () => props.reservation?.flight_package || 'Servicio ejecutivo privado',
+  () =>
+    resolvedContractSnapshot.value.service_tier ||
+    props.reservation?.flight_package ||
+    'Servicio ejecutivo privado',
 )
 const operatorLabel = computed(
-  () => props.reservation?.operator || 'Operador confirmado por SKY Group',
+  () =>
+    resolvedContractSnapshot.value.operator ||
+    props.reservation?.operator ||
+    'Operador confirmado por SKY Group',
 )
-const customerLabel = computed(() => props.customerName || 'Cliente de SKY Group')
+const customerLabel = computed(
+  () => resolvedContractSnapshot.value.customer_name || props.customerName || 'Cliente de SKY Group',
+)
 const customerAddress = computed(
   () =>
+    resolvedContractSnapshot.value.customer_address ||
     props.reservation?.client_address ||
     props.reservation?.billing_address ||
     'Domicilio por confirmar',
 )
 const customerRepresentative = computed(
-  () => props.reservation?.client_representative || customerLabel.value,
+  () =>
+    resolvedContractSnapshot.value.customer_representative ||
+    props.reservation?.client_representative ||
+    customerLabel.value,
 )
+const contractRecord = computed(() =>
+  props.reservation?.contract && typeof props.reservation.contract === 'object'
+    ? props.reservation.contract
+    : {},
+)
+const termsSnapshot = computed(() =>
+  contractRecord.value.terms_snapshot && typeof contractRecord.value.terms_snapshot === 'object'
+    ? contractRecord.value.terms_snapshot
+    : {},
+)
+const persistedContractSnapshot = computed(() =>
+  termsSnapshot.value.client_contract_snapshot &&
+  typeof termsSnapshot.value.client_contract_snapshot === 'object'
+    ? termsSnapshot.value.client_contract_snapshot
+    : {},
+)
+const resolvedContractSnapshot = computed(() => ({
+  contract_version:
+    persistedContractSnapshot.value.contract_version ||
+    termsSnapshot.value.contract_version ||
+    'client_contract_v1',
+  reservation_id:
+    persistedContractSnapshot.value.reservation_id ||
+    String(props.reservationId || props.reservation?.id || '').trim(),
+  flight_request_id:
+    persistedContractSnapshot.value.flight_request_id ||
+    String(props.reservation?.flight_request_id || props.reservation?.request_id || '').trim(),
+  reservation_code:
+    persistedContractSnapshot.value.reservation_code ||
+    termsSnapshot.value.reservation_code ||
+    props.reservation?.reservation_code ||
+    reservationCode.value,
+  route: persistedContractSnapshot.value.route || '',
+  departure_date: persistedContractSnapshot.value.departure_date || '',
+  aircraft: persistedContractSnapshot.value.aircraft || '',
+  aircraft_category: persistedContractSnapshot.value.aircraft_category || '',
+  service_tier: persistedContractSnapshot.value.service_tier || '',
+  passengers: persistedContractSnapshot.value.passengers || '',
+  operator:
+    persistedContractSnapshot.value.operator ||
+    termsSnapshot.value.operator_name ||
+    termsSnapshot.value.provider_name ||
+    '',
+  customer_name: persistedContractSnapshot.value.customer_name || '',
+  customer_representative: persistedContractSnapshot.value.customer_representative || '',
+  customer_address: persistedContractSnapshot.value.customer_address || '',
+  contract_date: persistedContractSnapshot.value.contract_date || '',
+  overnight: persistedContractSnapshot.value.overnight || '',
+  final_price:
+    persistedContractSnapshot.value.final_price ||
+    termsSnapshot.value.amount ||
+    termsSnapshot.value.total_amount ||
+    '',
+  deposit_amount: persistedContractSnapshot.value.deposit_amount || '',
+  itinerary_segments: Array.isArray(persistedContractSnapshot.value.itinerary_segments)
+    ? persistedContractSnapshot.value.itinerary_segments
+    : [],
+}))
 const contractDate = computed(() =>
-  formatDate(props.reservation?.updated_at || props.reservation?.created_at || new Date()),
+  resolvedContractSnapshot.value.contract_date ||
+    formatDate(
+      contractRecord.value.signed_at ||
+        contractRecord.value.generated_at ||
+        props.reservation?.updated_at ||
+        props.reservation?.created_at ||
+        new Date(),
+    ),
+)
+const persistedSignatureDataUrl = computed(() => {
+  const signatureRecord =
+    termsSnapshot.value.client_signature && typeof termsSnapshot.value.client_signature === 'object'
+      ? termsSnapshot.value.client_signature
+      : {}
+
+  return String(signatureRecord.data_url || '').trim()
+})
+const activeSignaturePreview = computed(
+  () => uploadedSignatureUrl.value || persistedSignatureDataUrl.value,
 )
 const departureDate = computed(() =>
-  formatDateTime(props.reservation?.date || itinerarySegments.value[0]?.departure || ''),
+  resolvedContractSnapshot.value.departure_date ||
+    formatDateTime(props.reservation?.date || itinerarySegments.value[0]?.departure || ''),
 )
 const overnightLabel = computed(() => {
+  if (resolvedContractSnapshot.value.overnight) {
+    return resolvedContractSnapshot.value.overnight
+  }
+
   const nights = Number(props.reservation?.overnight_nights || 0)
   if (!nights) return 'Sin pernocta registrada'
   return `${nights} ${nights === 1 ? 'pernocta' : 'pernoctas'}`
@@ -366,14 +535,21 @@ const finalPrice = computed(() => {
   const numericFinalPrice = parsePrice(resolvedFinalPrice)
 
   return (
+    resolvedContractSnapshot.value.final_price ||
     reservation.formatted_final_price ||
     reservation.final_price_display ||
-    (typeof resolvedFinalPrice === 'string' && resolvedFinalPrice.trim() ? resolvedFinalPrice : '') ||
+    (typeof resolvedFinalPrice === 'string' && resolvedFinalPrice.trim()
+      ? resolvedFinalPrice
+      : '') ||
     (numericFinalPrice > 0 ? formatCurrency(numericFinalPrice) : 'Monto por confirmar')
   )
 })
 
 const depositAmount = computed(() => {
+  if (resolvedContractSnapshot.value.deposit_amount) {
+    return resolvedContractSnapshot.value.deposit_amount
+  }
+
   const reservation = props.reservation || {}
   const rawAmount = Number(reservation.deposit_amount || reservation.deposit || 0)
   return rawAmount > 0 ? formatCurrency(rawAmount) : 'Por confirmar en Anexo A'
@@ -580,192 +756,285 @@ const clauses = computed(() => [
     ],
   },
 ])
+
+function buildContractSnapshot() {
+  const resolvedReservationId =
+    resolveEntityIdentifier(props.reservationId) || resolveEntityIdentifier(props.reservation)
+  const resolvedFlightRequestId =
+    resolveEntityIdentifier(props.reservation?.flight_request_id) ||
+    resolveEntityIdentifier(props.reservation?.request_id)
+
+  return {
+    contract_version: 'client_contract_v1',
+    reservation_id: resolvedReservationId,
+    flight_request_id: resolvedFlightRequestId,
+    reservation_code: reservationCode.value,
+    route: routeDisplay.value,
+    departure_date: departureDate.value,
+    aircraft: aircraftLabel.value,
+    aircraft_category: aircraftCategory.value,
+    service_tier: serviceTier.value,
+    passengers: passengerLabel.value,
+    operator: operatorLabel.value,
+    customer_name: customerLabel.value,
+    customer_representative: customerRepresentative.value,
+    customer_address: customerAddress.value,
+    contract_date: contractDate.value,
+    overnight: overnightLabel.value,
+    final_price: finalPrice.value,
+    deposit_amount: depositAmount.value,
+    itinerary_segments: itinerarySegments.value.map((segment) => ({
+      order: segment.order,
+      origin: segment.origin,
+      destination: segment.destination,
+      departure: formatDateTime(segment.departure),
+    })),
+  }
+}
+
+function handleConfirmClick() {
+  if (!uploadedSignatureDataUrl.value) {
+    signatureError.value = 'Carga una firma antes de confirmar el contrato.'
+    return
+  }
+
+  const resolvedReservationId =
+    resolveEntityIdentifier(props.reservationId) || resolveEntityIdentifier(props.reservation)
+  const resolvedFlightRequestId =
+    resolveEntityIdentifier(props.reservation?.flight_request_id) ||
+    resolveEntityIdentifier(props.reservation?.request_id)
+
+  signatureError.value = ''
+  emit('confirm', {
+    contract_snapshot: buildContractSnapshot(),
+    id: resolvedReservationId,
+    reservation: resolvedReservationId,
+    reservation_id: resolvedReservationId,
+    booking_id: resolvedReservationId,
+    flight_request: resolvedFlightRequestId,
+    flight_request_id: resolvedFlightRequestId,
+    signature: {
+      name: uploadedSignatureName.value || 'firma.png',
+      mime_type: uploadedSignatureMimeType.value || 'image/png',
+      size: uploadedSignatureSize.value || 0,
+      data_url: uploadedSignatureDataUrl.value,
+    },
+  })
+}
 </script>
 
 <template>
   <article class="contract-preview">
-    <header class="contract-header">
-      <div>
-        <span class="eyebrow">Contrato {{ reservationId || reservation?.id || '' }}</span>
-        <h2>Contrato completo de prestación de servicios de aviación ejecutiva</h2>
-        <p>
-          Esta vista integra el texto base del contrato y lo completa con la información dinámica de
-          la reserva antes de la firma.
-        </p>
-      </div>
-      <div class="contract-badge">
-        <strong>{{ finalPrice }}</strong>
-        <span>Costo total del servicio</span>
-      </div>
-    </header>
-
-    <section class="contract-summary">
-      <article class="summary-card summary-card--route">
-        <span>Ruta contratada</span>
-        <strong>{{ routeDisplay }}</strong>
-        <small>{{ departureDate }}</small>
-      </article>
-      <article class="summary-card">
-        <span>Aeronave</span>
-        <strong>{{ aircraftLabel }}</strong>
-        <small>{{ aircraftCategory }}</small>
-      </article>
-      <article class="summary-card">
-        <span>Servicio</span>
-        <strong>{{ serviceTier }}</strong>
-        <small>{{ passengerLabel }}</small>
-      </article>
-    </section>
-
     <section class="contract-sheet">
-      <div class="contract-sheet__head">
-        <strong>Contrato de prestación de servicios de aviación ejecutiva</strong>
-        <span>Referencia {{ reservationCode }}</span>
-      </div>
+      <header class="contract-brandbar">
+        <div class="contract-brandbar__main">
+          <img :src="logoSrc" alt="Sky Group" class="contract-brandbar__logo" />
+          <p>
+            Aircraft maintenance services including airframe, turbines, reciprocating engines,
+            avionics, component repair, and air taxi operations.
+          </p>
+        </div>
+        <div class="contract-brandbar__marks">
+          <span v-for="mark in manufacturerMarks" :key="mark">{{ mark }}</span>
+        </div>
+      </header>
 
-      <div class="contract-block">
-        <p class="contract-opening">
-          El presente Contrato se celebra en la fecha <strong>{{ contractDate }}</strong
-          >.
-        </p>
-        <p>
-          ENTRE <strong>RED AVIATION COMPANY S.A. DE C.V.</strong>, sociedad constituida conforme a
-          las leyes de los Estados Unidos Mexicanos, con domicilio en Circuito Alfonso G. de Orozco,
-          Manzana 007, C.P. 50225, San Miguel Totoltepec, Toluca de Lerdo, Estado de México,
-          legalmente representada en este acto por José Luis Hernández Ortiz, quien cuenta con
-          facultades suficientes para este acto, en lo sucesivo el
-          <strong>Prestador del Servicio</strong>.
-        </p>
-        <p>
-          Y <strong>{{ customerLabel }}</strong
-          >, persona física o moral según corresponda, con domicilio en
-          <strong>{{ customerAddress }}</strong
-          >, por su propio derecho o representada en este acto por
-          <strong>{{ customerRepresentative }}</strong
-          >, quien declara contar con la capacidad jurídica y/o facultades suficientes para
-          obligarse en los términos del presente Contrato, en lo sucesivo el
-          <strong>Cliente</strong>.
-        </p>
-      </div>
-
-      <div class="contract-block">
-        <h3>CONSIDERANDO QUE</h3>
-        <ul class="contract-list">
-          <li v-for="item in considerations" :key="item">{{ item }}</li>
-        </ul>
-      </div>
-
-      <div class="contract-block">
-        <h3>ANEXO “A” </h3>
-        <div class="annex-table-wrap">
-          <table class="annex-table">
-            <tbody>
-              <tr>
-                <th scope="row">Reserva</th>
-                <td>{{ reservationCode }}</td>
-                <th scope="row">Cliente</th>
-                <td>{{ customerLabel }}</td>
-              </tr>
-              <tr>
-                <th scope="row">Operador</th>
-                <td>{{ operatorLabel }}</td>
-                <th scope="row">Ruta</th>
-                <td>{{ routeDisplay }}</td>
-              </tr>
-              <tr>
-                <th scope="row">Salida</th>
-                <td>{{ departureDate }}</td>
-                <th scope="row">Aeronave</th>
-                <td>{{ aircraftLabel }}</td>
-              </tr>
-              <tr>
-                <th scope="row">Cabina</th>
-                <td>{{ aircraftCategory }}</td>
-                <th scope="row">Pasajeros</th>
-                <td>{{ passengerLabel }}</td>
-              </tr>
-              <tr>
-                <th scope="row">Pernocta</th>
-                <td>{{ overnightLabel }}</td>
-                <th scope="row">Servicio</th>
-                <td>{{ serviceTier }}</td>
-              </tr>
-              <tr>
-                <th scope="row">Costo total</th>
-                <td>{{ finalPrice }}</td>
-                <th scope="row">Depósito</th>
-                <td>{{ depositAmount }}</td>
-              </tr>
-            </tbody>
-          </table>
+      <div class="contract-sheet__body">
+        <div class="contract-watermark" aria-hidden="true">
+          <img :src="logoSrc" alt="" />
         </div>
 
-        <div class="annex-legs">
-          <strong>Itinerario</strong>
+        <div class="contract-sheet__head">
+          <span class="eyebrow">Contrato {{ reservationId || reservation?.id || '' }}</span>
+          <strong>ANEXO “A”</strong>
+          <small>
+            {{ contractRecord.contract_code || reservationCode }}
+            <span v-if="contractRecord.signed_at || contractRecord.generated_at">
+              · {{ formatDate(contractRecord.signed_at || contractRecord.generated_at) }}
+            </span>
+          </small>
+        </div>
+
+        <section class="contract-summary">
+          <article class="summary-card summary-card--route">
+            <span>Ruta contratada</span>
+            <strong>{{ routeDisplay }}</strong>
+            <small>{{ departureDate }}</small>
+          </article>
+          <article class="summary-card">
+            <span>Aeronave</span>
+            <strong>{{ aircraftLabel }}</strong>
+            <small>{{ aircraftCategory }}</small>
+          </article>
+          <article class="summary-card">
+            <span>Servicio</span>
+            <strong>{{ serviceTier }}</strong>
+            <small>{{ passengerLabel }}</small>
+          </article>
+          <article class="summary-card">
+            <span>Costo total</span>
+            <strong>{{ finalPrice }}</strong>
+            <small>Deposito: {{ depositAmount }}</small>
+          </article>
+        </section>
+
+        <div class="contract-block">
+          <p class="contract-opening">
+            El presente Contrato se celebra en la fecha <strong>{{ contractDate }}</strong
+            >.
+          </p>
+          <p>
+            ENTRE <strong>RED AVIATION COMPANY S.A. DE C.V.</strong>, sociedad constituida conforme
+            a las leyes de los Estados Unidos Mexicanos, con domicilio en Circuito Alfonso G. de
+            Orozco, Manzana 007, C.P. 50225, San Miguel Totoltepec, Toluca de Lerdo, Estado de
+            México, legalmente representada en este acto por José Luis Hernández Ortiz, quien cuenta
+            con facultades suficientes para este acto, en lo sucesivo el
+            <strong>Prestador del Servicio</strong>.
+          </p>
+          <p>
+            Y <strong>{{ customerLabel }}</strong
+            >, persona física o moral según corresponda, con domicilio en
+            <strong>{{ customerAddress }}</strong
+            >, por su propio derecho o representada en este acto por
+            <strong>{{ customerRepresentative }}</strong
+            >, quien declara contar con la capacidad jurídica y/o facultades suficientes para
+            obligarse en los términos del presente Contrato, en lo sucesivo el
+            <strong>Cliente</strong>.
+          </p>
+        </div>
+
+        <div class="contract-block">
+          <h3>CONSIDERANDO QUE</h3>
           <ul class="contract-list">
-            <li v-for="segment in itinerarySegments" :key="segment.key">
-              Tramo {{ segment.order }}: {{ segment.origin }} → {{ segment.destination }}
-              <span v-if="segment.departure"> · {{ formatDateTime(segment.departure) }}</span>
-            </li>
+            <li v-for="item in considerations" :key="item">{{ item }}</li>
           </ul>
         </div>
-      </div>
 
-      <div class="contract-block">
-        <h3>1. DEFINICIONES</h3>
-        <ul class="contract-list">
-          <li v-for="item in definitions" :key="item">{{ item }}</li>
-        </ul>
-      </div>
+        <div class="contract-block">
+          <div class="annex-table-wrap">
+            <table class="annex-table">
+              <tbody>
+                <tr>
+                  <th scope="row">Reserva</th>
+                  <td>{{ reservationCode }}</td>
+                  <th scope="row">Cliente</th>
+                  <td>{{ customerLabel }}</td>
+                </tr>
+                <tr>
+                  <th scope="row">Operador</th>
+                  <td>{{ operatorLabel }}</td>
+                  <th scope="row">Ruta</th>
+                  <td>{{ routeDisplay }}</td>
+                </tr>
+                <tr>
+                  <th scope="row">Salida</th>
+                  <td>{{ departureDate }}</td>
+                  <th scope="row">Aeronave</th>
+                  <td>{{ aircraftLabel }}</td>
+                </tr>
+                <tr>
+                  <th scope="row">Cabina</th>
+                  <td>{{ aircraftCategory }}</td>
+                  <th scope="row">Pasajeros</th>
+                  <td>{{ passengerLabel }}</td>
+                </tr>
+                <tr>
+                  <th scope="row">Pernocta</th>
+                  <td>{{ overnightLabel }}</td>
+                  <th scope="row">Servicio</th>
+                  <td>{{ serviceTier }}</td>
+                </tr>
+                <tr>
+                  <th scope="row">Costo total</th>
+                  <td>{{ finalPrice }}</td>
+                  <th scope="row">Depósito</th>
+                  <td>{{ depositAmount }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
 
-      <div v-for="clause in clauses" :key="clause.title" class="contract-block">
-        <h3>{{ clause.title }}</h3>
-        <p v-for="paragraph in clause.paragraphs || []" :key="paragraph">{{ paragraph }}</p>
-        <ul v-if="clause.items?.length" class="contract-list">
-          <li v-for="item in clause.items" :key="item">{{ item }}</li>
-        </ul>
-      </div>
-
-      <div class="contract-block">
-        <h3>CUENTAS PARA PAGO</h3>
-        <div class="accounts-grid">
-          <article v-for="account in bankAccounts" :key="account.bank" class="account-card">
-            <strong>{{ account.bank }}</strong>
-            <span>Cuenta: {{ account.account }}</span>
-            <span>CLABE: {{ account.clabe }}</span>
-            <span>Beneficiario: {{ account.beneficiary }}</span>
-            <span>RFC: {{ account.rfc }}</span>
-          </article>
+          <div class="annex-legs">
+            <strong>Itinerario</strong>
+            <ul class="contract-list">
+              <li v-for="segment in itinerarySegments" :key="segment.key">
+                Tramo {{ segment.order }}: {{ segment.origin }} → {{ segment.destination }}
+                <span v-if="segment.departure"> · {{ formatDateTime(segment.departure) }}</span>
+              </li>
+            </ul>
+          </div>
         </div>
-      </div>
 
-      <div class="contract-block">
-        <h3>FIRMAS</h3>
-        <div class="signatures-grid">
-          <article class="signature-card">
-            <span>Prestador del Servicio</span>
-            <strong>RED AVIATION COMPANY S.A. DE C.V.</strong>
-            <small>Nombre: José Luis Hernández Ortiz</small>
-            <small>Cargo: Representante Legal</small>
-            <div class="signature-line"></div>
-            <small>Firma</small>
-          </article>
-          <article class="signature-card">
-            <span>Cliente</span>
-            <strong>{{ customerLabel }}</strong>
-            <small>Por: {{ customerRepresentative }}</small>
-            <small>Cargo: Cliente / Representante</small>
-            <div class="signature-line signature-line--client">
-              <img
-                v-if="uploadedSignatureUrl"
-                :src="uploadedSignatureUrl"
-                :alt="`Firma cargada por ${customerLabel}`"
-                class="signature-image"
-              />
-            </div>
-            <small>Firma</small>
-          </article>
+        <div class="contract-block">
+          <h3>1. DEFINICIONES</h3>
+          <ul class="contract-list">
+            <li v-for="item in definitions" :key="item">{{ item }}</li>
+          </ul>
         </div>
+
+        <div v-for="clause in clauses" :key="clause.title" class="contract-block">
+          <h3>{{ clause.title }}</h3>
+          <p v-for="paragraph in clause.paragraphs || []" :key="paragraph">{{ paragraph }}</p>
+          <ul v-if="clause.items?.length" class="contract-list">
+            <li v-for="item in clause.items" :key="item">{{ item }}</li>
+          </ul>
+        </div>
+
+        <div class="contract-block">
+          <h3>CUENTAS PARA PAGO</h3>
+          <div class="accounts-grid">
+            <article v-for="account in bankAccounts" :key="account.bank" class="account-card">
+              <strong>{{ account.bank }}</strong>
+              <span>Cuenta: {{ account.account }}</span>
+              <span>CLABE: {{ account.clabe }}</span>
+              <span>Beneficiario: {{ account.beneficiary }}</span>
+              <span>RFC: {{ account.rfc }}</span>
+            </article>
+          </div>
+        </div>
+
+        <div class="contract-block">
+          <h3>FIRMAS</h3>
+          <div class="signatures-grid">
+            <article class="signature-card">
+              <span>Prestador del Servicio</span>
+              <strong>RED AVIATION COMPANY S.A. DE C.V.</strong>
+              <small>Nombre: José Luis Hernández Ortiz</small>
+              <small>Cargo: Representante Legal</small>
+              <div class="signature-line"></div>
+              <small>Firma</small>
+            </article>
+            <article class="signature-card">
+              <span>Cliente</span>
+              <strong>{{ customerLabel }}</strong>
+              <small>Por: {{ customerRepresentative }}</small>
+              <small>Cargo: Cliente / Representante</small>
+              <div class="signature-line signature-line--client">
+                <img
+                  v-if="activeSignaturePreview"
+                  :src="activeSignaturePreview"
+                  :alt="`Firma cargada por ${customerLabel}`"
+                  class="signature-image"
+                />
+              </div>
+              <small>Firma</small>
+            </article>
+          </div>
+        </div>
+
+        <footer class="contract-footer">
+          <div class="contract-footer__line"></div>
+          <div class="contract-footer__meta">
+            <p>Números telefónicos: {{ supportPhones.join(' I ') }}</p>
+            <p>
+              Correo electrónico:
+              <a :href="`mailto:${supportEmail}`">{{ supportEmail }}</a>
+              I Página web:
+              <a :href="supportWebsite" target="_blank" rel="noreferrer">{{ supportWebsite }}</a>
+            </p>
+          </div>
+          <span class="contract-footer__page">Página 1 de 8</span>
+        </footer>
       </div>
     </section>
 
@@ -778,15 +1047,17 @@ const clauses = computed(() => [
           class="signature-input"
           @change="handleSignatureUpload"
         />
-        <div v-if="uploadedSignatureUrl" class="signature-uploaded">
+        <div v-if="activeSignaturePreview" class="signature-uploaded">
           <img
-            :src="uploadedSignatureUrl"
+            :src="activeSignaturePreview"
             :alt="`Firma cargada por ${customerLabel}`"
             class="signature-uploaded__image"
           />
           <div class="signature-uploaded__meta">
-            <strong>Firma cargada</strong>
-            <span>{{ uploadedSignatureName }}</span>
+            <strong class="signature-ready-badge">{{
+              uploadedSignatureUrl ? '✓ Firma lista' : '✓ Firma guardada'
+            }}</strong>
+            <span>{{ uploadedSignatureName || 'Firma persistida en contrato' }}</span>
           </div>
         </div>
         <div v-else class="signature-box__copy">
@@ -816,7 +1087,7 @@ const clauses = computed(() => [
         type="button"
         class="signature-panel__submit"
         :disabled="props.submitting"
-        @click="emit('confirm')"
+        @click="handleConfirmClick"
       >
         {{ props.submitting ? 'Procesando firma...' : 'Firmar contrato' }}
       </button>
@@ -831,24 +1102,14 @@ const clauses = computed(() => [
   gap: 1rem;
 }
 
-.contract-header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 1rem;
-  align-items: start;
-}
-
-.contract-header h2,
 .contract-block h3 {
   margin: 0;
   color: #111111;
   font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif;
 }
 
-.contract-header p,
 .contract-block p,
 .contract-list li,
-.contract-badge span,
 .signature-box__copy span,
 .signature-note,
 .account-card span,
@@ -866,26 +1127,9 @@ const clauses = computed(() => [
   text-transform: uppercase;
 }
 
-.contract-badge {
-  display: grid;
-  gap: 0.18rem;
-  min-width: 220px;
-  padding: 1rem 1.1rem;
-  border: 1px solid rgba(191, 151, 65, 0.22);
-  border-radius: 18px;
-  background: linear-gradient(180deg, #fffaf0, #ffffff);
-  text-align: right;
-}
-
-.contract-badge strong {
-  color: #111111;
-  font-size: clamp(1.6rem, 2.2vw, 2rem);
-  line-height: 1;
-}
-
 .contract-summary {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.85rem;
 }
 
@@ -898,10 +1142,11 @@ const clauses = computed(() => [
 }
 
 .summary-card {
+  position: relative;
   display: grid;
   gap: 0.3rem;
   padding: 1rem;
-  background: linear-gradient(180deg, rgba(255, 250, 242, 0.82), #ffffff);
+  background: rgba(255, 255, 255, 0.94);
 }
 
 .summary-card span,
@@ -929,19 +1174,96 @@ const clauses = computed(() => [
 .contract-sheet {
   display: grid;
   gap: 1rem;
-  padding: clamp(1rem, 2vw, 1.35rem);
+  overflow: hidden;
+  border-radius: 28px;
+  background: #ffffff;
+  box-shadow: 0 18px 48px rgba(17, 17, 17, 0.08);
+}
+
+.contract-brandbar {
+  display: grid;
+  gap: 1rem;
+  padding: 1.5rem clamp(1rem, 3vw, 2rem);
+  background: #17212b;
+  color: #ffffff;
+}
+
+.contract-brandbar__main {
+  display: grid;
+  gap: 0.9rem;
+  align-items: center;
+}
+
+.contract-brandbar__logo {
+  width: min(360px, 58vw);
+  filter: brightness(0) invert(1);
+}
+
+.contract-brandbar__main p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 0.88rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.contract-brandbar__marks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem 1.25rem;
+  justify-content: flex-end;
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+}
+
+.contract-sheet__body {
+  position: relative;
+  display: grid;
+  gap: 1rem;
+  padding: clamp(1.25rem, 2.5vw, 1.8rem);
+  border: 2px solid #9d9790;
+  border-top: 0;
+}
+
+.contract-watermark {
+  position: absolute;
+  inset: 14rem 0 auto 0;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.contract-watermark img {
+  width: min(58%, 620px);
+  opacity: 0.09;
+  filter: grayscale(1);
 }
 
 .contract-sheet__head {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  justify-content: space-between;
-  padding-bottom: 0.9rem;
-  border-bottom: 1px solid #ece6d8;
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 0.4rem;
+  justify-items: center;
+  padding: 0.35rem 0 0.9rem;
+  text-align: center;
+}
+
+.contract-sheet__head strong {
+  font-size: clamp(1.5rem, 2vw, 1.9rem);
+  letter-spacing: 0.04em;
+}
+
+.contract-sheet__head small {
+  color: #625d55;
+  font-weight: 700;
 }
 
 .contract-block {
+  position: relative;
+  z-index: 1;
   display: grid;
   gap: 0.6rem;
 }
@@ -1007,7 +1329,7 @@ const clauses = computed(() => [
   padding: 0.9rem;
   border: 1px solid #e9e2d4;
   border-radius: 16px;
-  background: #faf8f3;
+  background: rgba(250, 248, 243, 0.94);
 }
 
 .accounts-grid,
@@ -1030,6 +1352,40 @@ const clauses = computed(() => [
   align-items: flex-end;
   justify-content: flex-start;
   overflow: hidden;
+}
+
+.contract-footer {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 0.65rem;
+  padding-top: 1.2rem;
+}
+
+.contract-footer__line {
+  height: 3px;
+  background: #2f2f2f;
+}
+
+.contract-footer__meta {
+  display: grid;
+  gap: 0.4rem;
+  color: #2f2f2f;
+  font-size: 0.92rem;
+}
+
+.contract-footer__meta p {
+  margin: 0;
+}
+
+.contract-footer__meta a {
+  color: #2b69d6;
+}
+
+.contract-footer__page {
+  justify-self: end;
+  color: #2b69d6;
+  font-size: 0.96rem;
 }
 
 .signature-panel {
@@ -1056,6 +1412,18 @@ const clauses = computed(() => [
   display: grid;
   gap: 0.35rem;
   text-align: center;
+}
+
+.signature-ready-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  width: fit-content;
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  background: #e5f7ea;
+  color: #14673a;
 }
 
 .signature-uploaded {
@@ -1129,11 +1497,14 @@ const clauses = computed(() => [
 }
 
 @media (max-width: 900px) {
-  .contract-header,
   .contract-summary,
   .accounts-grid,
   .signatures-grid {
     grid-template-columns: 1fr;
+  }
+
+  .contract-brandbar__marks {
+    justify-content: flex-start;
   }
 
   .signature-actions {
@@ -1161,10 +1532,25 @@ const clauses = computed(() => [
   .annex-table td {
     border-bottom: 0;
   }
+}
 
-  .contract-badge {
-    min-width: 0;
-    text-align: left;
+@media (max-width: 640px) {
+  .contract-sheet__body {
+    padding: 1rem;
+  }
+
+  .contract-footer__page {
+    justify-self: start;
+  }
+}
+
+@media print {
+  .signature-panel {
+    display: none;
+  }
+
+  .contract-sheet {
+    box-shadow: none;
   }
 }
 </style>

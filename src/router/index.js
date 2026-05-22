@@ -1,7 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 import HomeView from '../views/HomeView.vue'
-import FlightsView from '../views/FlightsView.vue'
 import ServicesView from '../views/ServicesView.vue'
 import PlatformView from '../views/PlatformView.vue'
 import MembershipsView from '../views/MembershipsView.vue'
@@ -35,8 +34,7 @@ const router = createRouter({
     {
       path: '/vuelos',
       name: 'vuelos',
-      component: FlightsView,
-      meta: { hideTopbar: true, redirectAuthenticated: true },
+      redirect: '/renta-aeronaves',
     },
     {
       path: '/servicios',
@@ -133,12 +131,6 @@ const router = createRouter({
       name: 'admin',
       component: RoleView,
       meta: { requiresAuth: true, role: 'admin' },
-    },
-    {
-      path: '/vuelos',
-      name: 'vuelos',
-      component: FlightsView,
-      meta: { hideTopbar: true },
     },
     {
       path: '/renta-aeronaves',

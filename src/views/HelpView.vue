@@ -8,7 +8,7 @@
     <section class="faq-list">
       <div class="faq-card">
         <h2>¿Cómo cotizo?</h2>
-        <p>Selecciona ruta, horario y preferencias desde Vuelos.</p>
+        <p>Selecciona base, fechas y categoría desde Renta de aeronaves.</p>
       </div>
 
       <div class="faq-card">
@@ -47,6 +47,6 @@
 .faq-card {
   padding: 2rem;
   border-radius: 20px;
-  background: rgba(255,255,255,.04);
+  background: rgba(255, 255, 255, 0.04);
 }
 </style>

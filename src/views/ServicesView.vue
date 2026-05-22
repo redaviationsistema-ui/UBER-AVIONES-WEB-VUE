@@ -3,12 +3,12 @@ import SiteFooter from '../components/SiteFooter.vue'
 
 const serviceCategories = [
   {
-    key: 'vuelos',
+    key: 'renta',
     eyebrow: 'Acceso privado',
-    title: 'Vuelos privados',
+    title: 'Renta de aeronaves',
     description:
-      'Solicita rutas nacionales e internacionales con una experiencia premium, clara y acompanada.',
-    cta: 'Explorar vuelos',
+      'Solicita disponibilidad nacional e internacional con una experiencia premium, clara y acompanada.',
+    cta: 'Explorar renta',
     items: ['Cotizacion guiada', 'Rutas sugeridas', 'Seguimiento premium', 'Concierge'],
     image:
       'https://images.unsplash.com/photo-1517479149777-5f3b1511d5ad?auto=format&fit=crop&w=1200&q=80',
@@ -85,7 +85,14 @@ const flowSteps = [
   },
 ]
 
-const differentiators = ['Atencion premium', 'Seguimiento claro', 'Concierge', 'Membresias', 'Rutas privadas', 'Control cliente']
+const differentiators = [
+  'Atencion premium',
+  'Seguimiento claro',
+  'Concierge',
+  'Membresias',
+  'Rutas privadas',
+  'Control cliente',
+]
 </script>
 
 <template>
@@ -101,14 +108,14 @@ const differentiators = ['Atencion premium', 'Seguimiento claro', 'Concierge', '
           </p>
 
           <div class="hero-actions">
-            <RouterLink to="/vuelos" class="primary-action">Explorar vuelos</RouterLink>
+            <RouterLink to="/renta-aeronaves" class="primary-action">Explorar renta</RouterLink>
             <RouterLink to="/plataforma" class="secondary-action">Ver plataforma</RouterLink>
             <RouterLink to="/login-cliente" class="ghost-action">Entrar como cliente</RouterLink>
           </div>
 
           <div class="hero-indicators">
             <article>
-              <strong>Vuelos privados</strong>
+              <strong>Renta de aeronaves</strong>
               <span>Reserva con una lectura mas clara y premium.</span>
             </article>
             <article>
@@ -137,8 +144,8 @@ const differentiators = ['Atencion premium', 'Seguimiento claro', 'Concierge', '
           <p class="eyebrow">Servicios centrales</p>
           <h2>Una experiencia cliente que mezcla movilidad privada, beneficios y coordinacion.</h2>
           <p>
-            Estas soluciones estan disenadas para clientes que quieren menos friccion y mas
-            claridad antes, durante y despues de cada solicitud.
+            Estas soluciones estan disenadas para clientes que quieren menos friccion y mas claridad
+            antes, durante y despues de cada solicitud.
           </p>
         </div>
 
@@ -160,7 +167,13 @@ const differentiators = ['Atencion premium', 'Seguimiento claro', 'Concierge', '
             </ul>
 
             <RouterLink
-              :to="category.key === 'vuelos' ? '/vuelos' : category.key === 'seguimiento' ? '/plataforma' : '/membresias'"
+              :to="
+                category.key === 'renta'
+                  ? '/renta-aeronaves'
+                  : category.key === 'seguimiento'
+                    ? '/plataforma'
+                    : '/membresias'
+              "
               class="card-link"
             >
               {{ category.cta }}
@@ -205,8 +218,8 @@ const differentiators = ['Atencion premium', 'Seguimiento claro', 'Concierge', '
           <p class="eyebrow">Diferencial</p>
           <h2>Todo esta organizado para que el cliente entienda, decida y avance mejor.</h2>
           <p>
-            El foco aqui no es la complejidad operacional interna, sino la experiencia del cliente
-            y la confianza al reservar.
+            El foco aqui no es la complejidad operacional interna, sino la experiencia del cliente y
+            la confianza al reservar.
           </p>
         </div>
 
@@ -221,14 +234,16 @@ const differentiators = ['Atencion premium', 'Seguimiento claro', 'Concierge', '
       <section class="final-cta">
         <div class="final-cta-shell">
           <p class="eyebrow">Sky Group</p>
-          <h2>Activa tu experiencia cliente con vuelos, membresias y seguimiento premium.</h2>
+          <h2>Activa tu experiencia cliente con renta, membresias y seguimiento premium.</h2>
           <p>
             Entra al portal cliente o explora la plataforma para entender mejor como se ve el
             recorrido completo.
           </p>
 
           <div class="hero-actions">
-            <RouterLink to="/login-cliente" class="primary-action">Entrar al portal cliente</RouterLink>
+            <RouterLink to="/login-cliente" class="primary-action"
+              >Entrar al portal cliente</RouterLink
+            >
             <RouterLink to="/plataforma" class="secondary-action">Ver plataforma</RouterLink>
           </div>
         </div>

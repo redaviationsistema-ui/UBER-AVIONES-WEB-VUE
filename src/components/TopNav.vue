@@ -10,7 +10,7 @@ const router = useRouter()
 const auth = useAuthStore()
 
 const publicLinks = [
-  { label: 'Vuelos', icon: 'jet', to: '/vuelos' },
+  { label: 'Renta', icon: 'jet', to: '/renta-aeronaves' },
   { label: 'Servicios', icon: 'service', to: '/servicios' },
   { label: 'Plataforma', icon: 'grid', to: '/plataforma' },
   { label: 'Membresias', icon: 'membership', to: '/membresias' },
@@ -65,8 +65,12 @@ const currentSectionLabel = computed(
 const workspaceAccountLabel = computed(() => auth.userName)
 const isClientWorkspace = computed(() => activeRole.value === 'client')
 const isCrewWorkspace = computed(() => activeRole.value === 'crew')
-const isLightWorkspace = computed(() => ['client', 'crew', 'operator', 'admin'].includes(activeRole.value))
-const showWorkspaceUser = computed(() => ['client', 'operator', 'crew', 'admin'].includes(activeRole.value))
+const isLightWorkspace = computed(() =>
+  ['client', 'crew', 'operator', 'admin'].includes(activeRole.value),
+)
+const showWorkspaceUser = computed(() =>
+  ['client', 'operator', 'crew', 'admin'].includes(activeRole.value),
+)
 const workspaceThemeClass = computed(() =>
   activeRole.value ? `workspace-topbar--${activeRole.value}` : '',
 )
@@ -535,16 +539,14 @@ onBeforeUnmount(() => {
             >
               <span class="menu-master-copy">
                 <strong>{{ group.label }}</strong>
-                <small v-if="!['admin', 'operator'].includes(activeRole)">{{ group.items.find(isWorkspaceItemActive)?.label || `${group.items.length} modulos` }}</small>
+                <small v-if="!['admin', 'operator'].includes(activeRole)">{{
+                  group.items.find(isWorkspaceItemActive)?.label || `${group.items.length} modulos`
+                }}</small>
               </span>
               <span class="menu-master-caret"></span>
             </button>
 
-            <div
-              v-if="isMenuOpen('desktop', group.label)"
-              class="menu-master-panel"
-              @click.stop
-            >
+            <div v-if="isMenuOpen('desktop', group.label)" class="menu-master-panel" @click.stop>
               <RouterLink
                 v-for="item in group.items"
                 :key="item.id"
@@ -574,10 +576,7 @@ onBeforeUnmount(() => {
       </ul>
 
       <Transition name="crew-menu">
-        <div
-          class="workspace-actions"
-          v-if="!usesMobileDrawer"
-        >
+        <div class="workspace-actions" v-if="!usesMobileDrawer">
           <span v-if="showWorkspaceUser" class="workspace-user">
             <svg class="workspace-action-icon" viewBox="0 0 24 24" aria-hidden="true">
               <path
@@ -635,7 +634,9 @@ onBeforeUnmount(() => {
           <div class="workspace-drawer-main">
             <div class="workspace-drawer-copy">
               <span class="workspace-drawer-role-badge">{{ roleBadgeLabel }}</span>
-              <strong class="workspace-drawer-role-title">{{ roleDisplayNames[activeRole] || activeRole }}</strong>
+              <strong class="workspace-drawer-role-title">{{
+                roleDisplayNames[activeRole] || activeRole
+              }}</strong>
               <p>{{ roleDescriptions[activeRole] }}</p>
             </div>
 
@@ -1682,7 +1683,6 @@ onBeforeUnmount(() => {
 .workspace-drawer-quick-link-primary .workspace-link-icon {
   color: #111111;
 }
-
 
 .workspace-drawer-fade-enter-active,
 .workspace-drawer-fade-leave-active,
