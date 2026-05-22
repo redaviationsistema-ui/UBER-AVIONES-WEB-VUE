@@ -1,13 +1,37 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('../lib/api', async (importOriginal) => {
+  const actual = await importOriginal()
+
+  return {
+    ...actual,
+    api: {
+      ...actual.api,
+      get: vi.fn(),
+      post: vi.fn(),
+      postForm: vi.fn(),
+      patch: vi.fn(),
+      put: vi.fn(),
+      delete: vi.fn(),
+      download: vi.fn(),
+    },
+  }
+})
 
 import {
   buildFlightRequestPayload,
   deriveClientWorkflowStatus,
+  getClientTrips,
   inferDistanceUnit,
   inferEngineType,
   normalizeTrip,
 } from '../features/client/clientBookingApi'
+import { api } from '../lib/api'
 import { resolveWorkflowState } from '../utils/flightWorkflow'
+
+beforeEach(() => {
+  vi.clearAllMocks()
+})
 
 describe('inferDistanceUnit', () => {
   it('keeps matched_options distance_km values in kilometers by default', () => {
@@ -367,5 +391,34 @@ describe('normalizeTrip', () => {
 
     expect(trip.final_price).toBe(15400)
     expect(trip.formatted_final_price).toContain('15,400')
+  })
+})
+
+describe('getClientTrips', () => {
+  it('prefers the freshest reservation workflow when the request payload is stale', async () => {
+    api.get.mockResolvedValue({
+      reservations: [
+        {
+          id: 2,
+          flight_request_id: 111,
+          workflow_status: 'contrato pendiente',
+          updated_at: '2026-05-21T23:57:00.000Z',
+          contract_status: 'generated',
+        },
+      ],
+      flight_requests: [
+        {
+          id: 111,
+          workflow_status: 'proveedor aceptado',
+          updated_at: '2026-05-21T23:40:00.000Z',
+        },
+      ],
+    })
+
+    const trips = await getClientTrips()
+
+    expect(trips).toHaveLength(1)
+    expect(trips[0].workflow_status).toBe('contrato pendiente')
+    expect(resolveWorkflowState(trips[0].workflow_status).id).toBe('contract_pending')
   })
 })

@@ -2038,6 +2038,11 @@ function hasMeaningfulValue(value) {
   return true
 }
 
+function parseComparableTimestamp(value = '') {
+  const timestamp = Date.parse(String(value || '').trim())
+  return Number.isFinite(timestamp) ? timestamp : 0
+}
+
 function workflowRank(value = '') {
   const state = resolveWorkflowState(value)
   const order = [
@@ -2068,6 +2073,23 @@ function preferMostAdvancedWorkflowValue(baseValue = '', detailValue = '') {
   return workflowRank(detailValue) >= workflowRank(baseValue) ? detailValue : baseValue
 }
 
+function pickMostRelevantExplicitWorkflow(baseRecord = {}, detailRecord = {}) {
+  const baseWorkflow = baseRecord.explicit_workflow_status || baseRecord.workflow_status || ''
+  const detailWorkflow = detailRecord.explicit_workflow_status || detailRecord.workflow_status || ''
+
+  if (!hasMeaningfulValue(baseWorkflow)) return detailWorkflow
+  if (!hasMeaningfulValue(detailWorkflow)) return baseWorkflow
+
+  const baseUpdatedAt = parseComparableTimestamp(baseRecord.updated_at || baseRecord.updatedAt)
+  const detailUpdatedAt = parseComparableTimestamp(detailRecord.updated_at || detailRecord.updatedAt)
+
+  if (baseUpdatedAt && detailUpdatedAt && baseUpdatedAt !== detailUpdatedAt) {
+    return baseUpdatedAt > detailUpdatedAt ? baseWorkflow : detailWorkflow
+  }
+
+  return preferMostAdvancedWorkflowValue(baseWorkflow, detailWorkflow)
+}
+
 function mergeTripRecords(baseRecord = {}, detailRecord = {}) {
   const preferredDetailKeys = new Set([
     'matches',
@@ -2095,8 +2117,7 @@ function mergeTripRecords(baseRecord = {}, detailRecord = {}) {
   const merged = { ...baseRecord }
 
   merged.status = preferMostAdvancedWorkflowValue(baseRecord.status, detailRecord.status)
-  merged.explicit_workflow_status =
-    detailRecord.explicit_workflow_status || baseRecord.explicit_workflow_status || ''
+  merged.explicit_workflow_status = pickMostRelevantExplicitWorkflow(baseRecord, detailRecord)
   merged.workflow_status = merged.explicit_workflow_status
     ? merged.explicit_workflow_status
     : preferMostAdvancedWorkflowValue(baseRecord.workflow_status, detailRecord.workflow_status)
@@ -2336,9 +2357,21 @@ export async function getClientTrips(options = {}) {
               deriveClientWorkflowStatus(requestRecord) ||
               ''
             : ''
+          const reservationWorkflowStatus =
+            item.explicit_workflow_status ||
+            item.workflow_status ||
+            deriveClientWorkflowStatus(item) ||
+            ''
+          const freshestExplicitWorkflowStatus = requestRecord
+            ? pickMostRelevantExplicitWorkflow(item, requestRecord)
+            : item.explicit_workflow_status || ''
+          const freshestWorkflowStatus = preferMostAdvancedWorkflowValue(
+            reservationWorkflowStatus,
+            requestWorkflowStatus,
+          )
           const resolvedWorkflowStatus =
-            requestWorkflowStatus ||
-            mergedRecord.explicit_workflow_status ||
+            freshestExplicitWorkflowStatus ||
+            freshestWorkflowStatus ||
             deriveClientWorkflowStatus(mergedRecord) ||
             mergedRecord.workflow_status ||
             mergedRecord.status ||
