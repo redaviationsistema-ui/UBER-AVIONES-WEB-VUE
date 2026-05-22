@@ -1,6 +1,10 @@
 import { api } from '../../lib/api'
 import { pickCollection, requestWithCandidates } from '../../lib/backendCrud'
-import { buildWorkflowApiPayload, resolveWorkflowState } from '../../utils/flightWorkflow'
+import {
+  buildWorkflowApiPayload,
+  resolveSharedWorkflowStatus,
+  resolveWorkflowState,
+} from '../../utils/flightWorkflow'
 import { deriveClientWorkflowStatus, normalizeTrip } from '../client/clientBookingApi'
 
 const configuredTripWorkflowPath = String(
@@ -79,6 +83,34 @@ function buildAdminIdentifiers(record = {}) {
   }
 }
 
+function workflowRank(value = '') {
+  const order = [
+    'draft',
+    'quoted',
+    'package_selected',
+    'reserved',
+    'provider_pending',
+    'provider_accepted',
+    'contract_pending',
+    'contract_signed',
+    'payment_pending',
+    'payment_confirmed',
+    'flight_confirmed',
+    'tracking_live',
+    'completed',
+    'rejected',
+    'cancelled',
+  ]
+  const index = order.indexOf(resolveWorkflowState(value).id)
+  return index === -1 ? 0 : index
+}
+
+function preferMostAdvancedWorkflowValue(baseValue = '', detailValue = '') {
+  if (!String(baseValue || '').trim()) return detailValue
+  if (!String(detailValue || '').trim()) return baseValue
+  return workflowRank(detailValue) >= workflowRank(baseValue) ? detailValue : baseValue
+}
+
 function buildAdminReservationRecord(record = {}) {
   const normalizedTrip = normalizeTrip(record, {
     entityType: record.is_reservation ? 'reservation' : 'flight_request',
@@ -103,14 +135,17 @@ function buildAdminReservationRecord(record = {}) {
   const adminFlow = record.visibility_payload?.admin_flow && typeof record.visibility_payload.admin_flow === 'object'
     ? record.visibility_payload.admin_flow
     : {}
+  const sharedWorkflowValue =
+    resolveSharedWorkflowStatus(enrichedRecord) ||
+    deriveClientWorkflowStatus(enrichedRecord) ||
+    record.workflow_status ||
+    record.workflow ||
+    record.status ||
+    ''
   const resolvedWorkflowValue =
     explicitWorkflowValue && explicitWorkflowId !== 'draft'
-      ? explicitWorkflowValue
-      : deriveClientWorkflowStatus(enrichedRecord) ||
-        record.workflow_status ||
-        record.workflow ||
-        record.status ||
-        ''
+      ? preferMostAdvancedWorkflowValue(explicitWorkflowValue, sharedWorkflowValue)
+      : sharedWorkflowValue
 
   return {
     id: identifiers.reservationId || identifiers.requestId || normalizedTrip.id,

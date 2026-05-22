@@ -1,27 +1,47 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { featuredAirports } from '../../utils/airports'
-import { resolveWorkflowState } from '../../utils/flightWorkflow'
+import {
+  buildSharedFlowStepStates,
+  resolveSharedWorkflowStatus,
+  resolveWorkflowState,
+  SHARED_WORKFLOW_STEPS,
+} from '../../utils/flightWorkflow'
 
 const props = defineProps({
   reservations: { type: Array, required: true },
   selectedId: { type: String, default: '' },
   timeline: { type: Array, required: true },
   initialTab: { type: String, default: 'proximos' },
+  refreshing: { type: Boolean, default: false },
 })
 
-defineEmits(['open-contract', 'open-detail', 'open-payment', 'open-concierge'])
+const emit = defineEmits([
+  'open-contract',
+  'open-detail',
+  'open-payment',
+  'open-concierge',
+  'refresh',
+])
 
 const activeTab = ref('proximos')
 
-const PROGRESS_STEPS = [
-  { key: 'booking', label: 'Reserva' },
-  { key: 'provider', label: 'Respuesta proveedor' },
-  { key: 'contract', label: 'Contrato' },
-  { key: 'payment', label: 'Pago' },
-  { key: 'flight', label: 'Vuelo' },
-  { key: 'tracking', label: 'Tracking' },
-]
+const PROGRESS_STEPS = SHARED_WORKFLOW_STEPS.map((step) => ({
+  key:
+    step.id === 'reserved'
+      ? 'booking'
+      : step.id === 'provider_accepted'
+        ? 'provider'
+        : step.id === 'contract_pending'
+          ? 'contract'
+          : step.id === 'payment_pending'
+            ? 'payment'
+            : step.id === 'flight_confirmed'
+              ? 'flight'
+              : 'tracking',
+  id: step.id,
+  label: step.clientLabel,
+}))
 
 const STEP_ACTION_COPY = {
   draft: {
@@ -118,31 +138,15 @@ function workflowId(status = '') {
 }
 
 function progressSteps(status = '') {
-  const stateId = workflowId(status)
-  const currentStep = statusMeta(status).step
-  const currentIndex = PROGRESS_STEPS.findIndex((step) => step.key === currentStep)
+  const sharedStates = buildSharedFlowStepStates(status)
 
-  return PROGRESS_STEPS.map((step, index) => ({
-    ...step,
-    state:
-      stateId === 'reserved' && step.key === 'booking'
-        ? 'done'
-        : stateId === 'reserved' && step.key === 'provider'
-          ? 'active'
-          : stateId === 'provider_accepted' && step.key === 'provider'
-            ? 'done'
-            : stateId === 'provider_accepted' && step.key === 'contract'
-              ? 'active'
-              : stateId === 'contract_signed' && step.key === 'contract'
-                ? 'done'
-                : stateId === 'contract_signed' && step.key === 'payment'
-                  ? 'active'
-                : index < currentIndex
-                  ? 'done'
-                  : index === currentIndex
-                    ? 'active'
-                    : 'todo',
-  }))
+  return PROGRESS_STEPS.map((step) => {
+    const sharedStep = sharedStates.find((item) => item.id === step.id)
+    return {
+      ...step,
+      state: sharedStep?.state || 'todo',
+    }
+  })
 }
 
 function formatTripDate(value = '') {
@@ -301,7 +305,7 @@ function nextActionDetail(status = '') {
 }
 
 function flightActionLabel(reservation = {}) {
-  const stateId = workflowId(reservation.workflow_status || reservation.status)
+  const stateId = workflowId(reservationWorkflowValue(reservation))
 
   if (stateId === 'tracking_live') return '📡 Tracking en vivo'
   if (stateId === 'flight_confirmed') return '🛫 Vuelo confirmado'
@@ -314,8 +318,22 @@ function hasWorkflowIn(status = '', states = []) {
   return states.includes(resolveWorkflowState(status).id)
 }
 
+function reservationWorkflowValue(reservation = {}) {
+  return (
+    resolveSharedWorkflowStatus({
+      ...(reservation || {}),
+      workflow_status: reservation.workflow_status || reservation.status || '',
+      contract_status: reservation.contract_status || '',
+      payment_status: reservation.payment_status || '',
+    }) ||
+    reservation.workflow_status ||
+    reservation.status ||
+    ''
+  )
+}
+
 function contractEnabled(reservation = {}) {
-  return hasWorkflowIn(reservation.workflow_status || reservation.status, [
+  return hasWorkflowIn(reservationWorkflowValue(reservation), [
     'provider_accepted',
     'contract_pending',
   ])
@@ -324,7 +342,7 @@ function contractEnabled(reservation = {}) {
 function paymentEnabled(reservation = {}) {
   if (!reservation?.is_reservation) return false
 
-  return hasWorkflowIn(reservation.workflow_status || reservation.status, [
+  return hasWorkflowIn(reservationWorkflowValue(reservation), [
     'contract_signed',
     'payment_pending',
     'payment_confirmed',
@@ -335,7 +353,7 @@ function paymentEnabled(reservation = {}) {
 }
 
 function conciergeEnabled(reservation = {}) {
-  return hasWorkflowIn(reservation.workflow_status || reservation.status, [
+  return hasWorkflowIn(reservationWorkflowValue(reservation), [
     'reserved',
     'provider_pending',
     'provider_accepted',
@@ -350,7 +368,7 @@ function conciergeEnabled(reservation = {}) {
 }
 
 function reservationTab(reservation = {}) {
-  const state = resolveWorkflowState(reservation.workflow_status || reservation.status)
+  const state = resolveWorkflowState(reservationWorkflowValue(reservation))
 
   if (['completed', 'cancelled', 'rejected'].includes(state.id)) {
     return 'historial'
@@ -424,10 +442,21 @@ watch(
 
 <template>
   <section class="active-trips">
-    <div class="screen-head">
-      <span class="eyebrow">Viajes</span>
-      <h2>Activos, proximos e historial en un solo lugar.</h2>
-      <p>Tu experiencia de vuelo privado, pagos y seguimiento viven dentro de cada reserva.</p>
+    <div class="screen-head screen-head--actions">
+      <div>
+        <span class="eyebrow">Viajes</span>
+        <h2>Activos, proximos e historial en un solo lugar.</h2>
+        <p>Tu experiencia de vuelo privado, pagos y seguimiento viven dentro de cada reserva.</p>
+      </div>
+
+      <button
+        class="refresh-button"
+        type="button"
+        :disabled="props.refreshing"
+        @click="emit('refresh')"
+      >
+        {{ props.refreshing ? 'Recargando...' : 'Recargar viajes' }}
+      </button>
     </div>
 
     <div class="tabs">
@@ -469,10 +498,10 @@ watch(
         </div>
         <span
           class="status-badge"
-          :class="`status-badge--${statusMeta(selectedReservation.workflow_status || selectedReservation.status).tone}`"
+          :class="`status-badge--${statusMeta(reservationWorkflowValue(selectedReservation)).tone}`"
         >
-          {{ statusMeta(selectedReservation.workflow_status || selectedReservation.status).icon }}
-          {{ statusMeta(selectedReservation.workflow_status || selectedReservation.status).label }}
+          {{ statusMeta(reservationWorkflowValue(selectedReservation)).icon }}
+          {{ statusMeta(reservationWorkflowValue(selectedReservation)).label }}
         </span>
       </div>
 
@@ -481,22 +510,20 @@ watch(
           <span
             class="progress-bar"
             :style="{
-              width: `${statusMeta(selectedReservation.workflow_status || selectedReservation.status).progress}%`,
+              width: `${statusMeta(reservationWorkflowValue(selectedReservation)).progress}%`,
             }"
           ></span>
         </div>
         <strong
           >{{
-            statusMeta(selectedReservation.workflow_status || selectedReservation.status).progress
+            statusMeta(reservationWorkflowValue(selectedReservation)).progress
           }}%</strong
         >
       </div>
 
       <div class="progress-steps">
         <span
-          v-for="step in progressSteps(
-            selectedReservation.workflow_status || selectedReservation.status,
-          )"
+          v-for="step in progressSteps(reservationWorkflowValue(selectedReservation))"
           :key="step.key"
           class="step-pill"
           :class="`step-pill--${step.state}`"
@@ -540,9 +567,9 @@ watch(
 
         <article class="executive-card">
           <strong>Siguiente paso:</strong>
-          <span>{{ nextAction(selectedReservation.workflow_status || selectedReservation.status) }}</span>
+          <span>{{ nextAction(reservationWorkflowValue(selectedReservation)) }}</span>
           <span>{{
-            nextActionDetail(selectedReservation.workflow_status || selectedReservation.status)
+            nextActionDetail(reservationWorkflowValue(selectedReservation))
           }}</span>
           <span v-if="selectedReservation.flight_package"
             >🎟 {{ selectedReservation.flight_package }}</span
@@ -613,6 +640,14 @@ watch(
   max-width: 760px;
 }
 
+.screen-head--actions {
+  max-width: none;
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
 .eyebrow {
   color: #8b6a24;
   font-size: 0.76rem;
@@ -664,6 +699,12 @@ button {
     transform 0.18s ease,
     box-shadow 0.18s ease,
     background 0.18s ease;
+}
+
+.refresh-button {
+  flex-shrink: 0;
+  background: #111111;
+  color: #ffffff;
 }
 
 button:hover {
@@ -948,6 +989,12 @@ button:disabled {
     gap: 0.9rem;
   }
 
+  .screen-head--actions {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+    display: grid;
+  }
+
   h2 {
     font-size: clamp(1.75rem, 9vw, 2.35rem);
   }
@@ -959,6 +1006,7 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 
+  .refresh-button,
   .tabs button,
   .card-actions button {
     width: 100%;

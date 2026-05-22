@@ -147,6 +147,45 @@ const WORKFLOW_DEFINITIONS = {
   },
 }
 
+export const SHARED_WORKFLOW_STEPS = [
+  {
+    id: 'reserved',
+    shortLabel: 'Reserva',
+    title: 'Reserva solicitada',
+    clientLabel: 'Reserva',
+  },
+  {
+    id: 'provider_accepted',
+    shortLabel: 'Proveedor',
+    title: 'Respuesta proveedor',
+    clientLabel: 'Respuesta proveedor',
+  },
+  {
+    id: 'contract_pending',
+    shortLabel: 'Contrato',
+    title: 'Contrato pendiente',
+    clientLabel: 'Contrato',
+  },
+  {
+    id: 'payment_pending',
+    shortLabel: 'Pago',
+    title: 'Pago pendiente',
+    clientLabel: 'Pago',
+  },
+  {
+    id: 'flight_confirmed',
+    shortLabel: 'Vuelo',
+    title: 'Vuelo confirmado',
+    clientLabel: 'Vuelo',
+  },
+  {
+    id: 'tracking_live',
+    shortLabel: 'Tracking',
+    title: 'Tracking activo',
+    clientLabel: 'Tracking',
+  },
+]
+
 function normalizeTerm(value) {
   return String(value || '')
     .trim()
@@ -155,6 +194,10 @@ function normalizeTerm(value) {
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[_-]+/g, ' ')
     .replace(/\s+/g, ' ')
+}
+
+export function normalizeWorkflowToken(value) {
+  return normalizeTerm(value)
 }
 
 export function resolveWorkflowState(value) {
@@ -183,6 +226,270 @@ export function resolveWorkflowState(value) {
   }
 
   return { id: 'draft', ...WORKFLOW_DEFINITIONS.draft }
+}
+
+function nestedReservationRecord(record = {}) {
+  if (!record || typeof record !== 'object') return null
+
+  return (
+    record.reservation ||
+    record.flight_request ||
+    record.request ||
+    record.trip ||
+    null
+  )
+}
+
+function listRequestMatches(record = {}) {
+  if (!record || typeof record !== 'object') return []
+
+  const matches = [
+    ...(Array.isArray(record.matches) ? record.matches : []),
+    ...(Array.isArray(record.matched_options) ? record.matched_options : []),
+    ...(Array.isArray(record.request_matches) ? record.request_matches : []),
+  ]
+
+  return matches.filter((item) => item && typeof item === 'object')
+}
+
+function pickAcceptedRequestMatch(record = {}) {
+  const matches = listRequestMatches(record)
+  return (
+    matches.find((match) =>
+      ['accepted', 'aceptada', 'aceptado', 'approved', 'aprobada', 'aprobado'].includes(
+        normalizeWorkflowToken(match?.status || match?.workflow_status || match?.state),
+      ),
+    ) || null
+  )
+}
+
+export function resolveSharedWorkflowStatus(record = {}) {
+  if (!record || typeof record !== 'object') {
+    return ''
+  }
+
+  const nestedReservation = nestedReservationRecord(record)
+  const rawWorkflow =
+    record.workflow_status ||
+    record.workflow ||
+    nestedReservation?.workflow_status ||
+    record.status ||
+    nestedReservation?.status ||
+    ''
+  const normalizedWorkflow = normalizeWorkflowToken(rawWorkflow)
+  const normalizedContractStatus = normalizeWorkflowToken(
+    record.contract?.status ||
+      record.contract_status ||
+      nestedReservation?.contract?.status ||
+      nestedReservation?.contract_status ||
+      '',
+  )
+  const normalizedPaymentStatus = normalizeWorkflowToken(
+    record.payment?.status ||
+      record.payment_status ||
+      record.payment_order?.status ||
+      nestedReservation?.payment?.status ||
+      nestedReservation?.payment_status ||
+      '',
+  )
+  const hasExplicitAssignedProvider = Boolean(record.assigned_provider_id)
+  const hasExplicitAssignedAircraft = Boolean(record.assigned_aircraft_id)
+  const hasSelectedProvider = Boolean(record.provider_id)
+  const hasSelectedAircraft = Boolean(record.aircraft_id)
+  const hasSelectedMatch = Boolean(record.match_id || record.matched_option_id)
+  const hasOperation = Boolean(
+    record.operation?.id ||
+      record.operation_id ||
+      nestedReservation?.operation?.id ||
+      nestedReservation?.operation_id ||
+      record.operaciones?.[0]?.id,
+  )
+  const acceptedMatch = pickAcceptedRequestMatch(record)
+  const hasAcceptedMatch = Boolean(acceptedMatch)
+  const matches = listRequestMatches(record)
+  const hasRejectedMatch = matches.some((match) =>
+    ['rejected', 'rechazada', 'rechazado', 'declined'].includes(
+      normalizeWorkflowToken(match?.status || match?.workflow_status || match?.state),
+    ),
+  )
+  const hasPendingMatch = matches.some((match) =>
+    ['pending', 'pendiente', 'sent to provider', 'sent_to_provider'].includes(
+      normalizeWorkflowToken(match?.status || match?.workflow_status || match?.state),
+    ),
+  )
+
+  const contractOrLaterStates = new Set([
+    'contract pending',
+    'contrato pendiente',
+    'contract signed',
+    'contrato firmado',
+    'payment pending',
+    'pago pendiente',
+    'payment confirmed',
+    'pago confirmado',
+    'flight confirmed',
+    'vuelo confirmado',
+    'tracking live',
+    'tracking en vivo',
+    'completed',
+    'finalizada',
+    'finalizado',
+    'cancelled',
+    'cancelada',
+    'cancelado',
+    'rejected',
+    'rechazada',
+    'rechazado',
+  ])
+  const rejectedSignals = new Set([
+    'rejected',
+    'rechazada',
+    'rechazado',
+    'declined',
+    'sin opciones disponibles',
+    'no options available',
+  ])
+  const providerAcceptedSignals = new Set([
+    'aceptada',
+    'aceptado',
+    'accepted',
+    'approved',
+    'aprobada',
+    'aprobado',
+    'provider accepted',
+    'provider_accepted',
+    'operador confirmado',
+    'matched',
+  ])
+  const providerPendingSignals = new Set([
+    'provider pending',
+    'provider_pending',
+    'buscando operador',
+    'buscando aeronave',
+    'matching',
+    'matching en proceso',
+    'in validation',
+    'en validacion',
+    'revision operativa',
+    'operador asignado',
+  ])
+  const genericConfirmedSignals = new Set(['confirmada', 'confirmado'])
+  const paymentConfirmedSignals = new Set([
+    'paid',
+    'pagado',
+    'pagada',
+    'payment confirmed',
+    'payment_confirmed',
+  ])
+  const paymentPendingSignals = new Set([
+    'pending',
+    'pendiente',
+    'pendiente de pago',
+    'payment pending',
+    'payment_pending',
+    'requires payment method',
+    'requires_payment_method',
+  ])
+
+  if (contractOrLaterStates.has(normalizedWorkflow)) {
+    return rawWorkflow
+  }
+
+  if (paymentConfirmedSignals.has(normalizedPaymentStatus)) {
+    return 'payment_confirmed'
+  }
+
+  if (paymentPendingSignals.has(normalizedPaymentStatus) && normalizedContractStatus === 'signed') {
+    return 'payment_pending'
+  }
+
+  if (normalizedContractStatus === 'signed') {
+    return 'contract_signed'
+  }
+
+  if (['generated', 'en firma', 'firma pendiente'].includes(normalizedContractStatus)) {
+    return 'contract_pending'
+  }
+
+  if (rejectedSignals.has(normalizedWorkflow)) {
+    return 'rejected'
+  }
+
+  if (providerAcceptedSignals.has(normalizedWorkflow) || hasAcceptedMatch) {
+    return 'provider_accepted'
+  }
+
+  if (hasOperation) {
+    return 'contract_pending'
+  }
+
+  if (providerPendingSignals.has(normalizedWorkflow)) {
+    return 'provider_pending'
+  }
+
+  if (genericConfirmedSignals.has(normalizedWorkflow)) {
+    if (hasAcceptedMatch || hasExplicitAssignedProvider || hasExplicitAssignedAircraft) {
+      return 'provider_accepted'
+    }
+
+    return 'provider_pending'
+  }
+
+  if (hasRejectedMatch && !hasAcceptedMatch && !hasPendingMatch) {
+    return 'rejected'
+  }
+
+  if ((hasSelectedProvider || hasSelectedAircraft || hasSelectedMatch) && !normalizedWorkflow) {
+    return 'provider_pending'
+  }
+
+  if ((hasExplicitAssignedProvider || hasExplicitAssignedAircraft) && !normalizedWorkflow) {
+    return 'provider_pending'
+  }
+
+  return rawWorkflow
+}
+
+export function resolveSharedVisualWorkflowStepId(value = '') {
+  const workflowId = resolveWorkflowState(value).id
+
+  if (workflowId === 'provider_pending') return 'provider_accepted'
+  if (workflowId === 'contract_signed') return 'contract_pending'
+  if (workflowId === 'payment_confirmed') return 'payment_pending'
+  if (workflowId === 'completed') return 'tracking_live'
+
+  return workflowId
+}
+
+export function resolveSharedWorkflowStageTitle(value = '') {
+  const workflowId = resolveWorkflowState(value).id
+
+  if (workflowId === 'provider_pending') return 'Esperando proveedor'
+  if (workflowId === 'contract_pending') return 'Contrato pendiente'
+  if (workflowId === 'contract_signed') return 'Contrato firmado'
+  if (workflowId === 'payment_pending') return 'Pago pendiente'
+  if (workflowId === 'payment_confirmed') return 'Pago confirmado'
+
+  return normalizeWorkflowLabel(value)
+}
+
+export function buildSharedFlowStepStates(value = '') {
+  const visualStepId = resolveSharedVisualWorkflowStepId(value)
+  const currentIndex = SHARED_WORKFLOW_STEPS.findIndex((step) => step.id === visualStepId)
+
+  return SHARED_WORKFLOW_STEPS.map((step, index) => ({
+    ...step,
+    state:
+      currentIndex === -1
+        ? index === 0
+          ? 'active'
+          : 'todo'
+        : index < currentIndex
+          ? 'done'
+          : index === currentIndex
+            ? 'active'
+            : 'todo',
+  }))
 }
 
 export function normalizeWorkflowLabel(value) {

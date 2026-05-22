@@ -4,7 +4,17 @@ import { useRouter } from 'vue-router'
 import { requestWithCandidates, pickCollection, pickRecord } from '../../lib/backendCrud'
 import { resolveMediaUrl } from '../../lib/api'
 import { resolveProviderIdForUser } from '../../lib/providerContext'
-import { buildWorkflowApiPayload } from '../../utils/flightWorkflow'
+import {
+  buildSharedFlowStepStates,
+  buildWorkflowApiPayload,
+  normalizeWorkflowLabel,
+  resolveSharedVisualWorkflowStepId,
+  resolveSharedWorkflowStatus,
+  resolveWorkflowState,
+  SHARED_WORKFLOW_STEPS,
+} from '../../utils/flightWorkflow'
+import { emitWorkflowSync, subscribeWorkflowSync } from '../../lib/workflowSync'
+import { deriveClientWorkflowStatus } from '../client/clientBookingApi'
 import OperatorCrewSection from './OperatorCrewSection.vue'
 import { useAuthStore } from '../../stores/auth'
 import { useUiStore } from '../../stores/ui'
@@ -21,8 +31,10 @@ const loading = ref(false)
 const refreshingRequests = ref(false)
 const portalLoadSequence = ref(0)
 let portalLoadScheduled = false
-const OPERATOR_REQUESTS_POLL_INTERVAL_MS = 15000
+const OPERATOR_REQUESTS_POLL_INTERVAL_MS = 10000
 let requestsPollTimer = null
+let removeWorkflowSyncSubscription = null
+const OPERATOR_FLOW_STEPS = SHARED_WORKFLOW_STEPS
 const companyId = ref(null)
 const settings = reactive({
   emailNotifications: false,
@@ -268,6 +280,14 @@ const aircraftDocumentTypes = [
 const maxAircraftDocumentFiles = 12
 const maxImageDocumentBytes = 8 * 1024 * 1024
 const maxPdfDocumentBytes = 25 * 1024 * 1024
+const configuredTripWorkflowPath = String(
+  import.meta.env.VITE_CLIENT_TRIP_WORKFLOW_PATH || '',
+).trim()
+const operatorWorkflowPathCandidates = [
+  configuredTripWorkflowPath,
+  '/operator/requests/:id/workflow',
+  '/proveedor/solicitudes/:id/workflow',
+].filter((path) => Boolean(path) && !String(path).includes('/admin/'))
 
 const providerId = computed(() =>
   Number(auth.providerId || resolveProviderIdForUser(auth.user) || 0),
@@ -537,10 +557,10 @@ const aircraftOperationalTimeline = computed(() =>
       id: `request-${request.id}`,
       time: formatDateTimeDisplay(request.date),
       title: `Solicitud #${request.id}`,
-      detail: `${getRequestRouteLabel(request)} · ${request.status}`,
-      tone: isRequestAccepted(request.status)
+      detail: `${getRequestRouteLabel(request)} · ${normalizeWorkflowLabel(resolveRequestWorkflowValue(request))}`,
+      tone: isRequestAccepted(request)
         ? 'success'
-        : isRequestRejected(request.status)
+        : isRequestRejected(request)
           ? 'danger'
           : 'warning',
     })),
@@ -947,7 +967,7 @@ const requestKpis = computed(() => {
     (request) => getRequestPriorityMeta(request).tone === 'danger',
   ).length
   const pending = requests.value.filter(
-    (request) => getRequestStatusMeta(request.status).queue === 'new',
+    (request) => getRequestStatusMeta(request).queue === 'new',
   ).length
   const multiLeg = requests.value.filter((request) => buildRequestLegs(request).length > 1).length
   const activeProviders = new Set(requests.value.map((request) => request.providerId).filter(Boolean)).size
@@ -997,33 +1017,33 @@ const requestStatusTabs = computed(() => [
   {
     id: 'all',
     label: 'Activas',
-    count: requests.value.filter((request) => getRequestStatusMeta(request.status).queue !== 'rejected')
+    count: requests.value.filter((request) => getRequestStatusMeta(request).queue !== 'rejected')
       .length,
   },
   {
     id: 'new',
     label: 'Nuevas',
-    count: requests.value.filter((request) => getRequestStatusMeta(request.status).queue === 'new')
+    count: requests.value.filter((request) => getRequestStatusMeta(request).queue === 'new')
       .length,
   },
   {
     id: 'coordination',
     label: 'Coordinacion',
     count: requests.value.filter(
-      (request) => getRequestStatusMeta(request.status).queue === 'coordination',
+      (request) => getRequestStatusMeta(request).queue === 'coordination',
     ).length,
   },
   {
     id: 'confirmed',
     label: 'Aceptadas',
     count: requests.value.filter(
-      (request) => getRequestStatusMeta(request.status).queue === 'confirmed',
+      (request) => getRequestStatusMeta(request).queue === 'confirmed',
     ).length,
   },
 ])
 const archivedRequests = computed(() =>
   [...requests.value]
-    .filter((request) => getRequestStatusMeta(request.status).queue === 'rejected')
+    .filter((request) => getRequestStatusMeta(request).queue === 'rejected')
     .sort((left, right) => {
       const rightDate = parseOperationalDate(right.updatedAt || right.responseLimit || right.date)
       const leftDate = parseOperationalDate(left.updatedAt || left.responseLimit || left.date)
@@ -1038,7 +1058,7 @@ const filteredRequests = computed(() => {
 
   return [...requests.value]
     .filter((request) => {
-      const statusMeta = getRequestStatusMeta(request.status)
+      const statusMeta = getRequestStatusMeta(request)
       const priorityMeta = getRequestPriorityMeta(request)
       const matchesStatus =
         requestStatusFilter.value === 'all'
@@ -1515,6 +1535,21 @@ function normalizeClientLabel(rawClient) {
   return String(rawClient)
 }
 
+function resolveOperatorRequestStatusSource(raw = {}) {
+  return (
+    resolveSharedWorkflowStatus({
+      ...raw,
+      workflow_status: raw.workflow_status || raw.state || '',
+      status: raw.status || '',
+    }) ||
+    deriveClientWorkflowStatus(raw) ||
+    raw.workflow_status ||
+    raw.state ||
+    raw.status ||
+    ''
+  )
+}
+
 function pickPreferredRequestMatch(matches = []) {
   if (!Array.isArray(matches) || !matches.length) return null
 
@@ -1633,6 +1668,8 @@ function resolveRequestResponseLimit(raw = {}) {
 }
 
 function normalizeRequest(raw = {}, index = 0) {
+  const sharedWorkflowStatus = resolveOperatorRequestStatusSource(raw) || 'reserved'
+
   const origin = raw.origin || raw.origin_airport || raw.departure_airport || 'N/D'
   const destination = raw.destination || raw.destination_airport || raw.arrival_airport || 'N/D'
   const departureDateTime =
@@ -1647,6 +1684,8 @@ function normalizeRequest(raw = {}, index = 0) {
 
   return {
     id: raw.id || index + 1,
+    requestId: raw.request_id || raw.flight_request_id || raw.id || '',
+    reservationId: raw.reservation_id || raw.booking_id || raw.id || '',
     client:
       raw.client_name ||
       raw.customer_name ||
@@ -1663,7 +1702,17 @@ function normalizeRequest(raw = {}, index = 0) {
     aircraft: resolveRequestAircraftLabel(raw),
     quote: resolveRequestQuoteValue(raw),
     responseLimit: resolveRequestResponseLimit(raw),
-    status: normalizeRequestStatus(raw.status || raw.workflow_status || raw.state),
+    status: sharedWorkflowStatus,
+    workflowStatus: sharedWorkflowStatus,
+    contractStatus:
+      raw.contract?.status || raw.contract_status || raw.reservation?.contract_status || '',
+    paymentStatus:
+      raw.payment?.status ||
+      raw.payment_status ||
+      raw.payment_order?.status ||
+      raw.reservation?.payment_status ||
+      '',
+    operationId: raw.operation?.id || raw.operation_id || raw.operaciones?.[0]?.id || '',
     internalComment: raw.internal_comment || raw.notes || raw.comment || '',
     requestCode: raw.request_code || raw.code || '',
     tripType: raw.trip_type || raw.flight_type || '',
@@ -1680,27 +1729,34 @@ function normalizeRequest(raw = {}, index = 0) {
     specialRequest: Boolean(raw.special_request || raw.is_special_request),
     requirements,
     rawStatus: raw.status || '',
-    rawWorkflowStatus: raw.workflow_status || raw.state || '',
+    rawWorkflowStatus: resolveOperatorRequestStatusSource(raw),
     specialRequirements:
       raw.special_requirements || raw.requirements_notes || raw.notes || raw.internal_comment || '',
     createdAt: raw.created_at || null,
     updatedAt: raw.updated_at || null,
+    raw,
   }
 }
 
 function normalizeRequestStatus(status = '') {
-  const normalized = String(status).toLowerCase()
-  if (['pending_validation', 'en validacion', 'validating'].includes(normalized))
-    return 'En validacion'
-  if (['accepted', 'aceptada', 'approved'].includes(normalized)) return 'Respuesta proveedor'
-  if (['rejected', 'rechazada', 'declined'].includes(normalized)) return 'Rechazada'
-  return 'Pendiente'
+  const normalized = String(status || '').trim().toLowerCase()
+  if (['pending_validation', 'en validacion', 'validating'].includes(normalized)) {
+    return 'contract_pending'
+  }
+
+  const workflowState = resolveWorkflowState(status).id
+  if (workflowState !== 'draft') return workflowState
+  if (['rejected', 'rechazada', 'declined'].includes(normalized)) return 'rejected'
+  if (['accepted', 'aceptada', 'approved'].includes(normalized)) return 'provider_accepted'
+  if (['pending', 'pendiente'].includes(normalized)) return 'reserved'
+  return 'reserved'
 }
 
 function normalizeOperation(raw = {}, index = 0) {
   return {
     id: raw.id || index + 1,
     requestId: raw.request_id || raw.flight_request_id || raw.reservation_id || '',
+    reservationId: raw.reservation_id || raw.booking_id || '',
     route: raw.route || `${raw.origin || 'N/D'} - ${raw.destination || 'N/D'}`,
     aircraft: raw.aircraft_model || raw.aircraft || 'Por definir',
     crew: raw.crew_label || raw.crew || raw.tripulation || 'Por definir',
@@ -1708,6 +1764,9 @@ function normalizeOperation(raw = {}, index = 0) {
     departure: raw.departure_datetime || raw.departure || 'Pendiente',
     arrival: raw.arrival_datetime || raw.arrival || 'Pendiente',
     status: raw.status || 'Confirmada',
+    workflowStatus: raw.workflow_status || raw.workflow || raw.status || '',
+    contractStatus: raw.contract?.status || raw.contract_status || '',
+    paymentStatus: raw.payment?.status || raw.payment_status || raw.payment_order?.status || '',
     notes: raw.notes || raw.comment || 'Sin comentarios',
     crewStatus: raw.crew_status || raw.crewStatus || '',
     crewStatusLabel: raw.crew_status_label || raw.crewStatusLabel || 'Sin responder',
@@ -1717,7 +1776,45 @@ function normalizeOperation(raw = {}, index = 0) {
     crewCheckinAt: raw.crew_checkin_at || raw.crewCheckinAt || null,
     crewServiceStartedAt: raw.crew_service_started_at || raw.crewServiceStartedAt || null,
     crewServiceCompletedAt: raw.crew_service_completed_at || raw.crewServiceCompletedAt || null,
+    raw,
   }
+}
+
+function findLinkedOperationForRequest(request = {}) {
+  const candidateIds = [
+    request.id,
+    request.requestId,
+    request.reservationId,
+    request.operationId,
+    request.raw?.id,
+    request.raw?.request_id,
+    request.raw?.flight_request_id,
+    request.raw?.reservation_id,
+    request.raw?.booking_id,
+  ]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+
+  if (!candidateIds.length) return null
+
+  return (
+    operations.value.find((operation) => {
+      const operationIds = [
+        operation.id,
+        operation.requestId,
+        operation.reservationId,
+        operation.raw?.id,
+        operation.raw?.request_id,
+        operation.raw?.flight_request_id,
+        operation.raw?.reservation_id,
+        operation.raw?.booking_id,
+      ]
+        .map((value) => String(value || '').trim())
+        .filter(Boolean)
+
+      return operationIds.some((value) => candidateIds.includes(value))
+    }) || null
+  )
 }
 
 function normalizeIncident(raw = {}, index = 0) {
@@ -2871,16 +2968,10 @@ function isRequestSameOperationalDay(value = '') {
 }
 
 function getRequestStatusMeta(statusOrRequest = '') {
-  const status = typeof statusOrRequest === 'object' ? statusOrRequest?.status : statusOrRequest
+  const status = resolveRequestWorkflowValue(statusOrRequest)
+  const workflowState = resolveWorkflowState(status).id
+  const label = normalizeWorkflowLabel(status)
 
-  if (isRequestAccepted(status)) {
-    return {
-      label: 'Respuesta proveedor',
-      tone: 'success',
-      queue: 'confirmed',
-      headline: 'Respuesta del proveedor',
-    }
-  }
   if (isRequestRejected(status)) {
     return {
       label: 'Archivada',
@@ -2891,30 +2982,40 @@ function getRequestStatusMeta(statusOrRequest = '') {
   }
   if (isRequestPendingValidation(status)) {
     return {
-      label: 'En coordinacion',
+      label,
       tone: 'info',
       queue: 'coordination',
-      headline: 'Coordinacion activa',
+      headline: label,
+    }
+  }
+  if (workflowState === 'provider_accepted' || isRequestAccepted(status)) {
+    return {
+      label,
+      tone: 'success',
+      queue: 'confirmed',
+      headline: label,
     }
   }
 
   return {
-    label: 'Nueva',
+    label,
     tone: 'warning',
     queue: 'new',
-    headline: 'Pendiente de decision',
+    headline: label,
   }
 }
 
-function applyLocalRequestStatusUpdate(id, status) {
+function applyLocalRequestStatusUpdate(id, status, workflowStatus = '') {
   const normalizedId = String(id)
   requests.value = requests.value.map((request) => {
     if (String(request.id) !== normalizedId) return request
 
-    const normalizedStatus = status === 'Aceptada' ? 'accepted' : 'rejected'
+    const normalizedStatus =
+      status === 'Aceptada' ? workflowStatus || 'accepted' : 'rejected'
     return {
       ...request,
-      status: status === 'Aceptada' ? 'Respuesta proveedor' : status,
+      status: status === 'Aceptada' ? normalizedStatus : 'rejected',
+      workflowStatus: status === 'Aceptada' ? normalizedStatus : 'rejected',
       rawStatus: normalizedStatus,
       rawWorkflowStatus: normalizedStatus,
     }
@@ -2973,10 +3074,126 @@ function getRequestPriorityMeta(request = {}) {
 }
 
 function getRequestStatusCopy(status = '') {
-  if (isRequestAccepted(status)) return 'Respuesta del proveedor y lista para coordinacion'
+  const workflowState = resolveWorkflowState(resolveRequestWorkflowValue(status)).id
+  if (workflowState === 'reserved' || workflowState === 'provider_pending')
+    return 'La solicitud ya esta en flujo y espera respuesta operativa del proveedor.'
+  if (workflowState === 'provider_accepted' || isRequestAccepted(status))
+    return 'La respuesta operativa ya se registro y el siguiente paso compartido es contrato / firma.'
+  if (workflowState === 'contract_pending')
+    return 'La reserva ya avanzo a contrato y firma del cliente.'
+  if (workflowState === 'contract_signed')
+    return 'El contrato ya fue firmado y el siguiente paso es validar el pago.'
+  if (workflowState === 'payment_pending')
+    return 'El pago esta pendiente o en revision antes de liberar el vuelo.'
+  if (workflowState === 'payment_confirmed')
+    return 'El pago ya fue confirmado y la operacion sigue a liberacion final.'
+  if (workflowState === 'flight_confirmed')
+    return 'La aeronave, tripulacion y salida ya estan confirmadas.'
+  if (workflowState === 'tracking_live')
+    return 'El vuelo ya esta en seguimiento activo.'
   if (isRequestRejected(status)) return 'Rechazada por proveedor'
-  if (isRequestPendingValidation(status)) return 'En validacion operativa'
+  if (isRequestPendingValidation(status)) return 'La reserva ya avanzo en el flujo compartido.'
   return 'Pendiente de decision'
+}
+
+function resolveRequestWorkflowValue(requestOrStatus = '') {
+  if (requestOrStatus && typeof requestOrStatus === 'object') {
+    const linkedOperation = findLinkedOperationForRequest(requestOrStatus)
+    return (
+      resolveSharedWorkflowStatus({
+        ...(requestOrStatus.raw && typeof requestOrStatus.raw === 'object' ? requestOrStatus.raw : {}),
+        ...(linkedOperation?.raw && typeof linkedOperation.raw === 'object' ? linkedOperation.raw : {}),
+        workflow_status:
+          linkedOperation?.workflowStatus ||
+          requestOrStatus.workflowStatus ||
+          requestOrStatus.rawWorkflowStatus ||
+          requestOrStatus.status ||
+          '',
+        status: linkedOperation?.status || requestOrStatus.status || requestOrStatus.rawStatus || '',
+        contract_status: linkedOperation?.contractStatus || requestOrStatus.contractStatus || '',
+        payment_status: linkedOperation?.paymentStatus || requestOrStatus.paymentStatus || '',
+        operation_id: linkedOperation?.id || requestOrStatus.operationId || '',
+      }) ||
+      requestOrStatus.workflowStatus ||
+      requestOrStatus.status ||
+      ''
+    )
+  }
+  return requestOrStatus
+}
+
+function resolveOperatorVisualStepId(value = '') {
+  return resolveSharedVisualWorkflowStepId(value)
+}
+
+function buildOperatorRequestFlowSteps(request = {}) {
+  const workflowValue = resolveRequestWorkflowValue(request)
+  return buildSharedFlowStepStates(workflowValue).map((step) => ({
+    ...step,
+    shortLabel: OPERATOR_FLOW_STEPS.find((item) => item.id === step.id)?.shortLabel || step.shortLabel,
+  }))
+}
+
+function getRequestPrimaryActionLabel(request = {}) {
+  const workflowId = resolveWorkflowState(resolveRequestWorkflowValue(request)).id
+  if (workflowId === 'provider_accepted') return 'Pasar a contrato'
+  if (
+    ['contract_pending', 'contract_signed', 'payment_pending', 'payment_confirmed', 'flight_confirmed', 'tracking_live', 'completed'].includes(
+      workflowId,
+    )
+  ) {
+    return 'Flujo avanzado'
+  }
+  return 'Aceptar'
+}
+
+function getRequestHelperCopy(request = {}) {
+  const workflowId = resolveWorkflowState(resolveRequestWorkflowValue(request)).id
+  if (workflowId === 'provider_accepted') {
+    return 'La respuesta operativa ya quedo registrada en la base de datos. Desde este punto admin y cliente deben ver la misma respuesta del proveedor.'
+  }
+  if (
+    ['contract_pending', 'contract_signed', 'payment_pending', 'payment_confirmed', 'flight_confirmed', 'tracking_live', 'completed'].includes(
+      workflowId,
+    )
+  ) {
+    return 'Esta solicitud ya avanzo mas alla de la respuesta del proveedor y ahora forma parte del mismo flujo compartido que ven admin y cliente.'
+  }
+  return 'Esta es la zona del proveedor para responder la solicitud. Si aceptas, la operacion se asigna; si rechazas, Red Aviation puede reintentar con otra opcion sin exponer tu rechazo al cliente.'
+}
+
+function resolveOperatorDecisionState(request, status) {
+  if (status !== 'Aceptada') return 'rejected'
+  const workflowId = resolveWorkflowState(resolveRequestWorkflowValue(request)).id
+  if (workflowId === 'provider_accepted') return 'contract_pending'
+  return 'accepted'
+}
+
+function canOperatorAcceptRequest(request = {}) {
+  const workflowId = resolveWorkflowState(resolveRequestWorkflowValue(request)).id
+  return ['reserved', 'provider_pending', 'provider_accepted'].includes(workflowId)
+}
+
+function buildOperatorWorkflowCandidates(request, payload) {
+  const targetIds = [
+    request?.requestId,
+    request?.reservationId,
+    request?.raw?.request_id,
+    request?.raw?.flight_request_id,
+    request?.raw?.reservation_id,
+    request?.raw?.booking_id,
+    request?.id,
+  ]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+
+  return [...new Set(targetIds)].flatMap((targetId) =>
+    operatorWorkflowPathCandidates.map((path) => ({
+      method: 'put',
+      path: path.replace(':id', targetId),
+      body: payload,
+    })),
+  )
 }
 
 function getRequestResponseCountdown(request = {}) {
@@ -3322,15 +3539,27 @@ function getAircraftImageByKind(aircraftItem, kind) {
 }
 
 function isRequestAccepted(status = '') {
-  return ['Aceptada', 'Aprobada'].includes(status)
+  const workflowState = resolveWorkflowState(resolveRequestWorkflowValue(status)).id
+  return (
+    ['Aceptada', 'Aprobada', 'Respuesta proveedor'].includes(
+      typeof status === 'string' ? status : '',
+    ) ||
+    workflowState === 'provider_accepted'
+  )
 }
 
 function isRequestRejected(status = '') {
-  return status === 'Rechazada'
+  return (
+    (typeof status === 'string' ? status : '') === 'Rechazada' ||
+    resolveWorkflowState(resolveRequestWorkflowValue(status)).id === 'rejected'
+  )
 }
 
 function isRequestPendingValidation(status = '') {
-  return status === 'En validacion'
+  const workflowState = resolveWorkflowState(resolveRequestWorkflowValue(status)).id
+  return (
+    ['contract_pending', 'contract_signed', 'payment_pending', 'payment_confirmed', 'flight_confirmed', 'tracking_live', 'completed'].includes(workflowState)
+  )
 }
 
 function isIncidentResolved(status = '') {
@@ -4557,9 +4786,10 @@ async function releaseAvailability(id) {
 }
 
 async function updateRequestStatus(id, status) {
+  const request = requests.value.find((item) => String(item.id) === String(id)) || null
   const action = status === 'Aceptada' ? 'accept' : 'reject'
   const translatedAction = status === 'Aceptada' ? 'aceptar' : 'rechazar'
-  const backendStatus = status === 'Aceptada' ? 'accepted' : 'rejected'
+  const backendStatus = resolveOperatorDecisionState(request, status)
   const workflowPayload = buildWorkflowApiPayload(backendStatus)
   const statusPayload = {
     ...workflowPayload,
@@ -4572,6 +4802,7 @@ async function updateRequestStatus(id, status) {
 
   try {
     await requestWithCandidates([
+      ...buildOperatorWorkflowCandidates(request, statusPayload),
       {
         method: 'post',
         path: `/proveedor/solicitudes/${id}/${translatedAction}`,
@@ -4623,7 +4854,7 @@ async function updateRequestStatus(id, status) {
     )
   }
 
-  applyLocalRequestStatusUpdate(id, status)
+  applyLocalRequestStatusUpdate(id, status, backendStatus)
   if (status === 'Aceptada') {
     requestStatusFilter.value = 'confirmed'
     selectedRequestId.value = String(id)
@@ -4631,11 +4862,25 @@ async function updateRequestStatus(id, status) {
   pushHistory('Solicitudes', `Solicitud #${id} ${status === 'Aceptada' ? 'aceptada' : 'rechazada'}`)
   ui.pushToast({
     tone: status === 'Aceptada' ? 'success' : 'info',
-    title: status === 'Aceptada' ? 'Solicitud aceptada' : 'Solicitud rechazada',
+    title:
+      status === 'Aceptada'
+        ? backendStatus === 'contract_pending'
+          ? 'Contrato iniciado'
+          : 'Respuesta proveedor registrada'
+        : 'Solicitud rechazada',
     message:
       status === 'Aceptada'
-        ? 'La aeronave queda bloqueada temporalmente mientras contrato y pago avanzan.'
+        ? backendStatus === 'contract_pending'
+          ? 'La solicitud avanzo a contrato pendiente usando el estado real de la base de datos.'
+          : 'La respuesta del proveedor ya quedo registrada en la base de datos.'
         : 'La plataforma podra reasignar otra aeronave sin exponer el rechazo al cliente.',
+  })
+  emitWorkflowSync({
+    scope: 'reservation-workflow',
+    reservationId: request?.reservationId || request?.requestId || id,
+    requestId: request?.requestId || id,
+    nextStage: backendStatus,
+    action: status === 'Aceptada' ? 'updated' : 'rejected',
   })
   requestStatusUpdate.requestId = null
   requestStatusUpdate.action = ''
@@ -4914,11 +5159,20 @@ onMounted(() => {
   if (typeof document !== 'undefined') {
     document.addEventListener('visibilitychange', handleRequestsVisibilityRefresh)
   }
+  removeWorkflowSyncSubscription = subscribeWorkflowSync((payload = {}) => {
+    if (payload.scope !== 'reservation-workflow') return
+    if (!shouldAutoRefreshRequests()) return
+    void refreshRequestsList({ silent: true })
+  })
   startRequestsPolling()
 })
 
 onBeforeUnmount(() => {
   clearRequestsPolling()
+  if (removeWorkflowSyncSubscription) {
+    removeWorkflowSyncSubscription()
+    removeWorkflowSyncSubscription = null
+  }
   if (typeof window !== 'undefined') {
     window.removeEventListener('focus', handleRequestsVisibilityRefresh)
   }
@@ -6639,9 +6893,10 @@ watch(
           <div>
             <p class="eyebrow">Centro de despacho</p>
             <h2>Solicitudes operativas</h2>
-            <p class="muted helper-copy">
+            <p v-if="false" class="muted helper-copy">
               Escanea la cola, prioriza urgencias y acepta o rechaza solicitudes desde una sola bandeja.
             </p>
+            <p class="muted helper-copy">{{ getRequestHelperCopy(selectedRequest) }}</p>
           </div>
           <div class="requests-head-actions">
             <button
@@ -6762,9 +7017,9 @@ watch(
                 </span>
                 <span
                   class="status-pill status-pill--ghost"
-                  :data-tone="getRequestStatusMeta(request.status).tone"
+                  :data-tone="getRequestStatusMeta(request).tone"
                 >
-                  {{ getRequestStatusMeta(request.status).label }}
+                  {{ getRequestStatusMeta(request).label }}
                 </span>
               </div>
 
@@ -6808,7 +7063,9 @@ watch(
                   type="button"
                   class="ghost-button"
                   :disabled="
-                    isRequestRejected(selectedRequest.status) ||
+                    isRequestRejected(selectedRequest) ||
+                    isRequestAccepted(selectedRequest) ||
+                    isRequestPendingValidation(selectedRequest) ||
                     isUpdatingRequestStatus(selectedRequest.id)
                   "
                   @click="updateRequestStatus(selectedRequest.id, 'Rechazada')"
@@ -6824,7 +7081,8 @@ watch(
                   type="button"
                   class="primary-action"
                   :disabled="
-                    isRequestAccepted(selectedRequest.status) ||
+                    !canOperatorAcceptRequest(selectedRequest) ||
+                    isRequestPendingValidation(selectedRequest) ||
                     isUpdatingRequestStatus(selectedRequest.id)
                   "
                   @click="updateRequestStatus(selectedRequest.id, 'Aceptada')"
@@ -6834,7 +7092,7 @@ watch(
                     class="button-spinner"
                     aria-hidden="true"
                   ></span>
-                  {{ isUpdatingRequestStatus(selectedRequest.id, 'accept') ? 'Aceptando...' : 'Aceptar' }}
+                  {{ isUpdatingRequestStatus(selectedRequest.id, 'accept') ? 'Guardando...' : getRequestPrimaryActionLabel(selectedRequest) }}
                 </button>
               </div>
             </div>
@@ -6859,11 +7117,28 @@ watch(
               </article>
             </div>
 
+            <div class="request-flow-strip">
+              <article
+                v-for="step in buildOperatorRequestFlowSteps(selectedRequest)"
+                :key="step.id"
+                class="request-flow-pill"
+                :data-state="step.state"
+              >
+                <span class="request-flow-pill__index">{{ step.shortLabel }}</span>
+                <strong>{{ step.title }}</strong>
+              </article>
+            </div>
+
             <div class="request-summary-grid">
               <article class="request-summary-card">
                 <span class="mini-label">Estado</span>
-                <strong>{{ getRequestStatusMeta(selectedRequest.status).headline }}</strong>
-                <p class="muted">{{ getRequestStatusCopy(selectedRequest.status) }}</p>
+                <strong>{{ getRequestStatusMeta(selectedRequest).headline }}</strong>
+                <p class="muted">{{ getRequestStatusCopy(selectedRequest) }}</p>
+              </article>
+              <article class="request-summary-card">
+                <span class="mini-label">Etapa compartida</span>
+                <strong>{{ normalizeWorkflowLabel(resolveRequestWorkflowValue(selectedRequest)) }}</strong>
+                <p class="muted">La misma etapa que consumen cliente y admin.</p>
               </article>
               <article class="request-summary-card">
                 <span class="mini-label">Paquete / servicio</span>
@@ -9071,6 +9346,39 @@ textarea {
 
 .request-alert-strip {
   margin-top: 0.25rem;
+}
+
+.request-flow-strip {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.request-flow-pill {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.9rem 1rem;
+  border-radius: 18px;
+  border: 1px solid #eadfcd;
+  background: #fffdfa;
+}
+
+.request-flow-pill[data-state='done'] {
+  border-color: #d7ead8;
+  background: #eef9ef;
+}
+
+.request-flow-pill[data-state='active'] {
+  border-color: #f0cf85;
+  background: #fff5d9;
+}
+
+.request-flow-pill__index {
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #7c6a4a;
 }
 
 .request-summary-grid,

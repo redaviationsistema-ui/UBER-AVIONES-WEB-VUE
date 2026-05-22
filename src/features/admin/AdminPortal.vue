@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api } from '../../lib/api'
 import { pickCollection, requestWithCandidates } from '../../lib/backendCrud'
 import { fallbackAdminFlags, fallbackAdminKpis, fallbackAdminUsers } from '../../data/platform'
@@ -13,8 +13,8 @@ import AdminImportsSection from './AdminImportsSection.vue'
 import AdminProvidersNetworkSection from './AdminProvidersNetworkSection.vue'
 import AdminReservationsSection from './AdminReservationsSection.vue'
 import AdminUsersSection from './AdminUsersSection.vue'
-import { normalizeWorkflowLabel } from '../../utils/flightWorkflow'
-import { emitWorkflowSync } from '../../lib/workflowSync'
+import { normalizeWorkflowLabel, SHARED_WORKFLOW_STEPS } from '../../utils/flightWorkflow'
+import { emitWorkflowSync, subscribeWorkflowSync } from '../../lib/workflowSync'
 import {
   delayAdminReservation,
   getAdminReservations,
@@ -39,6 +39,9 @@ const auditEntries = ref([])
 const reservationAuditEntries = ref([])
 const reservationFlowLoading = ref(false)
 const reservationFlowLoadingLabel = ref('')
+let removeWorkflowSyncSubscription = null
+let reservationsPollTimer = null
+const ADMIN_RESERVATIONS_POLL_INTERVAL_MS = 10000
 
 const displayKpis = [
   { label: 'Ventas del dia', value: '$286,000 MXN', detail: 'Ingresos confirmados durante la jornada.' },
@@ -101,21 +104,7 @@ const analyticsSummary = [
   { label: 'Tiempo de asignacion', value: '11 min', score: 61 },
 ]
 
-const flowSteps = [
-  'Cliente solicita vuelo',
-  'Admin revisa solicitud',
-  'Admin genera cotizacion',
-  'Admin valida margen',
-  'Admin asigna operador',
-  'Operador valida aeronave',
-  'Admin aprueba reserva',
-  'Contrato se genera',
-  'Cliente firma',
-  'Cliente paga',
-  'Operacion se ejecuta',
-  'Vuelo finaliza',
-  'Admin revisa margen, pagos e incidencias',
-]
+const flowSteps = SHARED_WORKFLOW_STEPS.map((step) => step.title)
 
 const policies = [
   {
@@ -697,6 +686,34 @@ async function loadPortalSection(section) {
   }
 }
 
+function shouldAutoRefreshReservations() {
+  return props.section === 'reservas'
+}
+
+function clearReservationsPolling() {
+  if (reservationsPollTimer) {
+    clearInterval(reservationsPollTimer)
+    reservationsPollTimer = null
+  }
+}
+
+function startReservationsPolling() {
+  clearReservationsPolling()
+
+  if (!shouldAutoRefreshReservations()) return
+
+  reservationsPollTimer = setInterval(() => {
+    if (typeof document !== 'undefined' && document.hidden) return
+    void loadPortalSection('reservas')
+  }, ADMIN_RESERVATIONS_POLL_INTERVAL_MS)
+}
+
+function handleReservationsVisibilityRefresh() {
+  if (typeof document !== 'undefined' && document.hidden) return
+  if (!shouldAutoRefreshReservations()) return
+  void loadPortalSection('reservas')
+}
+
 function auditUser(user) {
   const crewMember = normalizeAdminCrewMember(user)
   if (crewMember) {
@@ -884,6 +901,37 @@ function updateReservationLocalState(reservationId, patch) {
   return nextRecord
 }
 
+function applyExternalWorkflowSync(payload = {}) {
+  const reservationId = Number(payload.reservationId || payload.requestId || 0)
+  const nextStage = String(payload.nextStage || '').trim()
+  if (!reservationId || !nextStage) return
+
+  const currentReservation = reservationRecords.value.find(
+    (item) =>
+      Number(item.id || 0) === reservationId ||
+      Number(item.requestId || 0) === reservationId ||
+      Number(item.reservationId || 0) === reservationId,
+  )
+
+  if (!currentReservation) return
+
+  const patch = {
+    status: nextStage,
+    workflowStatus: nextStage,
+  }
+
+  if (nextStage === 'contract_pending') {
+    patch.contractStatus = 'generated'
+  }
+
+  if (nextStage === 'payment_pending') {
+    patch.contractStatus = 'signed'
+    patch.paymentStatus = 'Pendiente de pago'
+  }
+
+  updateReservationLocalState(currentReservation.id, patch)
+}
+
 async function handleUpdateReservationFlow({ reservationId, nextStage, note }) {
   const currentReservation = reservationRecords.value.find((item) => item.id === reservationId)
   if (!currentReservation) return
@@ -1034,12 +1082,42 @@ async function handleSuspendAircraft(aircraftId) {
   await handleRejectAircraft(aircraftId)
 }
 
-onMounted(() => loadPortalSection(props.section))
+onMounted(() => {
+  loadPortalSection(props.section)
+  if (typeof window !== 'undefined') {
+    window.addEventListener('focus', handleReservationsVisibilityRefresh)
+  }
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', handleReservationsVisibilityRefresh)
+  }
+  removeWorkflowSyncSubscription = subscribeWorkflowSync((payload = {}) => {
+    if (payload.scope !== 'reservation-workflow') return
+    if (props.section !== 'reservas') return
+    applyExternalWorkflowSync(payload)
+    loadPortalSection('reservas')
+  })
+  startReservationsPolling()
+})
+
+onBeforeUnmount(() => {
+  clearReservationsPolling()
+  if (removeWorkflowSyncSubscription) {
+    removeWorkflowSyncSubscription()
+    removeWorkflowSyncSubscription = null
+  }
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('focus', handleReservationsVisibilityRefresh)
+  }
+  if (typeof document !== 'undefined') {
+    document.removeEventListener('visibilitychange', handleReservationsVisibilityRefresh)
+  }
+})
 
 watch(
   () => props.section,
   (section) => {
     loadPortalSection(section)
+    startReservationsPolling()
   },
 )
 </script>

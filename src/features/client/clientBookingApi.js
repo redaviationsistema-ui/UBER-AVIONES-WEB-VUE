@@ -1,6 +1,10 @@
 import { api, resolveMediaUrl } from '../../lib/api'
 import { featuredAirports } from '../../utils/airports'
-import { buildWorkflowApiPayload, resolveWorkflowState } from '../../utils/flightWorkflow'
+import {
+  buildWorkflowApiPayload,
+  resolveSharedWorkflowStatus,
+  resolveWorkflowState,
+} from '../../utils/flightWorkflow'
 import {
   buildCommercialSnapshot,
   buildFlightPricingFormula,
@@ -37,6 +41,7 @@ const CLIENT_TRIPS_PATHS = [
     [configuredTripsPath, '/cliente/historial', '/client/flight-requests'].filter(Boolean),
   ),
 ]
+let preferredClientTripsPath = ''
 const CLIENT_TRIP_CREATE_PATH =
   configuredTripCreatePath ||
   (configuredTripsPath && !configuredTripsPath.includes('/historial') ? configuredTripsPath : '') ||
@@ -1626,184 +1631,17 @@ function pickPreferredClientMatch(request = {}) {
 }
 
 export function deriveClientWorkflowStatus(request = {}) {
-  const nestedReservation = nestedReservationRecord(request)
-  const rawWorkflow =
-    request.workflow_status ||
-    request.workflow ||
-    nestedReservation?.workflow_status ||
-    request.status ||
-    nestedReservation?.status ||
+  return (
+    resolveSharedWorkflowStatus({
+      ...request,
+      payment_status:
+        request.payment_status ||
+        request.payment_order?.status ||
+        latestPaymentStatus(request) ||
+        '',
+    }) ||
     ''
-  const normalizedWorkflow = normalizeWorkflowToken(rawWorkflow)
-  const normalizedContractStatus = normalizeWorkflowToken(
-    request.contract?.status ||
-      request.contract_status ||
-      nestedReservation?.contract?.status ||
-      nestedReservation?.contract_status ||
-      '',
   )
-  const normalizedPaymentStatus = normalizeWorkflowToken(
-    request.payment?.status ||
-      request.payment_status ||
-      request.payment_order?.status ||
-      nestedReservation?.payment?.status ||
-      nestedReservation?.payment_status ||
-      latestPaymentStatus(request) ||
-      '',
-  )
-  const hasExplicitAssignedProvider = Boolean(request.assigned_provider_id)
-  const hasExplicitAssignedAircraft = Boolean(request.assigned_aircraft_id)
-  const hasSelectedProvider = Boolean(request.provider_id)
-  const hasSelectedAircraft = Boolean(request.aircraft_id)
-  const hasSelectedMatch = Boolean(request.match_id || request.matched_option_id)
-  const hasOperation = Boolean(
-    request.operation?.id ||
-      request.operation_id ||
-      nestedReservation?.operation?.id ||
-      nestedReservation?.operation_id ||
-      request.operaciones?.[0]?.id,
-  )
-  const acceptedMatch = pickAcceptedRequestMatch(request)
-  const hasAcceptedMatch = Boolean(acceptedMatch)
-  const matches = listRequestMatches(request)
-  const hasRejectedMatch = matches.some((match) =>
-    ['rejected', 'rechazada', 'rechazado', 'declined'].includes(
-      normalizeWorkflowToken(match?.status || match?.workflow_status || match?.state),
-    ),
-  )
-  const hasPendingMatch = matches.some((match) =>
-    ['pending', 'pendiente', 'sent to provider', 'sent_to_provider'].includes(
-      normalizeWorkflowToken(match?.status || match?.workflow_status || match?.state),
-    ),
-  )
-
-  const contractOrLaterStates = new Set([
-    'contract pending',
-    'contrato pendiente',
-    'contract signed',
-    'contrato firmado',
-    'payment pending',
-    'pago pendiente',
-    'payment confirmed',
-    'pago confirmado',
-    'flight confirmed',
-    'vuelo confirmado',
-    'tracking live',
-    'tracking en vivo',
-    'completed',
-    'finalizada',
-    'finalizado',
-    'cancelled',
-    'cancelada',
-    'cancelado',
-    'rejected',
-    'rechazada',
-    'rechazado',
-  ])
-  const rejectedSignals = new Set([
-    'rejected',
-    'rechazada',
-    'rechazado',
-    'declined',
-    'sin opciones disponibles',
-    'no options available',
-  ])
-
-  const providerAcceptedSignals = new Set([
-    'aceptada',
-    'aceptado',
-    'accepted',
-    'approved',
-    'aprobada',
-    'aprobado',
-    'provider accepted',
-    'provider_accepted',
-    'operador confirmado',
-    'matched',
-  ])
-
-  const providerPendingSignals = new Set([
-    'provider pending',
-    'provider_pending',
-    'buscando operador',
-    'buscando aeronave',
-    'matching',
-    'matching en proceso',
-    'in validation',
-    'en validacion',
-    'revision operativa',
-    'operador asignado',
-  ])
-
-  const genericConfirmedSignals = new Set(['confirmada', 'confirmado'])
-  const paymentConfirmedSignals = new Set(['paid', 'pagado', 'pagada', 'payment confirmed', 'payment_confirmed'])
-  const paymentPendingSignals = new Set([
-    'pending',
-    'pendiente',
-    'pendiente de pago',
-    'payment pending',
-    'payment_pending',
-    'requires payment method',
-    'requires_payment_method',
-  ])
-
-  if (contractOrLaterStates.has(normalizedWorkflow)) {
-    return rawWorkflow
-  }
-
-  if (paymentConfirmedSignals.has(normalizedPaymentStatus)) {
-    return 'payment_confirmed'
-  }
-
-  if (paymentPendingSignals.has(normalizedPaymentStatus) && normalizedContractStatus === 'signed') {
-    return 'payment_pending'
-  }
-
-  if (normalizedContractStatus === 'signed') {
-    return 'contract_signed'
-  }
-
-  if (normalizedContractStatus === 'generated') {
-    return 'contract_pending'
-  }
-
-  if (rejectedSignals.has(normalizedWorkflow)) {
-    return 'rejected'
-  }
-
-  if (providerAcceptedSignals.has(normalizedWorkflow) || hasAcceptedMatch) {
-    return 'provider_accepted'
-  }
-
-  if (hasOperation) {
-    return 'contract_pending'
-  }
-
-  if (providerPendingSignals.has(normalizedWorkflow)) {
-    return 'provider_pending'
-  }
-
-  if (genericConfirmedSignals.has(normalizedWorkflow)) {
-    if (hasAcceptedMatch || hasExplicitAssignedProvider || hasExplicitAssignedAircraft) {
-      return 'provider_accepted'
-    }
-
-    return 'provider_pending'
-  }
-
-  if (hasRejectedMatch && !hasAcceptedMatch && !hasPendingMatch) {
-    return 'rejected'
-  }
-
-  if ((hasSelectedProvider || hasSelectedAircraft || hasSelectedMatch) && !normalizedWorkflow) {
-    return 'provider_pending'
-  }
-
-  if ((hasExplicitAssignedProvider || hasExplicitAssignedAircraft) && !normalizedWorkflow) {
-    return 'provider_pending'
-  }
-
-  return rawWorkflow
 }
 
 export function normalizeTrip(request = {}, options = {}) {
@@ -2327,7 +2165,14 @@ export async function getClientFlightPackages() {
 export const getClientMembershipPlans = getClientFlightPackages
 
 export async function getClientTrips(options = {}) {
-  for (const path of CLIENT_TRIPS_PATHS) {
+  const candidatePaths = preferredClientTripsPath
+    ? [
+        preferredClientTripsPath,
+        ...CLIENT_TRIPS_PATHS.filter((path) => path !== preferredClientTripsPath),
+      ]
+    : CLIENT_TRIPS_PATHS
+
+  for (const path of candidatePaths) {
     try {
       const payload = await api.get(path, options)
       const reservations = normalizeArray(payload, ['reservations']).map((item) =>
@@ -2414,9 +2259,8 @@ export async function getClientTrips(options = {}) {
 
       trips = trips.sort((first, second) => tripSortValue(second) - tripSortValue(first))
 
-      if (trips.length || path === CLIENT_TRIPS_PATHS[CLIENT_TRIPS_PATHS.length - 1]) {
-        return trips
-      }
+      preferredClientTripsPath = path
+      return trips
     } catch {
       continue
     }

@@ -1,6 +1,14 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
-import { hasReachedWorkflowStage, normalizeWorkflowLabel, resolveWorkflowState } from '../../utils/flightWorkflow'
+import {
+  buildSharedFlowStepStates,
+  normalizeWorkflowLabel,
+  resolveSharedVisualWorkflowStepId,
+  resolveSharedWorkflowStageTitle,
+  resolveSharedWorkflowStatus,
+  resolveWorkflowState,
+  SHARED_WORKFLOW_STEPS,
+} from '../../utils/flightWorkflow'
 
 const props = defineProps({
   reservations: { type: Array, required: true },
@@ -11,34 +19,21 @@ const props = defineProps({
 
 const emit = defineEmits(['update-flow', 'delay-flow', 'resume-flow'])
 
-const flowSteps = [
-  { id: 'reserved', shortLabel: 'Reserva', title: 'Reserva solicitada', description: 'El cliente ya dejo activa la solicitud inicial.' },
-  {
-    id: 'provider_accepted',
-    shortLabel: 'Proveedor',
-    title: 'Respuesta proveedor',
-    description: 'El operador o proveedor ya acepto ejecutar la operacion.',
-  },
-  {
-    id: 'contract_pending',
-    shortLabel: 'Firma',
-    title: 'Contrato / firma',
-    description: 'Aqui se genera el contrato y el cliente debe firmarlo antes de pasar a pago.',
-  },
-  { id: 'payment_pending', shortLabel: 'Pago', title: 'Confirmacion de pago', description: 'El cobro se valida y confirma antes de liberar el vuelo.' },
-  {
-    id: 'flight_confirmed',
-    shortLabel: 'Vuelo',
-    title: 'Vuelo confirmado',
-    description: 'La operacion ya tiene aeronave, tripulacion y salida cerrada.',
-  },
-  {
-    id: 'tracking_live',
-    shortLabel: 'Tracking',
-    title: 'Tracking activo',
-    description: 'El admin puede seguir la ejecucion y las novedades del servicio.',
-  },
-]
+const flowSteps = SHARED_WORKFLOW_STEPS.map((step) => ({
+  ...step,
+  description:
+    step.id === 'reserved'
+      ? 'El cliente ya dejo activa la solicitud inicial.'
+      : step.id === 'provider_accepted'
+        ? 'El operador o proveedor ya acepto ejecutar la operacion.'
+        : step.id === 'contract_pending'
+          ? 'Aqui se genera el contrato y el cliente debe firmarlo antes de pasar a pago.'
+          : step.id === 'payment_pending'
+            ? 'El cobro se valida y confirma antes de liberar el vuelo.'
+            : step.id === 'flight_confirmed'
+              ? 'La operacion ya tiene aeronave, tripulacion y salida cerrada.'
+              : 'El admin puede seguir la ejecucion y las novedades del servicio.',
+}))
 
 const dynamicStepDescriptions = {
   reserved: {
@@ -243,57 +238,27 @@ function normalizeStatusToken(value = '') {
 }
 
 function effectiveWorkflowValue(reservation = {}) {
-  const workflowValue = reservation.workflowStatus || reservation.status || ''
-  const explicitWorkflowState = resolveWorkflowState(workflowValue).id
-  const contractStatus = normalizeStatusToken(reservation.contractStatus || '')
-  const paymentStatus = normalizeStatusToken(reservation.paymentStatus || '')
-
-  if (workflowValue && explicitWorkflowState !== 'draft') {
-    return workflowValue
-  }
-
-  if (['pagado', 'pagada', 'paid', 'payment confirmed', 'payment_confirmed'].includes(paymentStatus)) {
-    return 'payment_confirmed'
-  }
-
-  if (
-    ['pendiente de pago', 'payment pending', 'payment_pending', 'pending', 'pendiente'].includes(paymentStatus) &&
-    contractStatus === 'signed'
-  ) {
-    return 'payment_pending'
-  }
-
-  if (contractStatus === 'signed') {
-    return 'contract_signed'
-  }
-
-  if (['generated', 'en firma', 'firma pendiente'].includes(contractStatus)) {
-    return 'contract_pending'
-  }
-
-  return workflowValue
+  return (
+    resolveSharedWorkflowStatus({
+      workflow_status: reservation.workflowStatus,
+      status: reservation.status,
+      contract_status: reservation.contractStatus,
+      payment_status: reservation.paymentStatus,
+      raw: reservation.raw,
+      ...(reservation.raw && typeof reservation.raw === 'object' ? reservation.raw : {}),
+    }) ||
+    reservation.workflowStatus ||
+    reservation.status ||
+    ''
+  )
 }
 
 function visualWorkflowStepId(value = '') {
-  const workflowId = resolveWorkflowState(value).id
-
-  if (workflowId === 'provider_pending') return 'provider_accepted'
-  if (workflowId === 'contract_signed') return 'contract_pending'
-  if (workflowId === 'payment_confirmed') return 'payment_pending'
-
-  return workflowId
+  return resolveSharedVisualWorkflowStepId(value)
 }
 
 function workflowStageTitle(value = '') {
-  const workflowId = resolveWorkflowState(value).id
-
-  if (workflowId === 'provider_pending') return 'Esperando proveedor'
-  if (workflowId === 'contract_pending') return 'En firma'
-  if (workflowId === 'contract_signed') return 'Contrato firmado'
-  if (workflowId === 'payment_pending') return 'Pago pendiente'
-  if (workflowId === 'payment_confirmed') return 'Pago confirmado'
-
-  return normalizeWorkflowLabel(value)
+  return resolveSharedWorkflowStageTitle(value)
 }
 
 function humanizeContractStatus(value = '') {
@@ -315,10 +280,9 @@ function resolvedVisualStep(reservation = {}) {
 }
 
 function stepState(reservation, stepId) {
-  const visualStep = resolvedVisualStep(reservation)
-
-  if (visualStep === stepId) return 'current'
-  if (hasReachedWorkflowStage(visualStep, stepId)) return 'done'
+  const step = buildSharedFlowStepStates(effectiveWorkflowValue(reservation)).find((item) => item.id === stepId)
+  if (step?.state === 'done') return 'done'
+  if (step?.state === 'active') return 'current'
   return 'pending'
 }
 

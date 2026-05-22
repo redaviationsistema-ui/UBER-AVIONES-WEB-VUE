@@ -27,7 +27,7 @@ import {
   normalizeTrip,
 } from '../features/client/clientBookingApi'
 import { api } from '../lib/api'
-import { resolveWorkflowState } from '../utils/flightWorkflow'
+import { resolveSharedWorkflowStatus, resolveWorkflowState } from '../utils/flightWorkflow'
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -238,6 +238,36 @@ describe('resolveWorkflowState', () => {
   it('labels provider_accepted as respuesta proveedor for client-facing workflow copy', () => {
     expect(resolveWorkflowState('accepted').id).toBe('provider_accepted')
     expect(resolveWorkflowState('accepted').label).toBe('Respuesta proveedor')
+  })
+})
+
+describe('resolveSharedWorkflowStatus', () => {
+  it('moves the shared flow to contract_pending when provider accepted but contract generation already started', () => {
+    expect(
+      resolveSharedWorkflowStatus({
+        id: 111,
+        status: 'accepted',
+        workflow_status: 'proveedor aceptado',
+        contract_status: 'generated',
+        payment_status: 'pending',
+        operation_id: 9001,
+        assigned_provider_id: 15,
+        assigned_aircraft_id: 31,
+      }),
+    ).toBe('contract_pending')
+  })
+
+  it('keeps admin, client and provider on payment_pending when contract is signed and payment remains open', () => {
+    expect(
+      resolveSharedWorkflowStatus({
+        id: 112,
+        status: 'accepted',
+        workflow_status: 'proveedor aceptado',
+        contract_status: 'signed',
+        payment_status: 'pending',
+        operation_id: 9002,
+      }),
+    ).toBe('payment_pending')
   })
 })
 

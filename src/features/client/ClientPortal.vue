@@ -56,10 +56,8 @@ const submittedItinerary = ref(null)
 const activeResultFilter = ref('best_value')
 const technicalSheetOpen = ref(false)
 const technicalAircraft = ref(null)
-const CLIENT_TRIPS_POLL_INTERVAL_MS = 5000
-let reservationsPollTimer = null
 let removeWorkflowSyncSubscription = null
-let workflowSyncRefreshTimer = null
+let reservationsRequestPromise = null
 
 const searchForm = reactive({
   origin: '',
@@ -2359,75 +2357,52 @@ async function handleLogout() {
 }
 
 function shouldAutoRefreshTrips() {
-  return [
-    'viajes',
-    'mis-vuelos',
-    'historial',
-    'contrato',
-    'pago',
-    'reserva-confirmada',
-    'soporte',
-  ].includes(props.section)
+  return false
 }
 
 async function refreshReservations({ silent = false } = {}) {
-  if (refreshingReservations.value) return
+  if (reservationsRequestPromise) return reservationsRequestPromise
   if (!silent) {
     loadingServerData.value = true
   }
 
   refreshingReservations.value = true
 
-  try {
-    const trips = await getClientTrips({ timeoutMs: 20000 })
-    reservations.value = trips
-  } finally {
-    refreshingReservations.value = false
-    if (!silent) {
-      loadingServerData.value = false
+  reservationsRequestPromise = (async () => {
+    try {
+      const trips = await getClientTrips({ timeoutMs: 20000 })
+      reservations.value = trips
+      return trips
+    } finally {
+      refreshingReservations.value = false
+      reservationsRequestPromise = null
+      if (!silent) {
+        loadingServerData.value = false
+      }
     }
-  }
+  })()
+
+  return reservationsRequestPromise
 }
 
 function clearReservationsPolling() {
-  if (reservationsPollTimer) {
-    clearInterval(reservationsPollTimer)
-    reservationsPollTimer = null
-  }
+  // El refresh ahora es manual desde la vista de viajes.
 }
 
 function clearWorkflowSyncRefreshTimer() {
-  if (workflowSyncRefreshTimer) {
-    clearTimeout(workflowSyncRefreshTimer)
-    workflowSyncRefreshTimer = null
-  }
+  // El refresh ahora es manual desde la vista de viajes.
 }
 
 function scheduleWorkflowSyncRefresh() {
-  if (!shouldAutoRefreshTrips()) return
-
-  clearWorkflowSyncRefreshTimer()
-  workflowSyncRefreshTimer = setTimeout(() => {
-    workflowSyncRefreshTimer = null
-    void refreshReservations({ silent: true })
-  }, 250)
+  return
 }
 
 function startReservationsPolling() {
-  clearReservationsPolling()
-
-  if (!shouldAutoRefreshTrips()) return
-
-  reservationsPollTimer = setInterval(() => {
-    if (typeof document !== 'undefined' && document.hidden) return
-    void refreshReservations({ silent: true })
-  }, CLIENT_TRIPS_POLL_INTERVAL_MS)
+  return
 }
 
-function handleVisibilityRefresh() {
-  if (typeof document !== 'undefined' && document.hidden) return
-  if (!shouldAutoRefreshTrips()) return
-  void refreshReservations({ silent: true })
+async function handleManualReservationsRefresh() {
+  await refreshReservations({ silent: true })
 }
 
 async function loadServerData() {
@@ -2435,20 +2410,18 @@ async function loadServerData() {
   serverSearchError.value = ''
 
   try {
-    const [destinationsResult, plansResult, tripsResult] = await Promise.allSettled([
+    const [destinationsResult, plansResult] = await Promise.allSettled([
       getClientDestinations(),
       getClientFlightPackages(),
-      getClientTrips(),
     ])
 
     const destinations = destinationsResult.status === 'fulfilled' ? destinationsResult.value : []
     const plans = plansResult.status === 'fulfilled' ? plansResult.value : []
-    const trips = tripsResult.status === 'fulfilled' ? tripsResult.value : []
 
     featuredDestinations.value = destinations
     flightPackages.value = plans
     ensureDefaultPriority(plans)
-    reservations.value = trips
+    await refreshReservations({ silent: true })
   } finally {
     loadingServerData.value = false
   }
@@ -2458,20 +2431,10 @@ onMounted(() => {
   redirectLegacyInProgressSection()
   loadServerData()
 
-  if (typeof window !== 'undefined') {
-    window.addEventListener('focus', handleVisibilityRefresh)
-  }
-
-  if (typeof document !== 'undefined') {
-    document.addEventListener('visibilitychange', handleVisibilityRefresh)
-  }
-
   removeWorkflowSyncSubscription = subscribeWorkflowSync((payload = {}) => {
     if (payload.scope !== 'reservation-workflow') return
     scheduleWorkflowSyncRefresh()
   })
-
-  startReservationsPolling()
 })
 
 watch(
@@ -2489,14 +2452,6 @@ onBeforeUnmount(() => {
   if (removeWorkflowSyncSubscription) {
     removeWorkflowSyncSubscription()
     removeWorkflowSyncSubscription = null
-  }
-
-  if (typeof window !== 'undefined') {
-    window.removeEventListener('focus', handleVisibilityRefresh)
-  }
-
-  if (typeof document !== 'undefined') {
-    document.removeEventListener('visibilitychange', handleVisibilityRefresh)
   }
 })
 
@@ -3242,7 +3197,9 @@ watch(
           :reservations="reservations"
           :selected-id="selectedTripId"
           :initial-tab="tripsInitialTab"
+          :refreshing="refreshingReservations"
           :timeline="timeline"
+          @refresh="handleManualReservationsRefresh"
           @open-concierge="goToConcierge($event)"
           @open-contract="handleOpenContract"
           @open-detail="go('viajes', $event)"
