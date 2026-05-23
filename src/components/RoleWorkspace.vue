@@ -22,7 +22,10 @@ const openSidebarMenu = ref('')
 
 const currentMenu = computed(() => roleSections[props.activeRole] ?? [])
 const currentSectionLabel = computed(
-  () => currentMenu.value.find((item) => item.id === props.section)?.label || currentMenu.value[0]?.label || '',
+  () =>
+    currentMenu.value.find((item) => item.id === props.section)?.label ||
+    currentMenu.value[0]?.label ||
+    '',
 )
 const groupedMenu = computed(() => buildMenuGroups(props.activeRole, currentMenu.value))
 const isClientWorkspace = computed(() => props.activeRole === 'client')
@@ -41,7 +44,8 @@ const roleInsights = {
   },
   operator: {
     title: 'Publicacion y respuesta operativa',
-    description: 'Publica aeronaves, abre disponibilidad y acepta o rechaza solicitudes sin contacto directo con el cliente.',
+    description:
+      'Publica aeronaves, abre disponibilidad y acepta o rechaza solicitudes sin contacto directo con el cliente.',
   },
   crew: {
     title: 'Agenda, cabina y servicio',
@@ -49,12 +53,13 @@ const roleInsights = {
   },
   admin: {
     title: 'Control total de Red Aviation',
-    description: 'Administra inventario, precios, reservas, soporte, margenes y reglas de negocio desde una vista central.',
+    description:
+      'Administra inventario, precios, reservas, soporte, margenes y reglas de negocio desde una vista central.',
   },
 }
 
 async function handleLogout() {
-  await auth.logout()
+  auth.logout()
   ui.pushToast({
     tone: 'success',
     title: 'Sesion cerrada',
@@ -99,77 +104,96 @@ watch(
       }"
     >
       <aside
-        v-if="!isClientWorkspace && !isClientDashboard && !isCrewWorkspace && !isOperatorWorkspace && !isAdminWorkspace"
+        v-if="
+          !isClientWorkspace &&
+          !isClientDashboard &&
+          !isCrewWorkspace &&
+          !isOperatorWorkspace &&
+          !isAdminWorkspace
+        "
         class="sidebar"
       >
-      <section class="surface overview-card">
-        <span class="badge success">{{ role.tone }}</span>
-        <strong>{{ role.label }}</strong>
-        <p>{{ role.area }}</p>
-        <div class="role-summary">
-          <h3>{{ roleInsights[activeRole]?.title }}</h3>
-          <p>{{ roleInsights[activeRole]?.description }}</p>
-        </div>
-      </section>
+        <section class="surface overview-card">
+          <span class="badge success">{{ role.tone }}</span>
+          <strong>{{ role.label }}</strong>
+          <p>{{ role.area }}</p>
+          <div class="role-summary">
+            <h3>{{ roleInsights[activeRole]?.title }}</h3>
+            <p>{{ roleInsights[activeRole]?.description }}</p>
+          </div>
+        </section>
 
-      <section class="surface navigation-card">
-        <div class="card-head">
-          <span class="eyebrow">Navegacion</span>
-          <strong>{{ currentSectionLabel }}</strong>
-        </div>
+        <section class="surface navigation-card">
+          <div class="card-head">
+            <span class="eyebrow">Navegacion</span>
+            <strong>{{ currentSectionLabel }}</strong>
+          </div>
 
-        <div class="sidebar-menu">
-          <section
-            v-for="group in groupedMenu"
-            :key="group.label"
-            class="sidebar-dropdown"
-            :class="{ 'sidebar-dropdown-open': isSidebarMenuOpen(group.label) }"
-          >
-            <button
-              type="button"
-              class="sidebar-dropdown-trigger"
-              :aria-expanded="isSidebarMenuOpen(group.label) ? 'true' : 'false'"
-              @click="toggleSidebarMenu(group.label)"
+          <div class="sidebar-menu">
+            <section
+              v-for="group in groupedMenu"
+              :key="group.label"
+              class="sidebar-dropdown"
+              :class="{ 'sidebar-dropdown-open': isSidebarMenuOpen(group.label) }"
             >
-              <span class="menu-copy">
-                <strong>{{ group.label }}</strong>
-                <small>{{ group.items.find((item) => item.id === section)?.label || `${group.items.length} modulos` }}</small>
-              </span>
-              <span class="sidebar-caret"></span>
-            </button>
-
-            <div v-if="isSidebarMenuOpen(group.label)" class="sidebar-dropdown-panel">
-              <RouterLink
-                v-for="item in group.items"
-                :key="item.id"
-                :class="{ active: section === item.id }"
-                :to="`${roleBasePaths[activeRole]}/${item.id}`"
+              <button
+                type="button"
+                class="sidebar-dropdown-trigger"
+                :aria-expanded="isSidebarMenuOpen(group.label) ? 'true' : 'false'"
+                @click="toggleSidebarMenu(group.label)"
               >
                 <span class="menu-copy">
-                  <strong>{{ item.label }}</strong>
-                  <small>{{ role.label }}</small>
+                  <strong>{{ group.label }}</strong>
+                  <small>{{
+                    group.items.find((item) => item.id === section)?.label ||
+                    `${group.items.length} modulos`
+                  }}</small>
                 </span>
-                <span class="menu-indicator"></span>
-              </RouterLink>
-            </div>
-          </section>
-        </div>
-      </section>
+                <span class="sidebar-caret"></span>
+              </button>
 
-      <section class="surface support-card">
-        <span class="badge">Operacion centralizada</span>
-        <p>Sky Group concentra seguimiento, servicio y validaciones en una misma experiencia.</p>
-      </section>
+              <div v-if="isSidebarMenuOpen(group.label)" class="sidebar-dropdown-panel">
+                <RouterLink
+                  v-for="item in group.items"
+                  :key="item.id"
+                  :class="{ active: section === item.id }"
+                  :to="`${roleBasePaths[activeRole]}/${item.id}`"
+                >
+                  <span class="menu-copy">
+                    <strong>{{ item.label }}</strong>
+                    <small>{{ role.label }}</small>
+                  </span>
+                  <span class="menu-indicator"></span>
+                </RouterLink>
+              </div>
+            </section>
+          </div>
+        </section>
 
-      <button v-if="auth.isAuthenticated" type="button" class="logout-button" @click="handleLogout">
-        Cerrar sesion
-      </button>
-    </aside>
+        <section class="surface support-card">
+          <span class="badge">Operacion centralizada</span>
+          <p>Sky Group concentra seguimiento, servicio y validaciones en una misma experiencia.</p>
+        </section>
+
+        <button
+          v-if="auth.isAuthenticated"
+          type="button"
+          class="logout-button"
+          @click="handleLogout"
+        >
+          Cerrar sesion
+        </button>
+      </aside>
 
       <section
         class="portal"
         :class="{
-          surface: !isClientWorkspace && !isClientDashboard && !isCrewWorkspace && !isOperatorWorkspace && !isAdminWorkspace,
+          surface:
+            !isClientWorkspace &&
+            !isClientDashboard &&
+            !isCrewWorkspace &&
+            !isOperatorWorkspace &&
+            !isAdminWorkspace,
           'portal-client-dashboard': isClientWorkspace,
           'portal-crew': isCrewWorkspace,
           'portal-operator': isOperatorWorkspace,
@@ -177,14 +201,20 @@ watch(
         }"
       >
         <header
-          v-if="!isClientWorkspace && !isClientDashboard && !isCrewWorkspace && !isOperatorWorkspace && !isAdminWorkspace"
+          v-if="
+            !isClientWorkspace &&
+            !isClientDashboard &&
+            !isCrewWorkspace &&
+            !isOperatorWorkspace &&
+            !isAdminWorkspace
+          "
           class="portal-header"
         >
-        <div>
-          <p class="eyebrow">Workspace</p>
-          <h2>{{ currentSectionLabel }}</h2>
-        </div>
-        <p class="muted">{{ roleInsights[activeRole]?.description }}</p>
+          <div>
+            <p class="eyebrow">Workspace</p>
+            <h2>{{ currentSectionLabel }}</h2>
+          </div>
+          <p class="muted">{{ roleInsights[activeRole]?.description }}</p>
         </header>
 
         <template v-if="isSessionReady">

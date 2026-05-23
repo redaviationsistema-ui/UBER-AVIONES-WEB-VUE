@@ -216,7 +216,7 @@ function resolveGroupIcon(label) {
 }
 
 async function handleLogout() {
-  await auth.logout()
+  auth.logout()
   workspaceMenuOpen.value = false
   closeAllMenus()
   router.push('/')

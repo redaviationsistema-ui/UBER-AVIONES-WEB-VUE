@@ -155,10 +155,10 @@ export const SHARED_WORKFLOW_STEPS = [
     clientLabel: 'Reserva',
   },
   {
-    id: 'provider_accepted',
+    id: 'provider_pending',
     shortLabel: 'Proveedor',
-    title: 'Respuesta proveedor',
-    clientLabel: 'Respuesta proveedor',
+    title: 'Proveedor',
+    clientLabel: 'Proveedor',
   },
   {
     id: 'contract_pending',
@@ -510,7 +510,11 @@ export function resolveSharedWorkflowStatus(record = {}) {
     'requires_payment_method',
   ])
 
-  if (explicitWorkflowId !== 'draft') {
+  if (
+    explicitWorkflowId !== 'draft' &&
+    explicitWorkflowId !== 'provider_pending' &&
+    explicitWorkflowId !== 'provider_accepted'
+  ) {
     return explicitWorkflow
   }
 
@@ -538,7 +542,7 @@ export function resolveSharedWorkflowStatus(record = {}) {
     return 'rejected'
   }
 
-  if (providerAcceptedSignals.has(normalizedWorkflow) || hasAcceptedMatch) {
+  if (providerAcceptedSignals.has(normalizedWorkflow)) {
     return 'provider_accepted'
   }
 
@@ -551,7 +555,7 @@ export function resolveSharedWorkflowStatus(record = {}) {
   }
 
   if (genericConfirmedSignals.has(normalizedWorkflow)) {
-    if (hasAcceptedMatch || hasExplicitAssignedProvider || hasExplicitAssignedAircraft) {
+    if (hasExplicitAssignedProvider || hasExplicitAssignedAircraft || hasOperation) {
       return 'provider_accepted'
     }
 
@@ -576,7 +580,7 @@ export function resolveSharedWorkflowStatus(record = {}) {
 export function resolveSharedVisualWorkflowStepId(value = '') {
   const workflowId = resolveWorkflowState(value).id
 
-  if (workflowId === 'provider_pending') return 'provider_accepted'
+  if (workflowId === 'provider_accepted') return 'provider_pending'
   if (workflowId === 'contract_signed') return 'contract_pending'
   if (workflowId === 'payment_confirmed') return 'payment_pending'
   if (workflowId === 'completed') return 'tracking_live'

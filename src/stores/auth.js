@@ -6,6 +6,7 @@ import { resolveProviderIdForUser } from '../lib/providerContext'
 
 const AUTH_SNAPSHOT_KEY = 'red_aviation_auth_snapshot'
 const AUTH_REQUEST_TIMEOUT_MS = Number(import.meta.env.VITE_AUTH_API_TIMEOUT_MS || 45000)
+const LOGOUT_REQUEST_TIMEOUT_MS = Number(import.meta.env.VITE_LOGOUT_API_TIMEOUT_MS || 2500)
 
 function canUseStorage(storageName) {
   return typeof window !== 'undefined' && typeof window[storageName] !== 'undefined'
@@ -258,7 +259,9 @@ export const useAuthStore = defineStore('auth', () => {
     loading.value = true
 
     try {
-      const response = await api.post('/auth/login', credentials, { timeoutMs: AUTH_REQUEST_TIMEOUT_MS })
+      const response = await api.post('/auth/login', credentials, {
+        timeoutMs: AUTH_REQUEST_TIMEOUT_MS,
+      })
       applyAuth(response)
       return response
     } finally {
@@ -270,7 +273,9 @@ export const useAuthStore = defineStore('auth', () => {
     loading.value = true
 
     try {
-      const response = await api.post('/auth/register', payload, { timeoutMs: AUTH_REQUEST_TIMEOUT_MS })
+      const response = await api.post('/auth/register', payload, {
+        timeoutMs: AUTH_REQUEST_TIMEOUT_MS,
+      })
       applyAuth(response)
       return response
     } finally {
@@ -278,14 +283,30 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  async function logout() {
-    try {
-      await api.post('/auth/logout', {})
-    } catch {
-      // Clearing the local auth state is still safe if the remote session is already gone.
+  function logout() {
+    const currentToken = token.value || getStoredToken()
+    clearAuth()
+
+    if (!currentToken) {
+      return Promise.resolve()
     }
 
-    clearAuth()
+    void api
+      .post(
+        '/auth/logout',
+        {},
+        {
+          timeoutMs: LOGOUT_REQUEST_TIMEOUT_MS,
+          headers: {
+            Authorization: `Bearer ${currentToken}`,
+          },
+        },
+      )
+      .catch(() => {
+        // The user is already logged out locally; remote cleanup is best-effort only.
+      })
+
+    return Promise.resolve()
   }
 
   async function refreshSession() {

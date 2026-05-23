@@ -32,7 +32,7 @@ const PROGRESS_STEPS = SHARED_WORKFLOW_STEPS.map((step) => ({
   key:
     step.id === 'reserved'
       ? 'booking'
-      : step.id === 'provider_accepted'
+      : step.id === 'provider_pending'
         ? 'provider'
         : step.id === 'contract_pending'
           ? 'contract'
@@ -345,15 +345,6 @@ const filteredReservations = computed(() =>
   props.reservations.filter((reservation) => reservationTab(reservation) === activeTab.value),
 )
 
-const selectedReservation = computed(
-  () =>
-    filteredReservations.value.find(
-      (reservation) => String(reservation.id) === String(props.selectedId),
-    ) ||
-    filteredReservations.value[0] ||
-    null,
-)
-
 watch(
   () => props.initialTab,
   (nextTab) => {
@@ -410,37 +401,33 @@ watch(
       </button>
     </div>
 
-    <article v-if="selectedReservation" class="hero-card">
+    <article
+      v-for="reservation in filteredReservations"
+      :key="reservation.id || reservation.flight_request_id || reservation.created_at"
+      class="hero-card"
+    >
       <div class="hero-card__head">
         <div class="hero-copy">
-          <span class="hero-kicker">{{ reservationCode(selectedReservation) }}</span>
-          <h3>{{ routeDisplay(selectedReservation) }}</h3>
+          <span class="hero-kicker">{{ reservationCode(reservation) }}</span>
+          <h3>{{ routeDisplay(reservation) }}</h3>
           <div class="hero-meta">
-            <span v-if="selectedReservation.date">📅 {{ departureLine(selectedReservation) }}</span>
-            <span v-if="selectedReservation.passengers"
-              >👥 {{ selectedReservation.passengers }} pasajeros</span
+            <span v-if="reservation.date">📅 {{ departureLine(reservation) }}</span>
+            <span v-if="reservation.passengers">👥 {{ reservation.passengers }} pasajeros</span>
+            <span v-if="reservation.aircraft">🛩 {{ reservation.aircraft }}</span>
+            <span v-if="itinerarySegments(reservation).length"
+              >✈ {{ itinerarySegments(reservation).length }} tramos</span
             >
-            <span v-if="selectedReservation.aircraft">🛩 {{ selectedReservation.aircraft }}</span>
-            <span v-if="itinerarySegments(selectedReservation).length"
-              >✈ {{ itinerarySegments(selectedReservation).length }} tramos</span
-            >
-            <span v-if="routeSegmentsLabel(selectedReservation)"
-              >🗺 {{ routeSegmentsLabel(selectedReservation) }}</span
-            >
-            <span v-if="overnightLabel(selectedReservation)"
-              >🌙 {{ overnightLabel(selectedReservation) }}</span
-            >
-            <span v-if="countdownLabel(selectedReservation.date)"
-              >⏳ {{ countdownLabel(selectedReservation.date) }}</span
-            >
+            <span v-if="routeSegmentsLabel(reservation)">🗺 {{ routeSegmentsLabel(reservation) }}</span>
+            <span v-if="overnightLabel(reservation)">🌙 {{ overnightLabel(reservation) }}</span>
+            <span v-if="countdownLabel(reservation.date)">⏳ {{ countdownLabel(reservation.date) }}</span>
           </div>
         </div>
         <span
           class="status-badge"
-          :class="`status-badge--${statusMeta(reservationWorkflowValue(selectedReservation)).tone}`"
+          :class="`status-badge--${statusMeta(reservationWorkflowValue(reservation)).tone}`"
         >
-          {{ statusMeta(reservationWorkflowValue(selectedReservation)).icon }}
-          {{ statusMeta(reservationWorkflowValue(selectedReservation)).label }}
+          {{ statusMeta(reservationWorkflowValue(reservation)).icon }}
+          {{ statusMeta(reservationWorkflowValue(reservation)).label }}
         </span>
       </div>
 
@@ -449,20 +436,16 @@ watch(
           <span
             class="progress-bar"
             :style="{
-              width: `${statusMeta(reservationWorkflowValue(selectedReservation)).progress}%`,
+              width: `${statusMeta(reservationWorkflowValue(reservation)).progress}%`,
             }"
           ></span>
         </div>
-        <strong
-          >{{
-            statusMeta(reservationWorkflowValue(selectedReservation)).progress
-          }}%</strong
-        >
+        <strong>{{ statusMeta(reservationWorkflowValue(reservation)).progress }}%</strong>
       </div>
 
       <div class="progress-steps">
         <span
-          v-for="step in progressSteps(reservationWorkflowValue(selectedReservation))"
+          v-for="step in progressSteps(reservationWorkflowValue(reservation))"
           :key="step.key"
           class="step-pill"
           :class="`step-pill--${step.state}`"
@@ -475,50 +458,40 @@ watch(
       </div>
 
       <div class="executive-grid">
-        <article
-          v-if="selectedReservation.aircraft"
-          class="executive-card executive-card--aircraft"
-        >
+        <article v-if="reservation.aircraft" class="executive-card executive-card--aircraft">
           <div
             class="executive-card__media"
-            :class="{ 'executive-card__media--placeholder': !selectedReservation.aircraft_image }"
+            :class="{ 'executive-card__media--placeholder': !reservation.aircraft_image }"
           >
             <img
-              v-if="selectedReservation.aircraft_image"
-              :src="selectedReservation.aircraft_image"
-              :alt="selectedReservation.aircraft"
+              v-if="reservation.aircraft_image"
+              :src="reservation.aircraft_image"
+              :alt="reservation.aircraft"
             />
             <span v-else>Jet privado</span>
           </div>
           <div class="executive-card__copy">
-            <strong>🛩 {{ selectedReservation.aircraft }}</strong>
-            <span v-if="selectedReservation.aircraft_capacity"
-              >Capacidad: {{ selectedReservation.aircraft_capacity }} pax</span
+            <strong>🛩 {{ reservation.aircraft }}</strong>
+            <span v-if="reservation.aircraft_capacity"
+              >Capacidad: {{ reservation.aircraft_capacity }} pax</span
             >
-            <span v-if="selectedReservation.aircraft_category"
-              >Cabina: {{ selectedReservation.aircraft_category }}</span
-            >
-            <span v-if="selectedReservation.amenities?.length"
-              >Servicios: {{ selectedReservation.amenities.slice(0, 3).join(' • ') }}</span
+            <span v-if="reservation.aircraft_category">Cabina: {{ reservation.aircraft_category }}</span>
+            <span v-if="reservation.amenities?.length"
+              >Servicios: {{ reservation.amenities.slice(0, 3).join(' • ') }}</span
             >
           </div>
         </article>
 
         <article class="executive-card">
           <strong>Siguiente paso:</strong>
-          <span>{{ nextAction(reservationWorkflowValue(selectedReservation)) }}</span>
-          <span>{{
-            nextActionDetail(reservationWorkflowValue(selectedReservation))
-          }}</span>
-          <span
-            v-for="line in workflowSupportLines(selectedReservation)"
-            :key="line"
-          >{{ line }}</span>
+          <span>{{ nextAction(reservationWorkflowValue(reservation)) }}</span>
+          <span>{{ nextActionDetail(reservationWorkflowValue(reservation)) }}</span>
+          <span v-for="line in workflowSupportLines(reservation)" :key="line">{{ line }}</span>
         </article>
       </div>
 
-      <div v-if="itinerarySegments(selectedReservation).length" class="legs-grid">
-        <span v-for="leg in itinerarySegments(selectedReservation)" :key="leg.key">
+      <div v-if="itinerarySegments(reservation).length" class="legs-grid">
+        <span v-for="leg in itinerarySegments(reservation)" :key="leg.key">
           Tramo {{ leg.order || '?' }} · {{ leg.origin }} → {{ leg.destination }}
           <template v-if="leg.departure"> · {{ shortTripDate(leg.departure) }}</template>
         </span>
@@ -527,34 +500,30 @@ watch(
       <div class="card-actions card-actions--premium">
         <button
           type="button"
-          :disabled="!contractEnabled(selectedReservation)"
-          @click="$emit('open-contract', selectedReservation.id)"
+          :disabled="!contractEnabled(reservation)"
+          @click="$emit('open-contract', reservation.id)"
         >
           📄 Contrato
         </button>
         <button
           type="button"
-          :disabled="!paymentEnabled(selectedReservation)"
-          @click="$emit('open-payment', selectedReservation.id)"
+          :disabled="!paymentEnabled(reservation)"
+          @click="$emit('open-payment', reservation.id)"
         >
           💳 Pago
         </button>
-        <button
-        >
-          {{ flightActionLabel(selectedReservation) }}
-        </button>
+        <button type="button">{{ flightActionLabel(reservation) }}</button>
         <button
           type="button"
-          :disabled="!conciergeEnabled(selectedReservation)"
-          @click="$emit('open-concierge', selectedReservation.id)"
+          :disabled="!conciergeEnabled(reservation)"
+          @click="$emit('open-concierge', reservation.id)"
         >
           🎧 Concierge
         </button>
-        
       </div>
     </article>
 
-    <div v-if="reservations.length && !selectedReservation" class="empty-state">
+    <div v-if="reservations.length && !filteredReservations.length" class="empty-state">
       No hay viajes en
       {{ tabOptions.find((tab) => tab.key === activeTab)?.label.toLowerCase() || 'esta sección' }}.
     </div>

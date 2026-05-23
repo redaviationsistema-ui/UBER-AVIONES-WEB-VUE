@@ -1563,9 +1563,13 @@ function nestedReservationRecord(request = {}) {
 function collectPayments(request = {}) {
   const nestedReservation = nestedReservationRecord(request)
   const directPayments = Array.isArray(request.payments) ? request.payments : []
-  const nestedPayments = Array.isArray(nestedReservation?.payments) ? nestedReservation.payments : []
+  const nestedPayments = Array.isArray(nestedReservation?.payments)
+    ? nestedReservation.payments
+    : []
 
-  return [...directPayments, ...nestedPayments].filter((payment) => payment && typeof payment === 'object')
+  return [...directPayments, ...nestedPayments].filter(
+    (payment) => payment && typeof payment === 'object',
+  )
 }
 
 function latestPaymentStatus(request = {}) {
@@ -1576,7 +1580,9 @@ function latestPaymentStatus(request = {}) {
   const latestPayment = [...payments].sort((first, second) => {
     const firstDate = Date.parse(first?.updated_at || first?.paid_at || first?.created_at || '')
     const secondDate = Date.parse(second?.updated_at || second?.paid_at || second?.created_at || '')
-    return (Number.isFinite(secondDate) ? secondDate : 0) - (Number.isFinite(firstDate) ? firstDate : 0)
+    return (
+      (Number.isFinite(secondDate) ? secondDate : 0) - (Number.isFinite(firstDate) ? firstDate : 0)
+    )
   })[0]
 
   return latestPayment?.status || ''
@@ -1655,8 +1661,7 @@ export function deriveClientWorkflowStatus(request = {}) {
         request.payment_order?.status ||
         latestPaymentStatus(request) ||
         '',
-    }) ||
-    ''
+    }) || ''
   )
 }
 
@@ -1777,6 +1782,7 @@ export function normalizeTrip(request = {}, options = {}) {
   return {
     id: request.id || '',
     flight_request_id: request.flight_request_id || request.request_id || '',
+    client_id: request.client_id || request.customer_id || request.user_id || request.client?.id || '',
     entity_type: entityType,
     is_reservation: entityType === 'reservation',
     route,
@@ -1935,7 +1941,9 @@ function pickMostRelevantExplicitWorkflow(baseRecord = {}, detailRecord = {}) {
   if (!hasMeaningfulValue(detailWorkflow)) return baseWorkflow
 
   const baseUpdatedAt = parseComparableTimestamp(baseRecord.updated_at || baseRecord.updatedAt)
-  const detailUpdatedAt = parseComparableTimestamp(detailRecord.updated_at || detailRecord.updatedAt)
+  const detailUpdatedAt = parseComparableTimestamp(
+    detailRecord.updated_at || detailRecord.updatedAt,
+  )
 
   if (baseUpdatedAt && detailUpdatedAt && baseUpdatedAt !== detailUpdatedAt) {
     return baseUpdatedAt > detailUpdatedAt ? baseWorkflow : detailWorkflow
@@ -1946,6 +1954,7 @@ function pickMostRelevantExplicitWorkflow(baseRecord = {}, detailRecord = {}) {
 
 function mergeTripRecords(baseRecord = {}, detailRecord = {}) {
   const preferredDetailKeys = new Set([
+    'client_id',
     'matches',
     'matched_options',
     'aircraft',
@@ -1959,6 +1968,11 @@ function mergeTripRecords(baseRecord = {}, detailRecord = {}) {
     'destination',
     'date',
     'departure_datetime',
+    'overnight_nights',
+    'trip_type',
+    'passengers',
+    'flight_package',
+    'service_tier',
     'payment_status',
     'selected_card_price',
     'final_price',
@@ -1977,11 +1991,17 @@ function mergeTripRecords(baseRecord = {}, detailRecord = {}) {
     ? merged.explicit_workflow_status
     : preferMostAdvancedWorkflowValue(baseRecord.workflow_status, detailRecord.workflow_status)
 
-  if (hasMeaningfulValue(detailRecord.contract_status) && !hasMeaningfulValue(baseRecord.contract_status)) {
+  if (
+    hasMeaningfulValue(detailRecord.contract_status) &&
+    !hasMeaningfulValue(baseRecord.contract_status)
+  ) {
     merged.contract_status = detailRecord.contract_status
   }
 
-  if (hasMeaningfulValue(detailRecord.payment_status) && !hasMeaningfulValue(baseRecord.payment_status)) {
+  if (
+    hasMeaningfulValue(detailRecord.payment_status) &&
+    !hasMeaningfulValue(baseRecord.payment_status)
+  ) {
     merged.payment_status = detailRecord.payment_status
   }
 
@@ -2246,7 +2266,10 @@ export async function getClientTrips(options = {}) {
             id: item.id,
             workflow_status: resolvedWorkflowStatus,
             contract_status:
-              mergedRecord.contract?.status || mergedRecord.contract_status || item.contract?.status || '',
+              mergedRecord.contract?.status ||
+              mergedRecord.contract_status ||
+              item.contract?.status ||
+              '',
             contract_signed_at:
               mergedRecord.contract?.signed_at ||
               mergedRecord.contract_signed_at ||
@@ -2310,7 +2333,11 @@ function normalizeEntityIdentifier(value) {
   return ''
 }
 
-function buildContractSignSnapshot(snapshot = {}, fallbackReservationId = '', fallbackFlightRequestId = '') {
+function buildContractSignSnapshot(
+  snapshot = {},
+  fallbackReservationId = '',
+  fallbackFlightRequestId = '',
+) {
   const baseSnapshot = snapshot && typeof snapshot === 'object' ? { ...snapshot } : {}
   const normalizedReservationId =
     normalizeEntityIdentifier(baseSnapshot.reservation_id) || fallbackReservationId
@@ -2390,22 +2417,25 @@ export async function markClientTripReadyForPayment(
       )
       const record =
         payload?.reservation || payload?.trip || payload?.data || payload?.flight_request || payload
-      const normalizedRecord = normalizeTrip({
-        ...(record && typeof record === 'object' ? record : {}),
-        id: record?.id || normalizedReservationId,
-        contract:
-          payload?.contract && typeof payload.contract === 'object'
-            ? payload.contract
-            : record?.contract || null,
-        payment_order:
-          payload?.payment_order && typeof payload.payment_order === 'object'
-            ? payload.payment_order
-            : null,
-        payment_status:
-          record?.payment_status || payload?.payment_order?.status || 'Pendiente de pago',
-      }, {
-        entityType: payload?.reservation ? 'reservation' : 'trip',
-      })
+      const normalizedRecord = normalizeTrip(
+        {
+          ...(record && typeof record === 'object' ? record : {}),
+          id: record?.id || normalizedReservationId,
+          contract:
+            payload?.contract && typeof payload.contract === 'object'
+              ? payload.contract
+              : record?.contract || null,
+          payment_order:
+            payload?.payment_order && typeof payload.payment_order === 'object'
+              ? payload.payment_order
+              : null,
+          payment_status:
+            record?.payment_status || payload?.payment_order?.status || 'Pendiente de pago',
+        },
+        {
+          entityType: payload?.reservation ? 'reservation' : 'trip',
+        },
+      )
 
       if (normalizedRecord?.id) {
         return normalizedRecord
@@ -2458,13 +2488,16 @@ export async function markClientTripReadyForPayment(
       const record =
         payload?.flight_request || payload?.reservation || payload?.trip || payload?.data || payload
 
-      return normalizeTrip({
-        ...(record && typeof record === 'object' ? record : {}),
-        id: record?.id || workflowTargetId,
-        ...workflowPayload,
-      }, {
-        entityType: payload?.reservation ? 'reservation' : 'trip',
-      })
+      return normalizeTrip(
+        {
+          ...(record && typeof record === 'object' ? record : {}),
+          id: record?.id || workflowTargetId,
+          ...workflowPayload,
+        },
+        {
+          entityType: payload?.reservation ? 'reservation' : 'trip',
+        },
+      )
     } catch (error) {
       lastError = error
     }
@@ -2474,13 +2507,16 @@ export async function markClientTripReadyForPayment(
     throw lastError
   }
 
-    return normalizeTrip({
+  return normalizeTrip(
+    {
       id: normalizedReservationId,
       ...workflowPayload,
-    }, {
+    },
+    {
       entityType: 'reservation',
-    })
-  }
+    },
+  )
+}
 
 export async function ensureClientReservation(payload = {}, options = {}) {
   return api.post(CLIENT_RESERVATIONS_PATH, payload, options)

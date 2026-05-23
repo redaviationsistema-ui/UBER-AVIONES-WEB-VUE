@@ -9,11 +9,15 @@ const props = defineProps({
   submitting: { type: Boolean, default: false },
 })
 
+
+
 const emit = defineEmits(['confirm'])
 const logoSrc = '/logo.png'
+const contractHeaderSrc = '/MARGEN/image.png'
 const supportPhones = ['+52 558 618 6576', '+52 722 112 6671', '+1 305 464 6394']
 const supportEmail = 'sales@redskyg.com'
 const supportWebsite = 'https://redskyg.com/mx'
+const supportPhonesLabel = supportPhones.join(' | ')
 const signatureInput = ref(null)
 const uploadedSignatureName = ref('')
 const uploadedSignatureUrl = ref('')
@@ -241,15 +245,6 @@ function formatCurrency(value) {
   }).format(Number(value || 0))
 }
 
-function formatCurrencyDetail(value) {
-  return new Intl.NumberFormat('es-MX', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  }).format(Number(value || 0))
-}
-
 function resolveEntityIdentifier(value) {
   if (value === null || value === undefined) return ''
 
@@ -300,6 +295,14 @@ function parsePrice(value) {
 
   const parsed = Number(normalized.replace(',', '.'))
   return Number.isFinite(parsed) ? parsed : 0
+}
+
+function parsePassengerCount(value) {
+  if (value === null || value === undefined || value === '') return 0
+
+  const rawMatch = String(value).match(/(\d+(?:\.\d+)?)/)
+  const amount = Number(rawMatch?.[1] || 0)
+  return Number.isFinite(amount) ? amount : 0
 }
 
 function listRequestMatches(reservation = {}) {
@@ -395,6 +398,9 @@ function resolveReservationFinalPrice(reservation = {}) {
 }
 
 const reservationCode = computed(() => {
+  const liveReservationCode = String(props.reservation?.reservation_code || '').trim()
+  if (liveReservationCode) return liveReservationCode
+
   if (resolvedContractSnapshot.value.reservation_code) {
     return resolvedContractSnapshot.value.reservation_code
   }
@@ -404,16 +410,6 @@ const reservationCode = computed(() => {
 })
 
 const itinerarySegments = computed(() => {
-  if (resolvedContractSnapshot.value.itinerary_segments.length) {
-    return resolvedContractSnapshot.value.itinerary_segments.map((segment, index) => ({
-      key: `snapshot-leg-${index + 1}`,
-      order: segment.order || index + 1,
-      origin: segment.origin || 'Origen por confirmar',
-      destination: segment.destination || 'Destino por confirmar',
-      departure: segment.departure || '',
-    }))
-  }
-
   const reservation = props.reservation || {}
 
   if (Array.isArray(reservation.legs) && reservation.legs.length) {
@@ -443,6 +439,16 @@ const itinerarySegments = computed(() => {
         departure: leg.departure_datetime || (leg.date ? `${leg.date}T${leg.time || '09:00'}` : ''),
       })),
     ]
+  }
+
+  if (resolvedContractSnapshot.value.itinerary_segments.length) {
+    return resolvedContractSnapshot.value.itinerary_segments.map((segment, index) => ({
+      key: `snapshot-leg-${index + 1}`,
+      order: segment.order || index + 1,
+      origin: segment.origin || 'Origen por confirmar',
+      destination: segment.destination || 'Destino por confirmar',
+      departure: segment.departure || '',
+    }))
   }
 
   return [
@@ -484,70 +490,93 @@ const routeDisplay = computed(() => {
     return routePath.value.join(' → ')
   }
 
+  const reservation = props.reservation || {}
+  const origin = airportDisplay(reservation.origin)
+  const destination = airportDisplay(reservation.destination)
+  const liveRoute = [origin, destination].filter(Boolean).join(' → ')
+  if (liveRoute) return liveRoute
+
   if (resolvedContractSnapshot.value.route) {
     return resolvedContractSnapshot.value.route
   }
 
-  const reservation = props.reservation || {}
-  const origin = airportDisplay(reservation.origin)
-  const destination = airportDisplay(reservation.destination)
-  if (!origin && !destination) return `Contrato ${props.reservationId || reservation.id || ''}`
-  return [origin, destination].filter(Boolean).join(' → ')
+  return `Contrato ${props.reservationId || reservation.id || ''}`
 })
 
 const passengerLabel = computed(() => {
+  const aircraftCapacity =
+    parsePassengerCount(props.reservation?.aircraft_capacity) ||
+    parsePassengerCount(props.reservation?.aircraft_snapshot?.capacity)
+  if (aircraftCapacity) {
+    return `${aircraftCapacity} ${aircraftCapacity === 1 ? 'pasajero' : 'pasajeros'}`
+  }
+
+  const amount = parsePassengerCount(props.reservation?.passengers)
+  if (amount) {
+    return `${amount} ${amount === 1 ? 'pasajero' : 'pasajeros'}`
+  }
+
   if (resolvedContractSnapshot.value.passengers) {
     return resolvedContractSnapshot.value.passengers
   }
 
-  const amount = Number(props.reservation?.passengers || 0)
-  if (!amount) return 'Pasajeros por confirmar'
-  return `${amount} ${amount === 1 ? 'pasajero' : 'pasajeros'}`
+  return 'Pasajeros por confirmar'
 })
 
 const aircraftLabel = computed(() => {
   return (
-    resolvedContractSnapshot.value.aircraft ||
+    props.reservation?.assigned_aircraft_model ||
+    props.reservation?.aircraft_model ||
+    props.reservation?.aircraft_name ||
     props.reservation?.aircraft ||
     props.reservation?.aircraft_category ||
+    resolvedContractSnapshot.value.aircraft ||
     'Aeronave por confirmar'
   )
 })
 
 const aircraftCategory = computed(
   () =>
-    resolvedContractSnapshot.value.aircraft_category ||
     props.reservation?.aircraft_category ||
+    resolvedContractSnapshot.value.aircraft_category ||
     'Categoría ejecutiva validada',
 )
 const serviceTier = computed(
   () =>
-    resolvedContractSnapshot.value.service_tier ||
     props.reservation?.flight_package ||
+    props.reservation?.service_tier ||
+    resolvedContractSnapshot.value.service_tier ||
     'Servicio ejecutivo privado',
 )
 const operatorLabel = computed(
   () =>
-    resolvedContractSnapshot.value.operator ||
     props.reservation?.operator ||
+    props.reservation?.provider_name ||
+    resolvedContractSnapshot.value.operator ||
     'Por confirmar / asignado por Sky Group previo a la operación',
 )
 const commercialProviderLabel = 'RED AVIATION COMPANY S.A. DE C.V.'
 const customerLabel = computed(
   () =>
-    resolvedContractSnapshot.value.customer_name || props.customerName || 'Cliente de SKY Group',
+    props.customerName ||
+    props.reservation?.client_name ||
+    props.reservation?.customer_name ||
+    props.reservation?.company_name ||
+    resolvedContractSnapshot.value.customer_name ||
+    'Cliente de SKY Group',
 )
 const customerAddress = computed(
   () =>
-    resolvedContractSnapshot.value.customer_address ||
     props.reservation?.client_address ||
     props.reservation?.billing_address ||
+    resolvedContractSnapshot.value.customer_address ||
     'Domicilio por confirmar',
 )
 const customerRepresentative = computed(
   () =>
-    resolvedContractSnapshot.value.customer_representative ||
     props.reservation?.client_representative ||
+    props.reservation?.representative_name ||
+    resolvedContractSnapshot.value.customer_representative ||
     customerLabel.value,
 )
 const contractRecord = computed(() =>
@@ -630,19 +659,66 @@ const persistedSignatureDataUrl = computed(() => {
 const activeSignaturePreview = computed(
   () => uploadedSignatureUrl.value || persistedSignatureDataUrl.value,
 )
-const departureDate = computed(
-  () =>
-    resolvedContractSnapshot.value.departure_date ||
-    formatDateTime(props.reservation?.date || itinerarySegments.value[0]?.departure || ''),
-)
+const departureDate = computed(() => {
+  const liveDeparture = props.reservation?.date || itinerarySegments.value[0]?.departure || ''
+  if (liveDeparture) {
+    return formatDateTime(liveDeparture)
+  }
+
+  return resolvedContractSnapshot.value.departure_date || 'Fecha por confirmar'
+})
+
+function looksLikePendingDeposit(value = '') {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .includes('por confirmar')
+}
+
+function inferOvernightNights(segments = []) {
+  if (!Array.isArray(segments) || segments.length < 2) return 0
+
+  const timestamps = segments
+    .map((segment) => parseFlexibleDate(segment.departure))
+    .filter((value) => value instanceof Date && !Number.isNaN(value.getTime()))
+    .map((value) => value.getTime())
+
+  if (timestamps.length < 2) return 0
+
+  const first = Math.min(...timestamps)
+  const last = Math.max(...timestamps)
+  const millisecondsPerDay = 1000 * 60 * 60 * 24
+  return Math.max(Math.round((last - first) / millisecondsPerDay), 0)
+}
+
 const overnightLabel = computed(() => {
-  if (resolvedContractSnapshot.value.overnight) {
+  const reservation = props.reservation || {}
+  const pricingContext =
+    reservation.pricing_context && typeof reservation.pricing_context === 'object'
+      ? reservation.pricing_context
+      : {}
+  const nights = Number(
+    reservation.overnight_nights ||
+      reservation.itinerary_days ||
+      pricingContext.overnight_nights ||
+      pricingContext.itinerary_days ||
+      pricingContext?.extras?.overnight_nights ||
+      inferOvernightNights(itinerarySegments.value) ||
+      0,
+  )
+
+  if (nights) {
+    return `${nights} ${nights === 1 ? 'pernocta' : 'pernoctas'}`
+  }
+
+  if (
+    resolvedContractSnapshot.value.overnight &&
+    !String(resolvedContractSnapshot.value.overnight).toLowerCase().includes('sin pernocta')
+  ) {
     return resolvedContractSnapshot.value.overnight
   }
 
-  const nights = Number(props.reservation?.overnight_nights || 0)
-  if (!nights) return 'Sin pernocta registrada'
-  return `${nights} ${nights === 1 ? 'pernocta' : 'pernoctas'}`
+  return 'Sin pernocta registrada'
 })
 
 const finalPrice = computed(() => {
@@ -651,12 +727,12 @@ const finalPrice = computed(() => {
   const numericFinalPrice = parsePrice(resolvedFinalPrice)
 
   return (
-    resolvedContractSnapshot.value.final_price ||
     reservation.formatted_final_price ||
     reservation.final_price_display ||
     (typeof resolvedFinalPrice === 'string' && resolvedFinalPrice.trim()
       ? resolvedFinalPrice
       : '') ||
+    resolvedContractSnapshot.value.final_price ||
     (numericFinalPrice > 0 ? formatCurrency(numericFinalPrice) : 'Monto por confirmar')
   )
 })
@@ -664,21 +740,28 @@ const finalPrice = computed(() => {
 const finalPriceValue = computed(() => {
   const reservation = props.reservation || {}
   return parsePrice(
-    resolvedContractSnapshot.value.final_price ||
-      reservation.formatted_final_price ||
+    reservation.formatted_final_price ||
       reservation.final_price_display ||
       resolveReservationFinalPrice(reservation) ||
+      resolvedContractSnapshot.value.final_price ||
       0,
   )
 })
 
 const depositAmount = computed(() => {
-  if (resolvedContractSnapshot.value.deposit_amount) {
+  const reservation = props.reservation || {}
+  const rawAmount = Number(reservation.deposit_amount || reservation.deposit || 0)
+  if (rawAmount > 0) {
+    return formatCurrency(rawAmount)
+  }
+
+  if (
+    resolvedContractSnapshot.value.deposit_amount &&
+    !looksLikePendingDeposit(resolvedContractSnapshot.value.deposit_amount)
+  ) {
     return resolvedContractSnapshot.value.deposit_amount
   }
 
-  const reservation = props.reservation || {}
-  const rawAmount = Number(reservation.deposit_amount || reservation.deposit || 0)
   const resolvedAmount =
     rawAmount > 0 ? rawAmount : finalPriceValue.value > 0 ? finalPriceValue.value * 0.5 : 0
   return resolvedAmount > 0 ? formatCurrency(resolvedAmount) : 'Depósito por definir'
@@ -687,109 +770,22 @@ const depositAmount = computed(() => {
 const depositAmountValue = computed(() => {
   const reservation = props.reservation || {}
   const rawAmount = Number(reservation.deposit_amount || reservation.deposit || 0)
+  if (rawAmount > 0) return rawAmount
+
+  if (
+    resolvedContractSnapshot.value.deposit_amount &&
+    !looksLikePendingDeposit(resolvedContractSnapshot.value.deposit_amount)
+  ) {
+    const snapshotAmount = parsePrice(resolvedContractSnapshot.value.deposit_amount)
+    if (snapshotAmount > 0) return snapshotAmount
+  }
+
   return rawAmount > 0 ? rawAmount : finalPriceValue.value > 0 ? finalPriceValue.value * 0.5 : 0
 })
 
 const balanceAmount = computed(() => {
   const balance = Math.max(finalPriceValue.value - depositAmountValue.value, 0)
   return balance > 0 ? formatCurrency(balance) : formatCurrency(0)
-})
-
-const pricingContextRecord = computed(() =>
-  props.reservation?.pricing_context && typeof props.reservation.pricing_context === 'object'
-    ? props.reservation.pricing_context
-    : {},
-)
-
-const pricingRows = computed(() => {
-  const reservation = props.reservation || {}
-  const pricingContext = pricingContextRecord.value
-  const billableHours = Number(
-    pricingContext.billable_hours ||
-      pricingContext.operational_flight_hours ||
-      reservation.billable_hours ||
-      reservation.operational_flight_hours ||
-      reservation.flight_hours ||
-      0,
-  )
-  const flightRent = parsePrice(
-    pricingContext.subtotal_flight ||
-      pricingContext.flight_base ||
-      pricingContext.base_cost ||
-      reservation.base_price ||
-      reservation.flight_base ||
-      0,
-  )
-  const overnightAmount = parsePrice(
-    reservation.overnight_cost ||
-      reservation.overnight_fees ||
-      reservation.overnight_fee ||
-      pricingContext.overnight_cost ||
-      pricingContext.overnight_fees ||
-      pricingContext.overnight_fee ||
-      0,
-  )
-  const additionalServices = Math.max(
-    parsePrice(pricingContext.extra_services_total || reservation.extra_services_total || 0) -
-      overnightAmount,
-    0,
-  )
-  const operationalAmount = parsePrice(
-    pricingContext.fbo_total ||
-      pricingContext.expense_fee ||
-      pricingContext.airport_expenses ||
-      reservation.airport_expenses ||
-      reservation.operational_fee ||
-      0,
-  )
-
-  const rows = [
-    {
-      label: 'Horas cobrables',
-      detail:
-        billableHours > 0
-          ? `${billableHours.toFixed(2).replace(/\.00$/, '')} hrs`
-          : 'Por confirmar',
-    },
-    {
-      label: 'Renta de vuelo',
-      amount: flightRent || 0,
-    },
-    {
-      label: 'Pernocta tripulación',
-      amount: overnightAmount || 0,
-    },
-    {
-      label: 'Gastos operativos',
-      amount: operationalAmount || 0,
-    },
-    {
-      label: 'Servicios adicionales',
-      amount: additionalServices || 0,
-    },
-    {
-      label: 'IVA / impuestos',
-      amount:
-        parsePrice(
-          pricingContext.iva_amount ||
-            pricingContext.taxes ||
-            pricingContext.tax ||
-            reservation.taxes ||
-            reservation.tax ||
-            0,
-        ) || 0,
-    },
-  ]
-
-  const visibleRows = rows.filter((row) => row.detail || row.amount > 0)
-  return [
-    ...visibleRows,
-    {
-      label: 'Total',
-      amount: finalPriceValue.value,
-      highlight: true,
-    },
-  ]
 })
 
 const includesItems = [
@@ -813,7 +809,6 @@ const coverSummaryRows = computed(() => [
   { label: 'Aeronave', value: aircraftLabel.value },
   { label: 'Salida', value: departureDate.value },
   { label: 'Total', value: finalPrice.value },
-  { label: 'Depósito', value: depositAmount.value },
 ])
 
 const bankAccounts = [
@@ -1092,12 +1087,10 @@ function handleConfirmClick() {
 </script>
 
 <template>
-  <article class="contract-preview">
+  <article class="contract-preview contract-pdf">
     <section class="contract-sheet">
       <header class="contract-brandbar">
-        <div class="contract-brandbar__main">
-          <img :src="logoSrc" alt="Sky Group" class="contract-brandbar__logo" />
-        </div>
+        <img :src="contractHeaderSrc" alt="Sky Group" class="contract-brandbar__banner" />
       </header>
 
       <div class="contract-sheet__body">
@@ -1123,47 +1116,52 @@ function handleConfirmClick() {
             <span>💵 {{ finalPrice }}</span>
           </div>
           <div class="contract-cover__brief">
-            <article v-for="row in coverSummaryRows" :key="row.label" class="cover-brief-card">
+            <article
+              v-for="row in coverSummaryRows"
+              :key="row.label"
+              class="cover-brief-card contract-card"
+            >
               <span>{{ row.label }}</span>
               <strong>{{ row.value }}</strong>
             </article>
           </div>
         </section>
 
-        <div class="contract-sheet__head">
-          <span class="eyebrow">Contrato {{ reservationId || reservation?.id || '' }}</span>
-          <strong>ANEXO A — DATOS COMERCIALES DE LA RESERVA</strong>
-          <small>
-            <span v-if="contractRecord.signed_at || contractRecord.generated_at">
-              {{ formatDate(contractRecord.signed_at || contractRecord.generated_at) }}
-            </span>
-          </small>
-        </div>
+        <section class="contract-commercial-intro contract-section">
+          <div class="contract-sheet__head">
+            <span class="eyebrow">Contrato {{ reservationId || reservation?.id || '' }}</span>
+            <strong>ANEXO A — DATOS COMERCIALES DE LA RESERVA</strong>
+            <small>
+              <span v-if="contractRecord.signed_at || contractRecord.generated_at">
+                {{ formatDate(contractRecord.signed_at || contractRecord.generated_at) }}
+              </span>
+            </small>
+          </div>
 
-        <section class="contract-summary">
-          <article class="summary-card summary-card--route">
-            <span>Ruta contratada</span>
-            <strong>{{ routeDisplay }}</strong>
-            <small>{{ departureDate }}</small>
-          </article>
-          <article class="summary-card">
-            <span>Aeronave</span>
-            <strong>{{ aircraftLabel }}</strong>
-            <small>{{ aircraftCategory }}</small>
-          </article>
-          <article class="summary-card">
-            <span>Servicio</span>
-            <strong>{{ serviceTier }}</strong>
-            <small>{{ passengerLabel }}</small>
-          </article>
-          <article class="summary-card">
-            <span>Costo total</span>
-            <strong>{{ finalPrice }}</strong>
-            <small>Depósito: {{ depositAmount }}</small>
-          </article>
+          <div class="contract-summary">
+            <article class="summary-card summary-card--route contract-card">
+              <span>Ruta contratada</span>
+              <strong>{{ routeDisplay }}</strong>
+              <small>{{ departureDate }}</small>
+            </article>
+            <article class="summary-card contract-card">
+              <span>Aeronave</span>
+              <strong>{{ aircraftLabel }}</strong>
+              <small>{{ aircraftCategory }}</small>
+            </article>
+            <article class="summary-card contract-card">
+              <span>Servicio</span>
+              <strong>{{ serviceTier }}</strong>
+              <small>{{ passengerLabel }}</small>
+            </article>
+            <article class="summary-card contract-card">
+              <span>Costo total</span>
+              <strong>{{ finalPrice }}</strong>
+            </article>
+          </div>
         </section>
 
-        <div class="contract-block">
+        <div class="contract-block contract-section">
           <p class="contract-opening">
             El presente Contrato se celebra en la fecha <strong>{{ contractDate }}</strong
             >.
@@ -1188,17 +1186,17 @@ function handleConfirmClick() {
           </p>
         </div>
 
-        <div class="contract-block">
+        <div class="contract-block contract-section">
           <h3>CONSIDERANDO QUE</h3>
           <ul class="contract-list">
             <li v-for="item in considerations" :key="item">{{ item }}</li>
           </ul>
         </div>
 
-        <div class="contract-block">
+        <div class="contract-block contract-section">
           <h3>ANEXO A — RESUMEN COMERCIAL</h3>
           <div class="annex-table-wrap">
-            <table class="annex-table">
+            <table class="annex-table contract-table">
               <tbody>
                 <tr>
                   <th scope="row">Reserva</th>
@@ -1235,10 +1233,7 @@ function handleConfirmClick() {
                 <tr>
                   <th scope="row">Costo total</th>
                   <td>{{ finalPrice }}</td>
-                  <th scope="row">Depósito</th>
-                  <td>{{ depositAmount }}</td>
-                  <th scope="row">Saldo estimado</th>
-                  <td>{{ balanceAmount }}</td>
+                  <td colspan="4" class="annex-table__spacer"></td>
                 </tr>
               </tbody>
             </table>
@@ -1247,7 +1242,7 @@ function handleConfirmClick() {
           <div class="annex-legs">
             <strong>Itinerario</strong>
             <div class="annex-table-wrap">
-              <table class="annex-table">
+              <table class="annex-table contract-table">
                 <thead>
                   <tr>
                     <th>Tramo</th>
@@ -1270,44 +1265,14 @@ function handleConfirmClick() {
             </div>
           </div>
 
-          <div class="annex-legs">
-            <strong>Desglose comercial</strong>
-            <div class="annex-table-wrap">
-              <table class="annex-table">
-                <thead>
-                  <tr>
-                    <th>Concepto</th>
-                    <th>Monto</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="row in pricingRows" :key="row.label">
-                    <td>{{ row.label }}</td>
-                    <td :class="{ 'annex-table__total': row.highlight }">
-                      {{ row.detail || formatCurrencyDetail(row.amount) }}
-                    </td>
-                  </tr>
-                  <tr>
-                    <td>Depósito requerido</td>
-                    <td>{{ formatCurrencyDetail(depositAmountValue) }}</td>
-                  </tr>
-                  <tr>
-                    <td>Saldo estimado</td>
-                    <td>{{ balanceAmount }}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
           <div class="annex-grid">
-            <article class="annex-note-card">
+            <article class="annex-note-card contract-card">
               <strong>Incluye</strong>
               <ul class="contract-list">
                 <li v-for="item in includesItems" :key="item">{{ item }}</li>
               </ul>
             </article>
-            <article class="annex-note-card">
+            <article class="annex-note-card contract-card">
               <strong>No incluye, salvo pacto expreso</strong>
               <ul class="contract-list">
                 <li v-for="item in excludesItems" :key="item">{{ item }}</li>
@@ -1316,14 +1281,14 @@ function handleConfirmClick() {
           </div>
         </div>
 
-        <div class="contract-block">
+        <div class="contract-block contract-section">
           <h3>1. DEFINICIONES</h3>
           <ul class="contract-list">
             <li v-for="item in definitions" :key="item">{{ item }}</li>
           </ul>
         </div>
 
-        <div v-for="clause in clauses" :key="clause.title" class="contract-block">
+        <div v-for="clause in clauses" :key="clause.title" class="contract-block contract-section">
           <h3>{{ clause.title }}</h3>
           <p v-for="paragraph in clause.paragraphs || []" :key="paragraph">{{ paragraph }}</p>
           <ul v-if="clause.items?.length" class="contract-list">
@@ -1331,10 +1296,14 @@ function handleConfirmClick() {
           </ul>
         </div>
 
-        <div class="contract-block">
+        <div class="contract-block contract-section">
           <h3>CUENTAS PARA PAGO</h3>
           <div class="accounts-grid">
-            <article v-for="account in bankAccounts" :key="account.bank" class="account-card">
+            <article
+              v-for="account in bankAccounts"
+              :key="account.bank"
+              class="account-card contract-card"
+            >
               <strong>{{ account.bank }}</strong>
               <span>Cuenta: {{ account.account }}</span>
               <span>CLABE: {{ account.clabe }}</span>
@@ -1344,11 +1313,26 @@ function handleConfirmClick() {
           </div>
         </div>
 
-        <div class="contract-block signatures-section">
-          <h3>FIRMAS</h3>
+        <div class="contract-block contract-section signatures-section">
+          <div class="signature-sheet__header">
+            <span class="eyebrow">Formalización</span>
+            <h3>FIRMAS</h3>
+            <p>
+              Las partes firman el presente Contrato para dejar constancia de su aceptación respecto
+              de la operación identificada como <strong>{{ reservationCode }}</strong
+              >.
+            </p>
+          </div>
+
+          <div class="signature-sheet__summary">
+            <span><strong>Cliente:</strong> {{ customerLabel }}</span>
+            <span><strong>Ruta:</strong> {{ routeDisplay }}</span>
+            <span><strong>Total:</strong> {{ finalPrice }}</span>
+          </div>
+
           <div class="signatures-grid">
-            <article class="signature-card">
-              <span>Prestador del Servicio</span>
+            <article class="signature-card contract-card signature-block">
+              <span class="signature-card__role">Prestador del Servicio</span>
               <strong>RED AVIATION COMPANY S.A. DE C.V.</strong>
               <small>Nombre: José Luis Hernández Ortiz</small>
               <small>Cargo: Representante Legal</small>
@@ -1359,10 +1343,10 @@ function handleConfirmClick() {
                   class="provider-signature-image"
                 />
               </div>
-              <small>Firma</small>
+              <small class="signature-card__caption">Firma autorizada</small>
             </article>
-            <article class="signature-card">
-              <span>Cliente</span>
+            <article class="signature-card contract-card signature-block">
+              <span class="signature-card__role">Cliente</span>
               <strong>{{ customerLabel }}</strong>
               <small>Por: {{ customerRepresentative }}</small>
               <small>Cargo: Cliente / Representante</small>
@@ -1374,23 +1358,29 @@ function handleConfirmClick() {
                   class="signature-image"
                 />
               </div>
-              <small>Firma</small>
+              <small class="signature-card__caption">Firma de conformidad</small>
             </article>
           </div>
-        </div>
 
-        <footer class="contract-footer">
-          <div class="contract-footer__line"></div>
-          <div class="contract-footer__meta">
-            <p>Números telefónicos: {{ supportPhones.join(' | ') }}</p>
-            <p>
-              Correo electrónico:
-              <a :href="`mailto:${supportEmail}`">{{ supportEmail }}</a>
-              | Página web:
-              <a :href="supportWebsite" target="_blank" rel="noreferrer">{{ supportWebsite }}</a>
-            </p>
+          <div class="signature-contact-bar">
+            <div class="signature-contact-bar__item">
+              <span>Contacto comercial</span>
+              <strong>
+                <a :href="`mailto:${supportEmail}`">{{ supportEmail }}</a>
+              </strong>
+            </div>
+            <div class="signature-contact-bar__item">
+              <span>Sitio web</span>
+              <strong>
+                <a :href="supportWebsite" target="_blank" rel="noreferrer">{{ supportWebsite }}</a>
+              </strong>
+            </div>
+            <div class="signature-contact-bar__item">
+              <span>Teléfonos</span>
+              <strong>{{ supportPhonesLabel }}</strong>
+            </div>
           </div>
-        </footer>
+        </div>
       </div>
     </section>
 
@@ -1456,6 +1446,9 @@ function handleConfirmClick() {
 .contract-preview {
   display: grid;
   gap: 1rem;
+  padding: 1rem;
+  border-radius: 32px;
+  background: linear-gradient(180deg, #16202a 0, #16202a 11rem, #f6f1e7 11rem, #f6f1e7 100%);
 }
 
 .contract-block h3 {
@@ -1538,32 +1531,36 @@ function handleConfirmClick() {
 
 .contract-cover__brief {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.8rem;
-  margin-top: 0.45rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.7rem;
+  margin-top: 0.55rem;
 }
 
 .cover-brief-card {
   display: grid;
-  gap: 0.2rem;
-  padding: 0.9rem 1rem;
-  border: 1px solid rgba(139, 106, 36, 0.16);
-  border-radius: 18px;
-  background: linear-gradient(180deg, rgba(250, 248, 243, 0.96), rgba(255, 255, 255, 0.98));
+  align-content: start;
+  gap: 0.32rem;
+  min-height: 5.25rem;
+  padding: 0.85rem 1rem 0.95rem;
+  border: 1px solid #eadfcd;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #fbf7f0 0%, #fffdfa 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92);
 }
 
 .cover-brief-card span {
-  color: #8a7d6a;
-  font-size: 0.8rem;
+  color: #8c7b63;
+  font-size: 0.74rem;
   font-weight: 800;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
 }
 
 .cover-brief-card strong {
   color: #1a1816;
-  font-size: 1rem;
-  line-height: 1.35;
+  font-size: 1.08rem;
+  line-height: 1.28;
+  word-break: break-word;
 }
 
 .contract-summary {
@@ -1616,45 +1613,18 @@ function handleConfirmClick() {
   overflow: hidden;
   border-radius: 28px;
   background: #ffffff;
-  box-shadow: 0 18px 48px rgba(17, 17, 17, 0.08);
+  box-shadow: 0 24px 56px rgba(22, 32, 42, 0.22);
 }
 
 .contract-brandbar {
-  display: grid;
-  gap: 1rem;
-  padding: 1.5rem clamp(1rem, 3vw, 2rem);
-  background: #17212b;
-  color: #ffffff;
+  overflow: hidden;
+  background: #16202a;
 }
 
-.contract-brandbar__main {
-  display: grid;
-  gap: 0.9rem;
-  align-items: center;
-}
-
-.contract-brandbar__logo {
-  width: min(360px, 58vw);
-  filter: brightness(0) invert(1);
-}
-
-.contract-brandbar__main p {
-  margin: 0;
-  color: rgba(255, 255, 255, 0.92);
-  font-size: 0.88rem;
-  font-weight: 700;
-  text-align: center;
-}
-
-.contract-brandbar__marks {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.85rem 1.25rem;
-  justify-content: flex-end;
-  color: rgba(255, 255, 255, 0.88);
-  font-size: 0.95rem;
-  font-weight: 800;
-  letter-spacing: 0.03em;
+.contract-brandbar__banner {
+  display: block;
+  width: 100%;
+  height: auto;
 }
 
 .contract-sheet__body {
@@ -1668,15 +1638,17 @@ function handleConfirmClick() {
 
 .contract-watermark {
   position: absolute;
-  inset: 14rem 0 auto 0;
+  inset: 0;
   display: flex;
+  align-items: center;
   justify-content: center;
   pointer-events: none;
+  z-index: 0;
 }
 
 .contract-watermark img {
-  width: min(58%, 620px);
-  opacity: 0.09;
+  width: min(74%, 760px);
+  opacity: 0.05;
   filter: grayscale(1);
 }
 
@@ -1698,6 +1670,13 @@ function handleConfirmClick() {
 .contract-sheet__head small {
   color: #625d55;
   font-weight: 700;
+}
+
+.contract-commercial-intro {
+  display: grid;
+  gap: 0.65rem;
+  break-inside: avoid;
+  page-break-inside: avoid;
 }
 
 .contract-block {
@@ -1766,14 +1745,19 @@ function handleConfirmClick() {
   font-size: 1rem;
 }
 
+.annex-table__spacer {
+  background: #faf8f3;
+}
+
 .account-card,
 .signature-card {
   display: grid;
-  gap: 0.35rem;
-  padding: 1rem;
+  gap: 0.45rem;
+  padding: 1.25rem;
   border: 1px solid #e9e2d4;
-  border-radius: 16px;
-  background: rgba(250, 248, 243, 0.94);
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(252, 250, 245, 0.98), rgba(255, 255, 255, 0.98));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
   break-inside: avoid;
   page-break-inside: avoid;
 }
@@ -1804,21 +1788,23 @@ function handleConfirmClick() {
 }
 
 .signature-line {
-  min-height: 4rem;
-  border-bottom: 1px solid #111111;
+  min-height: 5.5rem;
+  margin-top: 0.45rem;
+  padding: 0 0.2rem 0.35rem;
+  border-bottom: 1.5px solid #111111;
 }
 
 .signature-line--provider {
   display: flex;
   align-items: flex-end;
-  justify-content: flex-start;
+  justify-content: center;
   overflow: hidden;
 }
 
 .signature-line--client {
   display: flex;
   align-items: flex-end;
-  justify-content: flex-start;
+  justify-content: center;
   overflow: hidden;
 }
 
@@ -1859,7 +1845,91 @@ function handleConfirmClick() {
 }
 
 .signatures-section {
-  padding-top: 0.2rem;
+  gap: 1.25rem;
+  padding: 0.35rem 0 0.1rem;
+}
+
+.signature-sheet__header {
+  display: grid;
+  gap: 0.45rem;
+  max-width: 42rem;
+}
+
+.signature-sheet__header h3 {
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.signature-sheet__header p {
+  margin: 0;
+  color: #625d55;
+  line-height: 1.55;
+}
+
+.signature-sheet__summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid #e8dfcf;
+  border-radius: 18px;
+  background: #f8f4eb;
+}
+
+.signature-sheet__summary span {
+  color: #5d5448;
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.signature-sheet__summary strong {
+  color: #151515;
+}
+
+.signature-card__role {
+  color: #8b6a24 !important;
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.signature-card__caption {
+  color: #756958 !important;
+  font-size: 0.9rem;
+}
+
+.signature-contact-bar {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2rem;
+  margin-top: 0.5rem;
+  padding-top: 1.15rem;
+  border-top: 2px solid #e4dbcd;
+}
+
+.signature-contact-bar__item {
+  display: grid;
+  align-content: start;
+  gap: 0.45rem;
+}
+
+.signature-contact-bar__item span {
+  color: #8d7c64;
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.signature-contact-bar__item strong,
+.signature-contact-bar__item a {
+  color: #1a1816;
+  font-size: 1.18rem;
+  line-height: 1.35;
+  font-weight: 800;
+  text-decoration: none;
+  overflow-wrap: anywhere;
 }
 
 .contract-footer__page {
@@ -1978,15 +2048,24 @@ function handleConfirmClick() {
 
 @media (max-width: 900px) {
   .contract-summary,
-  .contract-cover__brief,
   .annex-grid,
   .accounts-grid,
-  .signatures-grid {
+  .signatures-grid,
+  .signature-sheet__summary {
     grid-template-columns: 1fr;
   }
 
-  .contract-brandbar__marks {
-    justify-content: flex-start;
+  .contract-cover__brief {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .signature-contact-bar {
+    gap: 1rem;
+  }
+
+  .signature-contact-bar__item strong,
+  .signature-contact-bar__item a {
+    font-size: 1rem;
   }
 
   .signature-actions {
@@ -2017,22 +2096,186 @@ function handleConfirmClick() {
 }
 
 @media (max-width: 640px) {
-  .contract-sheet__body {
-    padding: 1rem;
+  .contract-preview {
+    padding: 0.7rem;
+    border-radius: 24px;
+    background: linear-gradient(180deg, #16202a 0, #16202a 8.5rem, #f6f1e7 8.5rem, #f6f1e7 100%);
   }
 
-  .contract-footer__page {
-    justify-self: start;
+  .contract-cover__brief {
+    grid-template-columns: 1fr;
+  }
+
+  .contract-sheet__body {
+    padding: 1rem;
   }
 }
 
 @media print {
+  @page {
+    size: A4;
+    margin: 0;
+  }
+
+  :global(body) {
+    margin: 0;
+    font-size: 10.5px !important;
+    line-height: 1.35 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
   .signature-panel {
     display: none;
   }
 
+  .contract-pdf {
+    width: 100%;
+    max-width: 100%;
+    padding: 0;
+    background: transparent !important;
+    font-size: 10.5px !important;
+    line-height: 1.35 !important;
+  }
+
+  .contract-pdf h1 {
+    font-size: 22px !important;
+    line-height: 1.15 !important;
+    margin: 8px 0 10px !important;
+  }
+
+  .contract-pdf h2 {
+    font-size: 16px !important;
+    line-height: 1.2 !important;
+    margin: 12px 0 8px !important;
+  }
+
+  .contract-pdf h3 {
+    font-size: 13px !important;
+    line-height: 1.2 !important;
+    margin: 10px 0 6px !important;
+  }
+
+  .contract-pdf p,
+  .contract-pdf li,
+  .contract-pdf td,
+  .contract-pdf th,
+  .contract-pdf div,
+  .contract-pdf span,
+  .contract-pdf small {
+    font-size: 10.5px !important;
+    line-height: 1.35 !important;
+  }
+
+  .contract-sheet__body {
+    position: relative;
+    isolation: isolate;
+    padding: 10mm 12mm 12mm !important;
+    border: 0 !important;
+  }
+
+  .contract-watermark {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 0;
+    opacity: 1;
+    pointer-events: none;
+  }
+
+  .contract-watermark img {
+    width: 72%;
+    max-width: 34rem;
+    opacity: 0.06;
+    filter: grayscale(1);
+  }
+
+  .contract-cover,
+  .contract-sheet__head,
+  .contract-block,
+  .contract-footer {
+    position: relative;
+    z-index: 1;
+  }
+
   .contract-sheet {
     box-shadow: none;
+    border-radius: 0 !important;
+  }
+
+  .contract-brandbar {
+    margin: 0 !important;
+    border-radius: 0 !important;
+  }
+
+  .contract-brandbar__banner {
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+  }
+
+  .contract-card {
+    padding: 10px 14px !important;
+    margin-bottom: 8px !important;
+    border-radius: 10px !important;
+  }
+
+  .contract-card span,
+  .contract-card label,
+  .contract-card .label,
+  .contract-card small {
+    font-size: 9px !important;
+    letter-spacing: 0.06em;
+  }
+
+  .signature-contact-bar {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 12px !important;
+    padding-top: 12px !important;
+    border-top: 1.5px solid #e4dbcd !important;
+  }
+
+  .signature-contact-bar__item {
+    gap: 3px !important;
+  }
+
+  .signature-contact-bar__item span {
+    font-size: 9px !important;
+    letter-spacing: 0.05em !important;
+  }
+
+  .contract-card strong,
+  .contract-card .value {
+    font-size: 11px !important;
+    line-height: 1.3 !important;
+  }
+
+  .contract-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: 10px !important;
+  }
+
+  .contract-table th,
+  .contract-table td {
+    padding: 6px 8px !important;
+    font-size: 10px !important;
+    text-align: left;
+    vertical-align: top;
+    word-break: normal;
+    overflow-wrap: break-word;
+  }
+
+  .contract-table,
+  .contract-table thead,
+  .contract-table tbody,
+  .contract-table tr,
+  .contract-table th,
+  .contract-table td {
+    display: revert !important;
   }
 
   .contract-badge {
@@ -2044,6 +2287,29 @@ function handleConfirmClick() {
   .signatures-section {
     break-before: page;
     page-break-before: always;
+    min-height: calc(100vh - 6rem);
+    align-content: start;
+  }
+
+  .signature-card {
+    box-shadow: none;
+  }
+
+  .contract-card,
+  .contract-section,
+  .contract-commercial-intro,
+  .signature-block,
+  .contract-table {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .signature-contact-bar__item strong,
+  .signature-contact-bar__item a {
+    color: #111111 !important;
+    font-size: 15px !important;
+    line-height: 1.28 !important;
+    font-weight: 800 !important;
   }
 }
 </style>

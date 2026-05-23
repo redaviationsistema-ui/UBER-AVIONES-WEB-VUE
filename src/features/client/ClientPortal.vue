@@ -251,11 +251,13 @@ const selectedReservation = computed(() => {
 
   return reservations.value[0] || null
 })
-const reservationContextId = computed(() =>
-  resolveEntityIdentifier(selectedReservation.value?.id) || String(routeId.value || '').trim(),
+const reservationContextId = computed(
+  () =>
+    resolveEntityIdentifier(selectedReservation.value?.id) || String(routeId.value || '').trim(),
 )
-const flightRequestContextId = computed(() =>
-  resolveEntityIdentifier(selectedReservation.value?.flight_request_id) ||
+const flightRequestContextId = computed(
+  () =>
+    resolveEntityIdentifier(selectedReservation.value?.flight_request_id) ||
     resolveEntityIdentifier(selectedReservation.value?.id) ||
     String(routeId.value || '').trim(),
 )
@@ -654,20 +656,6 @@ function formatCurrency(value) {
     currency: 'USD',
     maximumFractionDigits: 0,
   }).format(Number(value || 0))
-}
-
-function buildClientAbsoluteUrl(section = '', id = '', query = {}) {
-  if (typeof window === 'undefined') return ''
-
-  const path = id ? `/cliente/${section}/${id}` : `/cliente/${section}`
-  const url = new URL(path, window.location.origin)
-
-  Object.entries(query).forEach(([key, value]) => {
-    if (value === undefined || value === null || value === '') return
-    url.searchParams.set(key, String(value))
-  })
-
-  return url.toString()
 }
 
 async function ensureStripePaymentElement() {
@@ -1591,11 +1579,6 @@ function alignReservationWorkflowRoute() {
   }
 }
 
-function goToContract(reservationId = '') {
-  const targetId = String(reservationId || reservationContextId.value || '').trim()
-  go('contrato', targetId)
-}
-
 function goToPayment(reservationId = '') {
   go('pago', reservationId || reservationContextId.value)
 }
@@ -1604,22 +1587,29 @@ function goToConcierge(reservationId = '') {
   go('soporte', reservationId || reservationContextId.value)
 }
 
-function downloadBlob(blob, fileName) {
-  if (!(blob instanceof Blob)) return
-
-  const objectUrl = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = objectUrl
-  link.download = fileName
-  document.body.appendChild(link)
-  link.click()
-  link.remove()
-  URL.revokeObjectURL(objectUrl)
-}
-
 function clearInlineContractPrintMode() {
   if (typeof document === 'undefined') return
   document.body.classList.remove('contract-print-mode')
+}
+
+function buildPrintableContractFileName() {
+  if (typeof document === 'undefined') return 'contrato'
+
+  const routeLabel = document.querySelector('.contract-cover__route')?.textContent || ''
+  const reservationLabel = document.querySelector('.contract-cover .eyebrow')?.textContent || ''
+  const rawName = [routeLabel, reservationLabel]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+    .join(' - ')
+
+  const normalizedName = rawName
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  return normalizedName || 'contrato'
 }
 
 function openInlineContractPrint() {
@@ -1634,14 +1624,20 @@ function openInlineContractPrint() {
 
   clearInlineContractPrintMode()
   document.body.classList.add('contract-print-mode')
+  const previousTitle = document.title
+  document.title = buildPrintableContractFileName()
 
   const handleAfterPrint = () => {
+    document.title = previousTitle
     clearInlineContractPrintMode()
   }
 
   window.addEventListener('afterprint', handleAfterPrint, { once: true })
   window.setTimeout(() => {
     window.print()
+    window.setTimeout(() => {
+      document.title = previousTitle
+    }, 1000)
   }, 80)
 
   return true
@@ -1712,10 +1708,9 @@ async function handleContractConfirm(contractPayload = {}) {
     ui.pushToast({
       tone: 'success',
       title: 'Contrato firmado',
-      message:
-        openedStyledPrint
-          ? 'El contrato quedo listo. Usa "Guardar como PDF" en la ventana de impresion para conservar el diseño.'
-          : 'La reserva avanzo a pago. Si quieres descargarlo con diseño, vuelve a abrir el contrato e imprime desde ahi.',
+      message: openedStyledPrint
+        ? 'El contrato quedo listo. Usa "Guardar como PDF" en la ventana de impresion para conservar el diseño.'
+        : 'La reserva avanzo a pago. Si quieres descargarlo con diseño, vuelve a abrir el contrato e imprime desde ahi.',
     })
   } catch (error) {
     ui.pushToast({
@@ -2413,7 +2408,7 @@ async function requestReservation(aircraft = selectedAircraft.value) {
 
 async function handleLogout() {
   profileMenuOpen.value = false
-  await auth.logout()
+  auth.logout()
   ui.pushToast({
     tone: 'success',
     title: 'Sesion cerrada',
@@ -5576,11 +5571,18 @@ button {
     padding: 0 !important;
   }
 
+  :global(body.contract-print-mode .contract-pdf) {
+    width: 100% !important;
+    max-width: 100% !important;
+    font-size: 10.5px !important;
+    line-height: 1.35 !important;
+  }
+
   :global(body.contract-print-mode .contract-sheet) {
-    width: 190mm !important;
-    max-width: 190mm !important;
-    min-height: 267mm !important;
-    margin: 0 auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-height: auto !important;
+    margin: 0 !important;
     box-shadow: none !important;
     border: 0 !important;
     border-radius: 0 !important;
@@ -5588,12 +5590,22 @@ button {
   }
 
   :global(body.contract-print-mode .contract-sheet__body) {
-    padding: 14mm 10mm 12mm !important;
+    padding: 10mm 12mm 12mm !important;
+    border: 0 !important;
   }
 
   :global(body.contract-print-mode .contract-brandbar) {
     print-color-adjust: exact !important;
     -webkit-print-color-adjust: exact !important;
+    min-height: 15rem !important;
+    padding: 2.1rem 1.4rem !important;
+    border-radius: 0 !important;
+  }
+
+  :global(body.contract-print-mode .contract-brandbar__banner) {
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
   }
 
   :global(body.contract-print-mode .contract-block),
@@ -5628,15 +5640,42 @@ button {
 
   :global(body.contract-print-mode .annex-table) {
     font-size: 10px !important;
+    table-layout: fixed !important;
   }
 
   :global(body.contract-print-mode .annex-table th),
   :global(body.contract-print-mode .annex-table td) {
-    padding: 2.5mm !important;
+    padding: 6px 8px !important;
+    word-break: normal !important;
+    overflow-wrap: break-word !important;
+  }
+
+  :global(body.contract-print-mode .contract-table),
+  :global(body.contract-print-mode .contract-table thead),
+  :global(body.contract-print-mode .contract-table tbody),
+  :global(body.contract-print-mode .contract-table tr),
+  :global(body.contract-print-mode .contract-table th),
+  :global(body.contract-print-mode .contract-table td) {
+    display: revert !important;
   }
 
   :global(body.contract-print-mode .contract-watermark) {
-    opacity: 0.05 !important;
+    position: fixed !important;
+    inset: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    opacity: 1 !important;
+    pointer-events: none !important;
+    z-index: 0 !important;
+  }
+
+  :global(body.contract-print-mode .contract-watermark img) {
+    display: block !important;
+    width: 72% !important;
+    max-width: 34rem !important;
+    opacity: 0.06 !important;
+    filter: grayscale(1) !important;
   }
 
   :global(body.contract-print-mode .signature-panel),
