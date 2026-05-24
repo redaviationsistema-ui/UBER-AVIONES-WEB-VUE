@@ -406,6 +406,7 @@ let stripeClient = null
 let stripeElements = null
 let stripeCardElement = null
 let stripeIntentSecret = ''
+let stripePublishableKey = ''
 const accountAccessCopy = computed(() => {
   const access = auth.access || {}
   const subscription = access.subscription || access.membership || {}
@@ -658,7 +659,33 @@ function formatCurrency(value) {
   }).format(Number(value || 0))
 }
 
-async function ensureStripePaymentElement() {
+function resolveStripePublishableKey(preferredKey = '') {
+  return (
+    String(preferredKey || '').trim() ||
+    String(stripePublishableKey || '').trim() ||
+    String(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '').trim()
+  )
+}
+
+function cacheStripePaymentIntent(payload = {}) {
+  const nextClientSecret = String(payload?.client_secret || '').trim()
+  const nextPublishableKey = resolveStripePublishableKey(payload?.publishable_key)
+  const nextPaymentIntentId = String(payload?.payment_intent_id || '').trim()
+
+  if (nextClientSecret) {
+    stripeIntentSecret = nextClientSecret
+  }
+
+  if (nextPublishableKey) {
+    stripePublishableKey = nextPublishableKey
+  }
+
+  if (nextPaymentIntentId) {
+    paymentLastReference.value = nextPaymentIntentId
+  }
+}
+
+async function ensureStripePaymentElement(publishableKeyOverride = '') {
   const flightRequestId = reservationContextId.value
 
   if (
@@ -679,10 +706,20 @@ async function ensureStripePaymentElement() {
 
   try {
     const { loadStripe } = await import('@stripe/stripe-js')
-    const publishableKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || ''
+    const publishableKey = resolveStripePublishableKey(publishableKeyOverride)
 
     if (!publishableKey) {
-      throw new Error('Falta configurar VITE_STRIPE_PUBLISHABLE_KEY para renderizar la tarjeta.')
+      throw new Error(
+        'No encontramos la llave publica de Stripe para renderizar el formulario de tarjeta.',
+      )
+    }
+
+    if (stripeClient && paymentElementReady.value && stripePublishableKey === publishableKey) {
+      return
+    }
+
+    if (stripePublishableKey && stripePublishableKey !== publishableKey) {
+      destroyStripePaymentElement()
     }
 
     stripeClient = await loadStripe(publishableKey)
@@ -690,6 +727,8 @@ async function ensureStripePaymentElement() {
     if (!stripeClient) {
       throw new Error('No se pudo inicializar Stripe en esta vista.')
     }
+
+    stripePublishableKey = publishableKey
 
     stripeElements = stripeClient.elements({
       locale: 'es',
@@ -750,6 +789,7 @@ function destroyStripePaymentElement() {
   stripeElements = null
   stripeClient = null
   stripeIntentSecret = ''
+  stripePublishableKey = ''
   paymentCardComplete.value = false
   paymentElementReady.value = false
   paymentElementLoading.value = false
@@ -1778,16 +1818,30 @@ async function handlePaymentSubmit() {
       return
     }
 
+    if (!paymentCardComplete.value) {
+      throw new Error('Completa correctamente los datos de la tarjeta antes de continuar.')
+    }
+
+    let paymentIntentPayload = null
+
+    if (!stripeIntentSecret || !resolveStripePublishableKey()) {
+      paymentIntentPayload = await createClientPaymentIntent(
+        flightRequestId,
+        {
+          contact_email: paymentForm.contactEmail.trim() || customerEmail.value,
+        },
+        { timeoutMs: 30000 },
+      )
+
+      cacheStripePaymentIntent(paymentIntentPayload)
+    }
+
     if (!stripeClient || !stripeElements || !stripeCardElement) {
-      await ensureStripePaymentElement()
+      await ensureStripePaymentElement(paymentIntentPayload?.publishable_key || '')
     }
 
     if (!stripeClient || !stripeCardElement) {
       throw new Error('El formulario de tarjeta segura todavia no esta listo.')
-    }
-
-    if (!paymentCardComplete.value) {
-      throw new Error('Completa correctamente los datos de la tarjeta antes de continuar.')
     }
 
     if (!stripeIntentSecret) {
@@ -1799,8 +1853,7 @@ async function handlePaymentSubmit() {
         { timeoutMs: 30000 },
       )
 
-      stripeIntentSecret = payload?.client_secret || ''
-      paymentLastReference.value = payload?.payment_intent_id || paymentLastReference.value
+      cacheStripePaymentIntent(payload)
 
       if (!stripeIntentSecret) {
         throw new Error('El backend no devolvio client_secret para confirmar el pago.')
@@ -1811,6 +1864,7 @@ async function handlePaymentSubmit() {
       payment_method: {
         card: stripeCardElement,
         billing_details: {
+          name: customerDisplayName.value,
           email: paymentForm.contactEmail.trim(),
         },
       },
@@ -1929,6 +1983,23 @@ watch(
     if (section === 'pago' && method === 'card') {
       wireInstructions.value = null
       await nextTick()
+      if (!resolveStripePublishableKey() && flightRequestContextId.value) {
+        try {
+          const payload = await createClientPaymentIntent(
+            flightRequestContextId.value,
+            {
+              contact_email: paymentForm.contactEmail.trim() || customerEmail.value,
+            },
+            { timeoutMs: 30000 },
+          )
+          cacheStripePaymentIntent(payload)
+        } catch (error) {
+          paymentInlineError.value =
+            error?.message || 'No se pudo preparar el pago seguro con Stripe.'
+          return
+        }
+      }
+
       await ensureStripePaymentElement()
       return
     }
