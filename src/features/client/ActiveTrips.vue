@@ -333,8 +333,7 @@ function reservationTab(reservation = {}) {
 }
 
 const tabOptions = [
-  { key: 'proximos', label: 'Proximos' },
-  { key: 'historial', label: 'Historial' },
+  { key: 'proximos', label: 'Historial' },
 ]
 
 function normalizeTabKey(value = '') {

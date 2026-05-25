@@ -1,5 +1,7 @@
 <script setup>
-const logoUrl = new URL('../../public/logo.png', import.meta.url).href
+const baseUrl = String(import.meta.env.BASE_URL || '/')
+const normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`
+const logoUrl = `${normalizedBaseUrl}logo.png`
 
 defineProps({
   alt: {

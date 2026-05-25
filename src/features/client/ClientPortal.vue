@@ -360,16 +360,6 @@ const paymentFeatureList = [
     copy: 'Cobro seguro con trazabilidad operativa en tiempo real.',
   },
   {
-    icon: 'concierge',
-    title: 'Concierge financiero',
-    copy: 'Coordinacion para factura, wire o confirmacion inmediata.',
-  },
-  {
-    icon: 'team',
-    title: 'Uso corporativo',
-    copy: 'Soporte para tarjetas empresariales y aprobaciones ejecutivas.',
-  },
-  {
     icon: 'route',
     title: 'Reserva priorizada',
     copy: 'Resumen final antes de liberar la operacion al proveedor.',
@@ -397,14 +387,18 @@ const paymentSubmitting = ref(false)
 const paymentInlineError = ref('')
 const wireInstructions = ref(null)
 const paymentLastReference = ref('')
-const paymentCardHost = ref(null)
+const paymentCardNumberHost = ref(null)
+const paymentCardExpiryHost = ref(null)
+const paymentCardCvcHost = ref(null)
 const paymentElementReady = ref(false)
 const paymentElementLoading = ref(false)
 const paymentCardComplete = ref(false)
 
 let stripeClient = null
 let stripeElements = null
-let stripeCardElement = null
+let stripeCardNumberElement = null
+let stripeCardExpiryElement = null
+let stripeCardCvcElement = null
 let stripeIntentSecret = ''
 let stripePublishableKey = ''
 const accountAccessCopy = computed(() => {
@@ -692,7 +686,9 @@ async function ensureStripePaymentElement(publishableKeyOverride = '') {
     selectedPaymentMethod.value !== 'card' ||
     props.section !== 'pago' ||
     !flightRequestId ||
-    !paymentCardHost.value
+    !paymentCardNumberHost.value ||
+    !paymentCardExpiryHost.value ||
+    !paymentCardCvcHost.value
   ) {
     return
   }
@@ -736,43 +732,59 @@ async function ensureStripePaymentElement(publishableKeyOverride = '') {
 
     const stripeFieldStyle = {
       base: {
-        color: '#111111',
+        color: '#141414',
         fontFamily: 'Manrope, ui-sans-serif, system-ui, sans-serif',
-        fontSize: '16px',
+        fontSize: '18px',
         fontWeight: '600',
         '::placeholder': {
-          color: '#9d9589',
+          color: '#8e8a83',
         },
       },
       invalid: {
-        color: '#8e2d2d',
-        iconColor: '#8e2d2d',
+        color: '#b73838',
+        iconColor: '#b73838',
       },
     }
 
     const elementOptions = {
       style: stripeFieldStyle,
       disabled: false,
-      hidePostalCode: true,
       disableLink: true,
     }
 
-    stripeCardElement = stripeElements.create('card', elementOptions)
-
-    const handleStripeFieldChange = (event) => {
-      paymentCardComplete.value = Boolean(event?.complete)
-
-      if (event?.empty) {
-        paymentInlineError.value = ''
-        return
-      }
-
-      paymentInlineError.value = event?.error?.message || ''
+    const fieldState = {
+      number: false,
+      expiry: false,
+      cvc: false,
     }
 
-    stripeCardElement.on('change', handleStripeFieldChange)
+    const syncFieldState = () => {
+      paymentCardComplete.value = fieldState.number && fieldState.expiry && fieldState.cvc
+    }
 
-    stripeCardElement.mount(paymentCardHost.value)
+    const handleStripeFieldChange = (field) => (event) => {
+      fieldState[field] = Boolean(event?.complete)
+
+      if (event?.empty && !event?.error) {
+        paymentInlineError.value = ''
+      } else {
+        paymentInlineError.value = event?.error?.message || ''
+      }
+
+      syncFieldState()
+    }
+
+    stripeCardNumberElement = stripeElements.create('cardNumber', elementOptions)
+    stripeCardExpiryElement = stripeElements.create('cardExpiry', elementOptions)
+    stripeCardCvcElement = stripeElements.create('cardCvc', elementOptions)
+
+    stripeCardNumberElement.on('change', handleStripeFieldChange('number'))
+    stripeCardExpiryElement.on('change', handleStripeFieldChange('expiry'))
+    stripeCardCvcElement.on('change', handleStripeFieldChange('cvc'))
+
+    stripeCardNumberElement.mount(paymentCardNumberHost.value)
+    stripeCardExpiryElement.mount(paymentCardExpiryHost.value)
+    stripeCardCvcElement.mount(paymentCardCvcHost.value)
     paymentElementReady.value = true
   } catch (error) {
     paymentInlineError.value =
@@ -783,9 +795,13 @@ async function ensureStripePaymentElement(publishableKeyOverride = '') {
 }
 
 function destroyStripePaymentElement() {
-  if (stripeCardElement) stripeCardElement.destroy()
+  if (stripeCardNumberElement) stripeCardNumberElement.destroy()
+  if (stripeCardExpiryElement) stripeCardExpiryElement.destroy()
+  if (stripeCardCvcElement) stripeCardCvcElement.destroy()
 
-  stripeCardElement = null
+  stripeCardNumberElement = null
+  stripeCardExpiryElement = null
+  stripeCardCvcElement = null
   stripeElements = null
   stripeClient = null
   stripeIntentSecret = ''
@@ -1836,11 +1852,11 @@ async function handlePaymentSubmit() {
       cacheStripePaymentIntent(paymentIntentPayload)
     }
 
-    if (!stripeClient || !stripeElements || !stripeCardElement) {
+    if (!stripeClient || !stripeElements || !stripeCardNumberElement) {
       await ensureStripePaymentElement(paymentIntentPayload?.publishable_key || '')
     }
 
-    if (!stripeClient || !stripeCardElement) {
+    if (!stripeClient || !stripeCardNumberElement) {
       throw new Error('El formulario de tarjeta segura todavia no esta listo.')
     }
 
@@ -1862,7 +1878,7 @@ async function handlePaymentSubmit() {
 
     const result = await stripeClient.confirmCardPayment(stripeIntentSecret, {
       payment_method: {
-        card: stripeCardElement,
+        card: stripeCardNumberElement,
         billing_details: {
           name: customerDisplayName.value,
           email: paymentForm.contactEmail.trim(),
@@ -2886,122 +2902,9 @@ watch(
               <h2>{{ paymentHeroTitle }}</h2>
               <p>{{ paymentHeroCopy }}</p>
               <div class="payment-trust-strip">
-                <span>
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path
-                      d="M12 3l7 3v5c0 5.05-3.41 9.74-7 11-3.59-1.26-7-5.95-7-11V6l7-3z"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="1.8"
-                    />
-                    <path
-                      d="M9.4 12.2l1.7 1.7 3.5-3.7"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="1.8"
-                    />
-                  </svg>
-                  Checkout cifrado
-                </span>
-                <span>
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path
-                      d="M7 10V8a5 5 0 0 1 10 0v2"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="1.8"
-                    />
-                    <rect
-                      x="5"
-                      y="10"
-                      width="14"
-                      height="10"
-                      rx="2"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="1.8"
-                    />
-                  </svg>
-                  Datos protegidos
-                </span>
+               
               </div>
             </div>
-
-            <section class="payment-section">
-              <h3>Detalles del pago</h3>
-              <div class="payment-method-grid">
-                <button
-                  v-for="method in paymentMethodCards"
-                  :key="method.id"
-                  type="button"
-                  class="payment-method-card"
-                  :class="{ 'payment-method-card--active': selectedPaymentMethod === method.id }"
-                  @click="selectedPaymentMethod = method.id"
-                >
-                  <span class="payment-method-card__icon" aria-hidden="true">
-                    <svg v-if="method.icon === 'card'" viewBox="0 0 24 24">
-                      <rect
-                        x="3"
-                        y="6"
-                        width="18"
-                        height="12"
-                        rx="3"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.8"
-                      />
-                      <path
-                        d="M3 10h18"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-linecap="round"
-                        stroke-width="1.8"
-                      />
-                      <path
-                        d="M7 15h3"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-linecap="round"
-                        stroke-width="1.8"
-                      />
-                    </svg>
-                    <svg v-else viewBox="0 0 24 24">
-                      <path
-                        d="M4 10l8-5 8 5"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="1.8"
-                      />
-                      <path
-                        d="M6 10v8M10 10v8M14 10v8M18 10v8M4 18h16"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-linecap="round"
-                        stroke-width="1.8"
-                      />
-                    </svg>
-                  </span>
-                  <strong>{{ method.label }}</strong>
-                  <span>{{ method.note }}</span>
-                </button>
-              </div>
-
-              <div class="payment-quantity-card">
-                <span>Pasajeros confirmados</span>
-                <div class="payment-quantity-card__row">
-                  <strong>{{ paymentReservationPassengerCount }}</strong>
-                  <small>{{ paymentRouteHeadline }}</small>
-                </div>
-              </div>
-            </section>
 
             <section class="payment-section">
               <h3>Informacion de contacto</h3>
@@ -3019,35 +2922,100 @@ watch(
               <h3>Metodo de pago</h3>
               <div class="payment-mode-panel">
                 <div v-if="selectedPaymentMethod === 'card'" class="payment-mode-panel__copy">
-                  <strong>Tarjeta segura integrada</strong>
-                  <p>
-                    Escribe aqui mismo tu numero de tarjeta, fecha y CVC. Los campos reales los
-                    renderiza Stripe dentro de esta vista y Red Aviation no guarda esos datos.
-                  </p>
+                  <strong>Metodo de pago</strong>
                   <div class="payment-card-frame">
-                    <label class="payment-card-field payment-card-field--full">
-                      <span>Tarjeta</span>
+                    <label class="payment-card-field payment-card-field--full payment-card-field--dark">
+                      <span>Numero de tarjeta</span>
+                      <div class="payment-card-field__brands" aria-hidden="true">
+                        <span class="brand-chip brand-chip--visa">VISA</span>
+                        <span class="brand-chip brand-chip--mc">
+                          <i></i>
+                          <i></i>
+                        </span>
+                        <span class="brand-chip brand-chip--amex">AMEX</span>
+                        <span class="brand-chip brand-chip--discover">DISCOVER</span>
+                      </div>
                       <div
                         v-if="paymentElementLoading"
-                        class="payment-element-shell payment-element-shell--loading payment-element-shell--full"
+                        class="payment-element-shell payment-element-shell--loading payment-element-shell--full payment-element-shell--dark"
                       >
                         Cargando formulario seguro de tarjeta...
                       </div>
                       <div
                         v-show="!paymentElementLoading"
-                        ref="paymentCardHost"
-                        class="payment-element-shell payment-element-shell--full"
+                        ref="paymentCardNumberHost"
+                        class="payment-element-shell payment-element-shell--full payment-element-shell--dark"
                       ></div>
                     </label>
-                  </div>
-                  <div class="payment-card-brands" aria-hidden="true">
-                    <span class="brand-chip brand-chip--visa">VISA</span>
-                    <span class="brand-chip brand-chip--mc">
-                      <i></i>
-                      <i></i>
-                    </span>
-                    <span class="brand-chip brand-chip--amex">AMEX</span>
-                    <span class="brand-chip brand-chip--discover">DISCOVER</span>
+
+                    <div class="payment-card-field-grid payment-card-field-grid--dark">
+                      <label class="payment-card-field payment-card-field--dark">
+                        <span>Fecha de caducidad</span>
+                        <div
+                          v-if="paymentElementLoading"
+                          class="payment-element-shell payment-element-shell--loading payment-element-shell--dark"
+                        >
+                          Cargando...
+                        </div>
+                        <div
+                          v-show="!paymentElementLoading"
+                          ref="paymentCardExpiryHost"
+                          class="payment-element-shell payment-element-shell--dark"
+                        ></div>
+                      </label>
+
+                      <label class="payment-card-field payment-card-field--dark payment-card-field--with-icon">
+                        <span>Codigo de seguridad</span>
+                        <span class="payment-card-field__security" aria-hidden="true">
+                          <svg viewBox="0 0 24 24">
+                            <rect
+                              x="3"
+                              y="5"
+                              width="18"
+                              height="14"
+                              rx="2.5"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="1.8"
+                            />
+                            <path
+                              d="M3 10h18"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-linecap="round"
+                              stroke-width="1.8"
+                            />
+                            <path
+                              d="M13 15h6"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-linecap="round"
+                              stroke-width="1.8"
+                            />
+                            <text
+                              x="13.5"
+                              y="20"
+                              fill="currentColor"
+                              font-size="6"
+                              font-weight="700"
+                            >
+                              123
+                            </text>
+                          </svg>
+                        </span>
+                        <div
+                          v-if="paymentElementLoading"
+                          class="payment-element-shell payment-element-shell--loading payment-element-shell--dark"
+                        >
+                          Cargando...
+                        </div>
+                        <div
+                          v-show="!paymentElementLoading"
+                          ref="paymentCardCvcHost"
+                          class="payment-element-shell payment-element-shell--dark"
+                        ></div>
+                      </label>
+                    </div>
                   </div>
                 </div>
 
@@ -3244,13 +3212,7 @@ watch(
               }}
             </button>
 
-            <p class="payment-summary-card__legal">
-              {{
-                selectedPaymentMethod === 'wire'
-                  ? 'La transferencia queda pendiente de validacion manual antes de confirmar la operacion.'
-                  : 'El cargo se procesa aqui mismo con Stripe y puede pedir validacion adicional si el banco lo requiere.'
-              }}
-            </p>
+            
           </aside>
         </article>
 
@@ -4574,12 +4536,12 @@ button {
 
 .payment-mode-panel__copy {
   display: grid;
-  gap: 0.45rem;
+  gap: 1rem;
 }
 
 .payment-card-frame {
   display: grid;
-  gap: 0.9rem;
+  gap: 1rem;
 }
 
 .payment-card-field-grid {
@@ -4593,6 +4555,15 @@ button {
   gap: 0.55rem;
 }
 
+.payment-card-field--dark {
+  position: relative;
+  padding: 1.55rem 1.6rem 1.35rem;
+  border-radius: 32px;
+  background: #ffffff;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
 .payment-card-field--full {
   grid-column: 1 / -1;
 }
@@ -4600,6 +4571,32 @@ button {
 .payment-card-field span {
   font-size: 0.95rem;
   color: #655d52;
+}
+
+.payment-card-field--dark > span {
+  font-size: 1.05rem;
+  color: #171717;
+}
+
+.payment-card-field__brands {
+  position: absolute;
+  top: 1.2rem;
+  right: 1.3rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.payment-card-field__security {
+  position: absolute;
+  right: 1.5rem;
+  bottom: 1.25rem;
+  color: rgba(23, 23, 23, 0.6);
+}
+
+.payment-card-field__security svg {
+  width: 2.7rem;
+  height: 2.7rem;
 }
 
 .payment-card-field__shell {
@@ -4629,6 +4626,14 @@ button {
   overflow: hidden;
 }
 
+.payment-element-shell--dark {
+  min-height: 2rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
 .payment-element-shell--full {
   min-height: 5rem;
 }
@@ -4644,11 +4649,21 @@ button {
   min-height: 1.5rem;
 }
 
+.payment-element-shell--dark :deep(iframe) {
+  min-height: 2rem;
+}
+
 .payment-element-shell--loading {
   display: grid;
   place-items: center;
   color: #655d52;
   font-weight: 600;
+}
+
+.payment-element-shell--dark.payment-element-shell--loading {
+  min-height: 2rem;
+  justify-content: start;
+  color: #746b5f;
 }
 
 .payment-mode-panel__copy p,
@@ -4697,6 +4712,10 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
+}
+
+.payment-card-field-grid--dark {
+  gap: 1rem;
 }
 
 .brand-chip {
@@ -5490,6 +5509,26 @@ button {
   .payment-card-field-grid {
     grid-template-columns: 1fr;
     min-height: auto;
+  }
+
+  .payment-card-field--dark {
+    padding: 1.2rem;
+    border-radius: 24px;
+  }
+
+  .payment-card-field__brands {
+    top: 1rem;
+    right: 1rem;
+    gap: 0.3rem;
+  }
+
+  .payment-card-field__security {
+    right: 1rem;
+    bottom: 1rem;
+  }
+
+  .payment-card-field-grid--dark {
+    grid-template-columns: 1fr;
   }
 
   .payment-checkout {

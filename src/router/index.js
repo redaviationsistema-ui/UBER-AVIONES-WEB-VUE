@@ -117,20 +117,20 @@ const router = createRouter({
       alias: ['/operator/:section?'],
       name: 'operador',
       component: RoleView,
-      meta: { requiresAuth: true, role: 'operator' },
+      meta: { requiresAuth: true, role: 'operator', hideTopbar: true },
     },
     {
       path: '/crew/:section?',
       alias: ['/sobrecargo/:section?'],
       name: 'crew',
       component: RoleView,
-      meta: { requiresAuth: true, role: 'crew' },
+      meta: { requiresAuth: true, role: 'crew', hideTopbar: true },
     },
     {
       path: '/admin/:section?',
       name: 'admin',
       component: RoleView,
-      meta: { requiresAuth: true, role: 'admin' },
+      meta: { requiresAuth: true, role: 'admin', hideTopbar: true },
     },
     {
       path: '/renta-aeronaves',

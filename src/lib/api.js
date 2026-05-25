@@ -9,6 +9,7 @@ const FALLBACK_API_BASE_URL = String(import.meta.env.VITE_FALLBACK_API_BASE_URL 
   /\/$/,
   '',
 )
+const APP_BASE_PATH = String(import.meta.env.BASE_URL || '/').trim() || '/'
 const FALLBACK_BACKEND_ORIGIN = String(import.meta.env.VITE_FALLBACK_BACKEND_ORIGIN || '').replace(
   /\/$/,
   '',
@@ -240,12 +241,16 @@ function isUnauthorizedResponse(response, payload = {}) {
 function redirectToClientLogin() {
   if (typeof window === 'undefined') return
 
+  const normalizedBasePath =
+    APP_BASE_PATH === '/' ? '/' : `/${APP_BASE_PATH.replace(/^\/+|\/+$/g, '')}/`
   const currentPath = `${window.location.pathname || '/'}${window.location.search || ''}${window.location.hash || ''}`
+  const loginPath = `${normalizedBasePath === '/' ? '' : normalizedBasePath.slice(0, -1)}/login-cliente`
   const isAlreadyOnClientLogin =
-    currentPath.startsWith('/login-cliente') || currentPath.startsWith('/login')
+    currentPath.startsWith(loginPath) ||
+    currentPath.startsWith(`${normalizedBasePath === '/' ? '' : normalizedBasePath.slice(0, -1)}/login`)
   if (isAlreadyOnClientLogin) return
 
-  const loginUrl = new URL('/login-cliente', window.location.origin)
+  const loginUrl = new URL(loginPath, window.location.origin)
   loginUrl.searchParams.set('session', 'expired')
   if (currentPath && currentPath !== '/') {
     loginUrl.searchParams.set('redirect', currentPath)
