@@ -12,8 +12,10 @@ const props = defineProps({
 
 
 const emit = defineEmits(['confirm'])
-const logoSrc = '/logo.png'
-const contractHeaderSrc = '/MARGEN/image.png'
+const baseUrl = import.meta.env.BASE_URL
+const logoSrc = `${baseUrl}logo.png`
+const contractHeaderSrc = `${baseUrl}MARGEN/image.png`
+const providerSignatureSrc = `${baseUrl}AUTOGRAFO/AUTOGRAFO JEFE.png`
 const supportPhones = ['+52 558 618 6576', '+52 722 112 6671', '+1 305 464 6394']
 const supportEmail = 'sales@redskyg.com'
 const supportWebsite = 'https://redskyg.com/mx'
@@ -1338,7 +1340,7 @@ function handleConfirmClick() {
               <small>Cargo: Representante Legal</small>
               <div class="signature-line signature-line--provider">
                 <img
-                  src="/AUTOGRAFO/AUTOGRAFO JEFE.png"
+                  :src="providerSignatureSrc"
                   alt="Firma del representante legal"
                   class="provider-signature-image"
                 />

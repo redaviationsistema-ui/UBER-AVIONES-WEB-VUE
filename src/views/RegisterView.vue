@@ -54,18 +54,8 @@ async function submit() {
       role: form.role,
     })
 
-    successMessage.value = 'Usuario creado correctamente. Ya puedes iniciar sesión.'
-
-    router.push(
-      form.role === 'client'
-        ? { name: 'login-cliente' }
-        : {
-            name: 'login',
-            query: {
-              role: form.role,
-            },
-          },
-    )
+    successMessage.value = 'Usuario creado correctamente. Redirigiendo a tu cuenta...'
+    router.push(auth.dashboardPath)
   } catch (error) {
     errorMessage.value = error.message || 'No fue posible crear el usuario.'
   }

@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api } from '../../lib/api'
 import { pickCollection, requestWithCandidates } from '../../lib/backendCrud'
-import { fallbackAdminFlags, fallbackAdminKpis, fallbackAdminUsers } from '../../data/platform'
+import { fallbackAdminFlags, fallbackAdminKpis } from '../../data/platform'
 import { useUiStore } from '../../stores/ui'
 import AdminAlertsSection from './AdminAlertsSection.vue'
 import AdminAircraftSubscriptionsSection from './AdminAircraftSubscriptionsSection.vue'
@@ -500,10 +500,10 @@ async function loadDashboardKpis() {
 
 async function loadUsers() {
   try {
-    const response = await api.get('/admin/users')
-    users.value = response.users?.data || response.users || fallbackAdminUsers
+    const response = await requestWithCandidates([{ method: 'get', path: '/admin/users' }])
+    users.value = pickCollection(response, ['users', 'usuarios'])
   } catch {
-    users.value = fallbackAdminUsers
+    users.value = []
   }
 }
 
@@ -536,10 +536,7 @@ async function loadSubscriptions() {
 
 async function loadProviders() {
   try {
-    const response = await requestWithCandidates([
-      { method: 'get', path: '/admin/operators' },
-      { method: 'get', path: '/admin/proveedores' },
-    ])
+    const response = await requestWithCandidates([{ method: 'get', path: '/admin/operators' }])
     providers.value = pickCollection(response, ['operators', 'proveedores'])
   } catch {
     providers.value = []
@@ -553,13 +550,15 @@ async function loadCrewMembers() {
       { method: 'get', path: '/admin/crew' },
       { method: 'get', path: '/admin/users' },
     ]),
-    users.value.length ? Promise.resolve({ users: users.value }) : api.get('/admin/users'),
+    users.value.length
+      ? Promise.resolve({ users: users.value })
+      : requestWithCandidates([{ method: 'get', path: '/admin/users' }]),
   ])
 
   const usersCollection =
     usersResult.status === 'fulfilled'
-      ? usersResult.value.users?.data || usersResult.value.users || fallbackAdminUsers
-      : fallbackAdminUsers
+      ? pickCollection(usersResult.value, ['users', 'usuarios'])
+      : []
 
   if (!users.value.length) {
     users.value = usersCollection

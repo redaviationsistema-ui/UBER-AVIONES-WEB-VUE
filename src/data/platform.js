@@ -165,13 +165,6 @@ export const fallbackCrewAssignments = [
   { id: 761, status: 'Checklist abierto', created_at: '30 Abr 16:15' },
 ]
 
-export const fallbackAdminUsers = [
-  { id: 1, name: 'Mariana Torres', email: 'mariana@vertice.mx', role: 'Cliente Pro', status: 'Activa' },
-  { id: 2, name: 'Operador verificado #204', email: 'ops204@redaviation.mx', role: 'Proveedor', status: 'Operando' },
-  { id: 3, name: 'Crew #118', email: 'crew118@redaviation.mx', role: 'Sobrecargo', status: 'Disponible' },
-  { id: 4, name: 'Grupo Vertice', email: 'travel@grupovertice.mx', role: 'Enterprise', status: 'Activa' },
-]
-
 export const fallbackAdminKpis = {
   mrr: '$128.6k',
   arr: '$1.54M',
@@ -203,13 +196,6 @@ export const crewOperations = [
   ['OP-742', 'MTY -> TLC', '18:30', 'Briefing listo', 'Cabina pendiente'],
   ['OP-755', 'CUN -> MIA', '09:00', 'Catering confirmado', 'Documentos OK'],
   ['OP-761', 'GDL -> SJD', '16:15', 'VIP service', 'Checklist abierto'],
-]
-
-export const adminUsers = [
-  ['Mariana Torres', 'Cliente Pro', 'Renovacion en 4 dias', 'Activa'],
-  ['Operador verificado #204', 'Proveedor', 'Documentos completos', 'Operando'],
-  ['Crew #118', 'Sobrecargo', 'Asignacion activa', 'Disponible'],
-  ['Grupo Vertice', 'Enterprise', 'Pago anual', 'Activa'],
 ]
 
 export const adminKpis = [

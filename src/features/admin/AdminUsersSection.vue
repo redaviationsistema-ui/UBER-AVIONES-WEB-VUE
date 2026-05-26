@@ -81,7 +81,7 @@ function handleDocumentClick(event) {
 
 onMounted(() => {
   document.addEventListener('click', handleDocumentClick)
-  Promise.allSettled([loadUsersFromBackend(), loadRolesFromBackend(), loadProvidersFromBackend()])
+  void loadRolesFromBackend()
 })
 
 onBeforeUnmount(() => {
@@ -423,6 +423,11 @@ function resolveCommercialAccessState(detail = {}) {
   const access = user.access || user.raw?.access || {}
   const subscriptionStatus = String(
     user.subscription?.status ||
+      user.access?.subscription_status ||
+      user.access?.membership_status ||
+      user.access?.has_access ||
+      user.subscription_status ||
+      user.membership_status ||
       user.raw?.active_suscripcion?.status ||
       user.raw?.activeSuscripcion?.status ||
     access.subscription?.status ||
@@ -451,15 +456,49 @@ function resolveCommercialAccessState(detail = {}) {
     .trim()
     .toLowerCase()
 
-  if (['active', 'activa', 'vigente', 'approved', 'trial_active', 'demo_active'].includes(subscriptionStatus)) {
+  if (
+    ['active', 'activa', 'vigente', 'approved', 'trial_active', 'demo_active', 'demo_activa', 'true', '1'].includes(
+      subscriptionStatus,
+    )
+  ) {
     return 'Habilitado'
   }
 
-  if (['true', '1', 'yes', 'si'].includes(demoStatus)) {
+  if (['true', '1', 'yes', 'si', 'active', 'activa', 'vigente', 'demo_active'].includes(demoStatus)) {
+    return 'Habilitado'
+  }
+
+  if (access.has_access === true) {
     return 'Habilitado'
   }
 
   return 'Bloqueado'
+}
+
+function resolveCommercialAccessForUser(user = {}) {
+  return resolveCommercialAccessState({
+    user,
+    provider: user.provider || null,
+  })
+}
+
+function commercialAccessTone(user = {}) {
+  return resolveCommercialAccessForUser(user) === 'Habilitado' ? 'success' : 'blocked'
+}
+
+function commercialAccessLabel(user = {}) {
+  if (!isClientUser(user)) return 'Acceso no aplica'
+  return resolveCommercialAccessForUser(user) === 'Habilitado'
+    ? 'Acceso comercial habilitado'
+    : 'Acceso comercial bloqueado'
+}
+
+function shouldShowCommercialAccessAction(user = {}) {
+  return isClientUser(user)
+}
+
+function commercialAccessActionLabel(user = {}) {
+  return commercialAccessTone(user) === 'success' ? 'Desactivar demo' : 'Activar demo'
 }
 
 function isClientUser(user = {}) {
@@ -484,31 +523,9 @@ async function openUserDetail(user) {
   }
 
   try {
-    let detailedUser = user
-    let detailedProvider = user.provider
-
-    const userResult = await requestWithCandidates([
-      { method: 'get', path: `/admin/usuarios/${user.id}` },
-    ]).catch(() => null)
-
-    if (userResult) {
-      detailedUser = normalizeUserRecord(pickRecord(userResult, ['user', 'usuario']), 0)
-    }
-
-    const providerId = user.provider_id || detailedUser.provider_id || detailedUser.provider?.id
-    if (normalizeRoleKey(detailedUser.role) === 'provider' && providerId) {
-      const providerResult = await requestWithCandidates([
-        { method: 'get', path: `/admin/proveedores/${providerId}` },
-      ]).catch(() => null)
-
-      if (providerResult) {
-        detailedProvider = normalizeProviderRecord(pickRecord(providerResult, ['provider', 'proveedor']))
-      }
-    }
-
     selectedUserDetail.value = {
-      user: detailedUser,
-      provider: detailedProvider,
+      user,
+      provider: user.provider,
     }
   } catch (error) {
     detailError.value = error.message || 'No fue posible cargar el detalle completo.'
@@ -539,10 +556,7 @@ async function loadRolesFromBackend() {
 
 async function loadProvidersFromBackend() {
   try {
-    const response = await requestWithCandidates([
-      { method: 'get', path: '/admin/operators' },
-      { method: 'get', path: '/admin/proveedores' },
-    ])
+    const response = await requestWithCandidates([{ method: 'get', path: '/admin/operators' }])
     const providers = pickCollection(response, ['operators', 'proveedores', 'providers'])
 
     providerCatalog.value = providers.map((provider) => normalizeProviderRecord(provider))
@@ -567,6 +581,15 @@ function formatRoleName(roleKey) {
 function toggleFilters() {
   filtersOpen.value = !filtersOpen.value
 }
+
+watch(
+  () => normalizeRoleKey(userForm.value.role),
+  (roleKey) => {
+    if (roleKey === 'provider' && providerCatalog.value.length === 0) {
+      void loadProvidersFromBackend()
+    }
+  },
+)
 
 function openCreateUser() {
   drawerMode.value = 'create'
@@ -835,6 +858,45 @@ async function grantUserTrial(user) {
   }
 }
 
+async function revokeCommercialAccess(user) {
+  try {
+    const response = await requestWithCandidates([
+      { method: 'post', path: `/admin/users/${user.id}/revoke-commercial-access`, body: {} },
+    ])
+    const refreshedUser = response?.user ? normalizeUserRecord(response.user, 0) : null
+
+    await loadUsersFromBackend()
+
+    if (detailOpen.value && selectedUserDetail.value?.user?.id === user.id && refreshedUser) {
+      selectedUserDetail.value = {
+        user: refreshedUser,
+        provider: refreshedUser.provider,
+      }
+    }
+
+    ui.pushToast({
+      tone: 'success',
+      title: 'Acceso comercial desactivado',
+      message: response.message || `La cuenta de ${user.name} ya no puede cotizar ni reservar hasta nueva activacion.`,
+    })
+  } catch (error) {
+    ui.pushToast({
+      tone: 'error',
+      title: 'No se pudo desactivar el acceso',
+      message: error.message || 'El backend no pudo retirar el acceso comercial del cliente.',
+    })
+  }
+}
+
+function toggleCommercialAccess(user) {
+  if (commercialAccessTone(user) === 'success') {
+    void revokeCommercialAccess(user)
+    return
+  }
+
+  void grantUserTrial(user)
+}
+
 async function resetPassword(user) {
   try {
     const response = await requestWithCandidates([
@@ -1084,6 +1146,24 @@ function auditUser(user) {
             >
               {{ user.status }}
             </span>
+            <span
+              v-if="isClientUser(user)"
+              class="status-pill status-pill-commercial"
+              :class="{
+                'status-pill-success': commercialAccessTone(user) === 'success',
+                'status-pill-danger': commercialAccessTone(user) === 'blocked',
+              }"
+            >
+              {{ commercialAccessLabel(user) }}
+            </span>
+            <button
+              v-if="shouldShowCommercialAccessAction(user)"
+              type="button"
+              class="admin-mini-btn commercial-access-btn"
+              @click="toggleCommercialAccess(user)"
+            >
+              {{ commercialAccessActionLabel(user) }} comercial
+            </button>
             <small>Ultima auditoria: {{ user.lastAudit }}</small>
           </div>
 
@@ -1127,15 +1207,35 @@ function auditUser(user) {
               </div>
 
               <div class="role-directory-meta">
-                <span
-                  class="status-pill"
-                  :class="{
-                    'status-pill-warn': normalizeStatusKey(user.status) === 'suspendido',
-                    'status-pill-danger': normalizeStatusKey(user.status) === 'inactivo',
-                  }"
-                >
-                  {{ user.status }}
-                </span>
+                <div class="role-directory-badges">
+                  <span
+                    class="status-pill"
+                    :class="{
+                      'status-pill-warn': normalizeStatusKey(user.status) === 'suspendido',
+                      'status-pill-danger': normalizeStatusKey(user.status) === 'inactivo',
+                    }"
+                  >
+                    {{ user.status }}
+                  </span>
+                  <span
+                    v-if="isClientUser(user)"
+                    class="status-pill status-pill-commercial"
+                    :class="{
+                      'status-pill-success': commercialAccessTone(user) === 'success',
+                      'status-pill-danger': commercialAccessTone(user) === 'blocked',
+                    }"
+                  >
+                    {{ commercialAccessLabel(user) }}
+                  </span>
+                  <button
+                    v-if="shouldShowCommercialAccessAction(user)"
+                    type="button"
+                    class="admin-mini-btn commercial-access-btn"
+                    @click="toggleCommercialAccess(user)"
+                  >
+                    {{ commercialAccessActionLabel(user) }}
+                  </button>
+                </div>
                 <button type="button" class="admin-text-btn" @click="openEditUser(user)">Editar</button>
               </div>
             </div>
@@ -1166,6 +1266,7 @@ function auditUser(user) {
           <span>Correo</span>
           <span>Rol</span>
           <span>Estado</span>
+          <span>Acceso comercial</span>
           <span>Acciones</span>
         </div>
 
@@ -1190,6 +1291,29 @@ function auditUser(user) {
             >
               {{ user.status }}
             </span>
+          </span>
+
+          <span class="commercial-access-cell">
+            <template v-if="isClientUser(user)">
+              <span
+                class="status-pill status-pill-commercial"
+                :class="{
+                  'status-pill-success': commercialAccessTone(user) === 'success',
+                  'status-pill-danger': commercialAccessTone(user) === 'blocked',
+                }"
+              >
+                {{ commercialAccessLabel(user) }}
+              </span>
+              <button
+                v-if="shouldShowCommercialAccessAction(user)"
+                type="button"
+                class="admin-mini-btn commercial-access-btn"
+                @click="toggleCommercialAccess(user)"
+              >
+                {{ commercialAccessActionLabel(user) }}
+              </button>
+            </template>
+            <span v-else class="table-muted">No aplica</span>
           </span>
 
           <div class="row-actions">
@@ -1379,9 +1503,9 @@ function auditUser(user) {
                 <button
                   type="button"
                   class="admin-btn admin-btn-secondary"
-                  @click="grantUserTrial(selectedUserDetail.user)"
+                  @click="toggleCommercialAccess(selectedUserDetail.user)"
                 >
-                  Activar demo comercial
+                  {{ commercialAccessActionLabel(selectedUserDetail.user) }} comercial
                 </button>
               </div>
             </section>
@@ -1862,6 +1986,16 @@ function auditUser(user) {
   background: #fee4e2;
 }
 
+.status-pill-success {
+  color: #0f7b53;
+  background: #dceee5;
+}
+
+.status-pill-commercial {
+  text-transform: none;
+  letter-spacing: 0.01em;
+}
+
 .role-chip {
   color: #8c6a1f;
   background: #f3ead2;
@@ -1878,7 +2012,7 @@ function auditUser(user) {
 
 .table-row {
   display: grid;
-  grid-template-columns: 1.15fr 1.1fr 0.75fr 0.7fr 1.5fr;
+  grid-template-columns: 1.1fr 1fr 0.7fr 0.7fr 1fr 1.2fr;
   gap: 1rem;
   align-items: center;
   padding: 1rem 1.1rem;
@@ -1915,6 +2049,25 @@ function auditUser(user) {
   justify-content: flex-start;
 }
 
+.role-directory-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.45rem;
+}
+
+.table-muted {
+  color: #8a8f98;
+  font-size: 0.88rem;
+}
+
+.commercial-access-cell {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+
 .admin-mini-btn {
   appearance: none;
   min-height: 2rem;
@@ -1923,6 +2076,12 @@ function auditUser(user) {
   border-radius: 10px;
   color: #2d3748;
   background: #ffffff;
+}
+
+.commercial-access-btn {
+  border-color: #f2c8c2;
+  color: #b42318;
+  background: #fff4f2;
 }
 
 .admin-actions-trigger {

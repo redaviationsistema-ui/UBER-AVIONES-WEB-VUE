@@ -1,8 +1,4 @@
 <script setup>
-const baseUrl = String(import.meta.env.BASE_URL || '/')
-const normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`
-const logoUrl = `${normalizedBaseUrl}logo.png`
-
 defineProps({
   alt: {
     type: String,
@@ -18,15 +14,17 @@ defineProps({
     default: 148,
   },
 })
+
+const logoSrc = `${import.meta.env.BASE_URL}logo.png`
 </script>
 
 <template>
   <span class="brand-logo" :class="`brand-logo--${variant}`">
     <img
       class="brand-logo__image"
-      :src="logoUrl"
+      :src="logoSrc"
       :alt="alt"
-      :style="{ width: typeof width === 'number' ? `${width}px` : width }"
+      :width="width"
     />
   </span>
 </template>

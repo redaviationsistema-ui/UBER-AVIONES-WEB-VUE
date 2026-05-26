@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import BrandLogo from './BrandLogo.vue'
 import AdminPortal from '../features/admin/AdminPortal.vue'
 import ClientPortal from '../features/client/ClientPortal.vue'
 import CrewPortal from '../features/crew/CrewPortal.vue'
@@ -18,7 +19,9 @@ const props = defineProps({
 const router = useRouter()
 const auth = useAuthStore()
 const ui = useUiStore()
-const openSidebarMenu = ref('')
+const activeMenuGroup = ref('')
+const mobileMenuOpen = ref(false)
+const desktopMenuOpen = ref(false)
 
 const currentMenu = computed(() => roleSections[props.activeRole] ?? [])
 const currentSectionLabel = computed(
@@ -29,11 +32,11 @@ const currentSectionLabel = computed(
 )
 const groupedMenu = computed(() => buildMenuGroups(props.activeRole, currentMenu.value))
 const isClientWorkspace = computed(() => props.activeRole === 'client')
-const isCrewWorkspace = computed(() => props.activeRole === 'crew')
-const isOperatorWorkspace = computed(() => props.activeRole === 'operator')
-const isAdminWorkspace = computed(() => props.activeRole === 'admin')
 const isClientDashboard = computed(
   () => props.activeRole === 'client' && props.section === 'dashboard',
+)
+const usesWorkspaceMenu = computed(
+  () => !isClientWorkspace.value && !isClientDashboard.value && groupedMenu.value.length > 0,
 )
 const isSessionReady = computed(() => auth.initialized && auth.isAuthenticated)
 
@@ -58,6 +61,29 @@ const roleInsights = {
   },
 }
 
+const currentGroup = computed(
+  () =>
+    groupedMenu.value.find((group) => group.label === activeMenuGroup.value) || groupedMenu.value[0] || null,
+)
+
+function resolveActiveGroupLabel() {
+  return (
+    groupedMenu.value.find((group) => group.items.some((item) => item.id === props.section))?.label ||
+    groupedMenu.value[0]?.label ||
+    ''
+  )
+}
+
+function openMenuGroup(label) {
+  if (activeMenuGroup.value === label) {
+    desktopMenuOpen.value = !desktopMenuOpen.value
+  } else {
+    activeMenuGroup.value = label
+    desktopMenuOpen.value = true
+  }
+  mobileMenuOpen.value = false
+}
+
 async function handleLogout() {
   auth.logout()
   ui.pushToast({
@@ -66,14 +92,6 @@ async function handleLogout() {
     message: 'Se cerraron tus credenciales y regresaste al inicio.',
   })
   router.push('/')
-}
-
-function toggleSidebarMenu(label) {
-  openSidebarMenu.value = openSidebarMenu.value === label ? '' : label
-}
-
-function isSidebarMenuOpen(label) {
-  return openSidebarMenu.value === label
 }
 
 watch(
@@ -88,6 +106,16 @@ watch(
   },
   { immediate: true },
 )
+
+watch(
+  () => [props.section, props.activeRole, groupedMenu.value.length],
+  () => {
+    activeMenuGroup.value = resolveActiveGroupLabel()
+    mobileMenuOpen.value = false
+    desktopMenuOpen.value = false
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -98,118 +126,160 @@ watch(
       :class="{
         'workspace-client-dashboard': isClientDashboard,
         'workspace-client': isClientWorkspace,
-        'workspace-crew': isCrewWorkspace,
-        'workspace-operator': isOperatorWorkspace,
-        'workspace-admin': isAdminWorkspace,
+        'workspace-workflow': usesWorkspaceMenu,
       }"
     >
-      <aside
-        v-if="
-          !isClientWorkspace &&
-          !isClientDashboard &&
-          !isCrewWorkspace &&
-          !isOperatorWorkspace &&
-          !isAdminWorkspace
-        "
-        class="sidebar"
-      >
-        <section class="surface overview-card">
-          <span class="badge success">{{ role.tone }}</span>
-          <strong>{{ role.label }}</strong>
-          <p>{{ role.area }}</p>
-          <div class="role-summary">
-            <h3>{{ roleInsights[activeRole]?.title }}</h3>
-            <p>{{ roleInsights[activeRole]?.description }}</p>
-          </div>
-        </section>
-
-        <section class="surface navigation-card">
-          <div class="card-head">
-            <span class="eyebrow">Navegacion</span>
-            <strong>{{ currentSectionLabel }}</strong>
+      <section v-if="usesWorkspaceMenu" class="workspace-menu-shell">
+        <div class="workspace-menu-bar">
+          <div class="workspace-menu-brand">
+            <RouterLink to="/" class="workspace-menu-logo" aria-label="Sky Group">
+              <BrandLogo variant="dark" :width="118" />
+            </RouterLink>
+            <div class="workspace-menu-brand-copy">
+              <span class="workspace-menu-badge">{{ role.tone }}</span>
+              <strong>{{ role.label }}</strong>
+              <small>{{ role.area }}</small>
+            </div>
           </div>
 
-          <div class="sidebar-menu">
-            <section
+          <button
+            type="button"
+            class="workspace-menu-toggle"
+            :aria-expanded="mobileMenuOpen ? 'true' : 'false'"
+            :aria-label="mobileMenuOpen ? 'Cerrar menu' : 'Abrir menu'"
+            @click="mobileMenuOpen = !mobileMenuOpen"
+          >
+            <span></span>
+            <span></span>
+            <span></span>
+          </button>
+
+          <nav class="workspace-menu-groups" aria-label="Secciones del portal">
+            <button
               v-for="group in groupedMenu"
               :key="group.label"
-              class="sidebar-dropdown"
-              :class="{ 'sidebar-dropdown-open': isSidebarMenuOpen(group.label) }"
+              type="button"
+              class="workspace-menu-group"
+              :class="{ 'workspace-menu-group--active': currentGroup?.label === group.label }"
+              @click="openMenuGroup(group.label)"
             >
+              {{ group.label }}
+            </button>
+          </nav>
+
+          <div class="workspace-menu-actions">
+            <span class="workspace-menu-hint">Operacion centralizada</span>
+            <button
+              v-if="auth.isAuthenticated"
+              type="button"
+              class="workspace-menu-logout"
+              @click="handleLogout"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M10 4H5.5A1.5 1.5 0 0 0 4 5.5v13A1.5 1.5 0 0 0 5.5 20H10v-2H6V6h4V4Zm4.6 3.4L13.2 8.8l1.8 1.7H9v2h6l-1.8 1.7 1.4 1.4L19 11l-4.4-4.4Z"
+                  fill="currentColor"
+                />
+              </svg>
+              Cerrar sesion
+            </button>
+          </div>
+        </div>
+
+        <div v-if="currentGroup && desktopMenuOpen" class="workspace-mega-menu">
+          <div class="workspace-mega-menu__panel">
+            <div class="workspace-mega-menu__header">
+              <strong>{{ currentGroup.label }}</strong>
+              <small>{{ currentGroup.items.length }} opciones</small>
+            </div>
+
+            <div class="workspace-submenu-row">
+              <RouterLink
+                v-for="item in currentGroup.items"
+                :key="item.id"
+                :to="`${roleBasePaths[activeRole]}/${item.id}`"
+                class="workspace-submenu-link"
+                :class="{ 'workspace-submenu-link--active': section === item.id }"
+              >
+                <strong>{{ item.label }}</strong>
+                <small>{{ currentGroup.label }}</small>
+              </RouterLink>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="mobileMenuOpen" class="workspace-mobile-drawer">
+          <div class="workspace-mobile-drawer__sheet">
+            <div class="workspace-mobile-drawer__top">
+              <RouterLink to="/" class="workspace-mobile-drawer__logo" aria-label="Sky Group">
+                <BrandLogo variant="dark" :width="118" />
+              </RouterLink>
+
               <button
                 type="button"
-                class="sidebar-dropdown-trigger"
-                :aria-expanded="isSidebarMenuOpen(group.label) ? 'true' : 'false'"
-                @click="toggleSidebarMenu(group.label)"
+                class="workspace-mobile-drawer__close"
+                aria-label="Cerrar menu"
+                @click="mobileMenuOpen = false"
               >
-                <span class="menu-copy">
-                  <strong>{{ group.label }}</strong>
-                  <small>{{
-                    group.items.find((item) => item.id === section)?.label ||
-                    `${group.items.length} modulos`
-                  }}</small>
-                </span>
-                <span class="sidebar-caret"></span>
+                <span></span>
+                <span></span>
               </button>
+            </div>
 
-              <div v-if="isSidebarMenuOpen(group.label)" class="sidebar-dropdown-panel">
+            <div class="workspace-mobile-drawer__intro">
+              <strong>{{ role.label }}</strong>
+              <p>{{ roleInsights[activeRole]?.description }}</p>
+            </div>
+
+            <section
+              v-for="group in groupedMenu"
+              :key="`mobile-${group.label}`"
+              class="workspace-mobile-group"
+            >
+              <h3 class="workspace-mobile-group__title">{{ group.label }}</h3>
+
+              <div class="workspace-mobile-links">
                 <RouterLink
                   v-for="item in group.items"
-                  :key="item.id"
-                  :class="{ active: section === item.id }"
+                  :key="`mobile-link-${item.id}`"
                   :to="`${roleBasePaths[activeRole]}/${item.id}`"
+                  class="workspace-mobile-link"
+                  :class="{ 'workspace-mobile-link--active': section === item.id }"
                 >
-                  <span class="menu-copy">
-                    <strong>{{ item.label }}</strong>
-                    <small>{{ role.label }}</small>
-                  </span>
-                  <span class="menu-indicator"></span>
+                  <span class="workspace-mobile-link__icon" aria-hidden="true"></span>
+                  <span>{{ item.label }}</span>
                 </RouterLink>
               </div>
             </section>
+
+            <div class="workspace-mobile-drawer__footer">
+              <button
+                v-if="auth.isAuthenticated"
+                type="button"
+                class="workspace-mobile-logout"
+                @click="handleLogout"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M10 4H5.5A1.5 1.5 0 0 0 4 5.5v13A1.5 1.5 0 0 0 5.5 20H10v-2H6V6h4V4Zm4.6 3.4L13.2 8.8l1.8 1.7H9v2h6l-1.8 1.7 1.4 1.4L19 11l-4.4-4.4Z"
+                    fill="currentColor"
+                  />
+                </svg>
+                Cerrar sesion
+              </button>
+            </div>
           </div>
-        </section>
-
-        <section class="surface support-card">
-          <span class="badge">Operacion centralizada</span>
-          <p>Sky Group concentra seguimiento, servicio y validaciones en una misma experiencia.</p>
-        </section>
-
-        <button
-          v-if="auth.isAuthenticated"
-          type="button"
-          class="logout-button"
-          @click="handleLogout"
-        >
-          Cerrar sesion
-        </button>
-      </aside>
+        </div>
+      </section>
 
       <section
         class="portal"
         :class="{
-          surface:
-            !isClientWorkspace &&
-            !isClientDashboard &&
-            !isCrewWorkspace &&
-            !isOperatorWorkspace &&
-            !isAdminWorkspace,
           'portal-client-dashboard': isClientWorkspace,
-          'portal-crew': isCrewWorkspace,
-          'portal-operator': isOperatorWorkspace,
-          'portal-admin': isAdminWorkspace,
+          'portal-workspace': usesWorkspaceMenu,
         }"
       >
-        <header
-          v-if="
-            !isClientWorkspace &&
-            !isClientDashboard &&
-            !isCrewWorkspace &&
-            !isOperatorWorkspace &&
-            !isAdminWorkspace
-          "
-          class="portal-header"
-        >
+        <header v-if="usesWorkspaceMenu" class="portal-header">
           <div>
             <p class="eyebrow">Workspace</p>
             <h2>{{ currentSectionLabel }}</h2>
@@ -236,248 +306,270 @@ watch(
 
 .workspace {
   display: grid;
-  grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
-  gap: 1.2rem;
-  padding: clamp(1rem, 4vw, 2.4rem);
-}
-
-.workspace-client-dashboard {
   grid-template-columns: 1fr;
-  gap: 0;
-  padding: 0;
-}
-
-.workspace-client {
-  grid-template-columns: 1fr;
-  gap: 0;
-  padding: 0;
-}
-
-.workspace-crew {
-  grid-template-columns: 1fr;
-  gap: 0;
-  padding: 0;
-  background: #ffffff;
-  min-height: calc(100vh - 4.6rem);
-}
-
-.workspace-operator {
-  grid-template-columns: 1fr;
-  gap: 0;
-  padding: 0;
-  background: #ffffff;
-  min-height: calc(100vh - 4.6rem);
-}
-
-.workspace-admin {
-  grid-template-columns: 1fr;
-  gap: 0;
-  padding: 0;
-  background: #ffffff;
-  min-height: calc(100vh - 4.6rem);
-}
-
-.sidebar {
-  position: sticky;
-  top: 6.8rem;
-  align-self: start;
-  display: grid;
   gap: 1rem;
+  padding: clamp(1rem, 3vw, 1.6rem);
 }
 
-.overview-card,
-.navigation-card,
-.support-card {
-  padding: 1rem;
+.workspace-client-dashboard,
+.workspace-client {
+  gap: 0;
+  padding: 0;
 }
 
-.overview-card strong {
-  display: block;
-  margin: 0.8rem 0 0.25rem;
-  font-size: 1.4rem;
+.workspace-workflow {
+  background: #ffffff;
 }
 
-.overview-card p,
-.role-summary p,
-.support-card p {
-  margin: 0;
-  color: #aeb6c4;
-  line-height: 1.6;
-}
-
-.role-summary {
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.role-summary h3 {
-  margin-bottom: 0.45rem;
-  font-size: 1rem;
-}
-
-.card-head {
+.workspace-menu-shell {
   display: grid;
-  gap: 0.2rem;
-  margin-bottom: 0.9rem;
+  gap: 0.85rem;
+  position: relative;
+  z-index: 20;
 }
 
-.card-head strong {
-  font-size: 1.05rem;
-}
-
-.sidebar-menu {
+.workspace-menu-bar {
   display: grid;
-  gap: 0.75rem;
-}
-
-.sidebar-dropdown {
-  display: grid;
-  gap: 0.55rem;
-}
-
-.sidebar-dropdown-trigger {
-  display: flex;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 1rem;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.9rem;
-  width: 100%;
-  padding: 0.8rem 0.9rem;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 16px;
-  color: #cfd5df;
-  background: rgba(255, 255, 255, 0.03);
-  text-align: left;
-  transition:
-    border-color 180ms ease,
-    background 180ms ease;
-}
-
-.sidebar-dropdown-trigger:hover,
-.sidebar-dropdown-open .sidebar-dropdown-trigger {
-  border-color: rgba(216, 180, 91, 0.24);
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.sidebar-dropdown-panel {
-  display: grid;
-  gap: 0.55rem;
-}
-
-.sidebar-caret {
-  width: 0.7rem;
-  height: 0.7rem;
-  border-right: 2px solid currentColor;
-  border-bottom: 2px solid currentColor;
-  transform: rotate(45deg);
-  opacity: 0.7;
-  transition: transform 180ms ease;
-}
-
-.sidebar-dropdown-open .sidebar-caret {
-  transform: rotate(225deg);
-}
-
-.sidebar-menu a {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.8rem;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 14px;
-  padding: 0.8rem 0.9rem;
-  color: #cfd5df;
-  text-decoration: none;
-  background: rgba(255, 255, 255, 0.03);
-  transition:
-    transform 180ms ease,
-    border-color 180ms ease,
-    background 180ms ease;
-}
-
-.sidebar-menu a:hover {
-  transform: translateY(-1px);
-  border-color: rgba(216, 180, 91, 0.22);
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.sidebar-menu a.active {
-  border-color: rgba(216, 180, 91, 0.36);
-  background: linear-gradient(135deg, rgba(216, 180, 91, 0.16), rgba(255, 255, 255, 0.04));
-}
-
-.menu-copy {
-  display: grid;
-  gap: 0.12rem;
-}
-
-.menu-copy strong {
-  color: #f6f1e8;
-  font-size: 0.96rem;
-}
-
-.menu-copy small {
-  color: #8f98a8;
-  font-size: 0.74rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-.menu-indicator {
-  width: 0.7rem;
-  height: 0.7rem;
+  padding: 0.95rem 1.45rem;
+  border: 1px solid rgba(20, 20, 20, 0.06);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 10px 28px rgba(22, 28, 36, 0.06);
 }
 
-.sidebar-menu a.active .menu-indicator {
-  background: #f2d88d;
-  box-shadow: 0 0 0 6px rgba(216, 180, 91, 0.12);
+.workspace-menu-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  min-width: 220px;
 }
 
-.support-card {
+.workspace-menu-logo {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.workspace-menu-brand-copy {
   display: grid;
-  gap: 0.8rem;
-  background: linear-gradient(180deg, rgba(216, 180, 91, 0.1), rgba(255, 255, 255, 0.02));
+  gap: 0.08rem;
 }
 
-.logout-button {
+.workspace-menu-brand strong {
+  color: #171717;
+  font-size: 0.98rem;
+  line-height: 1.1;
+}
+
+.workspace-menu-brand small {
+  color: #716b63;
+  font-size: 0.8rem;
+}
+
+.workspace-menu-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 1.45rem;
+  padding: 0 0.55rem;
+  border: 1px solid #dde8dc;
+  border-radius: 999px;
+  background: #f4fbf3;
+  color: #4f9b65;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.workspace-menu-groups {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.workspace-menu-groups::-webkit-scrollbar,
+.workspace-mega-menu::-webkit-scrollbar {
+  display: none;
+}
+
+.workspace-menu-toggle {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.22rem;
+  width: 2.9rem;
+  min-width: 2.9rem;
   min-height: 2.9rem;
-  border: 1px solid rgba(255, 111, 105, 0.2);
-  border-radius: 14px;
-  color: #ffd7d5;
-  background: rgba(255, 111, 105, 0.09);
+  padding: 0;
+  border: 1px solid rgba(20, 20, 20, 0.08);
+  border-radius: 999px;
+  background: #ffffff;
+  color: #171717;
 }
 
-.logout-button:hover {
-  border-color: rgba(255, 111, 105, 0.38);
-  background: rgba(255, 111, 105, 0.14);
+.workspace-menu-toggle span {
+  display: block;
+  width: 1.05rem;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.workspace-menu-group {
+  flex: 0 0 auto;
+  min-height: 2.9rem;
+  padding: 0 0.95rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: #1d1d1d;
+  font-weight: 700;
+}
+
+.workspace-menu-group--active {
+  border-color: rgba(188, 141, 47, 0.18);
+  background: #f8f4ec;
+}
+
+.workspace-menu-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  min-width: 210px;
+}
+
+.workspace-menu-hint {
+  color: #81786c;
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.workspace-menu-logout {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 2.9rem;
+  padding: 0 1rem;
+  border: 1px solid rgba(20, 20, 20, 0.08);
+  border-radius: 999px;
+  background: #ffffff;
+  color: #1d1d1d;
+  font-weight: 700;
+}
+
+.workspace-menu-logout svg {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+}
+
+.workspace-mega-menu {
+  position: absolute;
+  top: calc(100% - 0.1rem);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(100%, 540px);
+  padding-top: 0.45rem;
+  z-index: 30;
+}
+
+.workspace-submenu-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.3rem;
+}
+
+.workspace-mega-menu__panel {
+  width: 100%;
+  padding: 0.85rem;
+  border: 1px solid rgba(20, 20, 20, 0.08);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 26px 54px rgba(22, 28, 36, 0.14);
+}
+
+.workspace-mega-menu__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0 0.2rem 0.75rem;
+  margin-bottom: 0.55rem;
+  border-bottom: 1px solid rgba(20, 20, 20, 0.08);
+}
+
+.workspace-mega-menu__header strong {
+  color: #171717;
+  font-size: 0.98rem;
+}
+
+.workspace-mega-menu__header small {
+  color: #8a8276;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.workspace-submenu-link {
+  display: inline-grid;
+  gap: 0.14rem;
+  min-width: 150px;
+  padding: 0.78rem 0.92rem;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  background: transparent;
+  color: #171717;
+  text-decoration: none;
+  box-shadow: none;
+}
+
+.workspace-submenu-link strong {
+  font-size: 0.94rem;
+  line-height: 1.15;
+}
+
+.workspace-submenu-link small {
+  color: #8a8276;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.workspace-submenu-link:hover {
+  background: #f7f3ec;
+}
+
+.workspace-submenu-link--active {
+  border-color: rgba(188, 141, 47, 0.22);
+  background: #fcf8ef;
+}
+
+.workspace-mobile-drawer {
+  display: none;
 }
 
 .portal {
-  padding: clamp(1rem, 3vw, 1.5rem);
-}
-
-.portal-client-dashboard {
-  padding: 0;
-}
-
-.portal-crew {
   padding: 0;
   background: #ffffff;
   min-height: calc(100vh - 4.6rem);
 }
 
-.portal-operator {
-  padding: 0;
-  background: #ffffff;
-  min-height: calc(100vh - 4.6rem);
-}
-
-.portal-admin {
-  padding: 0;
-  background: #ffffff;
-  min-height: calc(100vh - 4.6rem);
+.portal-workspace {
+  padding: 3.4rem 0 0;
 }
 
 .portal-header {
@@ -486,32 +578,215 @@ watch(
   justify-content: space-between;
   gap: 1rem;
   margin-bottom: 1rem;
-  padding-bottom: 1rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 0 0 1rem;
+  border-bottom: 1px solid rgba(18, 18, 18, 0.06);
 }
 
 .portal-header h2 {
-  margin-bottom: 0;
-  font-size: clamp(1.55rem, 3vw, 2.5rem);
+  margin: 0;
+  color: #171717;
+  font-size: clamp(1.5rem, 3vw, 2.3rem);
+}
+
+.eyebrow {
+  margin: 0 0 0.3rem;
+  color: #bc8d2f;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .portal-header .muted {
   max-width: 460px;
   margin: 0;
+  color: #8d99ae;
   text-align: right;
 }
 
 @media (max-width: 1080px) {
   .workspace {
-    grid-template-columns: 1fr;
+    padding: 0.9rem;
   }
 
-  .sidebar {
-    position: static;
+  .workspace-menu-bar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    border-radius: 28px;
+    align-items: center;
   }
-}
 
-@media (max-width: 760px) {
+  .workspace-menu-toggle {
+    display: inline-flex;
+    justify-self: end;
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .workspace-menu-brand {
+    min-width: 0;
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .workspace-menu-groups,
+  .workspace-menu-actions,
+  .workspace-mega-menu {
+    display: none;
+  }
+
+  .workspace-mobile-drawer {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: grid;
+    padding: 0;
+    background: rgba(255, 255, 255, 0.92);
+    backdrop-filter: blur(10px);
+  }
+
+  .workspace-mobile-drawer__sheet {
+    display: grid;
+    grid-template-rows: auto auto auto 1fr auto;
+    gap: 1.15rem;
+    min-height: 100vh;
+    padding: 1.25rem 1.1rem 1.5rem;
+    background: #ffffff;
+  }
+
+  .workspace-mobile-drawer__top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .workspace-mobile-drawer__logo {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .workspace-mobile-drawer__close {
+    position: relative;
+    width: 3.2rem;
+    min-width: 3.2rem;
+    min-height: 3.2rem;
+    padding: 0;
+    border: 1px solid rgba(20, 20, 20, 0.08);
+    border-radius: 999px;
+    background: #f8f8f8;
+  }
+
+  .workspace-mobile-drawer__close span {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 1rem;
+    height: 2px;
+    border-radius: 999px;
+    background: #5b6270;
+  }
+
+  .workspace-mobile-drawer__close span:first-child {
+    transform: translate(-50%, -50%) rotate(45deg);
+  }
+
+  .workspace-mobile-drawer__close span:last-child {
+    transform: translate(-50%, -50%) rotate(-45deg);
+  }
+
+  .workspace-mobile-drawer__intro {
+    display: grid;
+    gap: 0.3rem;
+  }
+
+  .workspace-mobile-drawer__intro strong {
+    color: #171717;
+    font-size: 1.05rem;
+    line-height: 1.1;
+    text-transform: uppercase;
+  }
+
+  .workspace-mobile-drawer__intro p {
+    margin: 0;
+    color: #6d7483;
+    font-size: 0.95rem;
+    line-height: 1.35;
+  }
+
+  .workspace-mobile-group {
+    display: grid;
+    gap: 0.65rem;
+  }
+
+  .workspace-mobile-group__title {
+    margin: 0;
+    color: #3b4352;
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .workspace-mobile-links {
+    display: grid;
+    gap: 0.2rem;
+  }
+
+  .workspace-mobile-link {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    padding: 0.72rem 0.1rem;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: #171717;
+    text-decoration: none;
+    font-size: 0.96rem;
+    font-weight: 700;
+  }
+
+  .workspace-mobile-link__icon {
+    width: 0.9rem;
+    height: 0.9rem;
+    flex: 0 0 auto;
+    border-radius: 0.16rem;
+    background: #2f3746;
+    box-shadow: inset 0 0 0 2px #ffffff;
+  }
+
+  .workspace-mobile-link--active {
+    color: #bc8d2f;
+  }
+
+  .workspace-mobile-drawer__footer {
+    align-self: end;
+    display: grid;
+    gap: 0.6rem;
+    padding-top: 1rem;
+    border-top: 1px solid rgba(20, 20, 20, 0.08);
+  }
+
+  .workspace-mobile-logout {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0.5rem;
+    min-height: 3rem;
+    padding: 0 1rem;
+    border: 1px solid rgba(20, 20, 20, 0.08);
+    border-radius: 18px;
+    background: #f7f8fb;
+    color: #253044;
+    font-weight: 700;
+  }
+
+  .workspace-mobile-logout svg {
+    width: 1rem;
+    height: 1rem;
+    flex: 0 0 auto;
+  }
+
   .portal-header {
     flex-direction: column;
     align-items: stretch;
@@ -520,6 +795,38 @@ watch(
   .portal-header .muted {
     max-width: none;
     text-align: left;
+  }
+}
+
+@media (max-width: 760px) {
+  .workspace {
+    gap: 0.8rem;
+    padding: 0.65rem;
+  }
+
+  .workspace-menu-bar {
+    gap: 0.75rem;
+    padding: 0.85rem;
+    border-radius: 24px;
+  }
+
+  .workspace-menu-brand {
+    min-width: 0;
+    gap: 0.7rem;
+  }
+
+  .workspace-menu-brand-copy small {
+    display: none;
+  }
+
+  .workspace-menu-logo {
+    max-width: 108px;
+  }
+
+  .workspace-menu-toggle {
+    width: 2.7rem;
+    min-width: 2.7rem;
+    min-height: 2.7rem;
   }
 }
 </style>

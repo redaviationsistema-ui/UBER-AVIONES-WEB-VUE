@@ -342,6 +342,10 @@ const customerEmail = computed(() => {
   const rawEmail = auth.user?.email || auth.access?.email || ''
   return String(rawEmail || '').trim() || 'cliente@skygroup.com'
 })
+const customerPhone = computed(() => {
+  const rawPhone = auth.user?.phone || auth.access?.phone || ''
+  return String(rawPhone || '').trim()
+})
 const paymentHeroTitle = computed(() => {
   return selectedReservation.value ? 'Configura tu pago' : 'Checkout seguro'
 })
@@ -466,6 +470,49 @@ const accountAccessCopy = computed(() => {
   return 'Sin demo ni suscripcion'
 })
 const activePlan = computed(() => accountAccessCopy.value)
+const canQuoteFlights = computed(() => {
+  const access = auth.access || {}
+  const subscription = access.subscription || access.membership || {}
+  const normalizedSubscriptionStatus = String(
+    subscription.status || access.subscription_status || access.membership_status || '',
+  )
+    .trim()
+    .toLowerCase()
+  const truthyStates = new Set([
+    '1',
+    'true',
+    'yes',
+    'si',
+    'active',
+    'activa',
+    'vigente',
+    'approved',
+    'trial_active',
+  ])
+  const activeStatuses = new Set(['active', 'activa', 'vigente', 'approved'])
+  const demoStatuses = new Set(['trial_active', 'demo_active', 'trial', 'demo'])
+  const flags = [
+    access.has_access,
+    access.active,
+    access.is_active,
+    access.subscription_active,
+    access.demo_active,
+    access.has_demo,
+    access.can_book,
+    access.can_request_flights,
+  ]
+  const normalizedFlags = flags.map((value) =>
+    String(value ?? '')
+      .trim()
+      .toLowerCase(),
+  )
+
+  return (
+    activeStatuses.has(normalizedSubscriptionStatus) ||
+    demoStatuses.has(normalizedSubscriptionStatus) ||
+    normalizedFlags.some((value) => truthyStates.has(value) || demoStatuses.has(value))
+  )
+})
 const activeSection = computed(() => {
   if (
     ['viajes', 'mis-vuelos', 'historial', 'contrato', 'pago', 'reserva-confirmada'].includes(
@@ -653,6 +700,51 @@ function formatCurrency(value) {
   }).format(Number(value || 0))
 }
 
+async function sendPaymentInvoiceNotification({
+  reservationId = '',
+  paymentIntentId = '',
+  paymentStatus = '',
+} = {}) {
+  const endpoint = 'https://redskyg.com/renta/send_payment_invoice.php'
+  const formData = new FormData()
+  const summary = activeItinerarySummary.value || {}
+
+  formData.append('reservation_id', String(reservationId || reservationContextId.value || '').trim())
+  formData.append(
+    'flight_request_id',
+    String(flightRequestContextId.value || reservationId || '').trim(),
+  )
+  formData.append('payment_intent_id', String(paymentIntentId || paymentLastReference.value || '').trim())
+  formData.append('payment_status', String(paymentStatus || '').trim())
+  formData.append('email', paymentForm.contactEmail.trim() || customerEmail.value)
+  formData.append('customer_email', paymentForm.contactEmail.trim() || customerEmail.value)
+  formData.append('customer_name', customerDisplayName.value)
+  formData.append('customer_phone', customerPhone.value)
+  formData.append('amount', String(selectedReservationPriceValue.value || 0))
+  formData.append('amount_label', paymentSummaryAmountLabel.value)
+  formData.append('route', paymentRouteHeadline.value)
+  formData.append('date_label', paymentDateLabel.value)
+  formData.append('trip_type', String(summary.tripType || ''))
+  formData.append('passengers', String(paymentReservationPassengerCount.value || ''))
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    body: formData,
+  })
+
+  if (!response.ok) {
+    throw new Error(`No se pudo enviar la notificacion de factura (${response.status}).`)
+  }
+
+  const payload = await response.json().catch(() => null)
+
+  if (payload && payload.success === false) {
+    throw new Error(payload.message || 'No se pudo enviar la factura al cliente.')
+  }
+
+  return payload || response
+}
+
 function resolveStripePublishableKey(preferredKey = '') {
   return (
     String(preferredKey || '').trim() ||
@@ -746,9 +838,13 @@ async function ensureStripePaymentElement(publishableKeyOverride = '') {
       },
     }
 
-    const elementOptions = {
+    const secureFieldOptions = {
       style: stripeFieldStyle,
       disabled: false,
+    }
+
+    const cardNumberOptions = {
+      ...secureFieldOptions,
       disableLink: true,
     }
 
@@ -774,9 +870,9 @@ async function ensureStripePaymentElement(publishableKeyOverride = '') {
       syncFieldState()
     }
 
-    stripeCardNumberElement = stripeElements.create('cardNumber', elementOptions)
-    stripeCardExpiryElement = stripeElements.create('cardExpiry', elementOptions)
-    stripeCardCvcElement = stripeElements.create('cardCvc', elementOptions)
+    stripeCardNumberElement = stripeElements.create('cardNumber', cardNumberOptions)
+    stripeCardExpiryElement = stripeElements.create('cardExpiry', secureFieldOptions)
+    stripeCardCvcElement = stripeElements.create('cardCvc', secureFieldOptions)
 
     stripeCardNumberElement.on('change', handleStripeFieldChange('number'))
     stripeCardExpiryElement.on('change', handleStripeFieldChange('expiry'))
@@ -1904,6 +2000,22 @@ async function handlePaymentSubmit() {
     })
 
     if (result.paymentIntent?.status === 'succeeded') {
+      try {
+        await sendPaymentInvoiceNotification({
+          reservationId: flightRequestId,
+          paymentIntentId: result.paymentIntent?.id || '',
+          paymentStatus: result.paymentIntent?.status || '',
+        })
+      } catch (invoiceError) {
+        ui.pushToast({
+          tone: 'warning',
+          title: 'Pago confirmado, factura pendiente',
+          message:
+            invoiceError?.message ||
+            'El pago se confirmo, pero no logramos avisar al modulo de factura automaticamente.',
+        })
+      }
+
       ui.pushToast({
         tone: 'success',
         title: 'Pago confirmado',
@@ -2284,7 +2396,32 @@ function validateSearchForm() {
 
 async function submitSearch() {
   serverSearchError.value = ''
+  if (!canQuoteFlights.value) {
+    const blockedMessage = 'Necesitas demo activa o suscripcion vigente.'
+    console.log('[bloqueo-cotizador-cliente]', {
+      source: 'submitSearch',
+      reason: 'canQuoteFlights=false',
+      blockedMessage,
+      access: auth.access,
+      user: auth.user,
+    })
+    serverSearchError.value = blockedMessage
+    ui.pushToast({
+      tone: 'error',
+      title: 'No se pudo solicitar la reserva',
+      message: blockedMessage,
+    })
+    return
+  }
+
   if (!validateSearchForm()) return
+
+  ui.pushToast({
+    tone: 'success',
+    title: 'Concierge Ejecutivo 24/7',
+    message:
+      'Recibimos tu solicitud de reserva. Estamos cotizando tu vuelo privado con seguimiento prioritario.',
+  })
 
   searching.value = true
   aircraftOptions.value = []
@@ -2483,6 +2620,13 @@ async function requestReservation(aircraft = selectedAircraft.value) {
     go('reserva-confirmada', targetReservationId)
   } catch (error) {
     const message = error?.message || 'Intenta de nuevo o contacta a tu asesor privado.'
+    console.log('[error-reserva-cliente]', {
+      source: 'requestReservation',
+      message,
+      error,
+      access: auth.access,
+      user: auth.user,
+    })
     ui.pushToast({
       tone: 'error',
       title: 'No se pudo solicitar la reserva',
