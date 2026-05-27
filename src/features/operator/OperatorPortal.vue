@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { requestWithCandidates, pickCollection, pickRecord } from '../../lib/backendCrud'
 import { resolveMediaUrl } from '../../lib/api'
 import { resolveProviderIdForUser } from '../../lib/providerContext'
@@ -25,6 +25,7 @@ const props = defineProps({
   section: { type: String, required: true },
 })
 
+const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const ui = useUiStore()
@@ -232,6 +233,17 @@ const requestStatusUpdate = reactive({
   requestId: null,
   action: '',
 })
+const savingProviderOperationalRelease = ref(false)
+const savingProviderOperationalIssue = ref(false)
+const providerOperationalReleaseFeedback = ref('')
+const providerOperationalReleaseForm = reactive(createEmptyProviderOperationalReleaseForm())
+const providerOperationalReleaseDirty = ref(false)
+const providerOperationalReleaseHydrating = ref(false)
+const providerOperationalReleaseLoadedRequestId = ref('')
+const providerOperationalIssueForm = reactive({
+  type: 'Aeronave no disponible',
+  comment: '',
+})
 const requestsConnectionWarningShown = ref(false)
 const sectionLoadState = reactive({
   dashboard: false,
@@ -244,6 +256,7 @@ const sectionLoadState = reactive({
   pagos: false,
   historial: false,
   disponibilidad: false,
+  'release-provider': false,
 })
 const aircraftDecisionMode = ref('best_match')
 const aircraftFilterBase = ref('all')
@@ -1116,13 +1129,21 @@ const selectedRequest = computed(() => {
     filteredRequests.value[0]
   )
 })
-watch(
-  selectedRequest,
-  (request) => {
-    requestInternalCommentDraft.value = request?.internalComment || request?.specialRequirements || ''
-  },
-  { immediate: true },
-)
+const releaseProviderRequest = computed(() => {
+  const routeRequestId = String(route.query.request || '').trim()
+  const targetId = routeRequestId || String(selectedRequestId.value || '').trim()
+
+  if (!requests.value.length) return null
+  if (targetId) {
+    return requests.value.find((request) => String(request.id) === targetId) || null
+  }
+
+  return (
+    requests.value.find(
+      (request) => resolveWorkflowState(resolveRequestWorkflowValue(request)).id === 'flight_confirmed',
+    ) || null
+  )
+})
 const requestOperationalAlerts = computed(() => {
   if (!selectedRequest.value) return []
 
@@ -1157,6 +1178,74 @@ const requestOperationalAlerts = computed(() => {
   return alerts.slice(0, 3)
 })
 const selectedRequestAircraftComparison = computed(() => buildRequestAircraftComparison(selectedRequest.value))
+const providerOperationalBinaryStatusOptions = [
+  { value: 'pending', label: 'Pendiente' },
+  { value: 'confirmed', label: 'Si' },
+  { value: 'needs_support', label: 'Requiere apoyo' },
+]
+
+const providerOperationalCrewOverallOptions = [
+  { value: 'pending', label: 'Pendiente' },
+  { value: 'confirmed', label: 'Confirmada' },
+  { value: 'not_available', label: 'No disponible' },
+  { value: 'red_aviation_review', label: 'Requiere revision de Red Aviation' },
+]
+
+const providerOperationalAircraftOverallOptions = [
+  { value: 'available', label: 'Disponible' },
+  { value: 'preparing', label: 'En preparacion' },
+  { value: 'not_available', label: 'No disponible' },
+  { value: 'maintenance', label: 'Requiere mantenimiento' },
+  { value: 'ready', label: 'Lista para operacion' },
+]
+
+watch(
+  selectedRequest,
+  (request) => {
+    if (props.section === 'release-provider') return
+    requestInternalCommentDraft.value = request?.internalComment || request?.specialRequirements || ''
+    hydrateProviderOperationalReleaseForm(request, { force: true })
+  },
+  { immediate: true },
+)
+
+watch(
+  releaseProviderRequest,
+  (request) => {
+    if (props.section !== 'release-provider') return
+    requestInternalCommentDraft.value = request?.internalComment || request?.specialRequirements || ''
+    hydrateProviderOperationalReleaseForm(request)
+  },
+  { immediate: true },
+)
+
+watch(
+  providerOperationalReleaseForm,
+  () => {
+    if (providerOperationalReleaseHydrating.value) return
+    providerOperationalReleaseDirty.value = true
+  },
+  { deep: true },
+)
+
+watch(
+  () => [route.query.request, props.section, requests.value.length],
+  () => {
+    if (props.section !== 'release-provider') return
+
+    const queryRequestId = String(route.query.request || '').trim()
+    if (queryRequestId) {
+      selectedRequestId.value = queryRequestId
+      return
+    }
+
+    if (releaseProviderRequest.value?.id) {
+      selectedRequestId.value = String(releaseProviderRequest.value.id)
+    }
+  },
+  { immediate: true },
+)
+
 function createEmptyCompany() {
   return {
     legalName: '',
@@ -1174,6 +1263,495 @@ function createEmptyCompany() {
     adminNotes: '',
     documents: [],
   }
+}
+
+function createEmptyProviderOperationalReleaseForm() {
+  return {
+    status: 'pending',
+    aircraftId: '',
+    aircraftOverallStatus: 'preparing',
+    availabilityConfirmed: false,
+    maintenanceClear: false,
+    routeCoverageConfirmed: false,
+    captainStatus: 'pending',
+    copilotStatus: 'pending',
+    crewAvailabilityStatus: 'pending',
+    crewRequirementsStatus: 'pending',
+    crewOverallStatus: 'pending',
+    crewScheduleConfirmed: false,
+    crewDocumentsReady: false,
+    departureAirport: '',
+    arrivalAirport: '',
+    fbo: '',
+    flightPlanReady: false,
+    permitsReady: false,
+    handlingReady: false,
+    fuelReady: false,
+    cleaningReady: false,
+    documentsReady: false,
+    insuranceReady: false,
+    registrationReady: false,
+    logbookReady: false,
+    notes: '',
+  }
+}
+
+function resetProviderOperationalReleaseForm() {
+  providerOperationalReleaseHydrating.value = true
+  Object.assign(providerOperationalReleaseForm, createEmptyProviderOperationalReleaseForm())
+  providerOperationalReleaseHydrating.value = false
+  providerOperationalReleaseDirty.value = false
+  providerOperationalReleaseLoadedRequestId.value = ''
+  providerOperationalReleaseFeedback.value = ''
+}
+
+function getProviderOperationalReleaseRequestId(request = null) {
+  return String(
+    request?.id || request?.requestId || request?.reservationId || request?.raw?.id || '',
+  ).trim()
+}
+
+function getProviderOperationalReleaseStatusMeta(status = 'pending') {
+  if (status === 'operational_ready') {
+    return {
+      label: 'Operational ready',
+      tone: 'success',
+      detail: 'Aeronave, tripulacion tecnica y despacho ya quedaron listos para confirmar vuelo.',
+    }
+  }
+
+  if (status === 'crew_confirmed') {
+    return {
+      label: 'Crew confirmed',
+      tone: 'info',
+      detail: 'La tripulacion tecnica ya fue validada y falta cerrar despacho final de la aeronave.',
+    }
+  }
+
+  if (status === 'aircraft_confirmed') {
+    return {
+      label: 'Aircraft confirmed',
+      tone: 'warning',
+      detail: 'La aeronave ya fue validada y falta completar tripulacion tecnica y liberacion final.',
+    }
+  }
+
+  return {
+    label: 'Pendiente operativa',
+    tone: 'neutral',
+    detail: 'La liberacion operativa aun no ha sido cerrada por el proveedor.',
+  }
+}
+
+function normalizeProviderOperationalRelease(request = {}) {
+  const raw = request?.raw && typeof request.raw === 'object' ? request.raw : request || {}
+  const source =
+    (raw.provider_operational_release &&
+    typeof raw.provider_operational_release === 'object'
+      ? raw.provider_operational_release
+      : null) ||
+    (raw.operational_release && typeof raw.operational_release === 'object'
+      ? raw.operational_release
+      : null) ||
+    (raw.release_checklist && typeof raw.release_checklist === 'object' ? raw.release_checklist : null) ||
+    {}
+
+  const aircraftCandidate =
+    source.aircraft_id ||
+    source.aircraftId ||
+    raw.assigned_aircraft_id ||
+    raw.aircraft_id ||
+    ''
+  const operationalStatus =
+    source.status ||
+    raw.operational_status ||
+    raw.operation_release_status ||
+    (raw.operational_ready || source.operational_ready
+      ? 'operational_ready'
+      : raw.crew_confirmed || source.crew_confirmed
+        ? 'crew_confirmed'
+        : raw.aircraft_confirmed || source.aircraft_confirmed
+          ? 'aircraft_confirmed'
+          : 'pending')
+
+  return {
+    status: ['aircraft_confirmed', 'crew_confirmed', 'operational_ready'].includes(
+      operationalStatus,
+    )
+      ? operationalStatus
+      : 'pending',
+    aircraftId: aircraftCandidate ? String(aircraftCandidate) : '',
+    aircraftOverallStatus:
+      source.aircraft_overall_status ||
+      source.aircraftOverallStatus ||
+      (raw.operational_ready || source.operational_ready
+        ? 'ready'
+        : raw.aircraft_confirmed || source.aircraft_confirmed
+          ? 'available'
+          : 'preparing'),
+    availabilityConfirmed: Boolean(
+      source.availability_confirmed ?? source.availabilityConfirmed ?? raw.aircraft_confirmed,
+    ),
+    maintenanceClear: Boolean(source.maintenance_clear ?? source.maintenanceClear),
+    routeCoverageConfirmed: Boolean(
+      source.route_coverage_confirmed ?? source.routeCoverageConfirmed,
+    ),
+    captainStatus:
+      source.captain_status ||
+      source.captainStatus ||
+      (source.pilot_id || source.pilotId ? 'confirmed' : 'pending'),
+    copilotStatus:
+      source.copilot_status ||
+      source.copilotStatus ||
+      (source.copilot_id || source.copilotId ? 'confirmed' : 'pending'),
+    crewAvailabilityStatus:
+      source.crew_availability_status ||
+      source.crewAvailabilityStatus ||
+      ((source.crew_available ?? source.crewAvailable) ? 'confirmed' : 'pending'),
+    crewRequirementsStatus:
+      source.crew_requirements_status ||
+      source.crewRequirementsStatus ||
+      ((source.crew_requirements_confirmed ?? source.crewRequirementsConfirmed) ? 'confirmed' : 'pending'),
+    crewOverallStatus:
+      source.crew_overall_status ||
+      source.crewOverallStatus ||
+      (raw.crew_confirmed || source.crew_confirmed ? 'confirmed' : 'pending'),
+    crewScheduleConfirmed: Boolean(
+      source.crew_schedule_confirmed ?? source.crewScheduleConfirmed,
+    ),
+    crewDocumentsReady: Boolean(source.crew_documents_ready ?? source.crewDocumentsReady),
+    departureAirport:
+      source.departure_airport || source.departureAirport || request.origin || raw.origin || '',
+    arrivalAirport:
+      source.arrival_airport || source.arrivalAirport || request.destination || raw.destination || '',
+    fbo: source.fbo || source.fbo_name || source.handling_fbo || '',
+    flightPlanReady: Boolean(source.flight_plan_ready ?? source.flightPlanReady),
+    permitsReady: Boolean(source.permits_ready ?? source.permitsReady),
+    handlingReady: Boolean(source.handling_ready ?? source.handlingReady),
+    fuelReady: Boolean(source.fuel_ready ?? source.fuelReady),
+    cleaningReady: Boolean(source.cleaning_ready ?? source.cleaningReady),
+    documentsReady: Boolean(source.documents_ready ?? source.documentsReady),
+    insuranceReady: Boolean(source.insurance_ready ?? source.insuranceReady),
+    registrationReady: Boolean(source.registration_ready ?? source.registrationReady),
+    logbookReady: Boolean(source.logbook_ready ?? source.logbookReady),
+    notes: source.notes || source.comment || raw.operational_notes || '',
+  }
+}
+
+function hydrateProviderOperationalReleaseForm(request = null, options = {}) {
+  if (!request) {
+    resetProviderOperationalReleaseForm()
+    return
+  }
+
+  const requestId = getProviderOperationalReleaseRequestId(request)
+  const shouldForce = Boolean(options?.force)
+  if (
+    !shouldForce &&
+    providerOperationalReleaseDirty.value &&
+    providerOperationalReleaseLoadedRequestId.value &&
+    providerOperationalReleaseLoadedRequestId.value === requestId
+  ) {
+    return
+  }
+
+  const normalized = normalizeProviderOperationalRelease(request)
+  const suggestedAircraft = getRequestSuggestedAircraft(request)
+  const suggestedAircraftId =
+    aircraft.value.find((item) => suggestedAircraft.label.includes(item.registration || ''))?.id ||
+    aircraft.value.find((item) => suggestedAircraft.label.includes(item.name || ''))?.id ||
+    ''
+
+  providerOperationalReleaseHydrating.value = true
+  Object.assign(providerOperationalReleaseForm, {
+    ...createEmptyProviderOperationalReleaseForm(),
+    ...normalized,
+    aircraftId: normalized.aircraftId || (suggestedAircraftId ? String(suggestedAircraftId) : ''),
+    departureAirport: normalized.departureAirport || request.origin || '',
+    arrivalAirport: normalized.arrivalAirport || request.destination || '',
+  })
+  providerOperationalReleaseHydrating.value = false
+  providerOperationalReleaseDirty.value = false
+  providerOperationalReleaseLoadedRequestId.value = requestId
+}
+
+function getProviderOperationalReleaseAircraftRecord() {
+  return (
+    aircraft.value.find(
+      (item) => String(item.id || '') === String(providerOperationalReleaseForm.aircraftId || ''),
+    ) || null
+  )
+}
+
+function getActiveProviderReleaseRequest() {
+  return props.section === 'release-provider' ? releaseProviderRequest.value : selectedRequest.value
+}
+
+function getProviderOperationalReleaseAircraftLabel() {
+  const plane = getProviderOperationalReleaseAircraftRecord()
+  if (plane) {
+    return `${plane.name}${plane.registration ? ` · ${plane.registration}` : ''}`
+  }
+
+  const request = getActiveProviderReleaseRequest()
+  return request ? getRequestSuggestedAircraft(request).label : 'Aeronave por definir'
+}
+
+function isProviderOperationalStatusConfirmed(value = '') {
+  return String(value || '').trim().toLowerCase() === 'confirmed'
+}
+
+function isProviderAircraftConfirmedReady() {
+  return Boolean(
+    providerOperationalReleaseForm.aircraftId &&
+      ['available', 'ready'].includes(providerOperationalReleaseForm.aircraftOverallStatus) &&
+      providerOperationalReleaseForm.availabilityConfirmed &&
+      providerOperationalReleaseForm.maintenanceClear &&
+      providerOperationalReleaseForm.routeCoverageConfirmed,
+  )
+}
+
+function isProviderCrewConfirmedReady() {
+  return Boolean(
+    isProviderAircraftConfirmedReady() &&
+      isProviderOperationalStatusConfirmed(providerOperationalReleaseForm.captainStatus) &&
+      isProviderOperationalStatusConfirmed(providerOperationalReleaseForm.copilotStatus) &&
+      isProviderOperationalStatusConfirmed(providerOperationalReleaseForm.crewAvailabilityStatus) &&
+      isProviderOperationalStatusConfirmed(providerOperationalReleaseForm.crewRequirementsStatus) &&
+      providerOperationalReleaseForm.crewOverallStatus === 'confirmed' &&
+      providerOperationalReleaseForm.crewScheduleConfirmed &&
+      providerOperationalReleaseForm.crewDocumentsReady,
+  )
+}
+
+function isProviderOperationalReady() {
+  return Boolean(
+    isProviderCrewConfirmedReady() &&
+      providerOperationalReleaseForm.departureAirport &&
+      providerOperationalReleaseForm.arrivalAirport &&
+      providerOperationalReleaseForm.fbo &&
+      providerOperationalReleaseForm.flightPlanReady &&
+      providerOperationalReleaseForm.permitsReady &&
+      providerOperationalReleaseForm.handlingReady &&
+      providerOperationalReleaseForm.fuelReady &&
+      providerOperationalReleaseForm.cleaningReady &&
+      providerOperationalReleaseForm.documentsReady &&
+      providerOperationalReleaseForm.insuranceReady &&
+      providerOperationalReleaseForm.registrationReady &&
+      providerOperationalReleaseForm.logbookReady,
+  )
+}
+
+function deriveProviderOperationalReleaseStatus() {
+  if (isProviderOperationalReady()) return 'operational_ready'
+  if (isProviderCrewConfirmedReady()) return 'crew_confirmed'
+  if (isProviderAircraftConfirmedReady()) return 'aircraft_confirmed'
+  return 'pending'
+}
+
+function getProviderOperationalReleaseCurrentStatus() {
+  const order = ['pending', 'aircraft_confirmed', 'crew_confirmed', 'operational_ready']
+  const storedStatus = providerOperationalReleaseForm.status || 'pending'
+  const derivedStatus = deriveProviderOperationalReleaseStatus()
+  return order.indexOf(derivedStatus) > order.indexOf(storedStatus) ? derivedStatus : storedStatus
+}
+
+function canManageProviderOperationalRelease(request = {}) {
+  const workflowId = resolveWorkflowState(resolveRequestWorkflowValue(request)).id
+  return ['payment_confirmed', 'flight_confirmed', 'tracking_live', 'completed'].includes(workflowId)
+}
+
+function buildProviderOperationalReleaseChecklist() {
+  return [
+    {
+      title: 'Disponibilidad real de aeronave',
+      items: [
+        { label: 'Aeronave sigue disponible', done: providerOperationalReleaseForm.availabilityConfirmed },
+        { label: 'Sin mantenimiento pendiente', done: providerOperationalReleaseForm.maintenanceClear },
+        { label: 'Puede cubrir la ruta completa', done: providerOperationalReleaseForm.routeCoverageConfirmed },
+      ],
+    },
+    {
+      title: 'Tripulacion tecnica',
+      items: [
+        { label: 'Capitan asignado', done: isProviderOperationalStatusConfirmed(providerOperationalReleaseForm.captainStatus) },
+        { label: 'Copiloto asignado', done: isProviderOperationalStatusConfirmed(providerOperationalReleaseForm.copilotStatus) },
+        { label: 'Tripulacion disponible para la fecha', done: isProviderOperationalStatusConfirmed(providerOperationalReleaseForm.crewAvailabilityStatus) },
+        { label: 'Tripulacion cumple requisitos', done: isProviderOperationalStatusConfirmed(providerOperationalReleaseForm.crewRequirementsStatus) },
+        { label: 'Horarios confirmados', done: providerOperationalReleaseForm.crewScheduleConfirmed },
+        { label: 'Documentacion operativa validada', done: providerOperationalReleaseForm.crewDocumentsReady },
+      ],
+    },
+    {
+      title: 'Permisos, slots y handling',
+      items: [
+        { label: 'Aeropuerto de salida confirmado', done: Boolean(providerOperationalReleaseForm.departureAirport) },
+        { label: 'Aeropuerto de llegada confirmado', done: Boolean(providerOperationalReleaseForm.arrivalAirport) },
+        { label: 'FBO / handling confirmado', done: Boolean(providerOperationalReleaseForm.fbo) && providerOperationalReleaseForm.handlingReady },
+        { label: 'Plan de vuelo listo', done: providerOperationalReleaseForm.flightPlanReady },
+        { label: 'Permisos / slots listos', done: providerOperationalReleaseForm.permitsReady },
+      ],
+    },
+    {
+      title: 'Aeronave lista',
+      items: [
+        { label: 'Combustible', done: providerOperationalReleaseForm.fuelReady },
+        { label: 'Limpieza', done: providerOperationalReleaseForm.cleaningReady },
+        { label: 'Documentos', done: providerOperationalReleaseForm.documentsReady },
+        { label: 'Seguro', done: providerOperationalReleaseForm.insuranceReady },
+        { label: 'Matricula', done: providerOperationalReleaseForm.registrationReady },
+        { label: 'Bitacora', done: providerOperationalReleaseForm.logbookReady },
+      ],
+    },
+  ]
+}
+
+function getProviderOperationalReleaseProgress() {
+  const sections = buildProviderOperationalReleaseChecklist()
+  const items = sections.flatMap((section) => section.items)
+  const done = items.filter((item) => item.done).length
+  return {
+    done,
+    total: items.length,
+    percentage: items.length ? Math.round((done / items.length) * 100) : 0,
+  }
+}
+
+function getProviderOperationalAircraftSectionStatus() {
+  if (['not_available', 'maintenance'].includes(providerOperationalReleaseForm.aircraftOverallStatus)) {
+    return { label: 'No disponible', tone: 'danger', detail: 'La aeronave requiere atencion antes de operar.' }
+  }
+  if (isProviderAircraftConfirmedReady()) {
+    return { label: 'Confirmada', tone: 'success', detail: 'Disponibilidad, mantenimiento y cobertura ya fueron validados.' }
+  }
+  if (providerOperationalReleaseForm.aircraftOverallStatus === 'preparing') {
+    return { label: 'En preparacion', tone: 'warning', detail: 'La aeronave sigue en preparacion operativa.' }
+  }
+  return { label: 'Pendiente', tone: 'neutral', detail: 'Aun faltan confirmaciones de disponibilidad real.' }
+}
+
+function getProviderOperationalCrewSectionStatus() {
+  if (isProviderCrewConfirmedReady()) {
+    return { label: 'Confirmada', tone: 'success', detail: 'La tripulacion tecnica ya quedo validada sin exponer datos personales.' }
+  }
+  if (providerOperationalReleaseForm.crewOverallStatus === 'not_available') {
+    return { label: 'No disponible', tone: 'danger', detail: 'No hay tripulacion completa para esta operacion.' }
+  }
+  if (providerOperationalReleaseForm.crewOverallStatus === 'red_aviation_review') {
+    return { label: 'Revision Red Aviation', tone: 'warning', detail: 'Red Aviation debe coordinar apoyo o validacion adicional.' }
+  }
+  if (
+    isProviderOperationalStatusConfirmed(providerOperationalReleaseForm.captainStatus) ||
+    isProviderOperationalStatusConfirmed(providerOperationalReleaseForm.copilotStatus) ||
+    isProviderOperationalStatusConfirmed(providerOperationalReleaseForm.crewAvailabilityStatus)
+  ) {
+    return { label: 'En proceso', tone: 'warning', detail: 'La tripulacion tecnica avanza, pero aun faltan validaciones.' }
+  }
+  return { label: 'Pendiente', tone: 'neutral', detail: 'La validacion tecnica de tripulacion aun no inicia.' }
+}
+
+function getProviderOperationalDispatchSectionStatus() {
+  const doneCount = [
+    providerOperationalReleaseForm.departureAirport,
+    providerOperationalReleaseForm.arrivalAirport,
+    providerOperationalReleaseForm.fbo,
+    providerOperationalReleaseForm.flightPlanReady,
+    providerOperationalReleaseForm.permitsReady,
+    providerOperationalReleaseForm.handlingReady,
+  ].filter(Boolean).length
+
+  if (
+    providerOperationalReleaseForm.departureAirport &&
+    providerOperationalReleaseForm.arrivalAirport &&
+    providerOperationalReleaseForm.fbo &&
+    providerOperationalReleaseForm.flightPlanReady &&
+    providerOperationalReleaseForm.permitsReady &&
+    providerOperationalReleaseForm.handlingReady
+  ) {
+    return { label: 'Confirmado', tone: 'success', detail: 'Despacho, permisos y handling ya estan listos.' }
+  }
+
+  if (doneCount > 0) return { label: 'En proceso', tone: 'warning', detail: 'Permisos, slots y handling siguen en curso.' }
+  return { label: 'Pendiente', tone: 'neutral', detail: 'Todavia no hay confirmacion operativa de despacho.' }
+}
+
+function getProviderOperationalReadinessSectionStatus() {
+  if (
+    providerOperationalReleaseForm.fuelReady &&
+    providerOperationalReleaseForm.cleaningReady &&
+    providerOperationalReleaseForm.documentsReady &&
+    providerOperationalReleaseForm.insuranceReady &&
+    providerOperationalReleaseForm.registrationReady &&
+    providerOperationalReleaseForm.logbookReady
+  ) {
+    return { label: 'Lista', tone: 'success', detail: 'Combustible, documentos y alistamiento final ya estan completos.' }
+  }
+
+  return { label: 'Falta alistamiento', tone: 'warning', detail: 'Aun quedan pendientes de combustible, documentacion o bitacora.' }
+}
+
+function getProviderOperationalFinalSummary() {
+  return [
+    {
+      label: 'Aeronave',
+      statusLabel: getProviderOperationalAircraftSectionStatus().label,
+      detail: getProviderOperationalAircraftSectionStatus().detail,
+      tone: getProviderOperationalAircraftSectionStatus().tone,
+    },
+    {
+      label: 'Tripulacion tecnica',
+      statusLabel: getProviderOperationalCrewSectionStatus().label,
+      detail: getProviderOperationalCrewSectionStatus().detail,
+      tone: getProviderOperationalCrewSectionStatus().tone,
+    },
+    {
+      label: 'Permisos, slots y handling',
+      statusLabel: getProviderOperationalDispatchSectionStatus().label,
+      detail: getProviderOperationalDispatchSectionStatus().detail,
+      tone: getProviderOperationalDispatchSectionStatus().tone,
+    },
+    {
+      label: 'Aeronave lista',
+      statusLabel: getProviderOperationalReadinessSectionStatus().label,
+      detail: getProviderOperationalReadinessSectionStatus().detail,
+      tone: getProviderOperationalReadinessSectionStatus().tone,
+    },
+  ]
+}
+
+function requestProviderOperationalSupport() {
+  providerOperationalReleaseFeedback.value =
+    'Red Aviation fue notificada para apoyar con tripulacion y coordinacion operativa.'
+  providerOperationalReleaseForm.crewOverallStatus = 'red_aviation_review'
+  ui.pushToast({
+    tone: 'info',
+    title: 'Apoyo solicitado',
+    message: 'Red Aviation dara seguimiento a tripulacion, sobrecargo y liberacion final.',
+  })
+}
+
+function applyLocalProviderOperationalRelease(requestId, releasePayload, sharedWorkflowStatus = '') {
+  requests.value = requests.value.map((request) => {
+    if (String(request.id) !== String(requestId)) return request
+
+    const nextRaw = {
+      ...(request.raw && typeof request.raw === 'object' ? request.raw : {}),
+      provider_operational_release: releasePayload,
+      operational_status: releasePayload.status,
+      aircraft_confirmed: ['aircraft_confirmed', 'crew_confirmed', 'operational_ready'].includes(
+        releasePayload.status,
+      ),
+      crew_confirmed: ['crew_confirmed', 'operational_ready'].includes(releasePayload.status),
+      operational_ready: releasePayload.status === 'operational_ready',
+    }
+
+    if (sharedWorkflowStatus) {
+      nextRaw.workflow_status = sharedWorkflowStatus
+      nextRaw.status = sharedWorkflowStatus
+    }
+
+    return normalizeRequest(nextRaw)
+  })
 }
 
 function syncCompanyForm() {
@@ -1346,8 +1924,21 @@ function applyAvailabilityResponse(payload) {
   sectionLoadState.disponibilidad = true
 }
 
-function goToSection(section) {
-  router.push(`/operador/${section}`)
+function goToSection(section, query = {}) {
+  router.push({
+    path: `/operador/${section}`,
+    query,
+  })
+}
+
+function openProviderRelease(requestOrId = null) {
+  const requestId =
+    typeof requestOrId === 'object' && requestOrId
+      ? requestOrId.id || requestOrId.requestId || requestOrId.reservationId || ''
+      : requestOrId
+
+  const query = requestId ? { request: String(requestId) } : {}
+  goToSection('release-provider', query)
 }
 
 function normalizeCompany(raw = {}) {
@@ -1565,6 +2156,11 @@ function normalizeClientLabel(rawClient) {
 }
 
 function resolveOperatorRequestStatusSource(raw = {}) {
+  const explicitWorkflowStatus = String(raw.workflow_status || raw.workflow || '').trim()
+  if (explicitWorkflowStatus) {
+    return explicitWorkflowStatus
+  }
+
   return (
     resolveSharedWorkflowStatus({
       ...raw,
@@ -3070,8 +3666,8 @@ function getRequestPriorityMeta(request = {}) {
       key: 'expired',
       label: 'SLA vencido',
       tone: 'danger',
-      detail: 'La ventana de respuesta ya expiro.',
-      rank: 4,
+/*       detail: 'La ventana de respuesta ya expiro.',*/ 
+       rank: 4,
     }
   }
   if (diffMs <= 4 * 60 * 60 * 1000) {
@@ -3115,9 +3711,9 @@ function getRequestStatusCopy(status = '') {
   if (workflowState === 'payment_pending')
     return 'El pago esta pendiente o en revision antes de liberar el vuelo.'
   if (workflowState === 'payment_confirmed')
-    return 'El pago ya fue confirmado y la operacion sigue a liberacion final.'
+    return 'Pago confirmado. El proveedor confirma aeronave y operacion; Red Aviation coordina con la sobrecargo y mantiene informado al cliente.'
   if (workflowState === 'flight_confirmed')
-    return 'La aeronave, tripulacion y salida ya estan confirmadas.'
+    return 'La aeronave y la operacion ya quedaron confirmadas por el proveedor; el admin sigue la coordinacion con sobrecargo y cliente.'
   if (workflowState === 'tracking_live')
     return 'El vuelo ya esta en seguimiento activo.'
   if (isRequestRejected(status)) return 'Rechazada por proveedor'
@@ -3125,15 +3721,55 @@ function getRequestStatusCopy(status = '') {
   return 'Pendiente de decision'
 }
 
+function operatorWorkflowRank(value = '') {
+  const workflowId = resolveWorkflowState(value).id
+  const order = [
+    'draft',
+    'quoted',
+    'package_selected',
+    'reserved',
+    'provider_pending',
+    'provider_accepted',
+    'contract_pending',
+    'contract_signed',
+    'payment_pending',
+    'payment_confirmed',
+    'flight_confirmed',
+    'tracking_live',
+    'completed',
+    'rejected',
+    'cancelled',
+  ]
+  const index = order.indexOf(workflowId)
+  return index === -1 ? 0 : index
+}
+
+function preferOperatorWorkflowValue(baseValue = '', detailValue = '') {
+  if (!String(baseValue || '').trim()) return detailValue
+  if (!String(detailValue || '').trim()) return baseValue
+
+  return operatorWorkflowRank(detailValue) >= operatorWorkflowRank(baseValue)
+    ? detailValue
+    : baseValue
+}
+
 function resolveRequestWorkflowValue(requestOrStatus = '') {
   if (requestOrStatus && typeof requestOrStatus === 'object') {
     const linkedOperation = findLinkedOperationForRequest(requestOrStatus)
-    const explicitWorkflowValue =
-      linkedOperation?.workflowStatus ||
+    const requestWorkflowValue =
       requestOrStatus.workflowStatus ||
       requestOrStatus.rawWorkflowStatus ||
       requestOrStatus.status ||
       ''
+    const linkedOperationWorkflowValue =
+      linkedOperation?.workflowStatus ||
+      linkedOperation?.rawWorkflowStatus ||
+      linkedOperation?.status ||
+      ''
+    const explicitWorkflowValue = preferOperatorWorkflowValue(
+      requestWorkflowValue,
+      linkedOperationWorkflowValue,
+    )
     const derivedWorkflowValue =
       resolveSharedWorkflowStatus({
         ...(requestOrStatus.raw && typeof requestOrStatus.raw === 'object' ? requestOrStatus.raw : {}),
@@ -3147,7 +3783,7 @@ function resolveRequestWorkflowValue(requestOrStatus = '') {
       explicitWorkflowValue
 
     if (explicitWorkflowValue && resolveWorkflowState(explicitWorkflowValue).id !== 'draft') {
-      return explicitWorkflowValue
+      return preferOperatorWorkflowValue(explicitWorkflowValue, derivedWorkflowValue)
     }
 
     return derivedWorkflowValue
@@ -3169,7 +3805,7 @@ function buildOperatorRequestFlowSteps(request = {}) {
 
 function getRequestPrimaryActionLabel(request = {}) {
   const workflowId = resolveWorkflowState(resolveRequestWorkflowValue(request)).id
-  if (workflowId === 'provider_accepted') return 'Pasar a contrato'
+  if (workflowId === 'flight_confirmed') return 'Abrir Liberacion'
   if (
     ['contract_pending', 'contract_signed', 'payment_pending', 'payment_confirmed', 'flight_confirmed', 'tracking_live', 'completed'].includes(
       workflowId,
@@ -3181,7 +3817,32 @@ function getRequestPrimaryActionLabel(request = {}) {
 }
 
 function shouldDisableRequestPrimaryAction(request = {}) {
-  return getRequestPrimaryActionLabel(request) === 'Pasar a contrato'
+  return getRequestPrimaryActionLabel(request) === 'Flujo avanzado'
+}
+
+function canTriggerRequestPrimaryAction(request = {}) {
+  const workflowId = resolveWorkflowState(resolveRequestWorkflowValue(request)).id
+
+  if (workflowId === 'flight_confirmed') {
+    return !isUpdatingRequestStatus(request.id)
+  }
+
+  return (
+    canOperatorAcceptRequest(request) &&
+    !isRequestPendingValidation(request) &&
+    !isUpdatingRequestStatus(request.id) &&
+    !shouldDisableRequestPrimaryAction(request)
+  )
+}
+
+function handleRequestPrimaryAction(request = {}) {
+  const workflowId = resolveWorkflowState(resolveRequestWorkflowValue(request)).id
+  if (workflowId === 'flight_confirmed') {
+    openProviderRelease(request)
+    return
+  }
+
+  void updateRequestStatus(request.id, 'Aceptada')
 }
 
 function getRequestHelperCopy(request = {}) {
@@ -3762,6 +4423,33 @@ async function ensureSectionDataLoaded(section = props.section, options = {}) {
   } else if (normalizedSection === 'disponibilidad') {
     request = requestWithCandidates([{ method: 'get', path: '/proveedor/disponibilidad', timeoutMs }])
     apply = applyAvailabilityResponse
+  } else if (normalizedSection === 'release-provider') {
+    const [requestsPayload, aircraftPayload, crewPayload] = await Promise.all([
+      requestWithCandidates([
+        { method: 'get', path: '/proveedor/mis-solicitudes', timeoutMs },
+        { method: 'get', path: '/proveedor/solicitudes', timeoutMs },
+        { method: 'get', path: '/operator/my-requests', timeoutMs },
+        { method: 'get', path: '/operator/requests', timeoutMs },
+      ]),
+      requestWithCandidates([
+        { method: 'get', path: '/proveedor/mis-aeronaves', timeoutMs },
+        { method: 'get', path: '/proveedor/aeronaves', timeoutMs },
+        { method: 'get', path: '/operator/my-aircraft', timeoutMs },
+        { method: 'get', path: '/operator/aircraft', timeoutMs },
+      ]),
+      requestWithCandidates([
+        { method: 'get', path: '/proveedor/tripulacion', timeoutMs },
+        { method: 'get', path: '/proveedor/sobrecargos', timeoutMs },
+        { method: 'get', path: '/operator/crew', timeoutMs },
+        { method: 'get', path: '/operator/tripulation', timeoutMs },
+      ]),
+    ])
+
+    applyRequestsResponse(requestsPayload)
+    applyAircraftResponse(aircraftPayload)
+    applyCrewResponse(crewPayload)
+    sectionLoadState['release-provider'] = true
+    return
   }
 
   if (!request || !apply) return
@@ -4378,7 +5066,7 @@ async function reloadRequestsList() {
 }
 
 function shouldAutoRefreshRequests() {
-  return ['dashboard', 'solicitudes'].includes(props.section)
+  return ['dashboard', 'solicitudes', 'release-provider'].includes(props.section)
 }
 
 async function refreshRequestsList({ silent = true } = {}) {
@@ -4963,6 +5651,228 @@ async function updateRequestStatus(id, status) {
   requestStatusUpdate.action = ''
 }
 
+async function saveProviderOperationalRelease(statusOverride = '') {
+  const request = getActiveProviderReleaseRequest()
+  if (!request) return
+  if (!canManageProviderOperationalRelease(request) || savingProviderOperationalRelease.value) {
+    return
+  }
+
+  const nextStatus =
+    statusOverride ||
+    (statusOverride === 'pending' ? 'pending' : getProviderOperationalReleaseCurrentStatus())
+
+  if (statusOverride === 'aircraft_confirmed' && !isProviderAircraftConfirmedReady()) {
+    return showError(
+      'Falta validacion de aeronave',
+      'Confirma disponibilidad real, mantenimiento y cobertura completa antes de marcar aircraft_confirmed.',
+    )
+  }
+
+  if (statusOverride === 'crew_confirmed' && !isProviderCrewConfirmedReady()) {
+    return showError(
+      'Falta validar tripulacion',
+      'Confirma capitan, copiloto, requisitos, horarios y documentacion operativa antes de confirmar la tripulacion.',
+    )
+  }
+
+  if (statusOverride === 'operational_ready' && !isProviderOperationalReady()) {
+    return showError(
+      'Liberacion operativa incompleta',
+      'Confirma aeronave, tripulacion tecnica, permisos, handling y alistamiento final antes de marcar operational_ready.',
+    )
+  }
+
+  const aircraftRecord = getProviderOperationalReleaseAircraftRecord()
+  const releasePayload = {
+    status: nextStatus,
+    aircraft_id: providerOperationalReleaseForm.aircraftId || null,
+    aircraft_label: aircraftRecord
+      ? `${aircraftRecord.name}${aircraftRecord.registration ? ` · ${aircraftRecord.registration}` : ''}`
+      : getProviderOperationalReleaseAircraftLabel(),
+    availability_confirmed: providerOperationalReleaseForm.availabilityConfirmed,
+    maintenance_clear: providerOperationalReleaseForm.maintenanceClear,
+    route_coverage_confirmed: providerOperationalReleaseForm.routeCoverageConfirmed,
+    aircraft_overall_status: providerOperationalReleaseForm.aircraftOverallStatus,
+    captain_status: providerOperationalReleaseForm.captainStatus,
+    copilot_status: providerOperationalReleaseForm.copilotStatus,
+    crew_availability_status: providerOperationalReleaseForm.crewAvailabilityStatus,
+    crew_requirements_status: providerOperationalReleaseForm.crewRequirementsStatus,
+    crew_overall_status: providerOperationalReleaseForm.crewOverallStatus,
+    crew_available: isProviderOperationalStatusConfirmed(
+      providerOperationalReleaseForm.crewAvailabilityStatus,
+    ),
+    crew_requirements_confirmed: isProviderOperationalStatusConfirmed(
+      providerOperationalReleaseForm.crewRequirementsStatus,
+    ),
+    crew_schedule_confirmed: providerOperationalReleaseForm.crewScheduleConfirmed,
+    crew_documents_ready: providerOperationalReleaseForm.crewDocumentsReady,
+    departure_airport: providerOperationalReleaseForm.departureAirport,
+    arrival_airport: providerOperationalReleaseForm.arrivalAirport,
+    fbo: providerOperationalReleaseForm.fbo,
+    flight_plan_ready: providerOperationalReleaseForm.flightPlanReady,
+    permits_ready: providerOperationalReleaseForm.permitsReady,
+    handling_ready: providerOperationalReleaseForm.handlingReady,
+    fuel_ready: providerOperationalReleaseForm.fuelReady,
+    cleaning_ready: providerOperationalReleaseForm.cleaningReady,
+    documents_ready: providerOperationalReleaseForm.documentsReady,
+    insurance_ready: providerOperationalReleaseForm.insuranceReady,
+    registration_ready: providerOperationalReleaseForm.registrationReady,
+    logbook_ready: providerOperationalReleaseForm.logbookReady,
+    notes: providerOperationalReleaseForm.notes,
+    updated_at: new Date().toISOString(),
+  }
+
+  const payload = {
+    provider_operational_release: releasePayload,
+    operational_status: nextStatus,
+    aircraft_confirmed: ['aircraft_confirmed', 'crew_confirmed', 'operational_ready'].includes(
+      nextStatus,
+    ),
+    crew_confirmed: ['crew_confirmed', 'operational_ready'].includes(nextStatus),
+    operational_ready: nextStatus === 'operational_ready',
+  }
+
+  let sharedWorkflowStatus = ''
+  if (nextStatus === 'operational_ready') {
+    const sharedWorkflowPayload = buildWorkflowApiPayload('flight_confirmed')
+    sharedWorkflowStatus = sharedWorkflowPayload.status
+    Object.assign(payload, sharedWorkflowPayload, {
+      state: sharedWorkflowPayload.status,
+    })
+  }
+
+  savingProviderOperationalRelease.value = true
+
+  try {
+    await requestWithCandidates([
+      ...buildOperatorWorkflowCandidates(request, payload),
+      { method: 'put', path: `/proveedor/solicitudes/${request.id}`, body: payload },
+      { method: 'put', path: `/proveedor/mis-solicitudes/${request.id}`, body: payload },
+      { method: 'put', path: `/operator/requests/${request.id}`, body: payload },
+      { method: 'put', path: `/operator/my-requests/${request.id}`, body: payload },
+      { method: 'post', path: `/proveedor/solicitudes/${request.id}/status`, body: payload },
+      { method: 'post', path: `/operator/requests/${request.id}/status`, body: payload },
+    ])
+  } catch (error) {
+    savingProviderOperationalRelease.value = false
+    if (isBackendConnectionError(error)) {
+      clearRequestsPolling()
+      return showError('Backend no disponible', getBackendConnectionMessage())
+    }
+
+    return showError(
+      'No se pudo guardar la liberacion operativa',
+      error?.candidateAttempts?.length
+        ? 'El backend no acepto ninguna ruta compatible para la confirmacion operacional.'
+        : error.message || 'La confirmacion operacional no pudo guardarse en la base de datos.',
+    )
+  }
+
+  applyLocalProviderOperationalRelease(request.id, releasePayload, sharedWorkflowStatus)
+  providerOperationalReleaseDirty.value = false
+  providerOperationalReleaseLoadedRequestId.value = getProviderOperationalReleaseRequestId(request)
+
+  try {
+    await reloadRequestsList()
+  } catch {
+    // Dejamos la actualizacion local para no bloquear la UI si el backend tarda en reflejar cambios.
+  }
+
+  ui.pushToast({
+    tone: nextStatus === 'operational_ready' ? 'success' : 'info',
+    title:
+      nextStatus === 'operational_ready'
+        ? 'Vuelo listo para confirmacion'
+        : `Estado ${getProviderOperationalReleaseStatusMeta(nextStatus).label} guardado`,
+    message:
+      nextStatus === 'operational_ready'
+        ? 'La operacion del proveedor ya quedo lista y el flujo compartido avanza a vuelo confirmado.'
+        : 'La liberacion operativa quedo registrada en la solicitud del proveedor.',
+  })
+  providerOperationalReleaseFeedback.value =
+    nextStatus === 'operational_ready'
+      ? 'Liberacion enviada a Red Aviation. El equipo administrativo revisara la informacion, coordinara sobrecargo y confirmara el vuelo al cliente.'
+      : 'El avance operativo quedo guardado y Red Aviation puede seguir la coordinacion centralizada.'
+
+  pushHistory(
+    'Solicitudes',
+    `Liberacion operativa ${nextStatus} registrada para solicitud #${request.id}`,
+  )
+
+  if (sharedWorkflowStatus) {
+    emitWorkflowSync({
+      scope: 'reservation-workflow',
+      reservationId: request.reservationId || request.requestId || request.id,
+      requestId: request.requestId || request.id,
+      nextStage: sharedWorkflowStatus,
+      action: 'updated',
+    })
+  }
+
+  savingProviderOperationalRelease.value = false
+}
+
+async function submitProviderOperationalIssue() {
+  const request = getActiveProviderReleaseRequest()
+  if (!request || savingProviderOperationalIssue.value) return
+
+  if (!providerOperationalIssueForm.type || !providerOperationalIssueForm.comment.trim()) {
+    return showError(
+      'Incidencia incompleta',
+      'Selecciona el tipo de incidencia y agrega una nota para que Red Aviation pueda coordinarla.',
+    )
+  }
+
+  const linkedOperation =
+    operations.value.find((item) => Number(item.requestId || 0) === Number(request.id || 0)) ||
+    operations.value.find((item) => Number(item.id || 0) === Number(request.operationId || 0)) ||
+    null
+
+  if (!linkedOperation?.id) {
+    return showError(
+      'Operacion no encontrada',
+      'No hay una operacion ligada a esta solicitud para reportar la incidencia al backend.',
+    )
+  }
+
+  const payload = {
+    operation_id: linkedOperation.id,
+    type: providerOperationalIssueForm.type,
+    flight: getRequestRouteLabel(request),
+    status: 'Abierta',
+    priority: 'Alta',
+    comment: providerOperationalIssueForm.comment.trim(),
+  }
+
+  savingProviderOperationalIssue.value = true
+
+  try {
+    const response = await requestWithCandidates([
+      { method: 'post', path: '/proveedor/incidencias', body: payload },
+    ])
+    incidents.value.unshift(normalizeIncident(pickRecord(response, ['incident', 'data'])))
+  } catch (error) {
+    savingProviderOperationalIssue.value = false
+    return showError(
+      'No se pudo reportar la incidencia',
+      error.message || 'La incidencia operativa no pudo guardarse en la base de datos.',
+    )
+  }
+
+  providerOperationalIssueForm.type = 'Aeronave no disponible'
+  providerOperationalIssueForm.comment = ''
+  providerOperationalIssueDirty.value = false
+  providerOperationalReleaseFeedback.value =
+    'Incidencia operativa enviada a Red Aviation. El equipo administrativo dara seguimiento y mantendra informado al cliente.'
+  savingProviderOperationalIssue.value = false
+  ui.pushToast({
+    tone: 'warning',
+    title: 'Incidencia reportada',
+    message: 'Red Aviation ya recibio la incidencia operativa para coordinar la solucion.',
+  })
+}
+
 async function updateOperationStatus(id, status) {
   try {
     await requestWithCandidates([
@@ -5425,12 +6335,7 @@ watch(
 
         <div class="dashboard-side-column">
           <article class="surface">
-            <div class="section-head">
-              <div>
-                <p class="eyebrow">Actividad reciente</p>
-                <h2>Sistema vivo</h2>
-              </div>
-            </div>
+            
 
             <div class="ops-timeline">
               <article
@@ -5444,9 +6349,7 @@ watch(
                   <p class="muted">{{ entry.detail }}</p>
                 </div>
               </article>
-              <p v-if="!dashboardRecentActivity.length" class="empty-state">
-                La actividad reciente aparecera aqui conforme el operador use la plataforma.
-              </p>
+             
             </div>
           </article>
 
@@ -6949,31 +7852,7 @@ watch(
             </p>
           </article>
 
-          <article class="surface fleet-section-card">
-            <div class="section-head">
-              <div>
-                <p class="eyebrow">Actividad operacional</p>
-                <h2>Sistema vivo</h2>
-              </div>
-            </div>
-
-            <div class="ops-timeline">
-              <article
-                v-for="entry in availabilityActivityFeed"
-                :key="entry.id"
-                class="ops-timeline-item"
-              >
-                <span class="ops-timeline-time">{{ entry.date }}</span>
-                <div>
-                  <strong>{{ entry.title }}</strong>
-                  <p class="muted">{{ entry.detail }}</p>
-                </div>
-              </article>
-              <p v-if="!availabilityActivityFeed.length" class="empty-state">
-                La actividad operacional aparecera aqui conforme se registren bloqueos y vuelos.
-              </p>
-            </div>
-          </article>
+  
         </div>
       </div>
     </section>
@@ -7023,7 +7902,7 @@ watch(
             <input
               v-model="requestSearch"
               type="search"
-              placeholder="Ruta, codigo, cliente o aeronave"
+              placeholder="Ruta, codigo, matricula o aeronave"
             />
           </label>
 
@@ -7138,16 +8017,16 @@ watch(
 
           <article v-if="selectedRequest" class="request-detail-surface">
             <div class="request-detail-head">
-              <div>
-                <p class="eyebrow">Detalle operativo</p>
-                <h3>{{ getRequestRouteLabel(selectedRequest) }}</h3>
-                <p class="muted">
-                  {{ getRequestClientLabel(selectedRequest) }} ·
+          <div>
+            <p class="eyebrow">Detalle operativo</p>
+            <h3>{{ getRequestRouteLabel(selectedRequest) }}</h3>
+            <p class="muted">
+                  {{ getProviderOperationalReleaseAircraftLabel() }} ·
                   {{ selectedRequest.passengers || 0 }} pax ·
                   {{ formatDateTimeDisplay(selectedRequest.date) }} ·
                   {{ getRequestServiceTierLabel(selectedRequest) }}
-                </p>
-              </div>
+            </p>
+          </div>
 
               <div class="request-detail-actions">
                 <button
@@ -7171,13 +8050,8 @@ watch(
                 <button
                   type="button"
                   class="primary-action"
-                  :disabled="
-                    !canOperatorAcceptRequest(selectedRequest) ||
-                    isRequestPendingValidation(selectedRequest) ||
-                    isUpdatingRequestStatus(selectedRequest.id) ||
-                    shouldDisableRequestPrimaryAction(selectedRequest)
-                  "
-                  @click="updateRequestStatus(selectedRequest.id, 'Aceptada')"
+                  :disabled="!canTriggerRequestPrimaryAction(selectedRequest)"
+                  @click="handleRequestPrimaryAction(selectedRequest)"
                 >
                   <span
                     v-if="isUpdatingRequestStatus(selectedRequest.id, 'accept')"
@@ -7190,9 +8064,9 @@ watch(
             </div>
 
             <p class="muted helper-copy">
-              Esta es la zona del proveedor para responder la solicitud. Si aceptas, la operación
-              se asigna; si rechazas, Red Aviation puede reintentar con otra opción sin exponer tu
-              rechazo al cliente.
+              Esta es la zona ciega del proveedor para confirmar aeronave y operacion. La
+              coordinacion con la sobrecargo la hace Red Aviation y el cliente solo recibe
+              actualizaciones del administrador.
             </p>
 
             <div
@@ -7247,12 +8121,574 @@ watch(
                 <strong>{{ selectedRequestAircraftComparison.label }}</strong>
                 <p class="muted">{{ selectedRequestAircraftComparison.detail }}</p>
               </article>
+              <article class="request-summary-card">
+                <span class="mini-label">Liberacion operativa</span>
+                <strong>
+                  {{
+                    getProviderOperationalReleaseStatusMeta(getProviderOperationalReleaseCurrentStatus()).label
+                  }}
+                </strong>
+                <p class="muted">
+                  {{ getProviderOperationalReleaseProgress().done }} / {{ getProviderOperationalReleaseProgress().total }}
+                  checkpoints completos.
+                </p>
+              </article>
             </div>
+
+            <article class="provider-release-cta">
+              <div>
+                <span class="mini-label"> Liberacion</span>
+                <strong>Liberacion operativa en vista separada</strong>
+                <p class="muted">
+                  Cuando la etapa compartida esta en `Vuelo confirmado`, abrimos una vista separada
+                  para que el proveedor confirme solo aeronave y operacion.
+                </p>
+              </div>
+              <button
+                type="button"
+                class="primary-action"
+                :disabled="resolveWorkflowState(resolveRequestWorkflowValue(selectedRequest)).id !== 'flight_confirmed'"
+                @click="openProviderRelease(selectedRequest)"
+              >
+                Abrir Liberacion
+              </button>
+            </article>
           </article>
         </div>
 
         <p v-if="!requests.length" class="empty-state">
           No hay solicitudes operativas disponibles para este proveedor.
+        </p>
+      </article>
+    </section>
+
+    <section v-else-if="section === 'release-provider'" class="page-grid">
+      <article class="surface requests-dispatch-surface">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Liberacion</p>
+            <h2>Liberacion operativa del proveedor</h2>
+            <p class="muted helper-copy">
+              Aqui el proveedor confirma aeronave y liberacion operativa. Red Aviation coordina a
+              la sobrecargo y centraliza toda actualizacion al cliente.
+            </p>
+          </div>
+          <div class="requests-head-actions">
+            <button type="button" class="ghost-button" @click="goToSection('solicitudes')">
+              Volver a solicitudes
+            </button>
+            <span
+              v-if="releaseProviderRequest"
+              class="status-pill"
+              :data-tone="getProviderOperationalReleaseStatusMeta(getProviderOperationalReleaseCurrentStatus()).tone"
+            >
+              {{ getProviderOperationalReleaseStatusMeta(getProviderOperationalReleaseCurrentStatus()).label }}
+            </span>
+          </div>
+        </div>
+
+        <template v-if="releaseProviderRequest">
+          <div class="request-summary-grid">
+            <article class="request-summary-card">
+              <span class="mini-label">Ruta</span>
+              <strong>{{ getRequestRouteLabel(releaseProviderRequest) }}</strong>
+              <p class="muted">{{ formatDateTimeDisplay(releaseProviderRequest.date) }}</p>
+            </article>
+            <article class="request-summary-card">
+              <span class="mini-label">Etapa compartida</span>
+              <strong>{{ normalizeWorkflowLabel(resolveRequestWorkflowValue(releaseProviderRequest)) }}</strong>
+              <p class="muted">Aqui el proveedor valida operacion y Red Aviation coordina sobrecargo y cliente.</p>
+            </article>
+            <article class="request-summary-card">
+              <span class="mini-label">Aeronave</span>
+              <strong>{{ getProviderOperationalReleaseAircraftLabel() }}</strong>
+              <p class="muted">{{ releaseProviderRequest.passengers || 0 }} pax · {{ getRequestServiceTierLabel(releaseProviderRequest) }}</p>
+            </article>
+          </div>
+
+          <article class="provider-release-panel">
+            <div class="provider-release-panel__head">
+              <div>
+                <span class="mini-label">Liberacion</span>
+                <h4>Confirmacion operacional de vuelo</h4>
+                <p class="muted">
+                  El proveedor confirma aeronave, despacho y salida operativa. La coordinacion con
+                  la sobrecargo y cualquier comunicacion al cliente se mantiene dentro de Red Aviation.
+                </p>
+              </div>
+              <span
+                class="status-pill"
+                :data-tone="getProviderOperationalReleaseStatusMeta(getProviderOperationalReleaseCurrentStatus()).tone"
+              >
+                {{ getProviderOperationalReleaseStatusMeta(getProviderOperationalReleaseCurrentStatus()).label }}
+              </span>
+            </div>
+
+            <article class="provider-release-alert">
+              <strong>Importante:</strong>
+              <p>
+                El proveedor solo confirma aeronave, tripulacion tecnica y despacho operativo.
+                Red Aviation coordina cliente, concierge, sobrecargo y liberacion final del vuelo.
+              </p>
+            </article>
+
+            <div class="provider-release-progress">
+              <strong>{{ getProviderOperationalReleaseProgress().percentage }}%</strong>
+              <span class="muted">
+                {{ getProviderOperationalReleaseStatusMeta(getProviderOperationalReleaseCurrentStatus()).detail }}
+              </span>
+            </div>
+
+            <p
+              v-if="!canManageProviderOperationalRelease(releaseProviderRequest)"
+              class="provider-release-lock"
+            >
+              Esta vista se habilita cuando la reserva ya alcanzo la etapa de vuelo confirmado.
+            </p>
+
+            <div
+              class="provider-release-form-grid"
+              :class="{ 'is-disabled': !canManageProviderOperationalRelease(releaseProviderRequest) }"
+            >
+              <article class="provider-release-card">
+                <div class="provider-release-card__head">
+                  <strong>1. Disponibilidad real de aeronave</strong>
+                  <span class="package-chip" :data-tone="getProviderOperationalAircraftSectionStatus().tone">
+                    {{ getProviderOperationalAircraftSectionStatus().label }}
+                  </span>
+                </div>
+                <label>
+                  <span>Aeronave operativa</span>
+                  <select
+                    v-model="providerOperationalReleaseForm.aircraftId"
+                    :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
+                  >
+                    <option value="">Selecciona aeronave</option>
+                    <option v-for="plane in aircraft" :key="plane.id" :value="String(plane.id)">
+                      {{ plane.name }}{{ plane.registration ? ` · ${plane.registration}` : '' }}
+                    </option>
+                  </select>
+                </label>
+                <div class="provider-release-checks">
+                  <label class="provider-check">
+                    <input
+                      v-model="providerOperationalReleaseForm.availabilityConfirmed"
+                      type="checkbox"
+                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
+                    />
+                    <span>El avion sigue disponible</span>
+                  </label>
+                  <label class="provider-check">
+                    <input
+                      v-model="providerOperationalReleaseForm.maintenanceClear"
+                      type="checkbox"
+                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
+                    />
+                    <span>No tiene mantenimiento pendiente</span>
+                  </label>
+                  <label class="provider-check">
+                    <input
+                      v-model="providerOperationalReleaseForm.routeCoverageConfirmed"
+                      type="checkbox"
+                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
+                    />
+                    <span>Puede cubrir {{ getRequestRouteLabel(releaseProviderRequest) }}</span>
+                  </label>
+                </div>
+              </article>
+
+              <article class="provider-release-card">
+                <div class="provider-release-card__head">
+                  <strong>2. Tripulacion tecnica</strong>
+                  <span class="package-chip" :data-tone="getProviderOperationalCrewSectionStatus().tone">
+                    {{ getProviderOperationalCrewSectionStatus().label }}
+                  </span>
+                </div>
+                <p class="provider-release-note">
+                  El proveedor confirma solo estados operativos de tripulacion tecnica. Red Aviation
+                  mantiene nombres, contacto y coordinacion con sobrecargo y cliente.
+                </p>
+                <div class="provider-release-inline-grid">
+                  <label>
+                    <span>Capitan asignado</span>
+                    <select
+                      v-model="providerOperationalReleaseForm.captainStatus"
+                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
+                    >
+                      <option
+                        v-for="option in providerOperationalBinaryStatusOptions"
+                        :key="`captain-${option.value}`"
+                        :value="option.value"
+                      >
+                        {{ option.label }}
+                      </option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Copiloto asignado</span>
+                    <select
+                      v-model="providerOperationalReleaseForm.copilotStatus"
+                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
+                    >
+                      <option
+                        v-for="option in providerOperationalBinaryStatusOptions"
+                        :key="`copilot-${option.value}`"
+                        :value="option.value"
+                      >
+                        {{ option.label }}
+                      </option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Tripulacion disponible para la fecha</span>
+                    <select
+                      v-model="providerOperationalReleaseForm.crewAvailabilityStatus"
+                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
+                    >
+                      <option
+                        v-for="option in providerOperationalBinaryStatusOptions"
+                        :key="`crew-availability-${option.value}`"
+                        :value="option.value"
+                      >
+                        {{ option.label }}
+                      </option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Tripulacion cumple requisitos</span>
+                    <select
+                      v-model="providerOperationalReleaseForm.crewRequirementsStatus"
+                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
+                    >
+                      <option
+                        v-for="option in providerOperationalBinaryStatusOptions"
+                        :key="`crew-requirements-${option.value}`"
+                        :value="option.value"
+                      >
+                        {{ option.label }}
+                      </option>
+                    </select>
+                  </label>
+                </div>
+                <div class="provider-release-support">
+                  <span>Estado general</span>
+                  <div class="provider-release-support__actions">
+                    <select
+                      v-model="providerOperationalReleaseForm.crewOverallStatus"
+                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
+                    >
+                      <option
+                        v-for="option in providerOperationalCrewOverallOptions"
+                        :key="`crew-overall-${option.value}`"
+                        :value="option.value"
+                      >
+                        {{ option.label }}
+                      </option>
+                    </select>
+                    <button type="button" class="ghost-button" @click="requestProviderOperationalSupport()">
+                      Solicitar apoyo a Red Aviation
+                    </button>
+                  </div>
+                </div>
+                <div class="provider-release-validation-list">
+                  <span :class="{ 'is-done': isProviderOperationalStatusConfirmed(providerOperationalReleaseForm.captainStatus) }">
+                    Capitan asignado
+                  </span>
+                  <span :class="{ 'is-done': isProviderOperationalStatusConfirmed(providerOperationalReleaseForm.copilotStatus) }">
+                    Copiloto asignado
+                  </span>
+                  <span :class="{ 'is-done': isProviderOperationalStatusConfirmed(providerOperationalReleaseForm.crewAvailabilityStatus) }">
+                    Tripulacion disponible para la fecha
+                  </span>
+                  <span :class="{ 'is-done': isProviderOperationalStatusConfirmed(providerOperationalReleaseForm.crewRequirementsStatus) }">
+                    Tripulacion cumple requisitos
+                  </span>
+                  <span :class="{ 'is-done': providerOperationalReleaseForm.crewScheduleConfirmed }">
+                    Horarios confirmados
+                  </span>
+                  <span :class="{ 'is-done': providerOperationalReleaseForm.crewDocumentsReady }">
+                    Documentacion operativa validada
+                  </span>
+                </div>
+                <div class="provider-release-checks">
+                  <label class="provider-check">
+                    <input
+                      v-model="providerOperationalReleaseForm.crewScheduleConfirmed"
+                      type="checkbox"
+                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
+                    />
+                    <span>Horarios confirmados</span>
+                  </label>
+                  <label class="provider-check">
+                    <input
+                      v-model="providerOperationalReleaseForm.crewDocumentsReady"
+                      type="checkbox"
+                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
+                    />
+                    <span>Documentacion operativa validada</span>
+                  </label>
+                </div>
+              </article>
+
+              <article class="provider-release-card">
+                <div class="provider-release-card__head">
+                  <strong>3. Permisos / slots / handling</strong>
+                  <span class="package-chip" :data-tone="getProviderOperationalDispatchSectionStatus().tone">
+                    {{ getProviderOperationalDispatchSectionStatus().label }}
+                  </span>
+                </div>
+                <div class="provider-release-inline-grid">
+                  <label>
+                    <span>Aeropuerto de salida</span>
+                    <input
+                      v-model="providerOperationalReleaseForm.departureAirport"
+                      type="text"
+                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
+                      placeholder="Toluca (MMTO)"
+                    />
+                  </label>
+                  <label>
+                    <span>Aeropuerto de llegada</span>
+                    <input
+                      v-model="providerOperationalReleaseForm.arrivalAirport"
+                      type="text"
+                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
+                      placeholder="Cancun (MMUN)"
+                    />
+                  </label>
+                </div>
+                <label>
+                  <span>FBO / handling</span>
+                  <input
+                    v-model="providerOperationalReleaseForm.fbo"
+                    type="text"
+                    :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
+                    placeholder="FBO, handling y coordinacion de rampa"
+                  />
+                </label>
+                <div class="provider-release-checks">
+                  <label class="provider-check">
+                    <input
+                      v-model="providerOperationalReleaseForm.flightPlanReady"
+                      type="checkbox"
+                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
+                    />
+                    <span>Plan de vuelo listo</span>
+                  </label>
+                  <label class="provider-check">
+                    <input
+                      v-model="providerOperationalReleaseForm.permitsReady"
+                      type="checkbox"
+                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
+                    />
+                    <span>Permisos / slots listos</span>
+                  </label>
+                  <label class="provider-check">
+                    <input
+                      v-model="providerOperationalReleaseForm.handlingReady"
+                      type="checkbox"
+                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
+                    />
+                    <span>Handling confirmado</span>
+                  </label>
+                </div>
+              </article>
+
+              <article class="provider-release-card">
+                <div class="provider-release-card__head">
+                  <strong>4. Aeronave lista</strong>
+                  <span class="package-chip" :data-tone="getProviderOperationalReadinessSectionStatus().tone">
+                    {{ getProviderOperationalReadinessSectionStatus().label }}
+                  </span>
+                </div>
+                <label>
+                  <span>Estado de aeronave</span>
+                  <select
+                    v-model="providerOperationalReleaseForm.aircraftOverallStatus"
+                    :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
+                  >
+                    <option
+                      v-for="option in providerOperationalAircraftOverallOptions"
+                      :key="`aircraft-overall-${option.value}`"
+                      :value="option.value"
+                    >
+                      {{ option.label }}
+                    </option>
+                  </select>
+                </label>
+                <div class="provider-release-checks provider-release-checks--compact">
+                  <label class="provider-check">
+                    <input
+                      v-model="providerOperationalReleaseForm.fuelReady"
+                      type="checkbox"
+                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
+                    />
+                    <span>Combustible</span>
+                  </label>
+                  <label class="provider-check">
+                    <input
+                      v-model="providerOperationalReleaseForm.cleaningReady"
+                      type="checkbox"
+                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
+                    />
+                    <span>Limpieza</span>
+                  </label>
+                  <label class="provider-check">
+                    <input
+                      v-model="providerOperationalReleaseForm.documentsReady"
+                      type="checkbox"
+                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
+                    />
+                    <span>Documentos</span>
+                  </label>
+                  <label class="provider-check">
+                    <input
+                      v-model="providerOperationalReleaseForm.insuranceReady"
+                      type="checkbox"
+                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
+                    />
+                    <span>Seguro</span>
+                  </label>
+                  <label class="provider-check">
+                    <input
+                      v-model="providerOperationalReleaseForm.registrationReady"
+                      type="checkbox"
+                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
+                    />
+                    <span>Matricula</span>
+                  </label>
+                  <label class="provider-check">
+                    <input
+                      v-model="providerOperationalReleaseForm.logbookReady"
+                      type="checkbox"
+                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
+                    />
+                    <span>Bitacora</span>
+                  </label>
+                </div>
+              </article>
+            </div>
+
+            <article class="provider-release-card provider-release-card--issue">
+              <div class="provider-release-card__head">
+                <strong>5. Incidencia operativa</strong>
+                <span class="package-chip" data-tone="warning">Reportar bloqueo</span>
+              </div>
+              <div class="provider-release-inline-grid">
+                <label>
+                  <span>Tipo de incidencia</span>
+                  <select v-model="providerOperationalIssueForm.type">
+                    <option>Aeronave no disponible</option>
+                    <option>Tripulacion no disponible</option>
+                    <option>Mantenimiento pendiente</option>
+                    <option>Documentacion incompleta</option>
+                    <option>Permiso / slot pendiente</option>
+                    <option>Handling pendiente</option>
+                    <option>Combustible pendiente</option>
+                    <option>Retraso operativo</option>
+                    <option>Requiere apoyo de Red Aviation</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Red Aviation</span>
+                  <input type="text" value="Recibe alerta administrativa" disabled />
+                </label>
+              </div>
+              <label class="provider-release-notes">
+                <span>Detalle</span>
+                <textarea
+                  v-model="providerOperationalIssueForm.comment"
+                  rows="3"
+                  placeholder="Describe el bloqueo operativo para que Red Aviation coordine la solucion."
+                ></textarea>
+              </label>
+              <div class="provider-release-actions">
+                <button
+                  type="button"
+                  class="ghost-button"
+                  :disabled="savingProviderOperationalIssue"
+                  @click="submitProviderOperationalIssue()"
+                >
+                  {{ savingProviderOperationalIssue ? 'Reportando...' : 'Reportar a Red Aviation' }}
+                </button>
+              </div>
+            </article>
+
+            <article class="provider-release-checklist">
+              <div
+                v-for="section in buildProviderOperationalReleaseChecklist()"
+                :key="section.title"
+                class="provider-release-checklist__section"
+              >
+                <strong>{{ section.title }}</strong>
+                <span
+                  v-for="item in section.items"
+                  :key="item.label"
+                  class="provider-release-checklist__item"
+                  :class="{ 'is-done': item.done }"
+                >
+                  {{ item.label }}
+                </span>
+              </div>
+            </article>
+
+            <label class="provider-release-notes">
+              <span>Notas operativas</span>
+              <textarea
+                v-model="providerOperationalReleaseForm.notes"
+                rows="4"
+                :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
+                placeholder="FBO, coordinacion de rampa, observaciones de despacho o notas tecnicas."
+              ></textarea>
+            </label>
+
+            <article class="provider-release-card provider-release-card--summary">
+              <div class="provider-release-card__head">
+                <strong>6. Confirmacion final</strong>
+                <span class="package-chip" :data-tone="isProviderOperationalReady() ? 'success' : 'neutral'">
+                  {{ isProviderOperationalReady() ? 'Listo para enviar' : 'Faltan validaciones' }}
+                </span>
+              </div>
+              <p class="muted">
+                Al confirmar, el proveedor declara que la aeronave, tripulacion tecnica y
+                documentacion operativa se encuentran listas o reportadas para coordinacion con Red Aviation.
+              </p>
+              <div class="provider-release-summary">
+                <div
+                  v-for="item in getProviderOperationalFinalSummary()"
+                  :key="item.label"
+                  class="provider-release-summary__item"
+                >
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.statusLabel }}</strong>
+                  <small>{{ item.detail }}</small>
+                </div>
+              </div>
+            </article>
+
+            <p v-if="providerOperationalReleaseFeedback" class="provider-release-feedback">
+              {{ providerOperationalReleaseFeedback }}
+            </p>
+
+            <div class="provider-release-actions">
+              <button
+                type="button"
+                class="primary-action"
+                :disabled="
+                  !canManageProviderOperationalRelease(releaseProviderRequest) ||
+                  !isProviderOperationalReady() ||
+                  savingProviderOperationalRelease
+                "
+                @click="saveProviderOperationalRelease('operational_ready')"
+              >
+                Confirmar liberacion operativa
+              </button>
+            </div>
+          </article>
+        </template>
+
+        <p v-else class="empty-state">
+          No hay un vuelo confirmado listo para abrir para liberacion.
         </p>
       </article>
     </section>
@@ -7429,7 +8865,7 @@ watch(
         <div class="status-list">
           <div class="status-row">
             <span>Funcion del proveedor</span>
-            <strong>Asignar piloto, copiloto y sobrecargo segun disponibilidad</strong>
+            <strong>Confirmar tripulacion tecnica y disponibilidad operativa</strong>
           </div>
           <div class="status-row">
             <span>Equipo registrado</span>
@@ -9219,11 +10655,31 @@ textarea {
 }
 
 .request-kpi-grid {
-  margin-top: 1.2rem;
+  margin-top: 1rem;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.8rem;
 }
 
 .request-kpi-card {
-  min-height: 9.2rem;
+  min-height: 6.4rem;
+  padding: 0.9rem 1rem;
+}
+
+.request-kpi-card span {
+  font-size: 0.82rem;
+}
+
+.request-kpi-card strong {
+  margin-top: 0.25rem;
+  font-size: 1rem;
+  line-height: 1.05;
+}
+
+.request-kpi-card small {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.82rem;
+  line-height: 1.25;
 }
 
 .requests-toolbar {
@@ -9519,6 +10975,258 @@ textarea {
   margin: 0;
 }
 
+.provider-release-panel,
+.provider-release-card,
+.provider-release-checklist,
+.provider-release-checklist__section {
+  border: 1px solid #f0e5d1;
+  border-radius: 20px;
+  background: #fffaf4;
+}
+
+.provider-release-panel {
+  display: grid;
+  gap: 1rem;
+  padding: 1.1rem;
+}
+
+.provider-release-panel__head,
+.provider-release-card__head,
+.provider-release-progress,
+.provider-release-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.provider-release-progress strong {
+  color: #16110d;
+  font-size: 1.2rem;
+}
+
+.provider-release-lock {
+  margin: 0;
+  padding: 0.85rem 1rem;
+  border-radius: 16px;
+  background: #f3eee4;
+}
+
+.provider-release-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.provider-release-form-grid.is-disabled {
+  opacity: 0.68;
+}
+
+.provider-release-card {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem;
+}
+
+.provider-release-note {
+  margin: 0;
+  color: #6f6558;
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+.provider-release-inline-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.provider-release-support {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.provider-release-support > span {
+  color: #7b6d58;
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.provider-release-support__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.provider-release-validation-list {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem 1.05rem;
+  border: 1px solid #eadfcf;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #fffdf9, #fff8f0);
+}
+
+.provider-release-validation-list span {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  color: #7b715f;
+  font-size: 0.98rem;
+  line-height: 1.25;
+}
+
+.provider-release-validation-list span::before {
+  content: '○';
+  flex: 0 0 auto;
+  color: #8a7d69;
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+.provider-release-validation-list span.is-done {
+  color: #1a6d43;
+  font-weight: 700;
+}
+
+.provider-release-validation-list span.is-done::before {
+  content: '✓';
+  color: #1a6d43;
+}
+
+.provider-release-checks {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
+.provider-release-checks--compact {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.provider-check {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 3rem;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid #eadfcf;
+  border-radius: 16px;
+  background: #fffdfa;
+  color: #2f271e;
+  font-weight: 600;
+}
+
+.provider-check input {
+  width: 1rem;
+  height: 1rem;
+}
+
+.provider-release-checklist {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.provider-release-checklist__section {
+  display: grid;
+  gap: 0.9rem;
+  padding: 1.15rem 1.1rem;
+}
+
+.provider-release-checklist__section strong {
+  color: #16110d;
+  font-size: 1rem;
+  line-height: 1.15;
+}
+
+.provider-release-checklist__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  color: #7b715f;
+  font-size: 1rem;
+  line-height: 1.25;
+}
+
+.provider-release-checklist__item::before {
+  content: '○';
+  flex: 0 0 auto;
+  color: #8a7d69;
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+.provider-release-checklist__item.is-done {
+  color: #1a6d43;
+  font-weight: 700;
+}
+
+.provider-release-checklist__item.is-done::before {
+  content: '✓';
+  color: #1a6d43;
+}
+
+.provider-release-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.provider-release-summary__item {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.95rem 1rem;
+  border: 1px solid #eadfcf;
+  border-radius: 16px;
+  background: #fffdfa;
+}
+
+.provider-release-summary__item span {
+  color: #7b6d58;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.provider-release-summary__item strong {
+  color: #16110d;
+  font-size: 1.05rem;
+  line-height: 1.15;
+}
+
+.provider-release-summary__item small {
+  color: #6f6558;
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
+.provider-release-notes {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.provider-release-actions {
+  justify-content: flex-end;
+}
+
+.provider-release-cta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid #f0e5d1;
+  border-radius: 20px;
+  background: linear-gradient(180deg, #fffdf9, #fff8ee);
+}
+
 .package-chip {
   display: inline-flex;
   align-items: center;
@@ -9793,6 +11501,10 @@ textarea {
   .request-summary-grid,
   .request-detail-grid,
   .request-detail-blocks,
+  .provider-release-form-grid,
+  .provider-release-inline-grid,
+  .provider-release-checklist,
+  .provider-release-summary,
   .request-cost-grid,
   .request-inline-actions,
   .request-decision-toolbar,
@@ -9839,7 +11551,9 @@ textarea {
   }
 
   .form-grid,
-  .metrics-grid {
+  .metrics-grid,
+  .provider-release-checks,
+  .provider-release-checks--compact {
     grid-template-columns: 1fr;
   }
 

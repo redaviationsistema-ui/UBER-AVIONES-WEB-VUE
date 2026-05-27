@@ -208,6 +208,17 @@ describe('deriveClientWorkflowStatus', () => {
     ).toBe('payment_confirmed')
   })
 
+  it('prioritizes paid status over an outdated payment pending workflow', () => {
+    expect(
+      deriveClientWorkflowStatus({
+        id: 1121,
+        workflow_status: 'pago pendiente',
+        contract_status: 'signed',
+        payment_status: 'Pagado',
+      }),
+    ).toBe('payment_confirmed')
+  })
+
   it('uses nested reservation payments when the top-level workflow is stale', () => {
     expect(
       deriveClientWorkflowStatus({

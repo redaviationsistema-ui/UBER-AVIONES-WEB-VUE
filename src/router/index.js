@@ -6,10 +6,8 @@ import PlatformView from '../views/PlatformView.vue'
 import MembershipsView from '../views/MembershipsView.vue'
 import CoverageView from '../views/CoverageView.vue'
 import HelpView from '../views/HelpView.vue'
-import LoginView from '../views/LoginView.vue'
 import ClientLoginView from '../views/ClientLoginView.vue'
 import RegisterView from '../views/RegisterView.vue'
-import PortalAccessView from '../views/PortalAccessView.vue'
 import RoleView from '../views/RoleView.vue'
 import AircraftRentView from '../views/AircraftRentView.vue'
 import StartMembershipView from '../views/StartMembershipView.vue'
@@ -17,7 +15,11 @@ import BusinessRegisterView from '../views/BusinessRegisterView.vue'
 import BusinessContactView from '../views/BusinessContactView.vue'
 import LanguageView from '../views/LanguageView.vue'
 
-import { normalizeAuthRole } from '../lib/authRouting'
+import {
+  normalizeAuthRole,
+  resolveDashboardPathByRole,
+  sanitizePostLoginRedirect,
+} from '../lib/authRouting'
 import { pinia } from '../stores'
 import { useAuthStore } from '../stores/auth'
 
@@ -69,8 +71,20 @@ const router = createRouter({
     {
       path: '/acceso',
       name: 'acceso',
-      component: PortalAccessView,
-      meta: { guestOnly: true },
+      redirect: (to) => {
+        const role = normalizeAuthRole(typeof to.query.role === 'string' ? to.query.role : '')
+        const fallbackPath = resolveDashboardPathByRole(role || 'operator')
+        const redirect = sanitizePostLoginRedirect(to.query.redirect, fallbackPath)
+
+        if (role === 'client') {
+          return {
+            name: 'login-cliente',
+            query: to.query,
+          }
+        }
+
+        return redirect
+      },
     },
     {
       path: '/login',
@@ -82,8 +96,11 @@ const router = createRouter({
     {
       path: '/login-operacion',
       name: 'login',
-      component: LoginView,
-      meta: { guestOnly: true },
+      redirect: (to) => {
+        const role = normalizeAuthRole(typeof to.query.role === 'string' ? to.query.role : '')
+        const fallbackPath = resolveDashboardPathByRole(role || 'operator')
+        return sanitizePostLoginRedirect(to.query.redirect, fallbackPath)
+      },
     },
     {
       path: '/registro',
@@ -211,10 +228,7 @@ router.beforeEach(async (to) => {
       }
     }
 
-    return {
-      name: 'acceso',
-      query: { redirect: to.fullPath },
-    }
+    return true
   }
 
   if (!to.meta.role || !auth.user) {

@@ -48,7 +48,7 @@ const roleInsights = {
   operator: {
     title: 'Publicacion y respuesta operativa',
     description:
-      'Publica aeronaves, abre disponibilidad y acepta o rechaza solicitudes sin contacto directo con el cliente.',
+      '',
   },
   crew: {
     title: 'Agenda, cabina y servicio',
@@ -170,7 +170,6 @@ watch(
           <div class="workspace-menu-actions">
             <span class="workspace-menu-hint">Operacion centralizada</span>
             <button
-              v-if="auth.isAuthenticated"
               type="button"
               class="workspace-menu-logout"
               @click="handleLogout"
@@ -254,7 +253,6 @@ watch(
 
             <div class="workspace-mobile-drawer__footer">
               <button
-                v-if="auth.isAuthenticated"
                 type="button"
                 class="workspace-mobile-logout"
                 @click="handleLogout"
@@ -281,7 +279,7 @@ watch(
       >
         <header v-if="usesWorkspaceMenu" class="portal-header">
           <div>
-            <p class="eyebrow">Workspace</p>
+            <p class="eyebrow">Espacio de trabajo</p>
             <h2>{{ currentSectionLabel }}</h2>
           </div>
           <p class="muted">{{ roleInsights[activeRole]?.description }}</p>

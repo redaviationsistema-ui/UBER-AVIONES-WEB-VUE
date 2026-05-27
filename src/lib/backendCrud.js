@@ -51,6 +51,10 @@ export async function requestWithCandidates(candidates) {
         return await api.put(candidate.path, candidate.body, sharedOptions)
       }
 
+      if (method === 'patch') {
+        return await api.patch(candidate.path, candidate.body, sharedOptions)
+      }
+
       if (method === 'delete') {
         return await api.delete(candidate.path, sharedOptions)
       }

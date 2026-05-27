@@ -30,10 +30,11 @@ export const roleSections = {
     { id: 'costos', label: 'Costos base', icon: 'wallet' },
     { id: 'disponibilidad', label: 'Disponibilidad', icon: 'calendar' },
     { id: 'solicitudes', label: 'Solicitudes Red Aviation', icon: 'clipboard' },
+    { id: 'release-provider', label: 'Liberacion', icon: 'clipboard' },
     { id: 'operaciones', label: 'Operaciones', icon: 'jet' },
-    { id: 'tripulacion', label: 'Tripulacion', icon: 'crew' },
+  /*{ id: 'tripulacion', label: 'Tripulacion', icon: 'crew' },*/ 
     { id: 'incidencias', label: 'Incidencias', icon: 'alert' },
-    { id: 'pagos', label: 'Pagos', icon: 'wallet' },
+  /*{ id: 'pagos', label: 'Pagos', icon: 'wallet' },*/ 
     { id: 'historial', label: 'Historial', icon: 'history' },
     { id: 'configuracion', label: 'Configuracion', icon: 'grid' },
   ],
@@ -86,7 +87,7 @@ export const roleSectionGroups = {
   operator: [
     {
       label: 'Operacion',
-      ids: ['dashboard', 'empresa', 'aeronaves', 'costos', 'disponibilidad', 'solicitudes', 'operaciones'],
+      ids: ['dashboard', 'empresa', 'aeronaves', 'costos', 'disponibilidad', 'solicitudes', 'release-provider', 'operaciones'],
     },
     { label: 'Coordinacion', ids: ['tripulacion', 'incidencias'] },
     { label: 'Control', ids: ['pagos', 'historial', 'configuracion'] },

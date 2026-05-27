@@ -101,7 +101,7 @@ const WORKFLOW_DEFINITIONS = {
     label: 'Vuelo confirmado',
     apiStatus: 'flight_confirmed',
     apiWorkflow: 'vuelo confirmado',
-    matches: ['flight_confirmed', 'vuelo confirmado', 'operacion confirmada'],
+    matches: ['flight_confirmed', 'vuelo confirmado', 'operacion confirmada', 'confirmada', 'confirmado'],
   },
   tracking_live: {
     label: 'En operacion',
@@ -243,7 +243,8 @@ const SHARED_WORKFLOW_ACTION_COPY = {
   },
   payment_confirmed: {
     title: 'Confirmacion de vuelo',
-    detail: 'El pago ya quedo confirmado y seguimos con la liberacion operativa.',
+    detail:
+      'Pago confirmado. Red Aviation coordina proveedor, sobrecargo, aeropuerto y pasajeros sin exponer contacto directo entre cliente, proveedor y tripulacion.',
   },
   flight_confirmed: {
     title: 'Tracking de servicio',
@@ -366,6 +367,33 @@ function listRequestMatches(record = {}) {
   return matches.filter((item) => item && typeof item === 'object')
 }
 
+function collectRecordPayments(record = {}) {
+  if (!record || typeof record !== 'object') return []
+
+  const nestedReservation = nestedReservationRecord(record)
+  const directPayments = Array.isArray(record.payments) ? record.payments : []
+  const nestedPayments = Array.isArray(nestedReservation?.payments) ? nestedReservation.payments : []
+
+  return [...directPayments, ...nestedPayments].filter(
+    (payment) => payment && typeof payment === 'object',
+  )
+}
+
+function latestCollectedPaymentStatus(record = {}) {
+  const payments = collectRecordPayments(record)
+  if (!payments.length) return ''
+
+  const latestPayment = [...payments].sort((first, second) => {
+    const firstDate = Date.parse(first?.updated_at || first?.paid_at || first?.created_at || '')
+    const secondDate = Date.parse(second?.updated_at || second?.paid_at || second?.created_at || '')
+    return (
+      (Number.isFinite(secondDate) ? secondDate : 0) - (Number.isFinite(firstDate) ? firstDate : 0)
+    )
+  })[0]
+
+  return latestPayment?.status || ''
+}
+
 function pickAcceptedRequestMatch(record = {}) {
   const matches = listRequestMatches(record)
   return (
@@ -407,6 +435,7 @@ export function resolveSharedWorkflowStatus(record = {}) {
     record.payment?.status ||
       record.payment_status ||
       record.payment_order?.status ||
+      latestCollectedPaymentStatus(record) ||
       nestedReservation?.payment?.status ||
       nestedReservation?.payment_status ||
       '',
@@ -511,9 +540,31 @@ export function resolveSharedWorkflowStatus(record = {}) {
   ])
 
   if (
-    explicitWorkflowId !== 'draft' &&
-    explicitWorkflowId !== 'provider_pending' &&
-    explicitWorkflowId !== 'provider_accepted'
+    paymentConfirmedSignals.has(normalizedPaymentStatus) &&
+    ['provider_pending', 'provider_accepted', 'contract_signed', 'payment_pending'].includes(
+      explicitWorkflowId,
+    )
+  ) {
+    return 'payment_confirmed'
+  }
+
+  if (
+    paymentPendingSignals.has(normalizedPaymentStatus) &&
+    explicitWorkflowId === 'contract_signed'
+  ) {
+    return 'payment_pending'
+  }
+
+  if (
+    [
+      'contract_pending',
+      'payment_confirmed',
+      'flight_confirmed',
+      'tracking_live',
+      'completed',
+      'cancelled',
+      'rejected',
+    ].includes(explicitWorkflowId)
   ) {
     return explicitWorkflow
   }
@@ -566,6 +617,10 @@ export function resolveSharedWorkflowStatus(record = {}) {
     return 'rejected'
   }
 
+  if (hasAcceptedMatch && !normalizedWorkflow) {
+    return 'provider_accepted'
+  }
+
   if ((hasSelectedProvider || hasSelectedAircraft || hasSelectedMatch) && !normalizedWorkflow) {
     return 'provider_pending'
   }
@@ -582,7 +637,7 @@ export function resolveSharedVisualWorkflowStepId(value = '') {
 
   if (workflowId === 'provider_accepted') return 'provider_pending'
   if (workflowId === 'contract_signed') return 'contract_pending'
-  if (workflowId === 'payment_confirmed') return 'payment_pending'
+  if (workflowId === 'payment_confirmed') return 'flight_confirmed'
   if (workflowId === 'completed') return 'tracking_live'
 
   return workflowId

@@ -38,6 +38,9 @@ const configuredPaymentIntentPath = String(
   import.meta.env.VITE_CLIENT_PAYMENT_INTENT_PATH || '',
 ).trim()
 const configuredWirePath = String(import.meta.env.VITE_CLIENT_WIRE_PATH || '').trim()
+const configuredPaymentConfirmPath = String(
+  import.meta.env.VITE_CLIENT_PAYMENT_CONFIRM_PATH || '',
+).trim()
 
 const QUOTES_PREVIEW_PATH = configuredQuotesPreviewPath || '/client/quotes/preview'
 const CLIENT_TRIPS_PATHS = [
@@ -94,6 +97,17 @@ const CLIENT_WIRE_PATHS = [
       '/cliente/stripe/wire-intent',
       '/client/stripe/wire-intent',
       '/stripe/wire-intent',
+    ].filter(Boolean),
+  ),
+]
+const CLIENT_PAYMENT_CONFIRM_PATHS = [
+  ...new Set(
+    [
+      configuredPaymentConfirmPath,
+      '/cliente/reservas/:id/pago/confirmar',
+      '/cliente/reservas/:id/payment/confirm',
+      '/client/reservations/:id/payment/confirm',
+      '/client/reservations/:id/payments/confirm',
     ].filter(Boolean),
   ),
 ]
@@ -1933,6 +1947,50 @@ function preferMostAdvancedWorkflowValue(baseValue = '', detailValue = '') {
   return workflowRank(detailValue) >= workflowRank(baseValue) ? detailValue : baseValue
 }
 
+function paymentStatusRank(value = '') {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase()
+
+  if (!normalized) return 0
+  if (
+    [
+      'paid',
+      'pagado',
+      'pagada',
+      'payment_confirmed',
+      'payment confirmed',
+      'pago confirmado',
+      'pago aprobado',
+    ].includes(normalized)
+  ) {
+    return 3
+  }
+  if (
+    [
+      'pending',
+      'pendiente',
+      'pendiente de pago',
+      'pending_payment',
+      'payment_pending',
+      'payment pending',
+      'pago pendiente',
+      'pago en revision',
+    ].includes(normalized)
+  ) {
+    return 2
+  }
+
+  return 1
+}
+
+function preferMostRelevantPaymentStatus(baseValue = '', detailValue = '') {
+  if (!hasMeaningfulValue(baseValue)) return detailValue
+  if (!hasMeaningfulValue(detailValue)) return baseValue
+
+  return paymentStatusRank(detailValue) >= paymentStatusRank(baseValue) ? detailValue : baseValue
+}
+
 function pickMostRelevantExplicitWorkflow(baseRecord = {}, detailRecord = {}) {
   const baseWorkflow = baseRecord.explicit_workflow_status || baseRecord.workflow_status || ''
   const detailWorkflow = detailRecord.explicit_workflow_status || detailRecord.workflow_status || ''
@@ -1955,6 +2013,8 @@ function pickMostRelevantExplicitWorkflow(baseRecord = {}, detailRecord = {}) {
 function mergeTripRecords(baseRecord = {}, detailRecord = {}) {
   const preferredDetailKeys = new Set([
     'client_id',
+    'route',
+    'title',
     'matches',
     'matched_options',
     'aircraft',
@@ -2007,6 +2067,11 @@ function mergeTripRecords(baseRecord = {}, detailRecord = {}) {
 
   Object.entries(detailRecord || {}).forEach(([key, value]) => {
     if (preferredDetailKeys.has(key) && hasMeaningfulValue(value)) {
+      if (key === 'payment_status') {
+        merged[key] = preferMostRelevantPaymentStatus(baseRecord.payment_status, value)
+        return
+      }
+
       merged[key] = value
       return
     }
@@ -2015,6 +2080,11 @@ function mergeTripRecords(baseRecord = {}, detailRecord = {}) {
       merged[key] = value
     }
   })
+
+  merged.payment_status = preferMostRelevantPaymentStatus(
+    baseRecord.payment_status,
+    detailRecord.payment_status,
+  )
 
   return merged
 }
@@ -2518,6 +2588,141 @@ export async function markClientTripReadyForPayment(
   )
 }
 
+export async function markClientTripPaymentConfirmed(
+  reservationId,
+  paymentPayload = {},
+  options = {},
+) {
+  const normalizedReservationId = normalizeEntityIdentifier(reservationId)
+  const normalizedFlightRequestId = normalizeEntityIdentifier(
+    paymentPayload?.flight_request_id || paymentPayload?.flightRequestId,
+  )
+
+  if (!normalizedReservationId) {
+    throw new Error('No se encontro la reserva para confirmar el pago.')
+  }
+
+  const normalizedBrand = String(
+    paymentPayload?.brand || paymentPayload?.card_brand || paymentPayload?.payment_brand || '',
+  ).trim()
+  const normalizedIntentId = String(
+    paymentPayload?.payment_intent_id || paymentPayload?.paymentIntentId || '',
+  ).trim()
+
+  const workflowPayload = {
+    ...buildWorkflowApiPayload('payment_confirmed'),
+    status: 'payment_confirmed',
+    reservation: normalizedReservationId,
+    reservation_id: normalizedReservationId,
+    booking_id: normalizedReservationId,
+    flight_request: normalizedFlightRequestId || undefined,
+    flight_request_id: normalizedFlightRequestId || undefined,
+    contract_status: 'signed',
+    payment_status: 'paid',
+    payment_brand: normalizedBrand || undefined,
+    payment_intent_id: normalizedIntentId || undefined,
+    payment_order: {
+      status: 'paid',
+      brand: normalizedBrand || undefined,
+      card_brand: normalizedBrand || undefined,
+      payment_intent_id: normalizedIntentId || undefined,
+    },
+  }
+
+  const directCandidates = CLIENT_PAYMENT_CONFIRM_PATHS.flatMap((path) => [
+    { method: 'post', path: replaceRouteId(path, normalizedReservationId), body: workflowPayload },
+    { method: 'patch', path: replaceRouteId(path, normalizedReservationId), body: workflowPayload },
+    { method: 'put', path: replaceRouteId(path, normalizedReservationId), body: workflowPayload },
+  ])
+
+  let directError = null
+
+  if (directCandidates.length) {
+    try {
+      const payload = await requestWithCandidates(
+        directCandidates.map((candidate) => ({
+          ...candidate,
+          timeoutMs: options.timeoutMs,
+        })),
+      )
+      const record =
+        payload?.reservation || payload?.trip || payload?.data || payload?.flight_request || payload
+
+      return normalizeTrip(
+        {
+          ...(record && typeof record === 'object' ? record : {}),
+          id: record?.id || normalizedReservationId,
+          ...workflowPayload,
+        },
+        {
+          entityType: payload?.reservation ? 'reservation' : 'trip',
+        },
+      )
+    } catch (error) {
+      directError = error
+    }
+  }
+
+  const workflowTargetId = normalizedFlightRequestId || normalizedReservationId
+  const canUseWorkflowFallback =
+    configuredTripWorkflowPath && !isRestrictedWorkflowRoute(configuredTripWorkflowPath)
+
+  if (!canUseWorkflowFallback) {
+    if (directError) throw directError
+    return normalizeTrip(
+      {
+        id: normalizedReservationId,
+        ...workflowPayload,
+      },
+      {
+        entityType: 'reservation',
+      },
+    )
+  }
+
+  const workflowCandidates = [
+    {
+      method: 'patch',
+      path: configuredTripWorkflowPath.replace(':id', workflowTargetId),
+      body: workflowPayload,
+    },
+    {
+      method: 'put',
+      path: configuredTripWorkflowPath.replace(':id', workflowTargetId),
+      body: workflowPayload,
+    },
+    {
+      method: 'post',
+      path: configuredTripWorkflowPath.replace(':id', workflowTargetId),
+      body: workflowPayload,
+    },
+  ]
+
+  try {
+    const payload = await requestWithCandidates(
+      workflowCandidates.map((candidate) => ({
+        ...candidate,
+        timeoutMs: options.timeoutMs,
+      })),
+    )
+    const record =
+      payload?.flight_request || payload?.reservation || payload?.trip || payload?.data || payload
+
+    return normalizeTrip(
+      {
+        ...(record && typeof record === 'object' ? record : {}),
+        id: record?.id || workflowTargetId,
+        ...workflowPayload,
+      },
+      {
+        entityType: payload?.reservation ? 'reservation' : 'trip',
+      },
+    )
+  } catch (error) {
+    throw directError || error
+  }
+}
+
 export async function ensureClientReservation(payload = {}, options = {}) {
   return api.post(CLIENT_RESERVATIONS_PATH, payload, options)
 }
@@ -2669,7 +2874,7 @@ export async function createClientCheckout(flightRequestId, payload = {}, option
     }
   }
 
-  throw lastError || new Error('No se pudo iniciar Stripe Checkout.')
+  throw lastError || new Error('No se pudo iniciar  Checkout.')
 }
 
 export async function createClientPaymentIntent(flightRequestId, payload = {}, options = {}) {

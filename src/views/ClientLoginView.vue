@@ -73,7 +73,6 @@ async function submit() {
 
       <div class="login-card">
         <div class="login-copy">
-          <p class="role-kicker">Portal cliente</p>
           <h1 v-if="currentStep === 1">¿Cuál es tu número de teléfono o tu correo electrónico?</h1>
           <h1 v-else>Ingresa tu contraseña</h1>
           <p>
@@ -238,10 +237,10 @@ async function submit() {
           </button>
         </div>
 
-        <div class="helper-links">
+        <!-- <div class="helper-links">
           <span>¿Buscas acceso operativo?</span>
           <RouterLink to="/acceso">Ir a operación</RouterLink>
-        </div>
+        </div> -->
 
         <div class="helper-links">
           <span>¿No tienes cuenta?</span>

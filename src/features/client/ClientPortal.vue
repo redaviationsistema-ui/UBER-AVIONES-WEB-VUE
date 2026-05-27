@@ -21,6 +21,7 @@ import {
   createClientWireIntent,
   getClientDestinations,
   getClientFlightPackages,
+  markClientTripPaymentConfirmed,
   markClientTripReadyForPayment,
   getClientTrips,
   searchClientFlights,
@@ -373,7 +374,7 @@ const paymentMethodCards = [
   {
     id: 'card',
     label: 'Tarjeta corporativa',
-    note: 'Checkout seguro hospedado por Stripe.',
+    note: 'Checkout seguro hospedado .',
     icon: 'card',
   },
   {
@@ -387,6 +388,7 @@ const paymentForm = reactive({
   contactEmail: '',
 })
 const selectedPaymentMethod = ref('card')
+const paymentCardBrand = ref('')
 const paymentSubmitting = ref(false)
 const paymentInlineError = ref('')
 const wireInstructions = ref(null)
@@ -405,6 +407,76 @@ let stripeCardExpiryElement = null
 let stripeCardCvcElement = null
 let stripeIntentSecret = ''
 let stripePublishableKey = ''
+
+function normalizeCardBrand(value = '') {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase()
+
+  if (!normalized || normalized === 'unknown') return ''
+  if (normalized === 'visa') return 'Visa'
+  if (normalized === 'mastercard') return 'Mastercard'
+  if (normalized === 'amex' || normalized === 'american express') return 'American Express'
+  if (normalized === 'discover') return 'Discover'
+  if (normalized === 'diners' || normalized === 'diners club') return 'Diners Club'
+  if (normalized === 'jcb') return 'JCB'
+  if (normalized === 'unionpay') return 'UnionPay'
+
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1)
+}
+
+function svgDataUri(svg) {
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`
+}
+
+const CARD_BRAND_LOGOS = {
+  Visa: svgDataUri(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="32" viewBox="0 0 96 32"><rect width="96" height="32" rx="8" fill="#1A4FB8"/><path fill="#fff" d="M35.8 21h-3.7l2.3-14h3.7l-2.3 14Zm15.4-13.6a9.2 9.2 0 0 0-3.3-.6c-3.7 0-6.3 1.9-6.3 4.8 0 2.1 1.9 3.2 3.3 3.9 1.5.7 2 1.2 2 1.9 0 1-.9 1.5-2 1.5a7.2 7.2 0 0 1-3.5-.8l-.5-.2-.5 3.1a11.5 11.5 0 0 0 4.2.8c4 0 6.6-1.9 6.7-5 0-1.6-1-2.9-3.1-3.9-1.3-.6-2.1-1-2.1-1.7 0-.6.7-1.2 2-1.2a6.5 6.5 0 0 1 2.7.5l.3.1.5-3ZM61 7h-2.8c-.9 0-1.5.2-1.9 1.2l-5.4 12.8h4l.8-2.3h4.8l.5 2.3h3.6L61 7Zm-3.5 8.9 2-5.4 1.2 5.4h-3.2ZM28.7 7l-3.6 9.6-.4-2c-.7-2.2-2.8-4.6-5.2-5.7l3.3 12h4l6-14h-3.9Z"/><path fill="#F7B600" d="M24.4 7H18c-.2 0-.4 0-.5.2-.2.1-.2.3-.2.5l.1.2c5 1.2 8.4 4.2 9.8 7.8L25.8 8c-.2-.8-.8-1-1.4-1Z"/></svg>',
+  ),
+  Mastercard: svgDataUri(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="32" viewBox="0 0 96 32"><rect width="96" height="32" rx="8" fill="#111111"/><circle cx="39" cy="16" r="8" fill="#EB001B"/><circle cx="49" cy="16" r="8" fill="#F79E1B"/><path fill="#FF5F00" d="M44 9.8a10 10 0 0 0 0 12.4 10 10 0 0 0 0-12.4Z"/></svg>',
+  ),
+  'American Express': svgDataUri(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="32" viewBox="0 0 96 32"><rect width="96" height="32" rx="8" fill="#2A8DBF"/><path fill="#fff" d="M19 21V11h16v2h-6v2h6v2h-6v2h6v2H19Zm18 0 4.2-10h4L49 21h-3.6l-.7-1.8h-4.1L40 21h-3Zm6.9-4.3-1.2-3.2-1.2 3.2h2.4ZM50 21V11h4.2l2.7 5 2.7-5H64v10h-3v-6.2L58 20h-2.2l-3-5.1V21h-2.8Zm15 0V11h11v2h-8v1.8h7.8v2H68v2h8v2H65Z"/></svg>',
+  ),
+  Discover: svgDataUri(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="32" viewBox="0 0 96 32"><rect width="96" height="32" rx="8" fill="#fff"/><rect x=".5" y=".5" width="95" height="31" rx="7.5" fill="none" stroke="rgba(17,17,17,.12)"/><path fill="#222" d="M18 21V11h4.8c3.7 0 5.9 1.9 5.9 5s-2.2 5-5.9 5H18Zm3-2.4h1.7c1.9 0 3-1 3-2.6s-1.1-2.6-3-2.6H21v5.2ZM30 21V11h3v10h-3Zm4.8-1.3 1.1-2a6.8 6.8 0 0 0 3.3.9c1.2 0 1.7-.3 1.7-.8 0-1.7-5.9-.5-5.9-4.1 0-1.9 1.6-3.5 4.7-3.5 1.4 0 2.9.3 4 .8l-1 2.1a6.4 6.4 0 0 0-3-.7c-1.2 0-1.7.4-1.7.9 0 1.6 5.9.4 5.9 4 0 1.8-1.6 3.4-4.7 3.4-1.8 0-3.5-.4-4.4-1Zm14.8 1.5c-3.2 0-5.6-2.2-5.6-5.2s2.4-5.2 5.6-5.2c1.9 0 3.5.7 4.5 2l-1.9 1.7c-.6-.8-1.4-1.2-2.4-1.2-1.6 0-2.7 1.1-2.7 2.7s1.1 2.7 2.7 2.7c1 0 1.8-.4 2.4-1.2l1.9 1.7c-1 1.3-2.6 2-4.5 2Zm10.8 0c-3.3 0-5.7-2.2-5.7-5.2s2.4-5.2 5.7-5.2 5.7 2.2 5.7 5.2-2.4 5.2-5.7 5.2Zm0-2.5c1.5 0 2.7-1.1 2.7-2.7s-1.2-2.7-2.7-2.7-2.7 1.1-2.7 2.7 1.2 2.7 2.7 2.7Z"/><path fill="#F58220" d="M71 18.8c4.5 0 8.6-1.6 11.7-4.2-2.5-2.2-6.1-3.6-10-3.6-4.5 0-8.6 1.6-11.7 4.2 2.5 2.2 6.1 3.6 10 3.6Z"/></svg>',
+  ),
+}
+
+const paymentMethodSummaryLabel = computed(() => {
+  if (selectedPaymentMethod.value === 'wire') {
+    return paymentMethodCards.find((method) => method.id === 'wire')?.label || 'Transferencia / wire'
+  }
+
+  const persistedBrand =
+    normalizeCardBrand(selectedReservation.value?.payment_order?.brand) ||
+    normalizeCardBrand(selectedReservation.value?.payment_order?.card_brand) ||
+    normalizeCardBrand(selectedReservation.value?.payment_brand) ||
+    normalizeCardBrand(selectedReservation.value?.card_brand)
+
+  const detectedBrand = normalizeCardBrand(paymentCardBrand.value)
+  const brandLabel = detectedBrand || persistedBrand
+
+  if (brandLabel) return brandLabel
+
+  return paymentMethodCards.find((method) => method.id === selectedPaymentMethod.value)?.label
+})
+
+const paymentCardVisualLabel = computed(() => {
+  if (selectedPaymentMethod.value !== 'card') return ''
+
+  const persistedBrand =
+    normalizeCardBrand(selectedReservation.value?.payment_order?.brand) ||
+    normalizeCardBrand(selectedReservation.value?.payment_order?.card_brand) ||
+    normalizeCardBrand(selectedReservation.value?.payment_brand) ||
+    normalizeCardBrand(selectedReservation.value?.card_brand)
+
+  return normalizeCardBrand(paymentCardBrand.value) || persistedBrand || 'Tarjeta'
+})
+
+const paymentCardVisualLogo = computed(() => CARD_BRAND_LOGOS[paymentCardVisualLabel.value] || '')
+
 const accountAccessCopy = computed(() => {
   const access = auth.access || {}
   const subscription = access.subscription || access.membership || {}
@@ -861,6 +933,10 @@ async function ensureStripePaymentElement(publishableKeyOverride = '') {
     const handleStripeFieldChange = (field) => (event) => {
       fieldState[field] = Boolean(event?.complete)
 
+      if (field === 'number') {
+        paymentCardBrand.value = normalizeCardBrand(event?.brand)
+      }
+
       if (event?.empty && !event?.error) {
         paymentInlineError.value = ''
       } else {
@@ -902,6 +978,7 @@ function destroyStripePaymentElement() {
   stripeClient = null
   stripeIntentSecret = ''
   stripePublishableKey = ''
+  paymentCardBrand.value = ''
   paymentCardComplete.value = false
   paymentElementReady.value = false
   paymentElementLoading.value = false
@@ -1879,6 +1956,7 @@ async function handleContractConfirm(contractPayload = {}) {
 
 async function handlePaymentSubmit() {
   const flightRequestId = flightRequestContextId.value
+  const reservationId = reservationContextId.value
 
   if (!flightRequestId) {
     paymentInlineError.value = 'No encontramos la reserva para iniciar el pago.'
@@ -1990,7 +2068,9 @@ async function handlePaymentSubmit() {
     paymentLastReference.value = result.paymentIntent?.id || paymentLastReference.value
 
     mergeReservationUpdate({
-      id: flightRequestId,
+      id: reservationId || flightRequestId,
+      flight_request_id:
+        resolveEntityIdentifier(selectedReservation.value?.flight_request_id) || flightRequestId,
       status:
         result.paymentIntent?.status === 'succeeded' ? 'payment_confirmed' : 'payment_pending',
       workflow_status:
@@ -2000,6 +2080,82 @@ async function handlePaymentSubmit() {
     })
 
     if (result.paymentIntent?.status === 'succeeded') {
+      let persistedConfirmedReservation = null
+
+      try {
+        persistedConfirmedReservation = await markClientTripPaymentConfirmed(
+          reservationId || flightRequestId,
+          {
+            reservation_id: reservationId,
+            flight_request_id: flightRequestId,
+            payment_intent_id: result.paymentIntent?.id || '',
+            brand: normalizeCardBrand(paymentCardBrand.value),
+          },
+          { timeoutMs: 30000 },
+        )
+
+        if (typeof console !== 'undefined') {
+          console.log('[payment-confirmed-sync] Backend confirmo el pago', {
+            reservation_id: reservationId || '',
+            flight_request_id: flightRequestId || '',
+            payment_intent_id: result.paymentIntent?.id || '',
+            card_brand: normalizeCardBrand(paymentCardBrand.value),
+            persisted_reservation: persistedConfirmedReservation,
+          })
+        }
+      } catch (persistError) {
+        if (typeof console !== 'undefined') {
+          console.error('[payment-confirmed-sync] No se pudo guardar el pago confirmado en backend', {
+            reservation_id: reservationId || '',
+            flight_request_id: flightRequestId || '',
+            payment_intent_id: result.paymentIntent?.id || '',
+            card_brand: normalizeCardBrand(paymentCardBrand.value),
+            error: persistError,
+          })
+        }
+
+        ui.pushToast({
+          tone: 'warning',
+          title: 'Pago confirmado, sincronizacion pendiente',
+          message:
+            persistError?.message ||
+            'Stripe confirmo el cargo, pero el backend todavia no guardo el nuevo estado del pago.',
+        })
+      }
+
+      const confirmedPaymentReservation = {
+        ...(selectedReservation.value || {}),
+        ...(persistedConfirmedReservation || {}),
+        id: reservationId || resolveEntityIdentifier(selectedReservation.value?.id) || flightRequestId,
+        flight_request_id:
+          resolveEntityIdentifier(
+            persistedConfirmedReservation?.flight_request_id ||
+              selectedReservation.value?.flight_request_id,
+          ) || flightRequestId,
+        is_reservation: true,
+        status: 'payment_confirmed',
+        workflow_status: 'payment_confirmed',
+        contract_status: selectedReservation.value?.contract_status || 'signed',
+        payment_status: 'Pagado',
+        payment_order: {
+          ...(selectedReservation.value?.payment_order || {}),
+          status: 'paid',
+          payment_intent_id: result.paymentIntent?.id || '',
+          brand: normalizeCardBrand(paymentCardBrand.value),
+        },
+        payment_brand: normalizeCardBrand(paymentCardBrand.value),
+        updated_at: new Date().toISOString(),
+      }
+
+      mergeReservationUpdate(confirmedPaymentReservation)
+
+      try {
+        await refreshReservations({ silent: true })
+      } finally {
+        // Si el webhook/backend tarda unos segundos, mantenemos la vista del cliente consistente.
+        mergeReservationUpdate(confirmedPaymentReservation)
+      }
+
       try {
         await sendPaymentInvoiceNotification({
           reservationId: flightRequestId,
@@ -2019,9 +2175,9 @@ async function handlePaymentSubmit() {
       ui.pushToast({
         tone: 'success',
         title: 'Pago confirmado',
-        message: 'La tarjeta fue autorizada y Stripe ya marco la operacion como exitosa.',
+        message: 'La tarjeta fue autorizada pago exitoso.',
       })
-      go('reserva-confirmada', flightRequestId)
+      go('viajes', confirmedPaymentReservation.id)
       return
     }
 
@@ -3071,13 +3227,15 @@ watch(
                     <label class="payment-card-field payment-card-field--full payment-card-field--dark">
                       <span>Numero de tarjeta</span>
                       <div class="payment-card-field__brands" aria-hidden="true">
-                        <span class="brand-chip brand-chip--visa">VISA</span>
-                        <span class="brand-chip brand-chip--mc">
-                          <i></i>
-                          <i></i>
+                        <span class="brand-chip brand-chip--detected">
+                          <img
+                            v-if="paymentCardVisualLogo"
+                            :src="paymentCardVisualLogo"
+                            :alt="paymentCardVisualLabel"
+                            class="brand-chip__logo"
+                          />
+                          {{ paymentCardVisualLabel }}
                         </span>
-                        <span class="brand-chip brand-chip--amex">AMEX</span>
-                        <span class="brand-chip brand-chip--discover">DISCOVER</span>
                       </div>
                       <div
                         v-if="paymentElementLoading"
@@ -3320,9 +3478,7 @@ watch(
               </p>
               <p>
                 <span>Metodo seleccionado</span>
-                <strong>{{
-                  paymentMethodCards.find((method) => method.id === selectedPaymentMethod)?.label
-                }}</strong>
+                <strong>{{ paymentMethodSummaryLabel }}</strong>
               </p>
             </div>
 
@@ -4710,6 +4866,10 @@ button {
 
 .payment-card-field--full {
   grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: 1.25rem;
+  row-gap: 0.95rem;
 }
 
 .payment-card-field span {
@@ -4723,12 +4883,10 @@ button {
 }
 
 .payment-card-field__brands {
-  position: absolute;
-  top: 1.2rem;
-  right: 1.3rem;
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
+  justify-self: end;
 }
 
 .payment-card-field__security {
@@ -4768,6 +4926,10 @@ button {
   width: 100%;
   cursor: text;
   overflow: hidden;
+}
+
+.payment-card-field--full .payment-element-shell {
+  grid-column: 1 / -1;
 }
 
 .payment-element-shell--dark {
@@ -4875,43 +5037,23 @@ button {
   letter-spacing: 0.04em;
 }
 
-.brand-chip--visa {
-  background: #1a4fb8;
-  color: #ffffff;
+.brand-chip--detected {
+  gap: 0.45rem;
+  min-width: 7.2rem;
+  min-height: 2.2rem;
+  padding: 0 0.95rem;
+  border-radius: 14px;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  color: #111111;
+  background: linear-gradient(135deg, #f8f4eb 0%, #efe4c9 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
 }
 
-.brand-chip--amex {
-  background: #2a8dbf;
-  color: #ffffff;
-}
-
-.brand-chip--mc {
-  position: relative;
-  min-width: 2.2rem;
-  background: #111111;
-}
-
-.brand-chip--mc i {
-  width: 0.78rem;
-  height: 0.78rem;
-  border-radius: 999px;
-}
-
-.brand-chip--mc i:first-child {
-  background: #ea001b;
-  transform: translateX(0.12rem);
-}
-
-.brand-chip--mc i:last-child {
-  background: #ff9f1c;
-  transform: translateX(-0.12rem);
-  opacity: 0.88;
-}
-
-.brand-chip--discover {
-  background: #ffffff;
-  color: #323232;
-  border: 1px solid rgba(17, 17, 17, 0.12);
+.brand-chip__logo {
+  width: auto;
+  height: 1.15rem;
+  display: block;
+  flex: 0 0 auto;
 }
 
 .payment-summary-card {

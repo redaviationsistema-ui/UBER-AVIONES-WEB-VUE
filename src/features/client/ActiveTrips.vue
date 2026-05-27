@@ -229,9 +229,17 @@ function workflowSupportLines(reservation = {}) {
   if (stateId === 'contract_pending' || stateId === 'contract_signed') {
     lines.push('📄 Contrato en gestion')
   } else if (stateId === 'payment_pending' || stateId === 'payment_confirmed') {
-    lines.push(`💳 ${reservation.payment_status || 'Pago en proceso'}`)
+    lines.push(
+      `💳 ${
+        stateId === 'payment_confirmed' ? 'Pago confirmado' : reservation.payment_status || 'Pago en proceso'
+      }`,
+    )
   } else if (stateId === 'flight_confirmed' || stateId === 'tracking_live') {
     lines.push('🛫 Operacion en liberacion final')
+  }
+
+  if (stateId === 'payment_confirmed') {
+    lines.push('🛫 Vuelo en liberacion operativa')
   }
 
   if (reservation.operator) {
@@ -248,7 +256,7 @@ function flightActionLabel(reservation = {}) {
 
   if (stateId === 'tracking_live') return '📡 Tracking en vivo'
   if (stateId === 'flight_confirmed') return '🛫 Vuelo confirmado'
-  if (stateId === 'payment_confirmed') return '🛫 Liberando vuelo'
+  if (stateId === 'payment_confirmed') return '🛫 Vuelo en liberacion operativa'
   if (stateId === 'payment_pending') return '🛫 Esperando validacion'
   return '🛫 Vuelo por confirmar'
 }
@@ -284,10 +292,6 @@ function paymentEnabled(reservation = {}) {
   return hasWorkflowIn(reservationWorkflowValue(reservation), [
     'contract_signed',
     'payment_pending',
-    'payment_confirmed',
-    'flight_confirmed',
-    'tracking_live',
-    'completed',
   ])
 }
 

@@ -498,6 +498,7 @@ async function loadDashboardKpis() {
   }
 }
 
+
 async function loadUsers() {
   try {
     const response = await requestWithCandidates([{ method: 'get', path: '/admin/users' }])
