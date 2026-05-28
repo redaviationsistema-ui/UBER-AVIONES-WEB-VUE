@@ -1,0 +1,422 @@
+.register-page {
+  min-height: 100vh;
+  padding: clamp(1.2rem, 4vw, 2rem);
+  background:
+    radial-gradient(circle at top left, rgba(214, 181, 101, 0.14), transparent 24%),
+    linear-gradient(180deg, #f3efe7 0%, #ece7de 100%);
+  color: #111111;
+}
+
+.register-page .register-shell {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.9fr) minmax(320px, 1fr);
+  gap: 1.5rem;
+  min-height: calc(100vh - 4rem);
+}
+
+.register-page .register-aside,
+.register-page .register-panel {
+  border: 1px solid rgba(16, 17, 20, 0.08);
+  border-radius: 28px;
+  padding: clamp(1.4rem, 4vw, 2rem);
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow:
+    0 24px 60px rgba(19, 27, 38, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.register-page .register-aside {
+  display: grid;
+  align-content: start;
+  gap: 1.6rem;
+}
+
+.register-page .brand {
+  color: #111111;
+  font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  font-size: 1.35rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.register-page .eyebrow {
+  margin: 0 0 0.65rem;
+  color: #8c6a1f;
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.register-page .aside-copy h1,
+.register-page .panel-head h2 {
+  margin: 0;
+  font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 0;
+}
+
+.register-page .aside-copy h1 {
+  max-width: 12ch;
+  font-size: clamp(2.4rem, 5vw, 4rem);
+  line-height: 0.95;
+}
+
+.register-page .aside-copy p,
+.register-page .register-links span,
+.register-page .panel-copy {
+  color: #4f4f4f;
+  line-height: 1.7;
+}
+
+.register-page .register-panel {
+  display: grid;
+  align-content: center;
+}
+
+.register-page .panel-head {
+  margin-bottom: 1.4rem;
+}
+
+.register-page .panel-head h2 {
+  font-size: clamp(2rem, 4vw, 2.8rem);
+  line-height: 0.98;
+}
+
+.register-page .register-progress {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.register-page .progress-dot {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: center;
+  color: #6b6254;
+  font-weight: 800;
+}
+
+.register-page .progress-dot small {
+  display: inline-grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border: 1px solid #ded5c6;
+  border-radius: 999px;
+  background: #ffffff;
+}
+
+.register-page .progress-dot.active small,
+.register-page .progress-dot.complete small {
+  border-color: #111111;
+  background: #111111;
+  color: #ffffff;
+}
+
+.register-page .register-form,
+.register-page .step-fields {
+  display: grid;
+  gap: 1rem;
+}
+
+.register-page .register-form label,
+.register-page .step-fields label {
+  display: grid;
+  gap: 0.45rem;
+  color: #111111;
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.register-page .register-form label small,
+.register-page .step-fields label small {
+  color: #6b6254;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.register-page .register-form input,
+.register-page .register-form select {
+  min-height: 3.4rem;
+  width: 100%;
+  border: 1px solid rgba(16, 17, 20, 0.12);
+  border-radius: 14px;
+  padding: 0 1rem;
+  color: #111111;
+  background: #ffffff;
+  font: inherit;
+}
+
+.register-page .form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.register-page .form-note {
+  margin: 0;
+  color: #6b5a3b;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.register-page .wide-field {
+  grid-column: 1 / -1;
+}
+
+.register-page .checkbox-field {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  min-height: 3.4rem;
+  border: 1px solid rgba(16, 17, 20, 0.12);
+  border-radius: 14px;
+  padding: 0 1rem;
+  background: #ffffff;
+}
+
+.register-page .checkbox-field input {
+  width: 1rem;
+  min-height: 1rem;
+  padding: 0;
+}
+
+.register-page .passenger-card {
+  display: grid;
+  gap: 0.85rem;
+  border: 1px solid rgba(16, 17, 20, 0.1);
+  border-radius: 8px;
+  padding: 1rem;
+  background: #ffffff;
+}
+
+.register-page .card-title-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.register-page .text-button {
+  border: 0;
+  background: transparent;
+  color: #8c6a1f;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.register-page .add-button {
+  justify-self: start;
+  min-width: 12rem;
+}
+
+.register-page .role-grid,
+.register-page .file-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.register-page .file-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.register-page .role-option,
+.register-page .file-card {
+  display: grid;
+  gap: 0.45rem;
+  min-height: 8rem;
+  border: 1px solid #ded5c6;
+  border-radius: 8px;
+  padding: 1rem;
+  background: #ffffff;
+  color: #111111;
+  text-align: left;
+  cursor: pointer;
+}
+
+.register-page .role-option.selected {
+  border-color: #111111;
+  background: #111111;
+  color: #ffffff;
+}
+
+.register-page .role-option span,
+.register-page .file-card strong,
+.register-page .client-preview strong {
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+.register-page .role-option small,
+.register-page .file-card span,
+.register-page .client-preview li {
+  color: inherit;
+  line-height: 1.45;
+  opacity: 0.78;
+}
+
+.register-page .file-card input {
+  min-height: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  font-size: 0.82rem;
+}
+
+.register-page .scan-button {
+  min-height: 3.45rem;
+  border: 1px solid #111111;
+  border-radius: 14px;
+  background: #111111;
+  color: #ffffff;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.register-page .scan-button:disabled {
+  cursor: progress;
+  opacity: 0.7;
+}
+
+.register-page .scan-results {
+  display: grid;
+  gap: 0.75rem;
+  border: 1px solid rgba(16, 17, 20, 0.1);
+  border-radius: 8px;
+  padding: 1rem;
+  background: #ffffff;
+}
+
+.register-page .scan-result-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.register-page .scan-message {
+  margin: 0;
+  color: #6b5a3b;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.register-page .client-preview {
+  display: grid;
+  gap: 0.65rem;
+  border: 1px solid rgba(140, 106, 31, 0.2);
+  border-radius: 8px;
+  padding: 1rem;
+  background: #fff8e5;
+}
+
+.register-page .client-preview h3,
+.register-page .client-preview p,
+.register-page .client-preview ul {
+  margin: 0;
+}
+
+.register-page .client-preview ul {
+  display: grid;
+  gap: 0.35rem;
+  padding-left: 1.1rem;
+}
+
+.register-page .primary-button,
+.register-page .secondary-button {
+  min-height: 3.45rem;
+  border: 0;
+  border-radius: 14px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.register-page .primary-button {
+  color: #101318;
+  background: linear-gradient(135deg, #f0c75c, #c8922d);
+}
+
+.register-page .secondary-button {
+  border: 1px solid #ded5c6;
+  color: #111111;
+  background: #ffffff;
+}
+
+.register-page .primary-button:disabled,
+.register-page .secondary-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.register-page .wizard-actions {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.75rem;
+}
+
+.register-page .wizard-actions .primary-button {
+  justify-self: end;
+  min-width: 12rem;
+}
+
+.register-page .error,
+.register-page .success {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.register-page .error {
+  color: #b42318;
+}
+
+.register-page .success {
+  color: #067647;
+}
+
+.register-page .register-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.register-page .register-links a {
+  color: #8c6a1f;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+@media (max-width: 980px) {
+  .register-page .register-shell,
+  .register-page .role-grid,
+  .register-page .file-grid,
+  .register-page .form-grid,
+  .register-page .scan-result-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .register-page .register-shell {
+    min-height: auto;
+  }
+}
+
+@media (max-width: 620px) {
+  .register-page {
+    padding: 0.75rem;
+  }
+
+  .register-page .register-aside,
+  .register-page .register-panel {
+    border-radius: 18px;
+  }
+
+  .register-page .wizard-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .register-page .wizard-actions .primary-button {
+    justify-self: stretch;
+    min-width: 0;
+  }
+}

@@ -1,49 +1,192 @@
 <script setup>
 import { computed, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import RegisterBillingStep from '../features/register/RegisterBillingStep.vue'
+import RegisterClientStep from '../features/register/RegisterClientStep.vue'
+import RegisterCredentialsStep from '../features/register/RegisterCredentialsStep.vue'
+import RegisterIneStep from '../features/register/RegisterIneStep.vue'
+import RegisterPassengersStep from '../features/register/RegisterPassengersStep.vue'
+import RegisterProgress from '../features/register/RegisterProgress.vue'
+import RegisterRoleStep from '../features/register/RegisterRoleStep.vue'
+import {
+  allowedRoles,
+  registrationSteps,
+  roleLabels,
+} from '../features/register/registrationSteps'
+import '../features/register/registerWizard.css'
 import { useAuthStore } from '../stores/auth'
 
 const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
 
-const roleLabels = {
-  client: 'Cliente',
-  provider: 'Operador',
-  sobrecargo: 'Sobrecargo',
-}
+const currentStep = ref(0)
+const errorMessage = ref('')
+const successMessage = ref('')
+let passengerId = 1
 
-const allowedRoles = ['client', 'provider', 'sobrecargo']
+function createPassenger() {
+  const passenger = {
+    id: passengerId,
+    name: '',
+    birthDate: '',
+    nationality: '',
+    documentType: 'INE',
+    documentNumber: '',
+  }
+  passengerId += 1
+  return passenger
+}
 
 const form = reactive({
   name: '',
   email: '',
+  phone: '',
+  birthDate: '',
+  nationality: '',
   password: '',
   passwordConfirmation: '',
   role:
     typeof route.query.role === 'string' && allowedRoles.includes(route.query.role)
       ? route.query.role
       : 'client',
+  documentType: 'INE',
+  documentNumber: '',
+  documentExpiration: '',
+  identityValidationRequired: true,
+  ineCurp: '',
+  ineCic: '',
+  ineOcr: '',
+  ineScanRaw: '',
+  ineScanStatus: '',
+  ineFront: null,
+  ineFrontName: '',
+  ineBack: null,
+  ineBackName: '',
+  passengers: [createPassenger()],
+  billingRfc: '',
+  billingName: '',
+  billingRegime: '',
+  billingPostalCode: '',
+  billingCfdiUse: '',
 })
 
-const errorMessage = ref('')
-const successMessage = ref('')
-
+const selectedStep = computed(() => registrationSteps[currentStep.value])
 const selectedRoleLabel = computed(() => roleLabels[form.role] || 'Cliente')
+const isLastStep = computed(() => currentStep.value === registrationSteps.length - 1)
 const loginRoute = computed(() =>
   form.role === 'client'
     ? { name: 'login-cliente' }
     : { name: 'login', query: { role: form.role } },
 )
 
-async function submit() {
-  errorMessage.value = ''
-  successMessage.value = ''
+function setFile(field, event) {
+  const file = event.target.files?.[0] || null
+  form[field] = file
+  form[`${field}Name`] = file?.name || ''
+  form.ineScanStatus = ''
+  form.ineScanRaw = ''
+}
 
-  if (form.password !== form.passwordConfirmation) {
-    errorMessage.value = 'Las contraseñas no coinciden.'
-    return
+function validateCurrentStep() {
+  errorMessage.value = ''
+
+  if (currentStep.value === 0) {
+    if (!form.documentType || !form.documentNumber.trim() || !form.documentExpiration) {
+      errorMessage.value = 'Completa identificacion, numero de documento y vigencia.'
+      return false
+    }
+
+    if (form.identityValidationRequired && (!form.ineFront || !form.ineBack)) {
+      errorMessage.value = 'Sube la imagen de frente y reverso del documento para validar identidad.'
+      return false
+    }
   }
+
+  if (currentStep.value === 1) {
+    if (!form.name.trim() || !form.email.trim() || !form.phone.trim()) {
+      errorMessage.value = 'Completa nombre, correo y telefono del cliente.'
+      return false
+    }
+
+    if (!form.birthDate || !form.nationality.trim()) {
+      errorMessage.value = 'Completa fecha de nacimiento y nacionalidad.'
+      return false
+    }
+  }
+
+  if (currentStep.value === 2 && !form.passengers.every(isValidPassenger)) {
+    errorMessage.value = 'Completa los datos de cada pasajero.'
+    return false
+  }
+
+  if (currentStep.value === 3 && !isValidBilling()) {
+    errorMessage.value = 'Completa RFC, razon social, regimen, codigo postal fiscal y uso CFDI.'
+    return false
+  }
+
+  if (currentStep.value === 4 && !allowedRoles.includes(form.role)) {
+    errorMessage.value = 'Selecciona un rol valido para la cuenta.'
+    return false
+  }
+
+  if (currentStep.value === 5) {
+    if (form.password.length < 8) {
+      errorMessage.value = 'La contrasena debe tener al menos 8 caracteres.'
+      return false
+    }
+
+    if (form.password !== form.passwordConfirmation) {
+      errorMessage.value = 'Las contrasenas no coinciden.'
+      return false
+    }
+  }
+
+  return true
+}
+
+function isValidPassenger(passenger) {
+  return (
+    passenger.name.trim() &&
+    passenger.birthDate &&
+    passenger.nationality.trim() &&
+    passenger.documentType &&
+    passenger.documentNumber.trim()
+  )
+}
+
+function isValidBilling() {
+  return (
+    form.billingRfc.trim() &&
+    form.billingName.trim() &&
+    form.billingRegime &&
+    form.billingPostalCode.trim() &&
+    form.billingCfdiUse
+  )
+}
+
+function addPassenger() {
+  form.passengers.push(createPassenger())
+}
+
+function removePassenger(index) {
+  form.passengers.splice(index, 1)
+}
+
+function nextStep() {
+  if (!validateCurrentStep()) return
+  currentStep.value = Math.min(currentStep.value + 1, registrationSteps.length - 1)
+}
+
+function previousStep() {
+  errorMessage.value = ''
+  currentStep.value = Math.max(currentStep.value - 1, 0)
+}
+
+async function submit() {
+  if (!validateCurrentStep()) return
+
+  successMessage.value = ''
 
   try {
     await auth.register({
@@ -54,8 +197,12 @@ async function submit() {
       role: form.role,
     })
 
-    successMessage.value = 'Usuario creado correctamente. Redirigiendo a tu cuenta...'
-    router.push(auth.dashboardPath)
+    successMessage.value =
+      form.role === 'client'
+        ? 'Usuario creado. Entrando al cotizador de vuelos de prueba...'
+        : 'Usuario creado correctamente. Redirigiendo a tu cuenta...'
+
+    router.push(form.role === 'client' ? '/cliente/reservar' : auth.dashboardPath)
   } catch (error) {
     errorMessage.value = error.message || 'No fue posible crear el usuario.'
   }
@@ -66,242 +213,74 @@ async function submit() {
   <main class="register-page">
     <section class="register-shell">
       <aside class="register-aside">
-        <RouterLink to="/" class="brand">✈️ Sky Group</RouterLink>
+        <RouterLink to="/" class="brand">Sky Group</RouterLink>
 
         <div class="aside-copy">
           <p class="eyebrow">Nuevo usuario</p>
-          <h1>Crea una cuenta para entrar al ecosistema operativo.</h1>
+          <h1>Crea una cuenta por pasos.</h1>
           <p>
-            Registra un nuevo usuario con su correo, contraseña y rol operativo para dirigirlo
-            después a la vista correcta.
+            Escanea el documento, revisa los datos editables, registra pasajeros, facturacion y
+            credenciales. Si el rol es cliente, entrara al cotizador y a la membresia de USD $115.
           </p>
         </div>
+
+        <RegisterProgress :steps="registrationSteps" :current-step="currentStep" />
       </aside>
 
       <section class="register-panel">
         <div class="panel-head">
-          <p class="eyebrow">Alta de cuenta</p>
-          <h2>Nuevo {{ selectedRoleLabel }}</h2>
+          <p class="eyebrow">{{ selectedStep.eyebrow }} - Alta de cuenta</p>
+          <h2>{{ selectedStep.title }}</h2>
+          <p class="panel-copy">{{ selectedStep.description }}</p>
         </div>
 
         <form class="register-form" @submit.prevent="submit">
-          <label>
-            Nombre completo
-            <input v-model="form.name" type="text" placeholder="Nombre completo" required />
-          </label>
+          <RegisterIneStep v-if="currentStep === 0" :form="form" @file-selected="setFile" />
+          <RegisterClientStep v-else-if="currentStep === 1" :form="form" />
+          <RegisterPassengersStep
+            v-else-if="currentStep === 2"
+            :passengers="form.passengers"
+            @add-passenger="addPassenger"
+            @remove-passenger="removePassenger"
+          />
+          <RegisterBillingStep v-else-if="currentStep === 3" :form="form" />
+          <RegisterRoleStep v-else-if="currentStep === 4" :form="form" />
+          <RegisterCredentialsStep
+            v-else
+            :form="form"
+            :loading="auth.loading"
+          />
 
-          <label>
-            Correo electrónico
-            <input v-model="form.email" type="email" placeholder="correo@empresa.com" required />
-          </label>
+          <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
+          <p v-if="successMessage" class="success">{{ successMessage }}</p>
 
-          <label>
-            Rol
-            <select v-model="form.role">
-              <option value="client">Cliente</option>
-              <option value="provider">Operador</option>
-              <option value="sobrecargo">Sobrecargo</option>
-            </select>
-          </label>
+          <div class="wizard-actions">
+            <button
+              type="button"
+              class="secondary-button"
+              :disabled="currentStep === 0 || auth.loading"
+              @click="previousStep"
+            >
+              Regresar
+            </button>
 
-          <label>
-            Contraseña
-            <input
-              v-model="form.password"
-              type="password"
-              placeholder="Crea una contraseña"
-              required
-            />
-          </label>
-
-          <label>
-            Confirmar contraseña
-            <input
-              v-model="form.passwordConfirmation"
-              type="password"
-              placeholder="Repite la contraseña"
-              required
-            />
-          </label>
-
-          <button type="submit" class="primary-button" :disabled="auth.loading">
-            {{ auth.loading ? 'Creando usuario...' : 'Crear usuario' }}
-          </button>
-
-          <p v-if="errorMessage" class="error">
-            {{ errorMessage }}
-          </p>
-
-          <p v-if="successMessage" class="success">
-            {{ successMessage }}
-          </p>
+            <button
+              v-if="!isLastStep"
+              type="button"
+              class="primary-button"
+              @click="nextStep"
+            >
+              Continuar
+            </button>
+          </div>
 
           <div class="register-links">
-            <span>¿Ya tienes cuenta?</span>
-            <RouterLink :to="loginRoute">
-              Iniciar sesión
-            </RouterLink>
+            <span>Rol seleccionado: {{ selectedRoleLabel }}.</span>
+            <span>Ya tienes cuenta?</span>
+            <RouterLink :to="loginRoute">Iniciar sesion</RouterLink>
           </div>
         </form>
       </section>
     </section>
   </main>
 </template>
-
-<style scoped>
-.register-page {
-  min-height: 100vh;
-  padding: clamp(1.2rem, 4vw, 2rem);
-  background:
-    radial-gradient(circle at top left, rgba(214, 181, 101, 0.14), transparent 24%),
-    linear-gradient(180deg, #f3efe7 0%, #ece7de 100%);
-  color: #111111;
-}
-
-.register-shell {
-  display: grid;
-  grid-template-columns: minmax(320px, 0.9fr) minmax(320px, 1fr);
-  gap: 1.5rem;
-  min-height: calc(100vh - 4rem);
-}
-
-.register-aside,
-.register-panel {
-  border: 1px solid rgba(16, 17, 20, 0.08);
-  border-radius: 28px;
-  padding: clamp(1.4rem, 4vw, 2rem);
-  background: rgba(255, 255, 255, 0.78);
-  box-shadow:
-    0 24px 60px rgba(19, 27, 38, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.72);
-}
-
-.register-aside {
-  display: grid;
-  align-content: start;
-  gap: 1.6rem;
-}
-
-.brand {
-  color: #111111;
-  font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif;
-  font-size: 1.35rem;
-  font-weight: 800;
-  text-decoration: none;
-}
-
-.eyebrow {
-  margin: 0 0 0.65rem;
-  color: #8c6a1f;
-  font-size: 0.8rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.aside-copy h1,
-.panel-head h2 {
-  margin: 0;
-  font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif;
-  letter-spacing: -0.05em;
-}
-
-.aside-copy h1 {
-  max-width: 11ch;
-  font-size: clamp(2.4rem, 5vw, 4rem);
-  line-height: 0.95;
-}
-
-.aside-copy p,
-.register-links span {
-  color: #4f4f4f;
-  line-height: 1.7;
-}
-
-.register-panel {
-  display: grid;
-  align-content: center;
-}
-
-.panel-head {
-  margin-bottom: 1.4rem;
-}
-
-.panel-head h2 {
-  font-size: clamp(2rem, 4vw, 2.8rem);
-  line-height: 0.98;
-}
-
-.register-form {
-  display: grid;
-  gap: 1rem;
-}
-
-.register-form label {
-  display: grid;
-  gap: 0.45rem;
-  color: #111111;
-  font-size: 0.92rem;
-  font-weight: 700;
-}
-
-.register-form input,
-.register-form select {
-  min-height: 3.4rem;
-  border: 1px solid rgba(16, 17, 20, 0.12);
-  border-radius: 14px;
-  padding: 0 1rem;
-  color: #111111;
-  background: #ffffff;
-}
-
-.primary-button {
-  min-height: 3.45rem;
-  border: 0;
-  border-radius: 14px;
-  color: #101318;
-  background: linear-gradient(135deg, #f0c75c, #c8922d);
-  font-weight: 800;
-  cursor: pointer;
-}
-
-.primary-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.error,
-.success {
-  margin: 0;
-  font-size: 0.92rem;
-  font-weight: 700;
-}
-
-.error {
-  color: #b42318;
-}
-
-.success {
-  color: #067647;
-}
-
-.register-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  align-items: center;
-}
-
-.register-links a {
-  color: #8c6a1f;
-  font-weight: 800;
-  text-decoration: none;
-}
-
-@media (max-width: 980px) {
-  .register-shell {
-    grid-template-columns: 1fr;
-    min-height: auto;
-  }
-}
-</style>
