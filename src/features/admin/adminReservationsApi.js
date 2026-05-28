@@ -23,6 +23,8 @@ const ADMIN_REQUESTS_PATH_CANDIDATES = [
   normalizedConfiguredAdminRequestsPath,
 ].filter(Boolean)
 
+const ADMIN_RELEASES_PATH_CANDIDATES = ['/admin/releases']
+
 const ADMIN_UPDATE_PATH_CANDIDATES = [
   '/admin/requests/:id/workflow',
   normalizedConfiguredWorkflowPath,
@@ -234,6 +236,20 @@ export async function getAdminReservations(options = {}) {
   )
 
   return pickCollection(response, ['operations', 'operaciones', 'requests', 'solicitudes', 'data']).map(
+    buildAdminReservationRecord,
+  )
+}
+
+export async function getAdminReleases(options = {}) {
+  const response = await requestWithCandidates(
+    ADMIN_RELEASES_PATH_CANDIDATES.map((path) => ({
+      method: 'get',
+      path,
+      timeoutMs: options.timeoutMs,
+    })),
+  )
+
+  return pickCollection(response, ['releases', 'requests', 'solicitudes', 'data']).map(
     buildAdminReservationRecord,
   )
 }

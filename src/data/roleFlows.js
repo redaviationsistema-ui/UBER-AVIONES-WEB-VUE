@@ -29,7 +29,7 @@ export const roleSections = {
     { id: 'aeronaves', label: 'Aeronaves', icon: 'jet' },
     { id: 'costos', label: 'Costos base', icon: 'wallet' },
     { id: 'disponibilidad', label: 'Disponibilidad', icon: 'calendar' },
-    { id: 'solicitudes', label: 'Solicitudes Red Aviation', icon: 'clipboard' },
+    { id: 'solicitudes', label: 'Solicitudes ', icon: 'clipboard' },
     { id: 'release-provider', label: 'Liberacion', icon: 'clipboard' },
     { id: 'operaciones', label: 'Operaciones', icon: 'jet' },
   /*{ id: 'tripulacion', label: 'Tripulacion', icon: 'crew' },*/ 
@@ -59,15 +59,14 @@ export const roleSections = {
     { id: 'operadores', label: 'Operadores', icon: 'clipboard' },
     { id: 'sobrecargos', label: 'Sobrecargos', icon: 'crew' },
     { id: 'reservas', label: 'Solicitudes / Reservas', icon: 'reservations' },
+    { id: 'liberaciones', label: 'Liberaciones', icon: 'clipboard' },
     { id: 'pricing', label: 'Pricing y margenes', icon: 'chart' },
-    { id: 'paquetes', label: 'Paquetes', icon: 'wallet' },
     { id: 'suscripciones', label: 'Suscripciones', icon: 'wallet' },
     { id: 'contratos', label: 'Contratos', icon: 'link' },
     { id: 'pagos', label: 'Pagos / Finanzas', icon: 'wallet' },
     { id: 'incidencias', label: 'Incidencias', icon: 'alert' },
     { id: 'documentos', label: 'Documentos', icon: 'clipboard' },
     { id: 'notificaciones', label: 'Notificaciones', icon: 'alert' },
-    { id: 'analytics', label: 'Analytics', icon: 'chart' },
     { id: 'configuracion', label: 'Configuracion', icon: 'grid' },
   ],
 }
@@ -97,7 +96,7 @@ export const roleSectionGroups = {
     { label: 'Comercial', ids: ['clientes', 'reservas', 'pricing', 'paquetes', 'suscripciones', 'pagos'] },
     {
       label: 'Operacion',
-      ids: ['proveedores', 'aeronaves', 'operadores', 'sobrecargos', 'contratos', 'documentos', 'incidencias', 'notificaciones'],
+      ids: ['proveedores', 'aeronaves', 'operadores', 'sobrecargos', 'liberaciones', 'contratos', 'documentos', 'incidencias', 'notificaciones'],
     },
   ],
 }

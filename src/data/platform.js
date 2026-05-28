@@ -1,8 +1,8 @@
 export const roles = [
-  { id: 'client', label: 'Cliente', area: 'Experiencia Red Aviation', tone: 'Privado' },
+  { id: 'client', label: 'Cliente', area: 'Experiencia ', tone: 'Privado' },
   { id: 'operator', label: 'Proveedor', area: 'Panel de flota y disponibilidad', tone: 'Blindado' },
   { id: 'crew', label: 'Sobrecargo', area: 'Portal operativo', tone: 'Operacional' },
-  { id: 'admin', label: 'Admin', area: 'Control Red Aviation', tone: 'Ejecutivo' },
+  { id: 'admin', label: 'Admin', area: 'Control ', tone: 'Ejecutivo' },
 ]
 
 export const packages = [

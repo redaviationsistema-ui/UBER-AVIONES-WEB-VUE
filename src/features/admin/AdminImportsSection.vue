@@ -33,7 +33,7 @@ const tableMetadata = {
   login_attempts: 'Intentos de acceso.',
   notifications: 'Notificaciones del sistema.',
   operation_timeline: 'Linea de tiempo operativa.',
-  operations: 'Operaciones activas de Red Aviation.',
+  operations: 'Operaciones activas .',
   payment_methods: 'Metodos de pago disponibles.',
   payments: 'Pagos de clientes.',
   payouts: 'Pagos a proveedores.',

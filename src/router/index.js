@@ -71,20 +71,7 @@ const router = createRouter({
     {
       path: '/acceso',
       name: 'acceso',
-      redirect: (to) => {
-        const role = normalizeAuthRole(typeof to.query.role === 'string' ? to.query.role : '')
-        const fallbackPath = resolveDashboardPathByRole(role || 'operator')
-        const redirect = sanitizePostLoginRedirect(to.query.redirect, fallbackPath)
-
-        if (role === 'client') {
-          return {
-            name: 'login-cliente',
-            query: to.query,
-          }
-        }
-
-        return redirect
-      },
+      redirect: '/',
     },
     {
       path: '/login',
@@ -96,11 +83,7 @@ const router = createRouter({
     {
       path: '/login-operacion',
       name: 'login',
-      redirect: (to) => {
-        const role = normalizeAuthRole(typeof to.query.role === 'string' ? to.query.role : '')
-        const fallbackPath = resolveDashboardPathByRole(role || 'operator')
-        return sanitizePostLoginRedirect(to.query.redirect, fallbackPath)
-      },
+      redirect: '/',
     },
     {
       path: '/registro',
@@ -228,7 +211,7 @@ router.beforeEach(async (to) => {
       }
     }
 
-    return true
+    return { name: 'home' }
   }
 
   if (!to.meta.role || !auth.user) {

@@ -2770,7 +2770,7 @@ async function requestReservation(aircraft = selectedAircraft.value) {
       matchedReservation?.id || refreshedReservations[0]?.id || createdFlightRequestId || ''
     ui.pushToast({
       tone: 'success',
-      title: 'Tu vuelo esta siendo confirmado por Red Aviation',
+      title: 'Tu vuelo esta siendo confirmado',
       message: 'Tu reserva ya entro al flujo comercial y operativo.',
     })
     go('reserva-confirmada', targetReservationId)

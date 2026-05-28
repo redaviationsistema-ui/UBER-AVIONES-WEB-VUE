@@ -1,9 +1,9 @@
-<script setup>
+import { defineComponent } from 'vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { requestWithCandidates, pickCollection, pickRecord } from '../../lib/backendCrud'
-import { resolveMediaUrl } from '../../lib/api'
-import { resolveProviderIdForUser } from '../../lib/providerContext'
+import { requestWithCandidates, pickCollection, pickRecord } from '../../../lib/backendCrud'
+import { api, resolveMediaUrl } from '../../../lib/api'
+import { resolveProviderIdForUser } from '../../../lib/providerContext'
 import {
   buildSharedFlowStepStates,
   getSharedWorkflowActionCopy,
@@ -14,34 +14,92 @@ import {
   resolveSharedWorkflowStatus,
   resolveWorkflowState,
   SHARED_WORKFLOW_STEPS,
-} from '../../utils/flightWorkflow'
-import { emitWorkflowSync, subscribeWorkflowSync } from '../../lib/workflowSync'
-import { deriveClientWorkflowStatus } from '../client/clientBookingApi'
-import OperatorCrewSection from './OperatorCrewSection.vue'
-import { useAuthStore } from '../../stores/auth'
-import { useUiStore } from '../../stores/ui'
+} from '../../../utils/flightWorkflow'
+import { emitWorkflowSync, subscribeWorkflowSync } from '../../../lib/workflowSync'
+import { deriveClientWorkflowStatus } from '../../client/clientBookingApi'
+import OperatorCrewSection from '../secciones/personal/OperatorCrewSection.vue'
+import { useAuthStore } from '../../../stores/auth'
+import { useUiStore } from '../../../stores/ui'
 
-const props = defineProps({
-  section: { type: String, required: true },
-})
-
+export default defineComponent({
+  name: 'OperatorPortal',
+  components: {
+    OperatorCrewSection,
+  },
+  props: {
+    section: { type: String, required: true },
+  },
+  setup(props) {
 const route = useRoute()
+
 const router = useRouter()
+
 const auth = useAuthStore()
+
 const ui = useUiStore()
 
 const loading = ref(false)
+
 const refreshingRequests = ref(false)
+
 const portalLoadSequence = ref(0)
+
 let portalLoadScheduled = false
+
 const OPERATOR_REQUESTS_POLL_INTERVAL_MS = 10000
+
 const OPERATOR_BOOT_TIMEOUT_MS = 45000
+
 const OPERATOR_SECTION_TIMEOUT_MS = 45000
+
 const OPERATOR_BACKGROUND_TIMEOUT_MS = 15000
+
+const PROVIDER_OPERATIONAL_RELEASE_AUTOSAVE_MS = 700
+
+const REQUEST_COLLECTION_KEYS = [
+  'requests',
+  'flight_requests',
+  'reservations',
+  'solicitudes',
+  'items',
+  'matches',
+  'data',
+]
+
+const REQUESTS_ROUTE_CANDIDATES = [
+  '/proveedor/mis-solicitudes',
+  '/proveedor/solicitudes',
+  '/operator/my-requests',
+  '/operator/requests',
+]
+
+const REQUEST_MUTATION_ROUTE_FAMILIES = {
+  proveedor: {
+    basePath: '/proveedor/solicitudes/:id',
+    workflowPath: '/proveedor/solicitudes/:id/workflow',
+    statusPath: '/proveedor/solicitudes/:id/status',
+    acceptPath: '/proveedor/solicitudes/:id/aceptar',
+    rejectPath: '/proveedor/solicitudes/:id/rechazar',
+  },
+  operator: {
+    basePath: '/operator/requests/:id',
+    workflowPath: '/operator/requests/:id/workflow',
+    statusPath: '/operator/requests/:id/status',
+    acceptPath: '/operator/requests/:id/accept',
+    rejectPath: '/operator/requests/:id/reject',
+  },
+}
+
 let requestsPollTimer = null
+
 let removeWorkflowSyncSubscription = null
+
+let providerOperationalReleaseAutosaveTimer = null
+
 const OPERATOR_FLOW_STEPS = SHARED_WORKFLOW_STEPS
+
 const companyId = ref(null)
+
 const settings = reactive({
   emailNotifications: false,
   paymentAlerts: false,
@@ -56,6 +114,7 @@ const availabilityStatusOptions = [
   'Reservado',
   'Pendiente de confirmacion',
 ]
+
 const operationStatusOptions = [
   'Confirmada',
   'En preparacion',
@@ -65,7 +124,9 @@ const operationStatusOptions = [
   'Con incidencia',
   'Cancelada',
 ]
+
 const incidentStatusOptions = ['Abierta', 'En revision', 'Resuelta', 'Cerrada']
+
 const incidentTypeOptions = [
   'Retraso',
   'Mantenimiento',
@@ -75,21 +136,37 @@ const incidentTypeOptions = [
   'Problema operativo',
   'Servicio al cliente',
 ]
+
 const crewRoleOptions = ['Sobrecargo', 'Piloto', 'Copiloto', 'Coordinador']
+
 const crewStateOptions = ['Disponible', 'Descanso', 'Asignado', 'No disponible', 'Suspendido']
+
 const defaultCrewBases = ['Toluca', 'CDMX', 'Monterrey', 'Cancun', 'Guadalajara', 'Internacional']
 
 const company = reactive(createEmptyCompany())
+
 const aircraft = ref([])
+
 const availability = ref([])
+
 const requests = ref([])
+
+const activeRequestsRouteFamily = ref('proveedor')
+
 const operations = ref([])
+
 const crew = ref([])
+
 const incidents = ref([])
+
 const payments = ref([])
+
 const history = ref([])
+
 const editingAircraftId = ref(null)
+
 const selectedAvailabilityCalendarAircraftId = ref('all')
+
 const availabilityWeekAnchor = ref(startOfAvailabilityWeek(new Date()))
 
 const companyForm = reactive({
@@ -150,6 +227,7 @@ const documentForm = reactive({
   expiresAt: '',
   dragActive: false,
 })
+
 const documentPreview = reactive({
   open: false,
   file: null,
@@ -217,34 +295,65 @@ const formSuccess = reactive({
 })
 
 const aircraftWizardOpen = ref(false)
+
 const aircraftWizardStep = ref(1)
+
 const aircraftWizardSubmitting = ref(false)
+
 const aircraftWizardReadOnly = ref(false)
+
 const editingCrewId = ref(null)
+
 const savingCrew = ref(false)
+
 const operationCrewDrafts = reactive({})
+
 const requestSearch = ref('')
+
 const requestStatusFilter = ref('all')
+
 const requestPriorityFilter = ref('all')
+
 const selectedRequestId = ref(null)
+
 const requestInternalCommentDraft = ref('')
+
 const archivedTrayOpen = ref(false)
+
 const requestStatusUpdate = reactive({
   requestId: null,
   action: '',
 })
+
 const savingProviderOperationalRelease = ref(false)
+
+const syncingProviderOperationalRelease = ref(false)
+
 const savingProviderOperationalIssue = ref(false)
+
 const providerOperationalReleaseFeedback = ref('')
+
 const providerOperationalReleaseForm = reactive(createEmptyProviderOperationalReleaseForm())
+
 const providerOperationalReleaseDirty = ref(false)
+
 const providerOperationalReleaseHydrating = ref(false)
+
 const providerOperationalReleaseLoadedRequestId = ref('')
+
+const providerOperationalReleaseAutosaveQueued = ref(false)
+
+const providerOperationalReleaseActiveStep = ref('aircraft')
+
+const providerOperationalIssueOpen = ref(false)
+
 const providerOperationalIssueForm = reactive({
   type: 'Aeronave no disponible',
   comment: '',
 })
+
 const requestsConnectionWarningShown = ref(false)
+
 const sectionLoadState = reactive({
   dashboard: false,
   empresa: false,
@@ -258,10 +367,15 @@ const sectionLoadState = reactive({
   disponibilidad: false,
   'release-provider': false,
 })
+
 const aircraftDecisionMode = ref('best_match')
+
 const aircraftFilterBase = ref('all')
+
 const aircraftFilterType = ref('all')
+
 const aircraftFilterSort = ref('compatibility')
+
 const aircraftWizardSteps = [
   { id: 1, label: 'General', description: 'Modelo, fabricante, matricula y base operativa.' },
   { id: 2, label: 'Operacion', description: 'Capacidad, cobertura y costos base.' },
@@ -269,6 +383,7 @@ const aircraftWizardSteps = [
   { id: 4, label: 'Documentacion', description: 'Seguro, vigencias y expediente tecnico.' },
   { id: 5, label: 'Revision', description: 'Resumen final antes de publicar o revisar.' },
 ]
+
 const aircraftCategoryOptions = [
   { value: 'Helicoptero', label: 'Helicóptero' },
   { value: 'Turboprop', label: 'Turboprop' },
@@ -276,6 +391,7 @@ const aircraftCategoryOptions = [
   { value: 'Mid Jet', label: 'Mid Jet' },
   { value: 'Heavy Jet', label: 'Heavy Jet' },
 ]
+
 const aircraftCategoryRules = {
   TURBOPROP: {
     engineType: 'turboprop',
@@ -303,56 +419,62 @@ const aircraftCategoryRules = {
     airportExpensesUsd: 700,
   },
 }
+
 const aircraftDocumentTypes = [
   { id: 'maintenance_sticker', label: 'Sticker de mantenimiento', requiresExpiry: false, accepts: ['image', 'pdf'] },
   { id: 'flight_logbook', label: 'Bitacora de vuelo', requiresExpiry: false, accepts: ['image', 'pdf'] },
 ]
+
 const maxAircraftDocumentFiles = 12
+
 const maxImageDocumentBytes = 8 * 1024 * 1024
+
 const maxPdfDocumentBytes = 25 * 1024 * 1024
-const configuredTripWorkflowPath = String(
-  import.meta.env.VITE_CLIENT_TRIP_WORKFLOW_PATH || '',
-).trim()
-const operatorWorkflowPathCandidates = [
-  configuredTripWorkflowPath,
-  '/operator/requests/:id/workflow',
-  '/proveedor/solicitudes/:id/workflow',
-].filter((path) => Boolean(path) && !String(path).includes('/admin/'))
 
 const providerId = computed(() =>
   Number(auth.providerId || resolveProviderIdForUser(auth.user) || 0),
 )
+
 const canLoadProviderData = computed(() => auth.initialized && auth.isAuthenticated)
+
 const providerName = computed(
   () => auth.user?.company_name || auth.user?.name || company.tradeName || 'Proveedor',
 )
+
 const activeAircraft = computed(
   () =>
     aircraft.value.filter((item) => ['aprobada', 'trial_active', 'active'].includes(item.status))
       .length,
 )
+
 const pendingRequests = computed(
   () => requests.value.filter((item) => item.status === 'Pendiente').length,
 )
+
 const activeOperations = computed(
   () =>
     operations.value.filter((item) => !['Finalizada', 'Cancelada'].includes(item.status)).length,
 )
+
 const openIncidents = computed(
   () => incidents.value.filter((item) => !['Resuelta', 'Cerrada'].includes(item.status)).length,
 )
+
 const paymentsPending = computed(
   () => payments.value.filter((item) => item.status === 'Pendiente').length,
 )
+
 const aircraftOptions = computed(() =>
   aircraft.value.map((item) => ({
     id: item.id,
     label: `${item.name} - ${item.registration || 'Sin matricula'} - ${item.base || 'Sin base'}`,
   })),
 )
+
 const selectedAvailabilityAircraft = computed(
   () => aircraft.value.find((item) => item.id === Number(availabilityForm.aircraftId)) || null,
 )
+
 const availabilityCalendarAircraftOptions = computed(() => [
   { id: 'all', label: 'Toda la flota' },
   ...aircraft.value.map((item) => ({
@@ -360,6 +482,7 @@ const availabilityCalendarAircraftOptions = computed(() => [
     label: `${item.name} · ${item.registration || 'Sin matricula'}`,
   })),
 ])
+
 const availabilityCalendarWeekDays = computed(() =>
   Array.from({ length: 7 }, (_, offset) => {
     const date = addDays(availabilityWeekAnchor.value, offset)
@@ -382,6 +505,7 @@ const availabilityCalendarWeekDays = computed(() =>
     }
   }),
 )
+
 const availabilityCalendarRows = computed(() => {
   const selectedAircraftId = selectedAvailabilityCalendarAircraftId.value
   const visibleAircraft =
@@ -396,6 +520,7 @@ const availabilityCalendarRows = computed(() => {
     ),
   }))
 })
+
 const availabilityCalendarWindowLabel = computed(() => {
   const firstDay = availabilityCalendarWeekDays.value[0]?.date
   const lastDay = availabilityCalendarWeekDays.value[availabilityCalendarWeekDays.value.length - 1]?.date
@@ -409,15 +534,19 @@ const availabilityCalendarWindowLabel = computed(() => {
 
   return `${formatter.format(firstDay)} - ${formatter.format(lastDay)}`
 })
+
 const selectedImageAircraft = computed(
   () => aircraft.value.find((item) => item.id === Number(imageForm.aircraftId)) || null,
 )
+
 const selectedDocumentAircraft = computed(
   () => aircraft.value.find((item) => item.id === Number(documentForm.aircraftId)) || null,
 )
+
 const selectedDocumentType = computed(
   () => aircraftDocumentTypes.find((item) => item.id === documentForm.type) || aircraftDocumentTypes[0],
 )
+
 const crewBases = computed(() => {
   const uniqueBases = new Set([
     ...defaultCrewBases,
@@ -426,11 +555,13 @@ const crewBases = computed(() => {
   ])
   return Array.from(uniqueBases)
 })
+
 const assignableCrewOptions = computed(() =>
   crew.value.filter(
     (member) => !['Suspendido', 'No disponible'].includes(member.state || member.availability),
   ),
 )
+
 const crewLastSyncLabel = computed(() => {
   const latestTimestamp = crew.value
     .map((item) => new Date(item.lastUpdated || ''))
@@ -443,8 +574,11 @@ const crewLastSyncLabel = computed(() => {
 
   return loading.value ? 'Sincronizando...' : 'Sin registros'
 })
+
 const crewBackendStatus = computed(() => (loading.value ? 'Sincronizando backend' : 'Backend operativo'))
+
 const crewConnectedUsers = computed(() => Math.max(assignableCrewOptions.value.length, 1))
+
 const fleetGroupedByStatus = computed(() => ({
   aprobadas: aircraft.value.filter((item) => humanizeAircraftStatus(item.status) === 'Aprobada')
     .length,
@@ -459,6 +593,7 @@ const fleetGroupedByStatus = computed(() => ({
     ),
   ).length,
 }))
+
 const aircraftPricingRows = computed(() =>
   aircraft.value.map((item) => ({
     id: item.id,
@@ -473,6 +608,7 @@ const aircraftPricingRows = computed(() =>
     cateringBaseCost: item.cateringBaseCost,
   })),
 )
+
 const dashboardCards = computed(() => [
   {
     icon: '✈',
@@ -533,6 +669,7 @@ const dashboardCards = computed(() => [
       : 'No hay incidencias abiertas en la linea operativa.',
   },
 ])
+
 const aircraftDueDocuments = computed(() =>
   aircraft.value.reduce((total, item) => {
     const expiringDocuments = (item.documents || []).filter((document) => {
@@ -545,9 +682,11 @@ const aircraftDueDocuments = computed(() =>
     return total + expiringDocuments.length
   }, 0),
 )
+
 const aircraftAvailableToday = computed(
   () => aircraft.value.filter((item) => getAircraftLiveStatus(item).label === 'Disponible').length,
 )
+
 const aircraftOperationalKpis = computed(() => [
   {
     label: 'Aeronaves activas',
@@ -574,6 +713,7 @@ const aircraftOperationalKpis = computed(() => [
     tone: aircraftDueDocuments.value ? 'warning' : 'success',
   },
 ])
+
 const aircraftOperationalTimeline = computed(() =>
   [
     ...operations.value.slice(0, 3).map((operation) => ({
@@ -603,6 +743,7 @@ const aircraftOperationalTimeline = computed(() =>
     })),
   ].slice(0, 6),
 )
+
 const aircraftPriorityNotes = computed(() => [
   {
     id: 'review',
@@ -623,9 +764,11 @@ const aircraftPriorityNotes = computed(() => [
     detail: 'Expedientes con vencimiento cercano que conviene atender hoy.',
   },
 ])
+
 const aircraftWizardTitle = computed(() =>
   editingAircraftId.value ? 'Editar aeronave y control documental' : 'Registrar nueva aeronave',
 )
+
 const companyStatusMeta = computed(() => {
   const normalized = String(company.status || company.reviewStatus || '').toLowerCase()
   if (['approved', 'aprobada', 'aprobado', 'active'].includes(normalized)) {
@@ -644,13 +787,16 @@ const companyStatusMeta = computed(() => {
 
   return { label: company.status || 'Sin estado', tone: 'neutral', headline: 'Perfil operativo' }
 })
+
 const companyLastAuditDate = computed(() => {
   const latestCompanyEntry = history.value.find((entry) =>
     ['Mi empresa', 'provider_company'].includes(String(entry.module || '')),
   )
   return latestCompanyEntry?.date || 'Sin revision registrada'
 })
+
 const companyOperationalBase = computed(() => aircraft.value[0]?.base || 'Base por definir')
+
 const companyOnboardingSteps = computed(() => {
   const hasCompanyData = Boolean(companyForm.legalName && companyForm.address)
   const hasContact = Boolean(companyForm.phone && companyForm.email)
@@ -666,6 +812,7 @@ const companyOnboardingSteps = computed(() => {
     { id: 'aircraft', label: 'Aeronaves', complete: hasAircraft, pending: !hasAircraft },
   ]
 })
+
 const companyOnboardingProgress = computed(() => {
   const completed = companyOnboardingSteps.value.filter((step) => step.complete).length
   return {
@@ -674,6 +821,7 @@ const companyOnboardingProgress = computed(() => {
     percent: Math.round((completed / companyOnboardingSteps.value.length) * 100),
   }
 })
+
 const companyValidationSummary = computed(() => [
   {
     label: 'Estado empresa',
@@ -708,6 +856,7 @@ const companyValidationSummary = computed(() => [
     tone: 'neutral',
   },
 ])
+
 const companyAlerts = computed(() => {
   const alerts = []
 
@@ -723,6 +872,7 @@ const companyAlerts = computed(() => {
 
   return alerts.slice(0, 2)
 })
+
 const companyAuditTimeline = computed(() =>
   history.value
     .filter((entry) => ['Mi empresa', 'provider_company'].includes(String(entry.module || '')))
@@ -734,6 +884,7 @@ const companyAuditTimeline = computed(() =>
       actor: entry.actor,
     })),
 )
+
 const dashboardCompletion = computed(() => {
   const modules = [
     Boolean(companyForm.legalName && companyForm.rfc && companyForm.email),
@@ -749,6 +900,7 @@ const dashboardCompletion = computed(() => {
     percent: Math.round((completed / modules.length) * 100),
   }
 })
+
 const dashboardGlobalStatus = computed(() => {
   if (
     companyStatusMeta.value.tone === 'success' &&
@@ -768,6 +920,7 @@ const dashboardGlobalStatus = computed(() => {
     detail: 'Aun faltan pasos de onboarding para dejar el operador completamente operativo.',
   }
 })
+
 const dashboardAlerts = computed(() => {
   const alerts = []
   if (aircraftDueDocuments.value) {
@@ -797,6 +950,7 @@ const dashboardAlerts = computed(() => {
   }
   return alerts.slice(0, 3)
 })
+
 const dashboardQuickActions = computed(() => [
   {
     id: 'fleet',
@@ -827,6 +981,7 @@ const dashboardQuickActions = computed(() => [
     action: () => goToSection('empresa'),
   },
 ])
+
 const dashboardChecklist = computed(() => [
   {
     id: 'empresa',
@@ -887,6 +1042,7 @@ const dashboardChecklist = computed(() => [
     section: 'solicitudes',
   },
 ])
+
 const dashboardRecentActivity = computed(() =>
   history.value.slice(0, 5).map((entry) => ({
     id: entry.id,
@@ -895,6 +1051,7 @@ const dashboardRecentActivity = computed(() =>
     detail: `${entry.module} · ${entry.actor}`,
   })),
 )
+
 const availabilityStatusCatalog = {
   Disponible: { label: 'Disponible', tone: 'success', short: 'Disp' },
   'No disponible': { label: 'Bloqueo manual', tone: 'dark', short: 'Bloq' },
@@ -902,16 +1059,19 @@ const availabilityStatusCatalog = {
   Reservado: { label: 'Reserva tentativa', tone: 'info', short: 'Tent' },
   'Pendiente de confirmacion': { label: 'Vuelo confirmado', tone: 'danger', short: 'Vuelo' },
 }
+
 const availabilityReadyCount = computed(
   () =>
     aircraft.value.filter((item) => getAvailabilityOperationalStatus(item).label === 'Disponible')
       .length,
 )
+
 const availabilityImmediatePercent = computed(() =>
   aircraft.value.length
     ? Math.round((availabilityReadyCount.value / aircraft.value.length) * 100)
     : 0,
 )
+
 const availabilityGlobalStatus = computed(() => {
   if (!aircraft.value.length) {
     return {
@@ -940,6 +1100,7 @@ const availabilityGlobalStatus = computed(() => {
     detail: 'Solo una parte de la flota esta libre para asignacion inmediata.',
   }
 })
+
 const availabilitySummaryCards = computed(() => [
   {
     label: 'Disponibilidad inmediata',
@@ -970,28 +1131,14 @@ const availabilitySummaryCards = computed(() => [
     tone: 'warning',
   },
 ])
+
 const availabilityFormSteps = computed(() => [
   { id: 1, label: 'Aeronave', complete: Boolean(availabilityForm.aircraftId) },
   { id: 2, label: 'Rango', complete: Boolean(availabilityForm.from && availabilityForm.to) },
   { id: 3, label: 'Motivo', complete: Boolean(availabilityForm.status) },
   { id: 4, label: 'Guardar', complete: false },
 ])
-const availabilityActivityFeed = computed(() =>
-  [
-    ...availability.value.slice(0, 4).map((item) => ({
-      id: `availability-${item.id}`,
-      date: formatDateTimeDisplay(item.from),
-      title: `${item.aircraft} · ${getAvailabilityStatusMeta(item.status).label}`,
-      detail: `${formatDateTimeDisplay(item.from)} → ${formatDateTimeDisplay(item.to)}`,
-    })),
-    ...operations.value.slice(0, 3).map((item) => ({
-      id: `operation-${item.id}`,
-      date: formatDateTimeDisplay(item.departure),
-      title: `Vuelo confirmado · ${item.aircraft || 'Aeronave'}`,
-      detail: item.route,
-    })),
-  ].slice(0, 6),
-)
+
 const requestKpis = computed(() => {
   const urgent = requests.value.filter(
     (request) => getRequestPriorityMeta(request).tone === 'danger',
@@ -1043,6 +1190,7 @@ const requestKpis = computed(() => {
     },
   ]
 })
+
 const requestStatusTabs = computed(() => [
   {
     id: 'all',
@@ -1071,6 +1219,7 @@ const requestStatusTabs = computed(() => [
     ).length,
   },
 ])
+
 const archivedRequests = computed(() =>
   [...requests.value]
     .filter((request) => getRequestStatusMeta(request).queue === 'rejected')
@@ -1083,6 +1232,7 @@ const archivedRequests = computed(() =>
       return Number(right.id) - Number(left.id)
     }),
 )
+
 const filteredRequests = computed(() => {
   const search = requestSearch.value.trim().toLowerCase()
 
@@ -1122,6 +1272,7 @@ const filteredRequests = computed(() => {
       return Number(right.id) - Number(left.id)
     })
 })
+
 const selectedRequest = computed(() => {
   if (!filteredRequests.value.length) return null
   return (
@@ -1129,6 +1280,7 @@ const selectedRequest = computed(() => {
     filteredRequests.value[0]
   )
 })
+
 const releaseProviderRequest = computed(() => {
   const routeRequestId = String(route.query.request || '').trim()
   const targetId = routeRequestId || String(selectedRequestId.value || '').trim()
@@ -1144,6 +1296,7 @@ const releaseProviderRequest = computed(() => {
     ) || null
   )
 })
+
 const requestOperationalAlerts = computed(() => {
   if (!selectedRequest.value) return []
 
@@ -1177,7 +1330,9 @@ const requestOperationalAlerts = computed(() => {
 
   return alerts.slice(0, 3)
 })
+
 const selectedRequestAircraftComparison = computed(() => buildRequestAircraftComparison(selectedRequest.value))
+
 const providerOperationalBinaryStatusOptions = [
   { value: 'pending', label: 'Pendiente' },
   { value: 'confirmed', label: 'Si' },
@@ -1215,6 +1370,8 @@ watch(
     if (props.section !== 'release-provider') return
     requestInternalCommentDraft.value = request?.internalComment || request?.specialRequirements || ''
     hydrateProviderOperationalReleaseForm(request)
+    providerOperationalReleaseActiveStep.value = 'aircraft'
+    providerOperationalIssueOpen.value = false
   },
   { immediate: true },
 )
@@ -1224,6 +1381,7 @@ watch(
   () => {
     if (providerOperationalReleaseHydrating.value) return
     providerOperationalReleaseDirty.value = true
+    scheduleProviderOperationalReleaseAutosave()
   },
   { deep: true },
 )
@@ -1297,11 +1455,13 @@ function createEmptyProviderOperationalReleaseForm() {
 }
 
 function resetProviderOperationalReleaseForm() {
+  clearProviderOperationalReleaseAutosaveTimer()
   providerOperationalReleaseHydrating.value = true
   Object.assign(providerOperationalReleaseForm, createEmptyProviderOperationalReleaseForm())
   providerOperationalReleaseHydrating.value = false
   providerOperationalReleaseDirty.value = false
   providerOperationalReleaseLoadedRequestId.value = ''
+  providerOperationalReleaseAutosaveQueued.value = false
   providerOperationalReleaseFeedback.value = ''
 }
 
@@ -1495,6 +1655,47 @@ function getProviderOperationalReleaseAircraftLabel() {
 
   const request = getActiveProviderReleaseRequest()
   return request ? getRequestSuggestedAircraft(request).label : 'Aeronave por definir'
+}
+
+function clearProviderOperationalReleaseAutosaveTimer() {
+  if (providerOperationalReleaseAutosaveTimer) {
+    window.clearTimeout(providerOperationalReleaseAutosaveTimer)
+    providerOperationalReleaseAutosaveTimer = null
+  }
+}
+
+function scheduleProviderOperationalReleaseAutosave() {
+  if (props.section !== 'release-provider') return
+
+  const request = getActiveProviderReleaseRequest()
+  if (!request || !canManageProviderOperationalRelease(request)) return
+
+  clearProviderOperationalReleaseAutosaveTimer()
+  providerOperationalReleaseAutosaveTimer = window.setTimeout(() => {
+    void persistProviderOperationalReleaseDraft()
+  }, PROVIDER_OPERATIONAL_RELEASE_AUTOSAVE_MS)
+}
+
+async function persistProviderOperationalReleaseDraft() {
+  clearProviderOperationalReleaseAutosaveTimer()
+
+  if (
+    providerOperationalReleaseHydrating.value ||
+    !providerOperationalReleaseDirty.value ||
+    props.section !== 'release-provider'
+  ) {
+    return
+  }
+
+  if (syncingProviderOperationalRelease.value) {
+    providerOperationalReleaseAutosaveQueued.value = true
+    return
+  }
+
+  await saveProviderOperationalRelease('', {
+    background: true,
+    skipWorkflowPromotion: true,
+  })
 }
 
 function isProviderOperationalStatusConfirmed(value = '') {
@@ -1719,6 +1920,114 @@ function getProviderOperationalFinalSummary() {
   ]
 }
 
+function getProviderOperationalSectionCompletion(items = []) {
+  const done = items.filter((item) => item.done).length
+  return {
+    done,
+    total: items.length,
+  }
+}
+
+function buildProviderOperationalWizardSections() {
+  const checklist = buildProviderOperationalReleaseChecklist()
+  const aircraftSection = checklist[0]
+  const crewSection = checklist[1]
+  const dispatchSection = checklist[2]
+  const readinessSection = checklist[3]
+  const aircraftCompletion = getProviderOperationalSectionCompletion(aircraftSection?.items || [])
+  const crewCompletion = getProviderOperationalSectionCompletion(crewSection?.items || [])
+  const dispatchCompletion = getProviderOperationalSectionCompletion(dispatchSection?.items || [])
+  const readinessCompletion = getProviderOperationalSectionCompletion(readinessSection?.items || [])
+
+  return [
+    {
+      id: 'aircraft',
+      number: 1,
+      title: 'Disponibilidad real de aeronave',
+      shortTitle: 'Aeronave',
+      status: getProviderOperationalAircraftSectionStatus(),
+      completion: aircraftCompletion,
+      optional: false,
+      locked: false,
+    },
+    {
+      id: 'crew',
+      number: 2,
+      title: 'Tripulacion tecnica',
+      shortTitle: 'Tripulacion',
+      status: getProviderOperationalCrewSectionStatus(),
+      completion: crewCompletion,
+      optional: false,
+      locked: false,
+    },
+    {
+      id: 'dispatch',
+      number: 3,
+      title: 'Permisos / slots / handling',
+      shortTitle: 'Handling',
+      status: getProviderOperationalDispatchSectionStatus(),
+      completion: dispatchCompletion,
+      optional: false,
+      locked: false,
+    },
+    {
+      id: 'readiness',
+      number: 4,
+      title: 'Aeronave lista',
+      shortTitle: 'Alistamiento',
+      status: getProviderOperationalReadinessSectionStatus(),
+      completion: readinessCompletion,
+      optional: false,
+      locked: false,
+    },
+    {
+      id: 'issue',
+      number: 5,
+      title: 'Incidencia operativa',
+      shortTitle: 'Incidencia',
+      status: {
+        label: providerOperationalIssueOpen.value || providerOperationalIssueForm.comment.trim() ? 'Atencion abierta' : 'Opcional',
+        tone: providerOperationalIssueOpen.value || providerOperationalIssueForm.comment.trim() ? 'warning' : 'neutral',
+        detail: 'Usa este bloque solo si existe un bloqueo operativo real.',
+      },
+      completion: { done: providerOperationalIssueForm.comment.trim() ? 1 : 0, total: 1 },
+      optional: true,
+      locked: false,
+    },
+    {
+      id: 'final',
+      number: 6,
+      title: 'Confirmacion final',
+      shortTitle: 'Confirmacion',
+      status: {
+        label: isProviderOperationalReady() ? 'Lista' : 'Bloqueada',
+        tone: isProviderOperationalReady() ? 'success' : 'neutral',
+        detail: isProviderOperationalReady()
+          ? 'Todo esta listo para confirmar la liberacion operativa.'
+          : 'Faltan validaciones antes de confirmar la liberacion.',
+      },
+      completion: {
+        done: isProviderOperationalReady() ? 1 : 0,
+        total: 1,
+      },
+      optional: false,
+      locked: !isProviderOperationalReady(),
+    },
+  ]
+}
+
+function setProviderOperationalActiveStep(stepId = 'aircraft') {
+  providerOperationalReleaseActiveStep.value = stepId
+}
+
+function toggleProviderOperationalIssuePanel(forceValue) {
+  providerOperationalIssueOpen.value =
+    typeof forceValue === 'boolean' ? forceValue : !providerOperationalIssueOpen.value
+  if (providerOperationalIssueOpen.value) {
+    providerOperationalReleaseActiveStep.value = 'issue'
+  }
+}
+
 function requestProviderOperationalSupport() {
   providerOperationalReleaseFeedback.value =
     'Red Aviation fue notificada para apoyar con tripulacion y coordinacion operativa.'
@@ -1869,18 +2178,121 @@ function applyAircraftResponse(payload) {
   sectionLoadState.aeronaves = true
 }
 
+function pickRequestsCollectionState(payload) {
+  if (Array.isArray(payload)) {
+    return {
+      collection: payload,
+      found: true,
+    }
+  }
+
+  const queue = [payload]
+  const visited = new Set()
+  let fallback = []
+  let found = false
+
+  while (queue.length) {
+    const current = queue.shift()
+    if (!current || typeof current !== 'object') continue
+    if (visited.has(current)) continue
+    visited.add(current)
+
+    for (const key of REQUEST_COLLECTION_KEYS) {
+      const direct = current?.[key]
+
+      if (Array.isArray(direct)) {
+        found = true
+        if (!fallback.length) fallback = direct
+        if (direct.length) {
+          return {
+            collection: direct,
+            found: true,
+          }
+        }
+        continue
+      }
+
+      if (Array.isArray(direct?.data)) {
+        found = true
+        if (!fallback.length) fallback = direct.data
+        if (direct.data.length) {
+          return {
+            collection: direct.data,
+            found: true,
+          }
+        }
+      }
+    }
+
+    Object.values(current).forEach((value) => {
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        queue.push(value)
+      }
+    })
+  }
+
+  return { collection: fallback, found }
+}
+
+function pickRequestsCollection(payload) {
+  return pickRequestsCollectionState(payload).collection
+}
+
 function applyRequestsResponse(payload) {
-  const collection = pickCollection(payload, [
-    'requests',
-    'flight_requests',
-    'reservations',
-    'solicitudes',
-    'items',
-    'matches',
-    'data',
-  ])
-  requests.value = collection.map(normalizeRequest)
+  const { collection, found } = pickRequestsCollectionState(payload)
+  if (found || !requests.value.length) {
+    requests.value = collection.map(normalizeRequest)
+  }
   sectionLoadState.solicitudes = true
+}
+
+async function fetchRequestsPayload(timeoutMs = OPERATOR_BACKGROUND_TIMEOUT_MS) {
+  let firstSuccessfulPayload = null
+  let firstSuccessfulPath = ''
+  let lastError = null
+
+  for (const path of REQUESTS_ROUTE_CANDIDATES) {
+    try {
+      const payload = await api.get(path, { timeoutMs })
+      const collection = pickRequestsCollection(payload)
+
+      if (!firstSuccessfulPayload) {
+        firstSuccessfulPayload = payload
+        firstSuccessfulPath = path
+      }
+
+      if (collection.length > 0) {
+        activeRequestsRouteFamily.value = path.startsWith('/operator/') ? 'operator' : 'proveedor'
+        return payload
+      }
+    } catch (error) {
+      lastError = error
+      const status = Number(error?.status || 0)
+      const message = String(error?.message || '').toLowerCase()
+      const canTryNext =
+        status === 0 ||
+        [404, 405].includes(status) ||
+        (status >= 500 && status <= 599) ||
+        (message.includes('route') && message.includes('could not be found'))
+
+      if (!canTryNext) {
+        throw error
+      }
+    }
+  }
+
+  if (firstSuccessfulPayload) {
+    activeRequestsRouteFamily.value = firstSuccessfulPath.startsWith('/operator/')
+      ? 'operator'
+      : 'proveedor'
+    return firstSuccessfulPayload
+  }
+
+  if (lastError) {
+    throw lastError
+  }
+
+  throw new Error('No se encontro una ruta compatible para cargar solicitudes del proveedor.')
 }
 
 function applyOperationsResponse(payload) {
@@ -1911,11 +2323,6 @@ function applyCrewResponse(payload) {
   const collection = pickCollection(payload, ['crew', 'tripulation', 'tripulacion'])
   crew.value = collection.map(normalizeCrew)
   sectionLoadState.tripulacion = true
-}
-
-function applySettingsResponse(payload) {
-  hydrateSettings(pickRecord(payload, ['settings', 'data']))
-  sectionLoadState.empresa = true
 }
 
 function applyAvailabilityResponse(payload) {
@@ -2293,6 +2700,7 @@ function resolveRequestResponseLimit(raw = {}) {
 }
 
 function normalizeRequest(raw = {}, index = 0) {
+  const sourceRouteFamily = activeRequestsRouteFamily.value === 'operator' ? 'operator' : 'proveedor'
   const sharedWorkflowStatus = resolveOperatorRequestStatusSource(raw) || 'reserved'
 
   const origin = raw.origin || raw.origin_airport || raw.departure_airport || 'N/D'
@@ -2340,6 +2748,7 @@ function normalizeRequest(raw = {}, index = 0) {
     operationId: raw.operation?.id || raw.operation_id || raw.operaciones?.[0]?.id || '',
     internalComment: raw.internal_comment || raw.notes || raw.comment || '',
     requestCode: raw.request_code || raw.code || '',
+    providerId: raw.provider_id || raw.provider?.id || raw.visibility_payload?.selected_provider_id || '',
     tripType: raw.trip_type || raw.flight_type || '',
     flightPackage: raw.flight_package || raw.package_name || raw.package || '',
     serviceTier,
@@ -2359,22 +2768,12 @@ function normalizeRequest(raw = {}, index = 0) {
       raw.special_requirements || raw.requirements_notes || raw.notes || raw.internal_comment || '',
     createdAt: raw.created_at || null,
     updatedAt: raw.updated_at || null,
-    raw,
+    sourceRouteFamily,
+    raw: {
+      ...raw,
+      source_route_family: raw.source_route_family || sourceRouteFamily,
+    },
   }
-}
-
-function normalizeRequestStatus(status = '') {
-  const normalized = String(status || '').trim().toLowerCase()
-  if (['pending_validation', 'en validacion', 'validating'].includes(normalized)) {
-    return 'contract_pending'
-  }
-
-  const workflowState = resolveWorkflowState(status).id
-  if (workflowState !== 'draft') return workflowState
-  if (['rejected', 'rechazada', 'declined'].includes(normalized)) return 'rejected'
-  if (['accepted', 'aceptada', 'approved'].includes(normalized)) return 'provider_accepted'
-  if (['pending', 'pendiente'].includes(normalized)) return 'reserved'
-  return 'reserved'
 }
 
 function normalizeOperation(raw = {}, index = 0) {
@@ -3846,6 +4245,10 @@ function handleRequestPrimaryAction(request = {}) {
 }
 
 function getRequestHelperCopy(request = {}) {
+  if (!request || !Object.keys(request).length) {
+    return 'Escanea la cola, prioriza urgencias y acepta o rechaza solicitudes desde una sola bandeja.'
+  }
+
   const workflowValue = resolveRequestWorkflowValue(request)
   const workflowId = resolveWorkflowState(workflowValue).id
   const visualStepId = resolveOperatorVisualStepId(workflowValue)
@@ -3872,26 +4275,53 @@ function canOperatorAcceptRequest(request = {}) {
   return ['reserved', 'provider_pending', 'provider_accepted'].includes(workflowId)
 }
 
-function buildOperatorWorkflowCandidates(request, payload) {
-  const targetIds = [
-    request?.requestId,
-    request?.reservationId,
-    request?.raw?.request_id,
-    request?.raw?.flight_request_id,
-    request?.raw?.reservation_id,
-    request?.raw?.booking_id,
-    request?.id,
-  ]
-    .map((value) => String(value || '').trim())
-    .filter(Boolean)
+function normalizeOperatorRequestIdentifier(value) {
+  if (value === null || value === undefined) return ''
+  return String(value).trim()
+}
 
-  return [...new Set(targetIds)].flatMap((targetId) =>
-    operatorWorkflowPathCandidates.map((path) => ({
-      method: 'put',
-      path: path.replace(':id', targetId),
-      body: payload,
-    })),
-  )
+function getOperatorMutationRouteFamily(request = null) {
+  const explicitFamily = request?.raw?.source_route_family || request?.sourceRouteFamily || ''
+  if (explicitFamily === 'operator' || explicitFamily === 'proveedor') return explicitFamily
+  return activeRequestsRouteFamily.value === 'operator' ? 'operator' : 'proveedor'
+}
+
+function getOperatorFlightRequestTargetIds(request = null) {
+  return [...new Set(
+    [
+      request?.requestId,
+      request?.raw?.request_id,
+      request?.raw?.flight_request_id,
+      request?.id,
+    ]
+      .map(normalizeOperatorRequestIdentifier)
+      .filter(Boolean),
+  )]
+}
+
+function buildOperatorDecisionCandidates(request, payload, action) {
+  const family = REQUEST_MUTATION_ROUTE_FAMILIES[getOperatorMutationRouteFamily(request)]
+  const targetIds = getOperatorFlightRequestTargetIds(request)
+
+  if (!family || !targetIds.length) return []
+
+  const actionPath = action === 'accept' ? family.acceptPath : family.rejectPath
+
+  return targetIds.map((targetId) => ({
+    method: 'post',
+    path: actionPath.replace(':id', targetId),
+    body: payload,
+  }))
+}
+
+function buildProviderReleaseCandidates(request, payload) {
+  const targetIds = getOperatorFlightRequestTargetIds(request)
+
+  return targetIds.map((targetId) => ({
+    method: 'put',
+    path: `/proveedor/solicitudes/${targetId}/release-provider`,
+    body: payload,
+  }))
 }
 
 function getRequestResponseCountdown(request = {}) {
@@ -4190,7 +4620,6 @@ function buildRequestAircraftRows(request = {}, filters = {}) {
   return rows
 }
 
-
 function buildProposalSummary(request = {}) {
   const rows = buildRequestAircraftRows(request, {
     base: aircraftFilterBase.value,
@@ -4205,7 +4634,6 @@ function buildProposalSummary(request = {}) {
   return { total, margin, adjustments }
 }
 
-// eslint-disable-next-line no-unused-vars
 function buildOperationalProposal(request = {}) {
   const summary = buildProposalSummary(request)
   ui.pushToast({
@@ -4305,12 +4733,7 @@ async function loadPortal() {
         apply: applyAircraftResponse,
       },
       {
-        request: requestWithCandidates([
-          { method: 'get', path: '/proveedor/mis-solicitudes', timeoutMs: OPERATOR_BOOT_TIMEOUT_MS },
-          { method: 'get', path: '/proveedor/solicitudes', timeoutMs: OPERATOR_BOOT_TIMEOUT_MS },
-          { method: 'get', path: '/operator/my-requests', timeoutMs: OPERATOR_BOOT_TIMEOUT_MS },
-          { method: 'get', path: '/operator/requests', timeoutMs: OPERATOR_BOOT_TIMEOUT_MS },
-        ]),
+        request: fetchRequestsPayload(OPERATOR_BOOT_TIMEOUT_MS),
         apply: applyRequestsResponse,
       },
     ]
@@ -4398,12 +4821,7 @@ async function ensureSectionDataLoaded(section = props.section, options = {}) {
     ])
     apply = applyAircraftResponse
   } else if (normalizedSection === 'solicitudes') {
-    request = requestWithCandidates([
-      { method: 'get', path: '/proveedor/mis-solicitudes', timeoutMs },
-      { method: 'get', path: '/proveedor/solicitudes', timeoutMs },
-      { method: 'get', path: '/operator/my-requests', timeoutMs },
-      { method: 'get', path: '/operator/requests', timeoutMs },
-    ])
+    request = fetchRequestsPayload(timeoutMs)
     apply = applyRequestsResponse
   } else if (normalizedSection === 'operaciones') {
     request = requestWithCandidates([{ method: 'get', path: '/proveedor/operaciones', timeoutMs }])
@@ -4425,12 +4843,7 @@ async function ensureSectionDataLoaded(section = props.section, options = {}) {
     apply = applyAvailabilityResponse
   } else if (normalizedSection === 'release-provider') {
     const [requestsPayload, aircraftPayload, crewPayload] = await Promise.all([
-      requestWithCandidates([
-        { method: 'get', path: '/proveedor/mis-solicitudes', timeoutMs },
-        { method: 'get', path: '/proveedor/solicitudes', timeoutMs },
-        { method: 'get', path: '/operator/my-requests', timeoutMs },
-        { method: 'get', path: '/operator/requests', timeoutMs },
-      ]),
+      fetchRequestsPayload(timeoutMs),
       requestWithCandidates([
         { method: 'get', path: '/proveedor/mis-aeronaves', timeoutMs },
         { method: 'get', path: '/proveedor/aeronaves', timeoutMs },
@@ -5046,23 +5459,11 @@ async function savePricing(id) {
 }
 
 async function reloadRequestsList() {
-  const response = await requestWithCandidates([
-    { method: 'get', path: '/proveedor/mis-solicitudes', timeoutMs: OPERATOR_BACKGROUND_TIMEOUT_MS },
-    { method: 'get', path: '/proveedor/solicitudes', timeoutMs: OPERATOR_BACKGROUND_TIMEOUT_MS },
-    { method: 'get', path: '/operator/my-requests', timeoutMs: OPERATOR_BACKGROUND_TIMEOUT_MS },
-    { method: 'get', path: '/operator/requests', timeoutMs: OPERATOR_BACKGROUND_TIMEOUT_MS },
-  ])
-
-  const collection = pickCollection(response, [
-    'requests',
-    'flight_requests',
-    'reservations',
-    'solicitudes',
-    'items',
-    'matches',
-    'data',
-  ])
-  requests.value = collection.map(normalizeRequest)
+  const response = await fetchRequestsPayload(OPERATOR_BACKGROUND_TIMEOUT_MS)
+  const { collection, found } = pickRequestsCollectionState(response)
+  if (found || !requests.value.length) {
+    requests.value = collection.map(normalizeRequest)
+  }
 }
 
 function shouldAutoRefreshRequests() {
@@ -5553,7 +5954,6 @@ async function releaseAvailability(id) {
 async function updateRequestStatus(id, status) {
   const request = requests.value.find((item) => String(item.id) === String(id)) || null
   const action = status === 'Aceptada' ? 'accept' : 'reject'
-  const translatedAction = status === 'Aceptada' ? 'aceptar' : 'rechazar'
   const backendStatus = resolveOperatorDecisionState(request, status)
   const workflowPayload = buildWorkflowApiPayload(backendStatus)
   const statusPayload = {
@@ -5567,27 +5967,7 @@ async function updateRequestStatus(id, status) {
 
   try {
     await requestWithCandidates([
-      ...buildOperatorWorkflowCandidates(request, statusPayload),
-      {
-        method: 'post',
-        path: `/proveedor/solicitudes/${id}/${translatedAction}`,
-        body: statusPayload,
-      },
-      {
-        method: 'post',
-        path: `/operator/requests/${id}/${action}`,
-        body: statusPayload,
-      },
-      { method: 'put', path: `/proveedor/solicitudes/${id}`, body: statusPayload },
-      { method: 'put', path: `/operator/requests/${id}`, body: statusPayload },
-      { method: 'put', path: `/proveedor/mis-solicitudes/${id}`, body: statusPayload },
-      { method: 'put', path: `/operator/my-requests/${id}`, body: statusPayload },
-      {
-        method: 'post',
-        path: `/proveedor/solicitudes/${id}/status`,
-        body: statusPayload,
-      },
-      { method: 'post', path: `/operator/requests/${id}/status`, body: statusPayload },
+      ...buildOperatorDecisionCandidates(request, statusPayload, action),
     ])
   } catch (error) {
     requestStatusUpdate.requestId = null
@@ -5651,10 +6031,12 @@ async function updateRequestStatus(id, status) {
   requestStatusUpdate.action = ''
 }
 
-async function saveProviderOperationalRelease(statusOverride = '') {
+async function saveProviderOperationalRelease(statusOverride = '', options = {}) {
+  const background = Boolean(options?.background)
+  const skipWorkflowPromotion = Boolean(options?.skipWorkflowPromotion)
   const request = getActiveProviderReleaseRequest()
   if (!request) return
-  if (!canManageProviderOperationalRelease(request) || savingProviderOperationalRelease.value) {
+  if (!canManageProviderOperationalRelease(request) || syncingProviderOperationalRelease.value) {
     return
   }
 
@@ -5734,7 +6116,7 @@ async function saveProviderOperationalRelease(statusOverride = '') {
   }
 
   let sharedWorkflowStatus = ''
-  if (nextStatus === 'operational_ready') {
+  if (!skipWorkflowPromotion && nextStatus === 'operational_ready') {
     const sharedWorkflowPayload = buildWorkflowApiPayload('flight_confirmed')
     sharedWorkflowStatus = sharedWorkflowPayload.status
     Object.assign(payload, sharedWorkflowPayload, {
@@ -5742,75 +6124,93 @@ async function saveProviderOperationalRelease(statusOverride = '') {
     })
   }
 
-  savingProviderOperationalRelease.value = true
+  syncingProviderOperationalRelease.value = true
+  savingProviderOperationalRelease.value = !background
 
   try {
     await requestWithCandidates([
-      ...buildOperatorWorkflowCandidates(request, payload),
-      { method: 'put', path: `/proveedor/solicitudes/${request.id}`, body: payload },
-      { method: 'put', path: `/proveedor/mis-solicitudes/${request.id}`, body: payload },
-      { method: 'put', path: `/operator/requests/${request.id}`, body: payload },
-      { method: 'put', path: `/operator/my-requests/${request.id}`, body: payload },
-      { method: 'post', path: `/proveedor/solicitudes/${request.id}/status`, body: payload },
-      { method: 'post', path: `/operator/requests/${request.id}/status`, body: payload },
+      ...buildProviderReleaseCandidates(request, payload),
     ])
+
+    applyLocalProviderOperationalRelease(request.id, releasePayload, sharedWorkflowStatus)
+    providerOperationalReleaseDirty.value = false
+    providerOperationalReleaseLoadedRequestId.value = getProviderOperationalReleaseRequestId(request)
+
+    try {
+      await reloadRequestsList()
+    } catch {
+      // Dejamos la actualizacion local para no bloquear la UI si el backend tarda en reflejar cambios.
+    }
+
+    if (background) {
+      providerOperationalReleaseFeedback.value =
+        'Cambios guardados automaticamente en la base de datos.'
+    } else {
+      ui.pushToast({
+        tone: nextStatus === 'operational_ready' ? 'success' : 'info',
+        title:
+          nextStatus === 'operational_ready'
+            ? 'Vuelo listo para confirmacion'
+            : `Estado ${getProviderOperationalReleaseStatusMeta(nextStatus).label} guardado`,
+        message:
+          nextStatus === 'operational_ready'
+            ? 'La operacion del proveedor ya quedo lista y el flujo compartido avanza a vuelo confirmado.'
+            : 'La liberacion operativa quedo registrada en la solicitud del proveedor.',
+      })
+      providerOperationalReleaseFeedback.value =
+        nextStatus === 'operational_ready'
+          ? 'Liberacion enviada a Red Aviation. El equipo administrativo revisara la informacion, coordinara sobrecargo y confirmara el vuelo al cliente.'
+          : 'El avance operativo quedo guardado y Red Aviation puede seguir la coordinacion centralizada.'
+
+      pushHistory(
+        'Solicitudes',
+        `Liberacion operativa ${nextStatus} registrada para solicitud #${request.id}`,
+      )
+    }
+
+    if (sharedWorkflowStatus) {
+      emitWorkflowSync({
+        scope: 'reservation-workflow',
+        reservationId: request.reservationId || request.requestId || request.id,
+        requestId: request.requestId || request.id,
+        nextStage: sharedWorkflowStatus,
+        action: 'updated',
+      })
+    }
   } catch (error) {
-    savingProviderOperationalRelease.value = false
+    if (providerOperationalReleaseAutosaveQueued.value) {
+      providerOperationalReleaseAutosaveQueued.value = false
+      scheduleProviderOperationalReleaseAutosave()
+    }
     if (isBackendConnectionError(error)) {
       clearRequestsPolling()
+      if (background) {
+        providerOperationalReleaseFeedback.value =
+          'No se pudo guardar automaticamente porque el backend no esta disponible.'
+        return
+      }
       return showError('Backend no disponible', getBackendConnectionMessage())
     }
 
-    return showError(
-      'No se pudo guardar la liberacion operativa',
-      error?.candidateAttempts?.length
-        ? 'El backend no acepto ninguna ruta compatible para la confirmacion operacional.'
-        : error.message || 'La confirmacion operacional no pudo guardarse en la base de datos.',
-    )
+    const message = error?.candidateAttempts?.length
+      ? 'El backend no acepto ninguna ruta compatible para la confirmacion operacional.'
+      : error.message || 'La confirmacion operacional no pudo guardarse en la base de datos.'
+
+    if (background) {
+      providerOperationalReleaseFeedback.value = `No se pudo guardar automaticamente: ${message}`
+      return
+    }
+
+    return showError('No se pudo guardar la liberacion operativa', message)
+  } finally {
+    syncingProviderOperationalRelease.value = false
+    savingProviderOperationalRelease.value = false
+
+    if (providerOperationalReleaseAutosaveQueued.value || providerOperationalReleaseDirty.value) {
+      providerOperationalReleaseAutosaveQueued.value = false
+      scheduleProviderOperationalReleaseAutosave()
+    }
   }
-
-  applyLocalProviderOperationalRelease(request.id, releasePayload, sharedWorkflowStatus)
-  providerOperationalReleaseDirty.value = false
-  providerOperationalReleaseLoadedRequestId.value = getProviderOperationalReleaseRequestId(request)
-
-  try {
-    await reloadRequestsList()
-  } catch {
-    // Dejamos la actualizacion local para no bloquear la UI si el backend tarda en reflejar cambios.
-  }
-
-  ui.pushToast({
-    tone: nextStatus === 'operational_ready' ? 'success' : 'info',
-    title:
-      nextStatus === 'operational_ready'
-        ? 'Vuelo listo para confirmacion'
-        : `Estado ${getProviderOperationalReleaseStatusMeta(nextStatus).label} guardado`,
-    message:
-      nextStatus === 'operational_ready'
-        ? 'La operacion del proveedor ya quedo lista y el flujo compartido avanza a vuelo confirmado.'
-        : 'La liberacion operativa quedo registrada en la solicitud del proveedor.',
-  })
-  providerOperationalReleaseFeedback.value =
-    nextStatus === 'operational_ready'
-      ? 'Liberacion enviada a Red Aviation. El equipo administrativo revisara la informacion, coordinara sobrecargo y confirmara el vuelo al cliente.'
-      : 'El avance operativo quedo guardado y Red Aviation puede seguir la coordinacion centralizada.'
-
-  pushHistory(
-    'Solicitudes',
-    `Liberacion operativa ${nextStatus} registrada para solicitud #${request.id}`,
-  )
-
-  if (sharedWorkflowStatus) {
-    emitWorkflowSync({
-      scope: 'reservation-workflow',
-      reservationId: request.reservationId || request.requestId || request.id,
-      requestId: request.requestId || request.id,
-      nextStage: sharedWorkflowStatus,
-      action: 'updated',
-    })
-  }
-
-  savingProviderOperationalRelease.value = false
 }
 
 async function submitProviderOperationalIssue() {
@@ -5862,7 +6262,6 @@ async function submitProviderOperationalIssue() {
 
   providerOperationalIssueForm.type = 'Aeronave no disponible'
   providerOperationalIssueForm.comment = ''
-  providerOperationalIssueDirty.value = false
   providerOperationalReleaseFeedback.value =
     'Incidencia operativa enviada a Red Aviation. El equipo administrativo dara seguimiento y mantendra informado al cliente.'
   savingProviderOperationalIssue.value = false
@@ -6156,6 +6555,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   clearRequestsPolling()
+  clearProviderOperationalReleaseAutosaveTimer()
   if (removeWorkflowSyncSubscription) {
     removeWorkflowSyncSubscription()
     removeWorkflowSyncSubscription = null
@@ -6171,6 +6571,9 @@ onBeforeUnmount(() => {
 watch(
   () => props.section,
   async (nextSection) => {
+    if (nextSection !== 'release-provider') {
+      clearProviderOperationalReleaseAutosaveTimer()
+    }
     startRequestsPolling()
     if (shouldAutoRefreshRequests()) {
       void refreshRequestsList({ silent: true })
@@ -6191,5385 +6594,398 @@ watch(
     }
   },
 )
-</script>
 
-<template>
-  <div class="operator-portal-page">
-    <section class="hero surface">
-      <div>
-        <p class="eyebrow">Portal proveedor</p>
-        <h1>{{ providerName }}</h1>
-        <p class="muted">
-          Administra empresa, aeronaves, disponibilidad y respuesta operativa bajo la capa comercial de Red Aviation.
-        </p>
-      </div>
-
-      <div class="hero-actions">
-        <span v-if="loading" class="badge">Sincronizando backend...</span>
-        <button type="button" class="ghost-button" @click="goToSection('empresa')">
-          Mi empresa
-        </button>
-        <button type="button" class="primary-action" @click="goToSection('aeronaves')">
-          Crear / gestionar aeronaves
-        </button>
-      </div>
-    </section>
-
-    <section v-if="section === 'dashboard'" class="page-grid">
-      <article class="surface dashboard-hero-premium">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">Centro operativo</p>
-            <h2>{{ providerName }}</h2>
-            <p class="muted">
-              Operador {{ companyStatusMeta.label.toLowerCase() }} · {{ aircraft.length }} aeronaves
-              · {{ companyOperationalBase }}
-            </p>
-          </div>
-          <span class="status-pill" :data-tone="dashboardGlobalStatus.tone">
-            {{ dashboardGlobalStatus.title }}
-          </span>
-        </div>
-
-        <p class="muted helper-copy">{{ dashboardGlobalStatus.detail }}</p>
-
-        <div class="company-progress-card">
-          <div class="company-progress-head">
-            <div>
-              <span class="mini-label">Configuracion del operador</span>
-              <strong
-                >{{ dashboardCompletion.completed }} de {{ dashboardCompletion.total }} modulos
-                completados</strong
-              >
-            </div>
-            <strong>{{ dashboardCompletion.percent }}%</strong>
-          </div>
-          <div class="progress-bar">
-            <span
-              class="progress-bar-fill"
-              :style="{ width: `${dashboardCompletion.percent}%` }"
-            ></span>
-          </div>
-        </div>
-
-        <div class="dashboard-alert-strip">
-          <article
-            v-for="alert in dashboardAlerts"
-            :key="alert.title"
-            class="company-alert"
-            :data-tone="alert.tone"
-          >
-            <strong>{{ alert.title }}</strong>
-            <button type="button" class="ghost-link-button" @click="goToSection(alert.section)">
-              {{ alert.action }}
-            </button>
-          </article>
-        </div>
-
-        <div class="dashboard-quick-actions">
-          <button
-            v-for="action in dashboardQuickActions"
-            :key="action.id"
-            type="button"
-            class="quick-action-card"
-            @click="action.action()"
-          >
-            <span>{{ action.icon }}</span>
-            <strong>{{ action.label }}</strong>
-            <small>{{ action.detail }}</small>
-          </button>
-        </div>
-      </article>
-
-      <div class="dashboard-layout">
-        <div class="dashboard-main-column">
-          <article class="surface">
-            <div class="section-head">
-              <div>
-                <p class="eyebrow">Estado operacional</p>
-                <h2>Indicadores vivos del operador</h2>
-              </div>
-            </div>
-
-            <div class="metrics-grid dashboard-metric-grid">
-              <article
-                v-for="card in dashboardCards"
-                :key="card.label"
-                class="metric-card dashboard-metric-card"
-                :data-tone="card.tone"
-              >
-                <span>{{ card.icon }} {{ card.label }}</span>
-                <strong>{{ card.value }}</strong>
-                <p class="metric-status">{{ card.status }}</p>
-                <small>{{ card.detail }}</small>
-              </article>
-            </div>
-          </article>
-
-          <article class="surface">
-            <div class="section-head">
-              <div>
-                <p class="eyebrow">Checklist</p>
-                <h2>Por donde empezar</h2>
-              </div>
-            </div>
-
-            <div class="dashboard-checklist">
-              <button
-                v-for="item in dashboardChecklist"
-                :key="item.id"
-                type="button"
-                class="checklist-card"
-                :data-tone="item.status"
-                @click="goToSection(item.section)"
-              >
-                <div>
-                  <strong>{{ item.icon }} {{ item.label }}</strong>
-                  <p>{{ item.detail }}</p>
-                </div>
-                <span>{{ item.cta }}</span>
-              </button>
-            </div>
-          </article>
-        </div>
-
-        <div class="dashboard-side-column">
-          <article class="surface">
-            
-
-            <div class="ops-timeline">
-              <article
-                v-for="entry in dashboardRecentActivity"
-                :key="entry.id"
-                class="ops-timeline-item"
-              >
-                <span class="ops-timeline-time">{{ entry.date }}</span>
-                <div>
-                  <strong>{{ entry.title }}</strong>
-                  <p class="muted">{{ entry.detail }}</p>
-                </div>
-              </article>
-             
-            </div>
-          </article>
-
-          <article class="surface">
-            <div class="section-head">
-              <div>
-                <p class="eyebrow">Prioridades</p>
-                <h2>Lectura rapida</h2>
-              </div>
-            </div>
-
-            <div class="priority-list">
-              <article class="priority-item priority-item--static">
-                <strong>Empresa</strong>
-                <span>{{ companyStatusMeta.headline }}</span>
-              </article>
-              <article class="priority-item priority-item--static">
-                <strong>Flota</strong>
-                <span
-                  >{{ activeAircraft }} aeronaves activas y {{ fleetGroupedByStatus.revision }} en
-                  revision.</span
-                >
-              </article>
-              <article class="priority-item priority-item--static">
-                <strong>Operacion</strong>
-                <span
-                  >{{ pendingRequests }} solicitudes pendientes y {{ activeOperations }} operaciones
-                  activas.</span
-                >
-              </article>
-            </div>
-          </article>
-        </div>
-      </div>
-    </section>
-
-    <section v-else-if="section === 'empresa'" class="page-grid two-columns">
-      <article class="surface company-shell">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">Perfil de operador</p>
-            <h2>{{ providerName }}</h2>
-            <p class="muted">
-              Operador activo · {{ companyOperationalBase }} · {{ aircraft.length }} aeronaves ·
-              {{ companyStatusMeta.label }}
-            </p>
-          </div>
-          <span class="status-pill" :data-tone="companyStatusMeta.tone">{{
-            companyStatusMeta.label
-          }}</span>
-        </div>
-
-        <div class="company-progress-card">
-          <div class="company-progress-head">
-            <div>
-              <span class="mini-label">Onboarding</span>
-              <strong
-                >{{ companyOnboardingProgress.completed }} de
-                {{ companyOnboardingProgress.total }} pasos completados</strong
-              >
-            </div>
-            <strong>{{ companyOnboardingProgress.percent }}%</strong>
-          </div>
-          <div class="progress-bar">
-            <span
-              class="progress-bar-fill"
-              :style="{ width: `${companyOnboardingProgress.percent}%` }"
-            ></span>
-          </div>
-          <div class="company-progress-steps">
-            <span
-              v-for="step in companyOnboardingSteps"
-              :key="step.id"
-              class="progress-chip"
-              :data-tone="step.complete ? 'success' : step.pending ? 'warning' : 'neutral'"
-            >
-              {{ step.complete ? 'OK' : step.pending ? 'Pend' : 'Info' }} · {{ step.label }}
-            </span>
-          </div>
-        </div>
-
-        <div class="company-form-sections">
-          <section class="company-form-section">
-            <div class="section-head compact-head">
-              <div>
-                <p class="eyebrow">Informacion fiscal</p>
-                <h3>Identidad corporativa</h3>
-              </div>
-            </div>
-
-            <div class="form-grid">
-              <label>
-                <span>Razon social</span>
-                <input
-                  v-model="companyForm.legalName"
-                  type="text"
-                  :class="{ 'input-error': formErrors.company.legalName }"
-                />
-                <small v-if="formErrors.company.legalName" class="field-error">{{
-                  formErrors.company.legalName
-                }}</small>
-              </label>
-              <label>
-                <span>RFC</span>
-                <input
-                  v-model="companyForm.rfc"
-                  type="text"
-                  :class="{ 'input-error': formErrors.company.rfc }"
-                />
-                <small v-if="formErrors.company.rfc" class="field-error">{{
-                  formErrors.company.rfc
-                }}</small>
-              </label>
-              <label class="span-2">
-                <span>Direccion</span>
-                <input
-                  v-model="companyForm.address"
-                  type="text"
-                  :class="{ 'input-error': formErrors.company.address }"
-                />
-                <small v-if="formErrors.company.address" class="field-error">{{
-                  formErrors.company.address
-                }}</small>
-              </label>
-              <label class="span-2">
-                <span>Nombre comercial</span>
-                <input
-                  v-model="companyForm.tradeName"
-                  type="text"
-                  :class="{ 'input-error': formErrors.company.tradeName }"
-                />
-                <small v-if="formErrors.company.tradeName" class="field-error">{{
-                  formErrors.company.tradeName
-                }}</small>
-              </label>
-            </div>
-          </section>
-
-          <section class="company-form-section">
-            <div class="section-head compact-head">
-              <div>
-                <p class="eyebrow">Contacto operativo</p>
-                <h3>Canal de coordinacion</h3>
-              </div>
-            </div>
-
-            <div class="form-grid">
-              <label>
-                <span>Telefono</span>
-                <input
-                  v-model="companyForm.phone"
-                  type="text"
-                  :class="{ 'input-error': formErrors.company.phone }"
-                />
-                <small v-if="formErrors.company.phone" class="field-error">{{
-                  formErrors.company.phone
-                }}</small>
-              </label>
-              <label>
-                <span>Email</span>
-                <input
-                  v-model="companyForm.email"
-                  type="email"
-                  :class="{ 'input-error': formErrors.company.email }"
-                />
-                <small v-if="formErrors.company.email" class="field-error">{{
-                  formErrors.company.email
-                }}</small>
-              </label>
-            </div>
-          </section>
-
-          <section class="company-form-section">
-            <div class="section-head compact-head">
-              <div>
-                <p class="eyebrow">Representante legal</p>
-                <h3>Responsable autorizado</h3>
-              </div>
-            </div>
-
-            <div class="form-grid">
-              <label class="span-2">
-                <span>Nombre</span>
-                <input
-                  v-model="companyForm.legalRepresentative"
-                  type="text"
-                  :class="{ 'input-error': formErrors.company.legalRepresentative }"
-                />
-                <small v-if="formErrors.company.legalRepresentative" class="field-error">{{
-                  formErrors.company.legalRepresentative
-                }}</small>
-              </label>
-            </div>
-          </section>
-
-          <section class="company-form-section">
-            <div class="section-head compact-head">
-              <div>
-                <p class="eyebrow">Pricing global</p>
-                <h3>Jet A, utilidad y fee fijo</h3>
-              </div>
-            </div>
-
-            <div class="form-grid">
-              <label>
-                <span>Jet A USD/gal</span>
-                <input
-                  v-model="companyForm.jetAPrice"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  :class="{ 'input-error': formErrors.company.jetAPrice }"
-                />
-                <small v-if="formErrors.company.jetAPrice" class="field-error">{{
-                  formErrors.company.jetAPrice
-                }}</small>
-              </label>
-              <label>
-                <span>Utilidad %</span>
-                <input
-                  v-model="companyForm.marginPercent"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  :class="{ 'input-error': formErrors.company.marginPercent }"
-                />
-                <small v-if="formErrors.company.marginPercent" class="field-error">{{
-                  formErrors.company.marginPercent
-                }}</small>
-              </label>
-              <label class="span-2">
-                <span>Fee fijo global USD</span>
-                <input
-                  v-model="companyForm.fixedFee"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  :class="{ 'input-error': formErrors.company.fixedFee }"
-                />
-                <small v-if="formErrors.company.fixedFee" class="field-error">{{
-                  formErrors.company.fixedFee
-                }}</small>
-              </label>
-            </div>
-          </section>
-
-          <section class="company-form-section">
-            <div class="section-head compact-head">
-              <div>
-                <p class="eyebrow">Documentacion</p>
-                <h3>Carga legal y respaldo</h3>
-              </div>
-            </div>
-
-            <label
-              class="upload-dropzone"
-              :class="{ 'input-error': formErrors.company.newDocumentFile }"
-            >
-              <input
-                type="file"
-                class="upload-dropzone-input"
-                @change="setCompanyDocumentFile($event.target.files?.[0] || null)"
-              />
-              <strong>Arrastra documentos aqui</strong>
-              <span>o selecciona un archivo para subir al expediente de empresa</span>
-              <small>PDF, DOCX o imagen · maximo 10 MB</small>
-            </label>
-            <small v-if="formErrors.company.newDocumentFile" class="field-error">{{
-              formErrors.company.newDocumentFile
-            }}</small>
-          </section>
-        </div>
-
-        <p v-if="formErrors.company._form" class="form-feedback form-feedback-error">
-          {{ formErrors.company._form }}
-        </p>
-        <p v-if="formSuccess.company" class="form-feedback form-feedback-success">
-          {{ formSuccess.company }}
-        </p>
-        <p v-if="companyForm.newDocumentName" class="muted helper-copy">
-          Documento listo: {{ companyForm.newDocumentName }}
-        </p>
-
-        <div class="inline-actions">
-          <button type="button" class="ghost-button" @click="saveCompany">Guardar cambios</button>
-          <button type="button" class="primary-action" @click="sendCompanyToReview">
-            Enviar empresa a revision
-          </button>
-        </div>
-      </article>
-
-      <article class="surface company-status-shell">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">Validacion operativa</p>
-            <h2>Centro de validacion de operador aeronautico</h2>
-          </div>
-          <span class="status-pill" :data-tone="companyStatusMeta.tone">{{
-            companyStatusMeta.label
-          }}</span>
-        </div>
-
-        <article class="company-verification-card">
-          <span class="mini-label">Confidence</span>
-          <h3>{{ companyStatusMeta.headline }}</h3>
-          <p class="muted">
-            Tu empresa esta habilitada para operar dentro del ecosistema Red Aviation con foco en
-            cumplimiento legal, readiness documental y alta de flota.
-          </p>
-          <div class="company-checklist">
-            <span class="progress-chip" :data-tone="companyForm.legalName ? 'success' : 'warning'"
-              >Empresa validada</span
-            >
-            <span class="progress-chip" :data-tone="companyForm.rfc ? 'success' : 'warning'"
-              >RFC aprobado</span
-            >
-            <span
-              class="progress-chip"
-              :data-tone="company.documents.length ? 'success' : 'warning'"
-              >Documentacion legal</span
-            >
-            <span class="progress-chip" :data-tone="companyStatusMeta.tone">Acceso habilitado</span>
-          </div>
-          <p class="muted">Ultima revision: {{ companyLastAuditDate }}</p>
-        </article>
-
-        <div class="company-summary-grid">
-          <article
-            v-for="item in companyValidationSummary"
-            :key="item.label"
-            class="company-summary-row"
-          >
-            <span>{{ item.label }}</span>
-            <strong>{{ item.value }}</strong>
-          </article>
-        </div>
-
-        <div class="company-alert-stack">
-          <article
-            v-for="alert in companyAlerts"
-            :key="alert.title"
-            class="company-alert"
-            :data-tone="alert.tone"
-          >
-            <strong>{{ alert.title }}</strong>
-          </article>
-        </div>
-
-        <div class="status-list">
-          <div class="status-row">
-            <span>Observaciones Admin</span>
-            <strong>{{
-              company.adminNotes || 'Sin observaciones de administracion por ahora.'
-            }}</strong>
-          </div>
-        </div>
-
-        <div class="document-list company-document-list">
-          <article v-for="document in company.documents" :key="document.id" class="list-card">
-            <div>
-              <strong>{{ document.name }}</strong>
-              <p class="muted">Estado: {{ document.state }}</p>
-            </div>
-          </article>
-          <p v-if="!company.documents.length" class="empty-state">
-            Aun no hay documentos visibles en el expediente legal del operador.
-          </p>
-        </div>
-
-        <div class="ops-timeline">
-          <article v-for="entry in companyAuditTimeline" :key="entry.id" class="ops-timeline-item">
-            <span class="ops-timeline-time">{{ entry.date }}</span>
-            <div>
-              <strong>{{ entry.action }}</strong>
-              <p class="muted">{{ entry.actor }}</p>
-            </div>
-          </article>
-          <p v-if="!companyAuditTimeline.length" class="empty-state">
-            El historial administrativo aparecera aqui conforme avance la validacion.
-          </p>
-        </div>
-      </article>
-    </section>
-
-    <section v-else-if="section === 'aeronaves'" class="page-grid">
-      <article class="surface fleet-hero">
-        <div>
-          <p class="eyebrow">Centro de flota</p>
-          <h2>Operaciones, disponibilidad y alta premium de aeronaves</h2>
-          <p class="muted">
-            La flota vive primero como activo operativo: disponibilidad hoy, estado documental,
-            siguiente mision y capacidad comercial en una sola lectura.
-          </p>
-        </div>
-
-        <div class="hero-actions">
-          <span class="badge">Empresa: {{ company.reviewStatus }}</span>
-          <button type="button" class="primary-action" @click="openAircraftWizard()">
-            + Registrar aeronave
-          </button>
-        </div>
-      </article>
-
-      <div class="fleet-kpi-grid">
-        <article
-          v-for="kpi in aircraftOperationalKpis"
-          :key="kpi.label"
-          class="fleet-kpi-card"
-          :data-tone="kpi.tone"
-        >
-          <span>{{ kpi.label }}</span>
-          <strong>{{ kpi.value }}</strong>
-          <p>{{ kpi.detail }}</p>
-        </article>
-      </div>
-
-      <div class="fleet-layout">
-        <div class="fleet-main-column">
-          <article class="surface fleet-section-card">
-            <div class="section-head">
-              <div>
-                <p class="eyebrow">Flota activa</p>
-                <h2>Aeronaves operativas y readiness comercial</h2>
-              </div>
-              <span class="badge">Total {{ aircraft.length }}</span>
-            </div>
-
-            <div v-if="aircraft.length" class="fleet-premium-grid">
-              <article v-for="item in aircraft" :key="item.id" class="fleet-premium-card">
-                <div
-                  class="fleet-visual"
-                  :style="getAircraftVisualStyle(item)"
-                >
-                  <img
-                    v-if="hasImage(item.mainImage)"
-                    :src="normalizeMediaUrl(item.mainImage)"
-                    :alt="`Imagen de ${item.name}`"
-                    class="fleet-visual-image"
-                  />
-                  <div class="fleet-visual-top">
-                    <span class="status-pill" :data-tone="getAircraftLiveStatus(item).tone">
-                      {{ getAircraftLiveStatus(item).label }}
-                    </span>
-                    <span class="status-pill status-pill--ghost">
-                      {{ humanizeAircraftStatus(item.status) }}
-                    </span>
-                  </div>
-
-                  <div class="fleet-visual-copy">
-                    <strong>{{ item.name }}</strong>
-                    <p>
-                      {{ item.registration || 'Sin matricula' }} · Base
-                      {{ item.base || 'Sin base' }}
-                    </p>
-                    <div class="fleet-inline-metrics">
-                      <span>{{ item.capacity || 'N/D' }} pax</span>
-                      <span>{{ item.rangeKm || 'N/D' }} km</span>
-                      <span>{{ formatCurrency(item.hourlyPrice) }}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="fleet-card-body">
-                  <div class="fleet-card-row">
-                    <div>
-                      <span class="mini-label">Proxima mision</span>
-                      <strong>{{
-                        getAircraftUpcomingOperation(item)?.route || 'Sin vuelo asignado'
-                      }}</strong>
-                    </div>
-                    <div>
-                      <span class="mini-label">Horario</span>
-                      <strong>
-                        {{
-                          getAircraftUpcomingOperation(item)?.departure
-                            ? formatDateTimeDisplay(getAircraftUpcomingOperation(item).departure)
-                            : 'Disponible hoy'
-                        }}
-                      </strong>
-                    </div>
-                  </div>
-
-                  <div class="fleet-card-row">
-                    <div>
-                      <span class="mini-label">Expediente</span>
-                      <strong>{{ getAircraftDocumentHealth(item).label }}</strong>
-                    </div>
-                    <p class="muted compact-copy">{{ getAircraftDocumentHealth(item).detail }}</p>
-                  </div>
-
-                  <div class="weekly-strip">
-                    <span class="mini-label">Disponibilidad semanal</span>
-                    <div class="weekly-dots">
-                      <span
-                        v-for="slot in getAircraftWeeklyAvailability(item)"
-                        :key="slot.key"
-                        class="weekly-dot"
-                        :data-tone="slot.tone"
-                        :title="slot.label"
-                      >
-                        {{ slot.label }}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div class="fleet-inline-metrics">
-                    <span>{{ item.manufacturer || 'Fabricante pendiente' }}</span>
-                    <span>{{ item.coverage || 'Cobertura por definir' }}</span>
-                    <span>{{ item.documents?.length || 0 }} docs</span>
-                  </div>
-
-                  <div class="inline-actions">
-                    <button type="button" class="ghost-button" @click="openAircraftWizard(item, 'view')">
-                      Ver
-                    </button>
-                    <button type="button" class="ghost-button" @click="openAircraftWizard(item, 'edit')">
-                      Editar
-                    </button>
-                    <button
-                      type="button"
-                      class="ghost-button gold-button"
-                      @click="sendAircraftToReview(item.id)"
-                    >
-                      Enviar revision
-                    </button>
-                    <button type="button" class="ghost-button" @click="archiveAircraft(item.id)">
-                      Archivar
-                    </button>
-                    <button
-                      type="button"
-                      class="ghost-button danger-button"
-                      @click="deleteAircraft(item.id)"
-                    >
-                      Eliminar
-                    </button>
-                  </div>
-                </div>
-              </article>
-            </div>
-            <p v-else class="empty-state">Aun no hay aeronaves registradas para este proveedor.</p>
-          </article>
-        </div>
-
-        <div class="fleet-side-column">
-          <article class="surface fleet-section-card">
-            <div class="section-head">
-              <div>
-                <p class="eyebrow">Timeline</p>
-                <h2>Actividad operativa</h2>
-              </div>
-            </div>
-
-            <div class="ops-timeline">
-              <article
-                v-for="entry in aircraftOperationalTimeline"
-                :key="entry.id"
-                class="ops-timeline-item"
-              >
-                <span class="ops-timeline-time">{{ entry.time }}</span>
-                <div>
-                  <strong>{{ entry.title }}</strong>
-                  <p class="muted">{{ entry.detail }}</p>
-                </div>
-              </article>
-              <p v-if="!aircraftOperationalTimeline.length" class="empty-state">
-                Aun no hay actividad suficiente para construir el timeline operativo.
-              </p>
-            </div>
-          </article>
-
-          <article class="surface fleet-section-card">
-            <div class="section-head">
-              <div>
-                <p class="eyebrow">Atencion inmediata</p>
-                <h2>Alertas de flota</h2>
-              </div>
-            </div>
-
-            <div class="priority-list">
-              <article
-                v-for="note in aircraftPriorityNotes"
-                :key="note.id"
-                class="priority-item priority-item--static"
-              >
-                <strong>{{ note.label }} · {{ note.value }}</strong>
-                <span>{{ note.detail }}</span>
-              </article>
-            </div>
-          </article>
-        </div>
-      </div>
-
-      <div v-if="aircraftWizardOpen" class="wizard-overlay">
-        <article class="wizard-modal surface">
-          <div class="wizard-sticky-head">
-            <div class="wizard-header">
-              <div>
-                <p class="eyebrow">Registro premium</p>
-                <h2>{{ aircraftWizardTitle }}</h2>
-                <p class="muted">
-                  {{
-                    aircraftWizardReadOnly
-                      ? 'Consulta completa de la aeronave: navega por general, operacion, galeria, documentacion y revision sin editar.'
-                      : 'Onboarding operativo estilo dispatch: primero datos, luego galeria, expediente y revision.'
-                  }}
-                </p>
-              </div>
-
-              <button type="button" class="ghost-button" @click="closeAircraftWizard">
-                Cerrar
-              </button>
-            </div>
-
-            <div class="wizard-stepper">
-              <button
-                v-for="step in aircraftWizardSteps"
-                :key="step.id"
-                type="button"
-                class="wizard-step"
-                :class="{
-                  active: aircraftWizardStep === step.id,
-                  complete: aircraftWizardStep > step.id,
-                }"
-                :disabled="aircraftWizardSubmitting"
-                @click="aircraftWizardStep = step.id"
-              >
-                <span>{{ String(step.id).padStart(2, '0') }}</span>
-                <strong>{{ step.label }}</strong>
-                <small>{{ step.description }}</small>
-              </button>
-            </div>
-          </div>
-
-          <div class="wizard-body">
-            <div v-if="aircraftWizardStep === 1" class="wizard-panel">
-              <div class="section-head">
-                <div>
-                  <p class="eyebrow">Paso 1</p>
-                  <h3>Informacion general</h3>
-                </div>
-              </div>
-
-              <div class="form-grid">
-                <label>
-                  <span>Modelo</span>
-                  <input
-                    v-model="aircraftForm.name"
-                    type="text"
-                    :disabled="aircraftWizardReadOnly"
-                    :class="{ 'input-error': formErrors.aircraft.name }"
-                    @input="setUppercaseAircraftField('name', $event.target.value)"
-                  />
-                  <small v-if="formErrors.aircraft.name" class="field-error">{{
-                    formErrors.aircraft.name
-                  }}</small>
-                </label>
-                <label>
-                  <span>Fabricante</span>
-                  <input
-                    v-model="aircraftForm.manufacturer"
-                    type="text"
-                    :disabled="aircraftWizardReadOnly"
-                    :class="{ 'input-error': formErrors.aircraft.manufacturer }"
-                    @input="setUppercaseAircraftField('manufacturer', $event.target.value)"
-                  />
-                  <small v-if="formErrors.aircraft.manufacturer" class="field-error">{{
-                    formErrors.aircraft.manufacturer
-                  }}</small>
-                </label>
-                <label>
-                  <span>Categoria</span>
-                  <select
-                    v-model="aircraftForm.category"
-                    :disabled="aircraftWizardReadOnly"
-                    :class="{ 'input-error': formErrors.aircraft.category }"
-                  >
-                    <option value="">Selecciona</option>
-                    <option v-for="option in aircraftCategoryOptions" :key="option.value" :value="option.value">
-                      {{ option.label }}
-                    </option>
-                  </select>
-                  <small v-if="formErrors.aircraft.category" class="field-error">{{
-                    formErrors.aircraft.category
-                  }}</small>
-                </label>
-                <label>
-                  <span>Matricula <small>opcional</small></span>
-                  <input
-                    v-model="aircraftForm.registration"
-                    type="text"
-                    :disabled="aircraftWizardReadOnly"
-                    :class="{ 'input-error': formErrors.aircraft.registration }"
-                    @input="setUppercaseAircraftField('registration', $event.target.value)"
-                  />
-                  <small v-if="formErrors.aircraft.registration" class="field-error">{{
-                    formErrors.aircraft.registration
-                  }}</small>
-                </label>
-                <label>
-                  <span>Anio</span>
-                  <input
-                    v-model="aircraftForm.year"
-                    type="number"
-                    min="1900"
-                    :disabled="aircraftWizardReadOnly"
-                    :class="{ 'input-error': formErrors.aircraft.year }"
-                  />
-                  <small v-if="formErrors.aircraft.year" class="field-error">{{
-                    formErrors.aircraft.year
-                  }}</small>
-                </label>
-                <label class="span-2">
-                  <span>Base operativa</span>
-                  <input
-                    v-model="aircraftForm.base"
-                    type="text"
-                    :disabled="aircraftWizardReadOnly"
-                    :class="{ 'input-error': formErrors.aircraft.base }"
-                    @input="setUppercaseAircraftField('base', $event.target.value)"
-                  />
-                  <small v-if="formErrors.aircraft.base" class="field-error">{{
-                    formErrors.aircraft.base
-                  }}</small>
-                </label>
-              </div>
-            </div>
-
-            <div v-else-if="aircraftWizardStep === 2" class="wizard-panel">
-              <div class="section-head">
-                <div>
-                  <p class="eyebrow">Paso 2</p>
-                  <h3>Operacion y pricing</h3>
-                </div>
-              </div>
-
-              <div class="form-grid">
-                <label>
-                  <span>Tipo de motor</span>
-                  <input v-model="aircraftForm.engineType" type="text" disabled />
-                </label>
-                <label>
-                  <span>Clase de motor</span>
-                  <input v-model="aircraftForm.engineClass" type="text" disabled />
-                </label>
-                <label>
-                  <span>Gastos aeroportuarios USD</span>
-                  <input
-                    v-model="aircraftForm.airportExpensesUsd"
-                    type="number"
-                    min="0"
-                    disabled
-                  />
-                </label>
-                <label>
-                  <span>Capacidad</span>
-                  <input
-                    v-model="aircraftForm.capacity"
-                    type="number"
-                    min="1"
-                    :disabled="aircraftWizardReadOnly"
-                    :class="{ 'input-error': formErrors.aircraft.capacity }"
-                  />
-                  <small v-if="formErrors.aircraft.capacity" class="field-error">{{
-                    formErrors.aircraft.capacity
-                  }}</small>
-                </label>
-                <label>
-                  <span>Velocidad crucero (knots)</span>
-                  <input
-                    v-model="aircraftForm.speedKnots"
-                    type="number"
-                    min="0"
-                    :disabled="aircraftWizardReadOnly"
-                    :class="{ 'input-error': formErrors.aircraft.speedKnots }"
-                  />
-                  <small v-if="formErrors.aircraft.speedKnots" class="field-error">{{
-                    formErrors.aircraft.speedKnots
-                  }}</small>
-                </label>
-                <label>
-                  <span>Precio por hora</span>
-                  <input
-                    v-model="aircraftForm.hourlyPrice"
-                    type="number"
-                    min="0"
-                    :disabled="aircraftWizardReadOnly"
-                    :class="{ 'input-error': formErrors.aircraft.hourlyPrice }"
-                  />
-                  <small v-if="formErrors.aircraft.hourlyPrice" class="field-error">{{
-                    formErrors.aircraft.hourlyPrice
-                  }}</small>
-                </label>
-              </div>
-            </div>
-
-            <div v-else-if="aircraftWizardStep === 3" class="wizard-panel">
-              <div class="section-head">
-                <div>
-                  <p class="eyebrow">Paso 3</p>
-                  <h3>Galeria comercial</h3>
-                </div>
-                <span class="badge">{{ countSelectedImageFiles() }} archivo(s)</span>
-              </div>
-
-              <div class="form-grid">
-                <label>
-                  <span>Imagen principal</span>
-                  <input
-                    type="file"
-                    :disabled="aircraftWizardReadOnly"
-                    accept="image/*"
-                    @change="setAircraftImageField('mainFile', $event.target.files?.[0] || null)"
-                  />
-                </label>
-                <label>
-                  <span>Cabina</span>
-                  <input
-                    type="file"
-                    :disabled="aircraftWizardReadOnly"
-                    accept="image/*"
-                    @change="setAircraftImageField('cabinFile', $event.target.files?.[0] || null)"
-                  />
-                </label>
-                <label>
-                  <span>Asientos</span>
-                  <input
-                    type="file"
-                    :disabled="aircraftWizardReadOnly"
-                    accept="image/*"
-                    @change="setAircraftImageField('seatsFile', $event.target.files?.[0] || null)"
-                  />
-                </label>
-                <label>
-                  <span>Servicios proporcionados</span>
-                  <input
-                    type="file"
-                    :disabled="aircraftWizardReadOnly"
-                    accept="image/*"
-                    @change="
-                      setAircraftImageField('amenitiesFile', $event.target.files?.[0] || null)
-                    "
-                  />
-                </label>
-              </div>
-
-              <div v-if="selectedImageAircraft?.images?.length" class="stored-images-grid">
-                <article class="stored-image-card">
-                  <span>Principal guardada</span>
-                  <img
-                    v-if="getAircraftImageByKind(selectedImageAircraft, 'main')?.imageUrl"
-                    :src="getAircraftImageByKind(selectedImageAircraft, 'main').imageUrl"
-                    alt="Imagen principal guardada"
-                    class="stored-image-preview"
-                  />
-                </article>
-                <article class="stored-image-card">
-                  <span>Cabina guardada</span>
-                  <img
-                    v-if="getAircraftImageByKind(selectedImageAircraft, 'cabin')?.imageUrl"
-                    :src="getAircraftImageByKind(selectedImageAircraft, 'cabin').imageUrl"
-                    alt="Imagen de cabina guardada"
-                    class="stored-image-preview"
-                  />
-                </article>
-              </div>
-            </div>
-
-            <div v-else-if="aircraftWizardStep === 4" class="wizard-panel">
-              <div class="section-head">
-                <div>
-                  <p class="eyebrow">Paso 4</p>
-                  <h3>Biblioteca documental y multimedia</h3>
-                  <p class="muted compact-copy">
-                    Carga multiples imagenes o PDF por categoria. Las imagenes compatibles se optimizan a WebP antes de enviarse.
-                  </p>
-                </div>
-                <span class="badge"
-                  >{{ selectedDocumentAircraft?.documents?.length || 0 }} registro(s)</span
-                >
-              </div>
-
-              <div class="document-type-grid">
-                <button
-                  v-for="type in aircraftDocumentTypes"
-                  :key="type.id"
-                  type="button"
-                  class="document-type-card"
-                  :class="{ active: documentForm.type === type.id }"
-                  @click="selectDocumentType(type.id)"
-                >
-                  <strong>{{ type.label }}</strong>
-                  <span>PDF + IMG</span>
-                  <small>{{ type.requiresExpiry ? 'Vencimiento requerido' : 'Sin vencimiento obligatorio' }}</small>
-                </button>
-              </div>
-
-              <div class="document-upload-grid">
-                <label class="field">
-                  <span>Tipo de archivo</span>
-                  <select v-model="documentForm.type" :class="{ 'input-error': formErrors.document.type }" @change="selectDocumentType($event.target.value)">
-                    <option v-for="type in aircraftDocumentTypes" :key="type.id" :value="type.id">
-                      {{ type.label }}
-                    </option>
-                  </select>
-                  <small v-if="formErrors.document.type" class="field-error">{{ formErrors.document.type }}</small>
-                </label>
-
-                <label
-                  class="document-dropzone"
-                  :class="{ active: documentForm.dragActive, 'input-error': formErrors.document.file }"
-                  @dragover.prevent="documentForm.dragActive = true"
-                  @dragleave.prevent="documentForm.dragActive = false"
-                  @drop.prevent="handleDocumentDrop"
-                >
-                  <input
-                    type="file"
-                    multiple
-                    accept=".jpg,.jpeg,.png,.webp,.heic,.heif,.pdf,image/*,application/pdf"
-                    @change="setAircraftDocumentFiles"
-                  />
-                  <strong>Arrastra archivos aqui o selecciona multiples</strong>
-                  <span>Imagen max 8MB. PDF max 25MB. Hasta {{ maxAircraftDocumentFiles }} archivos por carga.</span>
-                  <small>Categoria activa: {{ selectedDocumentType.label }}</small>
-                </label>
-              </div>
-
-              <p v-if="formErrors.document._form" class="form-feedback form-feedback-error">
-                {{ formErrors.document._form }}
-              </p>
-              <p v-if="formErrors.document.file" class="form-feedback form-feedback-error">
-                {{ formErrors.document.file }}
-              </p>
-              <p v-if="formSuccess.document" class="form-feedback form-feedback-success">
-                {{ formSuccess.document }}
-              </p>
-
-              <div v-if="documentForm.files.length" class="document-preview-grid">
-                <article
-                  v-for="item in documentForm.files"
-                  :key="item.id"
-                  class="document-preview-card"
-                  role="button"
-                  tabindex="0"
-                  @click="openDocumentPreview(item)"
-                  @keydown.enter.prevent="openDocumentPreview(item)"
-                >
-                  <img v-if="item.previewUrl" :src="item.previewUrl" :alt="item.name" />
-                  <div v-else class="pdf-preview">PDF</div>
-                  <strong>{{ item.name }}</strong>
-                  <span>{{ item.typeLabel }} · {{ item.kind.toUpperCase() }} · {{ formatFileSize(item.size) }}</span>
-                  <button type="button" class="ghost-button danger-button" @click.stop="removeAircraftDocumentFile(item.id)">
-                    Eliminar
-                  </button>
-                </article>
-              </div>
-
-              <div class="document-library-header">
-                <div>
-                  <span class="mini-label">Contenido documental</span>
-                  <strong>Biblioteca guardada de la aeronave</strong>
-                </div>
-                <span class="badge">{{ selectedDocumentAircraft?.documents?.length || 0 }} archivo(s)</span>
-              </div>
-
-              <div v-if="selectedDocumentAircraft?.documents?.length" class="stored-documents-list document-library">
-                <article
-                  v-for="document in selectedDocumentAircraft.documents"
-                  :key="document.id"
-                  class="stored-document-card"
-                  role="button"
-                  tabindex="0"
-                  @click="openStoredDocumentPreview(document)"
-                  @keydown.enter.prevent="openStoredDocumentPreview(document)"
-                >
-                  <div class="card-top">
-                    <div>
-                      <strong>{{ document.name }}</strong>
-                      <p class="muted">
-                        {{ document.type }} · {{ formatDocumentExpiry(document.expiresAt) }}
-                      </p>
-                    </div>
-                    <span class="badge">{{ document.state }}</span>
-                  </div>
-                  <div class="fleet-inline-metrics">
-                    <span>{{ document.typeLabel }}</span>
-                    <span>{{ document.fileType || (getStoredDocumentKind(document) === 'image' ? 'Imagen' : 'PDF') }}</span>
-                    <span>{{ document.expiresAt ? 'Con vencimiento' : 'Sin vencimiento' }}</span>
-                  </div>
-                  <div class="inline-actions">
-                    <button
-                      type="button"
-                      class="ghost-button danger-button"
-                      @click.stop="removeStoredAircraftDocument(selectedDocumentAircraft?.id, document.id)"
-                    >
-                      Eliminar
-                    </button>
-                  </div>
-                  <a v-if="document.fileUrl" class="admin-text-link" :href="document.fileUrl" target="_blank" rel="noreferrer">
-                    Ver archivo
-                  </a>
-                </article>
-              </div>
-              <p v-else class="empty-state">
-                Aun no hay documentos guardados para esta aeronave. Cuando subas archivos aqui se iran mostrando en esta biblioteca.
-              </p>
-            </div>
-
-            <div v-else class="wizard-panel">
-              <div class="section-head">
-                <div>
-                  <p class="eyebrow">Paso 5</p>
-                  <h3>Resumen y envio</h3>
-                </div>
-              </div>
-
-              <div class="wizard-review-grid">
-                <article class="wizard-review-card">
-                  <span class="mini-label">Aeronave</span>
-                  <strong>{{ aircraftForm.name || 'Sin modelo' }}</strong>
-                  <p class="muted">
-                    {{ aircraftForm.registration || 'Sin matricula' }} ·
-                    {{ aircraftForm.base || 'Sin base' }}
-                  </p>
-                </article>
-                <article class="wizard-review-card">
-                  <span class="mini-label">Operacion</span>
-                  <strong
-                    >{{ aircraftForm.capacity || 0 }} pax ·
-                    {{ aircraftForm.speedKnots || 0 }} kt</strong
-                  >
-                  <p class="muted">
-                    {{ formatCurrency(aircraftForm.hourlyPrice) }} · Min
-                    {{ inferredAircraftMinimumHours }} hr
-                  </p>
-                </article>
-                <article class="wizard-review-card">
-                  <span class="mini-label">Galeria</span>
-                  <strong>{{ countSelectedImageFiles() }} archivos listos</strong>
-                  <p class="muted">
-                    Principal, cabina, asientos y amenidades listas para sincronizar.
-                  </p>
-                </article>
-                <article class="wizard-review-card">
-                  <span class="mini-label">Expediente</span>
-                  <strong>{{ documentForm.files.length ? `${documentForm.files.length} archivo(s) listos` : 'Sin nuevo documento' }}</strong>
-                  <p class="muted">
-                    {{ documentForm.type }} ·
-                    
-                  </p>
-                </article>
-              </div>
-
-              <p v-if="formErrors.aircraft._form" class="form-feedback form-feedback-error">
-                {{ formErrors.aircraft._form }}
-              </p>
-              <p v-if="formSuccess.aircraft" class="form-feedback form-feedback-success">
-                {{ formSuccess.aircraft }}
-              </p>
-            </div>
-          </div>
-
-          <div class="wizard-footer">
-            <button
-              type="button"
-              class="ghost-button"
-              :disabled="aircraftWizardStep === 1 || aircraftWizardSubmitting"
-              @click="previousAircraftWizardStep"
-            >
-              Anterior
-            </button>
-            <div class="wizard-footer-actions">
-              <button
-                v-if="aircraftWizardStep < aircraftWizardSteps.length"
-                type="button"
-                class="primary-action"
-                :disabled="aircraftWizardSubmitting"
-                @click="nextAircraftWizardStep"
-              >
-                Continuar
-              </button>
-              <button
-                v-else
-                type="button"
-                class="primary-action"
-                :disabled="aircraftWizardSubmitting"
-                @click="aircraftWizardReadOnly ? closeAircraftWizard() : submitAircraftWizard()"
-              >
-                {{
-                  aircraftWizardSubmitting
-                    ? 'Guardando...'
-                    : aircraftWizardReadOnly
-                      ? 'Cerrar'
-                    : editingAircraftId
-                      ? 'Guardar cambios'
-                      : 'Registrar aeronave'
-                }}
-              </button>
-            </div>
-          </div>
-        </article>
-
-        <div v-if="documentPreview.open" class="document-preview-overlay" @click.self="closeDocumentPreview">
-          <article class="document-preview-modal">
-            <div class="document-preview-head">
-              <div>
-                <span class="mini-label">{{ documentPreview.file?.typeLabel }}</span>
-                <h3>{{ documentPreview.file?.name }}</h3>
-              </div>
-              <button type="button" class="ghost-button" @click="closeDocumentPreview">Cerrar</button>
-            </div>
-
-            <img
-              v-if="documentPreview.file?.kind === 'image'"
-              :src="documentPreview.url"
-              :alt="documentPreview.file?.name"
-              class="document-preview-full"
-            />
-            <iframe
-              v-else
-              :src="documentPreview.url"
-              class="document-preview-frame"
-              title="Vista previa PDF"
-            ></iframe>
-          </article>
-        </div>
-      </div>
-    </section>
-
-    <section v-else-if="section === 'costos'" class="page-grid">
-      <article class="surface">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">Costos base</p>
-            <h2>Matriz operativa para capturar costos por aeronave</h2>
-          </div>
-          <span class="badge">Multiples aeronaves en una sola vista</span>
-        </div>
-
-        <p class="muted helper-copy">
-          Cada fila representa una aeronave. Aqui capturas costos base y parametros operativos; Red Aviation conserva el control del precio final y los margenes.
-        </p>
-
-        <div v-if="aircraftPricingRows.length" class="table-shell pricing-table-shell">
-          <div class="pricing-table-head">
-            <span>Aeronave</span>
-            <span>Precio/hr</span>
-            <span>Min hrs</span>
-            <span>Repo</span>
-            <span>Pernocta</span>
-            <span>Espera</span>
-            <span>FBO</span>
-            <span>Permisos</span>
-            <span>Catering</span>
-            <span>Accion</span>
-          </div>
-
-          <div v-for="row in aircraftPricingRows" :key="row.id" class="pricing-table-row">
-            <div class="pricing-aircraft-cell">
-              <strong>{{ row.name }}</strong>
-              <span class="muted">Tarifa base y costos operativos</span>
-            </div>
-            <input
-              :value="row.hourlyPrice"
-              type="number"
-              min="0"
-              @input="updatePricing(row.id, 'hourlyPrice', $event.target.value)"
-            />
-            <input
-              :value="row.minimumHours"
-              type="number"
-              min="0"
-              step="0.1"
-              @input="updatePricing(row.id, 'minimumHours', $event.target.value)"
-            />
-            <input
-              :value="row.repositioningCost"
-              type="number"
-              min="0"
-              @input="updatePricing(row.id, 'repositioningCost', $event.target.value)"
-            />
-            <input
-              :value="row.overnightCost"
-              type="number"
-              min="0"
-              @input="updatePricing(row.id, 'overnightCost', $event.target.value)"
-            />
-            <input
-              :value="row.waitingCost"
-              type="number"
-              min="0"
-              @input="updatePricing(row.id, 'waitingCost', $event.target.value)"
-            />
-            <input
-              :value="row.fboCost"
-              type="number"
-              min="0"
-              @input="updatePricing(row.id, 'fboCost', $event.target.value)"
-            />
-            <input
-              :value="row.permitsCost"
-              type="number"
-              min="0"
-              @input="updatePricing(row.id, 'permitsCost', $event.target.value)"
-            />
-            <input
-              :value="row.cateringBaseCost"
-              type="number"
-              min="0"
-              @input="updatePricing(row.id, 'cateringBaseCost', $event.target.value)"
-            />
-            <button
-              type="button"
-              class="primary-action pricing-save-button"
-              @click="savePricing(row.id)"
-            >
-              Guardar
-            </button>
-          </div>
-        </div>
-        <p v-else class="empty-state">
-          Todavia no hay aeronaves registradas para construir la matriz de cotizacion.
-        </p>
-      </article>
-    </section>
-
-    <section v-else-if="section === 'disponibilidad'" class="page-grid">
-      <article class="surface availability-hero">
-        <div>
-          <p class="eyebrow">Control de disponibilidad</p>
-          <h2>Centro de control operativo de flota</h2>
-          <p class="muted">Gestiona disponibilidad y bloqueos operativos.</p>
-        </div>
-        <span class="status-pill" :data-tone="availabilityGlobalStatus.tone">{{
-          availabilityGlobalStatus.title
-        }}</span>
-      </article>
-
-      <div class="fleet-kpi-grid">
-        <article
-          v-for="card in availabilitySummaryCards"
-          :key="card.label"
-          class="fleet-kpi-card"
-          :data-tone="card.tone"
-        >
-          <span>{{ card.label }}</span>
-          <strong>{{ card.value }}</strong>
-          <p>{{ card.detail }}</p>
-        </article>
-      </div>
-
-      <div class="fleet-layout">
-        <div class="fleet-main-column">
-          <article class="surface fleet-section-card">
-            <div class="section-head">
-              <div>
-                <p class="eyebrow">Bloqueo operativo</p>
-                <h2>Wizard compacto de disponibilidad</h2>
-              </div>
-            </div>
-
-            <div class="company-progress-steps">
-              <span
-                v-for="step in availabilityFormSteps"
-                :key="step.id"
-                class="progress-chip"
-                :data-tone="step.complete ? 'success' : 'neutral'"
-              >
-                {{ String(step.id).padStart(2, '0') }} · {{ step.label }}
-              </span>
-            </div>
-
-            <div class="form-grid">
-              <label class="span-2">
-                <span>Aeronave</span>
-                <select
-                  v-model="availabilityForm.aircraftId"
-                  :disabled="!aircraftOptions.length"
-                  :class="{ 'input-error': formErrors.availability.aircraftId }"
-                >
-                  <option :value="null" disabled>Selecciona una aeronave</option>
-                  <option v-for="item in aircraftOptions" :key="item.id" :value="item.id">
-                    {{ item.label }}
-                  </option>
-                </select>
-                <small v-if="formErrors.availability.aircraftId" class="field-error">{{
-                  formErrors.availability.aircraftId
-                }}</small>
-              </label>
-              <label>
-                <span>Inicio</span>
-                <input
-                  v-model="availabilityForm.from"
-                  type="datetime-local"
-                  :class="{ 'input-error': formErrors.availability.from }"
-                />
-                <small v-if="formErrors.availability.from" class="field-error">{{
-                  formErrors.availability.from
-                }}</small>
-              </label>
-              <label>
-                <span>Fin</span>
-                <input
-                  v-model="availabilityForm.to"
-                  type="datetime-local"
-                  :class="{ 'input-error': formErrors.availability.to }"
-                />
-                <small v-if="formErrors.availability.to" class="field-error">{{
-                  formErrors.availability.to
-                }}</small>
-              </label>
-              <label>
-                <span>Estado operacional</span>
-                <select
-                  v-model="availabilityForm.status"
-                  :class="{ 'input-error': formErrors.availability.status }"
-                >
-                  <option v-for="option in availabilityStatusOptions" :key="option" :value="option">
-                    {{ getAvailabilityStatusMeta(option).label }}
-                  </option>
-                </select>
-                <small v-if="formErrors.availability.status" class="field-error">{{
-                  formErrors.availability.status
-                }}</small>
-              </label>
-              <label>
-                <span>Motivo</span>
-                <input
-                  v-model="availabilityForm.reason"
-                  type="text"
-                  :class="{ 'input-error': formErrors.availability.reason }"
-                />
-                <small v-if="formErrors.availability.reason" class="field-error">{{
-                  formErrors.availability.reason
-                }}</small>
-              </label>
-            </div>
-
-            <p v-if="formErrors.availability._form" class="form-feedback form-feedback-error">
-              {{ formErrors.availability._form }}
-            </p>
-            <p v-if="formSuccess.availability" class="form-feedback form-feedback-success">
-              {{ formSuccess.availability }}
-            </p>
-            <p v-if="selectedAvailabilityAircraft" class="muted helper-copy">
-              Trabajando sobre: {{ selectedAvailabilityAircraft.name }} ·
-              {{ selectedAvailabilityAircraft.registration || 'Sin matricula' }} ·
-              {{ selectedAvailabilityAircraft.base || 'Sin base' }}
-            </p>
-            <p v-else class="empty-state">
-              Primero necesitas tener al menos una aeronave registrada para gestionar
-              disponibilidad.
-            </p>
-
-            <div class="inline-actions">
-              <button
-                type="button"
-                class="primary-action"
-                :disabled="!selectedAvailabilityAircraft"
-                @click="createAvailabilityBlock"
-              >
-                Guardar bloqueo
-              </button>
-            </div>
-          </article>
-
-          <article class="surface fleet-section-card">
-            <div class="section-head">
-              <div>
-                <p class="eyebrow">Calendario semanal</p>
-                <h2>Disponibilidad visual de la flota</h2>
-              </div>
-            </div>
-
-            <div v-if="aircraft.length" class="availability-calendar-shell">
-              <div class="availability-calendar-toolbar">
-                <div>
-                  <strong>{{ availabilityCalendarWindowLabel }}</strong>
-                  <p class="muted">Haz click en una celda para precargar el bloqueo en el wizard.</p>
-                </div>
-                <div class="availability-calendar-actions">
-                  <label class="availability-calendar-filter">
-                    <span>Aeronave</span>
-                    <select v-model="selectedAvailabilityCalendarAircraftId">
-                      <option
-                        v-for="option in availabilityCalendarAircraftOptions"
-                        :key="option.id"
-                        :value="option.id"
-                      >
-                        {{ option.label }}
-                      </option>
-                    </select>
-                  </label>
-                  <button type="button" class="ghost-button" @click="moveAvailabilityWeek(-1)">
-                    Semana previa
-                  </button>
-                  <button type="button" class="ghost-button" @click="jumpAvailabilityWeekToToday()">
-                    Hoy
-                  </button>
-                  <button type="button" class="ghost-button" @click="moveAvailabilityWeek(1)">
-                    Siguiente
-                  </button>
-                </div>
-              </div>
-
-              <div class="availability-calendar-grid">
-                <div class="availability-calendar-row availability-calendar-row--head">
-                  <div class="availability-calendar-aircraft-head">Flota</div>
-                  <div
-                    v-for="day in availabilityCalendarWeekDays"
-                    :key="day.key"
-                    class="availability-calendar-day-head"
-                    :class="{ 'is-today': day.isToday }"
-                  >
-                    <strong>{{ day.shortLabel }}</strong>
-                    <span>{{ day.dayNumber }} {{ day.monthLabel }}</span>
-                  </div>
-                </div>
-
-                <article
-                  v-for="row in availabilityCalendarRows"
-                  :key="row.plane.id"
-                  class="availability-calendar-row availability-calendar-row--body"
-                >
-                  <div class="availability-calendar-aircraft">
-                    <strong>{{ row.plane.name }}</strong>
-                    <span class="muted">
-                      {{ getAvailabilityOperationalStatus(row.plane).label }} ·
-                      {{ row.plane.base || 'Sin base' }}
-                    </span>
-                  </div>
-                  <button
-                    v-for="cell in row.cells"
-                    :key="cell.key"
-                    type="button"
-                    class="availability-calendar-cell"
-                    :data-tone="cell.tone"
-                    :class="{ 'is-available': cell.isAvailable }"
-                    :title="`${cell.title} · ${cell.detail}`"
-                    @click="selectAvailabilityCalendarCell(row.plane, cell)"
-                  >
-                    <strong>{{ cell.label }}</strong>
-                    <span>{{ cell.detail }}</span>
-                  </button>
-                </article>
-              </div>
-            </div>
-            <p v-else class="empty-state">
-              Sin aeronaves registradas para construir el calendario.
-            </p>
-          </article>
-        </div>
-
-        <div class="fleet-side-column">
-          <article class="surface fleet-section-card">
-            <div class="section-head">
-              <div>
-                <p class="eyebrow">Agenda operacional</p>
-                <h2>Bloqueos y ocupacion</h2>
-              </div>
-            </div>
-
-            <div v-if="availability.length" class="availability-records">
-              <article v-for="item in availability" :key="item.id" class="availability-record-card">
-                <div class="card-top">
-                  <div>
-                    <strong>{{ item.aircraft }}</strong>
-                    <p class="muted">{{ item.reason }}</p>
-                  </div>
-                  <span
-                    class="status-pill"
-                    :data-tone="getAvailabilityStatusMeta(item.status).tone"
-                  >
-                    {{ getAvailabilityStatusMeta(item.status).label }}
-                  </span>
-                </div>
-                <div class="fleet-inline-metrics">
-                  <span
-                    >📍
-                    {{
-                      aircraft.find((plane) => plane.id === Number(item.aircraftId))?.base ||
-                      'Base pendiente'
-                    }}</span
-                  >
-                  <span>🕓 {{ formatDateTimeDisplay(item.from) }}</span>
-                  <span>→ {{ formatDateTimeDisplay(item.to) }}</span>
-                </div>
-                <div class="inline-actions">
-                  <button
-                    type="button"
-                    class="ghost-button availability-action"
-                    @click="releaseAvailability(item.id)"
-                  >
-                    Liberar
-                  </button>
-                </div>
-              </article>
-            </div>
-            <p v-else class="empty-state">
-              No hay registros de disponibilidad guardados para esta flota.
-            </p>
-          </article>
-
-  
-        </div>
-      </div>
-    </section>
-
-    <section v-else-if="section === 'solicitudes'" class="page-grid">
-      <article class="surface requests-dispatch-surface">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">Centro de despacho</p>
-            <h2>Solicitudes operativas</h2>
-            <p v-if="false" class="muted helper-copy">
-              Escanea la cola, prioriza urgencias y acepta o rechaza solicitudes desde una sola bandeja.
-            </p>
-            <p class="muted helper-copy">{{ getRequestHelperCopy(selectedRequest) }}</p>
-          </div>
-          <div class="requests-head-actions">
-            <button
-              type="button"
-              class="archive-toggle"
-              :class="{ 'is-active': archivedTrayOpen }"
-              @click="archivedTrayOpen = !archivedTrayOpen"
-            >
-              <span class="archive-toggle__icon" aria-hidden="true">🗂</span>
-              <span class="archive-toggle__label">Archivadas</span>
-              <strong>{{ archivedRequests.length }}</strong>
-            </button>
-            <span class="badge">Proveedor decide aqui: aceptar o rechazar</span>
-          </div>
-        </div>
-
-        <div class="fleet-kpi-grid request-kpi-grid">
-          <article
-            v-for="card in requestKpis"
-            :key="card.label"
-            class="metric-card request-kpi-card"
-            :data-tone="card.tone"
-          >
-            <span>{{ card.label }}</span>
-            <strong>{{ card.value }}</strong>
-            <small>{{ card.detail }}</small>
-          </article>
-        </div>
-
-        <div class="requests-toolbar">
-          <label class="request-search">
-            <span>Buscar</span>
-            <input
-              v-model="requestSearch"
-              type="search"
-              placeholder="Ruta, codigo, matricula o aeronave"
-            />
-          </label>
-
-          <div class="requests-tab-row">
-            <button
-              v-for="tab in requestStatusTabs"
-              :key="tab.id"
-              type="button"
-              class="request-tab"
-              :class="{ 'is-active': requestStatusFilter === tab.id }"
-              @click="requestStatusFilter = tab.id"
-            >
-              <span>{{ tab.label }}</span>
-              <strong>{{ tab.count }}</strong>
-            </button>
-          </div>
-
-          <label class="request-priority-filter">
-            <span>Prioridad</span>
-            <select v-model="requestPriorityFilter">
-              <option value="all">Todas</option>
-              <option value="urgent">Urgente</option>
-              <option value="high">Alta prioridad</option>
-              <option value="normal">Programada</option>
-              <option value="expired">SLA vencido</option>
-            </select>
-          </label>
-        </div>
-
-        <section v-if="archivedTrayOpen" class="archived-requests-panel">
-          <div class="section-head compact-head">
-            <div>
-              <p class="eyebrow">Archivadas</p>
-              <h3>Solicitudes rechazadas</h3>
-            </div>
-            <span class="badge">Solo lectura</span>
-          </div>
-
-          <div v-if="archivedRequests.length" class="archived-requests-list">
-            <article
-              v-for="request in archivedRequests"
-              :key="`archived-${request.id}`"
-              class="archived-request-card"
-            >
-              <div class="request-queue-top">
-                <strong>Solicitud #{{ request.id }}</strong>
-                <span class="status-pill status-pill--ghost" data-tone="neutral">Archivada</span>
-              </div>
-              <p class="request-queue-route">{{ getRequestRouteLabel(request) }}</p>
-              <div class="request-queue-meta">
-                <span>{{ request.passengers || 0 }} pax</span>
-                <span>{{ formatDateTimeDisplay(request.date) }}</span>
-              </div>
-              <div class="request-queue-meta">
-                <span class="package-chip" :data-tone="getRequestServiceTierTone(request)">
-                  {{ getRequestServiceTierLabel(request) }}
-                </span>
-                <span>{{ getRequestQuoteLabel(request) }}</span>
-                <span>Rechazada por proveedor</span>
-              </div>
-            </article>
-          </div>
-
-          <p v-else class="empty-state">No hay solicitudes archivadas por el momento.</p>
-        </section>
-
-        <div
-          v-if="requests.length && (filteredRequests.length || !archivedTrayOpen)"
-          class="requests-dispatch-layout"
-        >
-          <aside class="requests-queue">
-            <article
-              v-for="request in filteredRequests"
-              :key="request.id"
-              class="request-queue-card"
-              :class="{ 'is-active': selectedRequest?.id === request.id }"
-              @click="selectRequest(request.id)"
-            >
-              <div class="request-queue-top">
-                <span class="status-pill" :data-tone="getRequestPriorityMeta(request).tone">
-                  {{ getRequestPriorityMeta(request).label }}
-                </span>
-                <span
-                  class="status-pill status-pill--ghost"
-                  :data-tone="getRequestStatusMeta(request).tone"
-                >
-                  {{ getRequestStatusMeta(request).label }}
-                </span>
-              </div>
-
-              <strong>Solicitud #{{ request.id }}</strong>
-              <p class="request-queue-route">{{ getRequestRouteLabel(request) }}</p>
-
-              <div class="request-queue-meta">
-                <span>{{ request.passengers || 0 }} pax</span>
-                <span>{{ formatDateTimeDisplay(request.date) }}</span>
-              </div>
-
-              <div class="request-queue-meta">
-                <span class="package-chip" :data-tone="getRequestServiceTierTone(request)">
-                  {{ getRequestServiceTierLabel(request) }}
-                </span>
-                <span>{{ getRequestQuoteLabel(request) }}</span>
-                <span>{{ getRequestResponseCountdown(request).label }}</span>
-              </div>
-            </article>
-
-            <p v-if="!filteredRequests.length" class="empty-state">
-              No hay solicitudes activas que coincidan con los filtros actuales.
-            </p>
-          </aside>
-
-          <article v-if="selectedRequest" class="request-detail-surface">
-            <div class="request-detail-head">
-          <div>
-            <p class="eyebrow">Detalle operativo</p>
-            <h3>{{ getRequestRouteLabel(selectedRequest) }}</h3>
-            <p class="muted">
-                  {{ getProviderOperationalReleaseAircraftLabel() }} ·
-                  {{ selectedRequest.passengers || 0 }} pax ·
-                  {{ formatDateTimeDisplay(selectedRequest.date) }} ·
-                  {{ getRequestServiceTierLabel(selectedRequest) }}
-            </p>
-          </div>
-
-              <div class="request-detail-actions">
-                <button
-                  type="button"
-                  class="ghost-button"
-                  :disabled="
-                    isRequestRejected(selectedRequest) ||
-                    isRequestAccepted(selectedRequest) ||
-                    isRequestPendingValidation(selectedRequest) ||
-                    isUpdatingRequestStatus(selectedRequest.id)
-                  "
-                  @click="updateRequestStatus(selectedRequest.id, 'Rechazada')"
-                >
-                  <span
-                    v-if="isUpdatingRequestStatus(selectedRequest.id, 'reject')"
-                    class="button-spinner"
-                    aria-hidden="true"
-                  ></span>
-                  {{ isUpdatingRequestStatus(selectedRequest.id, 'reject') ? 'Rechazando...' : 'Rechazar' }}
-                </button>
-                <button
-                  type="button"
-                  class="primary-action"
-                  :disabled="!canTriggerRequestPrimaryAction(selectedRequest)"
-                  @click="handleRequestPrimaryAction(selectedRequest)"
-                >
-                  <span
-                    v-if="isUpdatingRequestStatus(selectedRequest.id, 'accept')"
-                    class="button-spinner"
-                    aria-hidden="true"
-                  ></span>
-                  {{ isUpdatingRequestStatus(selectedRequest.id, 'accept') ? 'Guardando...' : getRequestPrimaryActionLabel(selectedRequest) }}
-                </button>
-              </div>
-            </div>
-
-            <p class="muted helper-copy">
-              Esta es la zona ciega del proveedor para confirmar aeronave y operacion. La
-              coordinacion con la sobrecargo la hace Red Aviation y el cliente solo recibe
-              actualizaciones del administrador.
-            </p>
-
-            <div
-              v-if="requestOperationalAlerts.length"
-              class="dashboard-alert-strip request-alert-strip"
-            >
-              <article
-                v-for="alert in requestOperationalAlerts"
-                :key="alert.id"
-                class="alert-chip"
-                :data-tone="alert.tone"
-              >
-                <strong>{{ alert.text }}</strong>
-              </article>
-            </div>
-
-            <div class="request-flow-strip">
-              <article
-                v-for="step in buildOperatorRequestFlowSteps(selectedRequest)"
-                :key="step.id"
-                class="request-flow-pill"
-                :data-state="step.state"
-              >
-                <span class="request-flow-pill__index">{{ step.shortLabel }}</span>
-                <strong>{{ step.title }}</strong>
-              </article>
-            </div>
-
-            <div class="request-summary-grid">
-              <article class="request-summary-card">
-                <span class="mini-label">Estado</span>
-                <strong>{{ getRequestStatusMeta(selectedRequest).headline }}</strong>
-                <p class="muted">{{ getRequestStatusCopy(selectedRequest) }}</p>
-              </article>
-              <article class="request-summary-card">
-                <span class="mini-label">Etapa compartida</span>
-                <strong>{{ normalizeWorkflowLabel(resolveRequestWorkflowValue(selectedRequest)) }}</strong>
-                <p class="muted">La misma etapa que consumen cliente y admin.</p>
-              </article>
-              <article class="request-summary-card">
-                <span class="mini-label">Paquete / servicio</span>
-                <strong>{{ getRequestServiceTierLabel(selectedRequest) }}</strong>
-                <p class="muted">{{ getRequestTripTypeLabel(selectedRequest) }}</p>
-              </article>
-              <article class="request-summary-card">
-                <span class="mini-label">SLA</span>
-                <strong>{{ getRequestResponseCountdown(selectedRequest).label }}</strong>
-                <p class="muted">{{ formatDateTimeDisplay(selectedRequest.responseLimit) }}</p>
-              </article>
-              <article class="request-summary-card">
-                <span class="mini-label">Aeronave sugerida</span>
-                <strong>{{ selectedRequestAircraftComparison.label }}</strong>
-                <p class="muted">{{ selectedRequestAircraftComparison.detail }}</p>
-              </article>
-              <article class="request-summary-card">
-                <span class="mini-label">Liberacion operativa</span>
-                <strong>
-                  {{
-                    getProviderOperationalReleaseStatusMeta(getProviderOperationalReleaseCurrentStatus()).label
-                  }}
-                </strong>
-                <p class="muted">
-                  {{ getProviderOperationalReleaseProgress().done }} / {{ getProviderOperationalReleaseProgress().total }}
-                  checkpoints completos.
-                </p>
-              </article>
-            </div>
-
-            <article class="provider-release-cta">
-              <div>
-                <span class="mini-label"> Liberacion</span>
-                <strong>Liberacion operativa en vista separada</strong>
-                <p class="muted">
-                  Cuando la etapa compartida esta en `Vuelo confirmado`, abrimos una vista separada
-                  para que el proveedor confirme solo aeronave y operacion.
-                </p>
-              </div>
-              <button
-                type="button"
-                class="primary-action"
-                :disabled="resolveWorkflowState(resolveRequestWorkflowValue(selectedRequest)).id !== 'flight_confirmed'"
-                @click="openProviderRelease(selectedRequest)"
-              >
-                Abrir Liberacion
-              </button>
-            </article>
-          </article>
-        </div>
-
-        <p v-if="!requests.length" class="empty-state">
-          No hay solicitudes operativas disponibles para este proveedor.
-        </p>
-      </article>
-    </section>
-
-    <section v-else-if="section === 'release-provider'" class="page-grid">
-      <article class="surface requests-dispatch-surface">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">Liberacion</p>
-            <h2>Liberacion operativa del proveedor</h2>
-            <p class="muted helper-copy">
-              Aqui el proveedor confirma aeronave y liberacion operativa. Red Aviation coordina a
-              la sobrecargo y centraliza toda actualizacion al cliente.
-            </p>
-          </div>
-          <div class="requests-head-actions">
-            <button type="button" class="ghost-button" @click="goToSection('solicitudes')">
-              Volver a solicitudes
-            </button>
-            <span
-              v-if="releaseProviderRequest"
-              class="status-pill"
-              :data-tone="getProviderOperationalReleaseStatusMeta(getProviderOperationalReleaseCurrentStatus()).tone"
-            >
-              {{ getProviderOperationalReleaseStatusMeta(getProviderOperationalReleaseCurrentStatus()).label }}
-            </span>
-          </div>
-        </div>
-
-        <template v-if="releaseProviderRequest">
-          <div class="request-summary-grid">
-            <article class="request-summary-card">
-              <span class="mini-label">Ruta</span>
-              <strong>{{ getRequestRouteLabel(releaseProviderRequest) }}</strong>
-              <p class="muted">{{ formatDateTimeDisplay(releaseProviderRequest.date) }}</p>
-            </article>
-            <article class="request-summary-card">
-              <span class="mini-label">Etapa compartida</span>
-              <strong>{{ normalizeWorkflowLabel(resolveRequestWorkflowValue(releaseProviderRequest)) }}</strong>
-              <p class="muted">Aqui el proveedor valida operacion y Red Aviation coordina sobrecargo y cliente.</p>
-            </article>
-            <article class="request-summary-card">
-              <span class="mini-label">Aeronave</span>
-              <strong>{{ getProviderOperationalReleaseAircraftLabel() }}</strong>
-              <p class="muted">{{ releaseProviderRequest.passengers || 0 }} pax · {{ getRequestServiceTierLabel(releaseProviderRequest) }}</p>
-            </article>
-          </div>
-
-          <article class="provider-release-panel">
-            <div class="provider-release-panel__head">
-              <div>
-                <span class="mini-label">Liberacion</span>
-                <h4>Confirmacion operacional de vuelo</h4>
-                <p class="muted">
-                  El proveedor confirma aeronave, despacho y salida operativa. La coordinacion con
-                  la sobrecargo y cualquier comunicacion al cliente se mantiene dentro de Red Aviation.
-                </p>
-              </div>
-              <span
-                class="status-pill"
-                :data-tone="getProviderOperationalReleaseStatusMeta(getProviderOperationalReleaseCurrentStatus()).tone"
-              >
-                {{ getProviderOperationalReleaseStatusMeta(getProviderOperationalReleaseCurrentStatus()).label }}
-              </span>
-            </div>
-
-            <article class="provider-release-alert">
-              <strong>Importante:</strong>
-              <p>
-                El proveedor solo confirma aeronave, tripulacion tecnica y despacho operativo.
-                Red Aviation coordina cliente, concierge, sobrecargo y liberacion final del vuelo.
-              </p>
-            </article>
-
-            <div class="provider-release-progress">
-              <strong>{{ getProviderOperationalReleaseProgress().percentage }}%</strong>
-              <span class="muted">
-                {{ getProviderOperationalReleaseStatusMeta(getProviderOperationalReleaseCurrentStatus()).detail }}
-              </span>
-            </div>
-
-            <p
-              v-if="!canManageProviderOperationalRelease(releaseProviderRequest)"
-              class="provider-release-lock"
-            >
-              Esta vista se habilita cuando la reserva ya alcanzo la etapa de vuelo confirmado.
-            </p>
-
-            <div
-              class="provider-release-form-grid"
-              :class="{ 'is-disabled': !canManageProviderOperationalRelease(releaseProviderRequest) }"
-            >
-              <article class="provider-release-card">
-                <div class="provider-release-card__head">
-                  <strong>1. Disponibilidad real de aeronave</strong>
-                  <span class="package-chip" :data-tone="getProviderOperationalAircraftSectionStatus().tone">
-                    {{ getProviderOperationalAircraftSectionStatus().label }}
-                  </span>
-                </div>
-                <label>
-                  <span>Aeronave operativa</span>
-                  <select
-                    v-model="providerOperationalReleaseForm.aircraftId"
-                    :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
-                  >
-                    <option value="">Selecciona aeronave</option>
-                    <option v-for="plane in aircraft" :key="plane.id" :value="String(plane.id)">
-                      {{ plane.name }}{{ plane.registration ? ` · ${plane.registration}` : '' }}
-                    </option>
-                  </select>
-                </label>
-                <div class="provider-release-checks">
-                  <label class="provider-check">
-                    <input
-                      v-model="providerOperationalReleaseForm.availabilityConfirmed"
-                      type="checkbox"
-                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
-                    />
-                    <span>El avion sigue disponible</span>
-                  </label>
-                  <label class="provider-check">
-                    <input
-                      v-model="providerOperationalReleaseForm.maintenanceClear"
-                      type="checkbox"
-                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
-                    />
-                    <span>No tiene mantenimiento pendiente</span>
-                  </label>
-                  <label class="provider-check">
-                    <input
-                      v-model="providerOperationalReleaseForm.routeCoverageConfirmed"
-                      type="checkbox"
-                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
-                    />
-                    <span>Puede cubrir {{ getRequestRouteLabel(releaseProviderRequest) }}</span>
-                  </label>
-                </div>
-              </article>
-
-              <article class="provider-release-card">
-                <div class="provider-release-card__head">
-                  <strong>2. Tripulacion tecnica</strong>
-                  <span class="package-chip" :data-tone="getProviderOperationalCrewSectionStatus().tone">
-                    {{ getProviderOperationalCrewSectionStatus().label }}
-                  </span>
-                </div>
-                <p class="provider-release-note">
-                  El proveedor confirma solo estados operativos de tripulacion tecnica. Red Aviation
-                  mantiene nombres, contacto y coordinacion con sobrecargo y cliente.
-                </p>
-                <div class="provider-release-inline-grid">
-                  <label>
-                    <span>Capitan asignado</span>
-                    <select
-                      v-model="providerOperationalReleaseForm.captainStatus"
-                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
-                    >
-                      <option
-                        v-for="option in providerOperationalBinaryStatusOptions"
-                        :key="`captain-${option.value}`"
-                        :value="option.value"
-                      >
-                        {{ option.label }}
-                      </option>
-                    </select>
-                  </label>
-                  <label>
-                    <span>Copiloto asignado</span>
-                    <select
-                      v-model="providerOperationalReleaseForm.copilotStatus"
-                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
-                    >
-                      <option
-                        v-for="option in providerOperationalBinaryStatusOptions"
-                        :key="`copilot-${option.value}`"
-                        :value="option.value"
-                      >
-                        {{ option.label }}
-                      </option>
-                    </select>
-                  </label>
-                  <label>
-                    <span>Tripulacion disponible para la fecha</span>
-                    <select
-                      v-model="providerOperationalReleaseForm.crewAvailabilityStatus"
-                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
-                    >
-                      <option
-                        v-for="option in providerOperationalBinaryStatusOptions"
-                        :key="`crew-availability-${option.value}`"
-                        :value="option.value"
-                      >
-                        {{ option.label }}
-                      </option>
-                    </select>
-                  </label>
-                  <label>
-                    <span>Tripulacion cumple requisitos</span>
-                    <select
-                      v-model="providerOperationalReleaseForm.crewRequirementsStatus"
-                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
-                    >
-                      <option
-                        v-for="option in providerOperationalBinaryStatusOptions"
-                        :key="`crew-requirements-${option.value}`"
-                        :value="option.value"
-                      >
-                        {{ option.label }}
-                      </option>
-                    </select>
-                  </label>
-                </div>
-                <div class="provider-release-support">
-                  <span>Estado general</span>
-                  <div class="provider-release-support__actions">
-                    <select
-                      v-model="providerOperationalReleaseForm.crewOverallStatus"
-                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
-                    >
-                      <option
-                        v-for="option in providerOperationalCrewOverallOptions"
-                        :key="`crew-overall-${option.value}`"
-                        :value="option.value"
-                      >
-                        {{ option.label }}
-                      </option>
-                    </select>
-                    <button type="button" class="ghost-button" @click="requestProviderOperationalSupport()">
-                      Solicitar apoyo a Red Aviation
-                    </button>
-                  </div>
-                </div>
-                <div class="provider-release-validation-list">
-                  <span :class="{ 'is-done': isProviderOperationalStatusConfirmed(providerOperationalReleaseForm.captainStatus) }">
-                    Capitan asignado
-                  </span>
-                  <span :class="{ 'is-done': isProviderOperationalStatusConfirmed(providerOperationalReleaseForm.copilotStatus) }">
-                    Copiloto asignado
-                  </span>
-                  <span :class="{ 'is-done': isProviderOperationalStatusConfirmed(providerOperationalReleaseForm.crewAvailabilityStatus) }">
-                    Tripulacion disponible para la fecha
-                  </span>
-                  <span :class="{ 'is-done': isProviderOperationalStatusConfirmed(providerOperationalReleaseForm.crewRequirementsStatus) }">
-                    Tripulacion cumple requisitos
-                  </span>
-                  <span :class="{ 'is-done': providerOperationalReleaseForm.crewScheduleConfirmed }">
-                    Horarios confirmados
-                  </span>
-                  <span :class="{ 'is-done': providerOperationalReleaseForm.crewDocumentsReady }">
-                    Documentacion operativa validada
-                  </span>
-                </div>
-                <div class="provider-release-checks">
-                  <label class="provider-check">
-                    <input
-                      v-model="providerOperationalReleaseForm.crewScheduleConfirmed"
-                      type="checkbox"
-                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
-                    />
-                    <span>Horarios confirmados</span>
-                  </label>
-                  <label class="provider-check">
-                    <input
-                      v-model="providerOperationalReleaseForm.crewDocumentsReady"
-                      type="checkbox"
-                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
-                    />
-                    <span>Documentacion operativa validada</span>
-                  </label>
-                </div>
-              </article>
-
-              <article class="provider-release-card">
-                <div class="provider-release-card__head">
-                  <strong>3. Permisos / slots / handling</strong>
-                  <span class="package-chip" :data-tone="getProviderOperationalDispatchSectionStatus().tone">
-                    {{ getProviderOperationalDispatchSectionStatus().label }}
-                  </span>
-                </div>
-                <div class="provider-release-inline-grid">
-                  <label>
-                    <span>Aeropuerto de salida</span>
-                    <input
-                      v-model="providerOperationalReleaseForm.departureAirport"
-                      type="text"
-                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
-                      placeholder="Toluca (MMTO)"
-                    />
-                  </label>
-                  <label>
-                    <span>Aeropuerto de llegada</span>
-                    <input
-                      v-model="providerOperationalReleaseForm.arrivalAirport"
-                      type="text"
-                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
-                      placeholder="Cancun (MMUN)"
-                    />
-                  </label>
-                </div>
-                <label>
-                  <span>FBO / handling</span>
-                  <input
-                    v-model="providerOperationalReleaseForm.fbo"
-                    type="text"
-                    :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
-                    placeholder="FBO, handling y coordinacion de rampa"
-                  />
-                </label>
-                <div class="provider-release-checks">
-                  <label class="provider-check">
-                    <input
-                      v-model="providerOperationalReleaseForm.flightPlanReady"
-                      type="checkbox"
-                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
-                    />
-                    <span>Plan de vuelo listo</span>
-                  </label>
-                  <label class="provider-check">
-                    <input
-                      v-model="providerOperationalReleaseForm.permitsReady"
-                      type="checkbox"
-                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
-                    />
-                    <span>Permisos / slots listos</span>
-                  </label>
-                  <label class="provider-check">
-                    <input
-                      v-model="providerOperationalReleaseForm.handlingReady"
-                      type="checkbox"
-                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
-                    />
-                    <span>Handling confirmado</span>
-                  </label>
-                </div>
-              </article>
-
-              <article class="provider-release-card">
-                <div class="provider-release-card__head">
-                  <strong>4. Aeronave lista</strong>
-                  <span class="package-chip" :data-tone="getProviderOperationalReadinessSectionStatus().tone">
-                    {{ getProviderOperationalReadinessSectionStatus().label }}
-                  </span>
-                </div>
-                <label>
-                  <span>Estado de aeronave</span>
-                  <select
-                    v-model="providerOperationalReleaseForm.aircraftOverallStatus"
-                    :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
-                  >
-                    <option
-                      v-for="option in providerOperationalAircraftOverallOptions"
-                      :key="`aircraft-overall-${option.value}`"
-                      :value="option.value"
-                    >
-                      {{ option.label }}
-                    </option>
-                  </select>
-                </label>
-                <div class="provider-release-checks provider-release-checks--compact">
-                  <label class="provider-check">
-                    <input
-                      v-model="providerOperationalReleaseForm.fuelReady"
-                      type="checkbox"
-                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
-                    />
-                    <span>Combustible</span>
-                  </label>
-                  <label class="provider-check">
-                    <input
-                      v-model="providerOperationalReleaseForm.cleaningReady"
-                      type="checkbox"
-                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
-                    />
-                    <span>Limpieza</span>
-                  </label>
-                  <label class="provider-check">
-                    <input
-                      v-model="providerOperationalReleaseForm.documentsReady"
-                      type="checkbox"
-                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
-                    />
-                    <span>Documentos</span>
-                  </label>
-                  <label class="provider-check">
-                    <input
-                      v-model="providerOperationalReleaseForm.insuranceReady"
-                      type="checkbox"
-                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
-                    />
-                    <span>Seguro</span>
-                  </label>
-                  <label class="provider-check">
-                    <input
-                      v-model="providerOperationalReleaseForm.registrationReady"
-                      type="checkbox"
-                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
-                    />
-                    <span>Matricula</span>
-                  </label>
-                  <label class="provider-check">
-                    <input
-                      v-model="providerOperationalReleaseForm.logbookReady"
-                      type="checkbox"
-                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
-                    />
-                    <span>Bitacora</span>
-                  </label>
-                </div>
-              </article>
-            </div>
-
-            <article class="provider-release-card provider-release-card--issue">
-              <div class="provider-release-card__head">
-                <strong>5. Incidencia operativa</strong>
-                <span class="package-chip" data-tone="warning">Reportar bloqueo</span>
-              </div>
-              <div class="provider-release-inline-grid">
-                <label>
-                  <span>Tipo de incidencia</span>
-                  <select v-model="providerOperationalIssueForm.type">
-                    <option>Aeronave no disponible</option>
-                    <option>Tripulacion no disponible</option>
-                    <option>Mantenimiento pendiente</option>
-                    <option>Documentacion incompleta</option>
-                    <option>Permiso / slot pendiente</option>
-                    <option>Handling pendiente</option>
-                    <option>Combustible pendiente</option>
-                    <option>Retraso operativo</option>
-                    <option>Requiere apoyo de Red Aviation</option>
-                  </select>
-                </label>
-                <label>
-                  <span>Red Aviation</span>
-                  <input type="text" value="Recibe alerta administrativa" disabled />
-                </label>
-              </div>
-              <label class="provider-release-notes">
-                <span>Detalle</span>
-                <textarea
-                  v-model="providerOperationalIssueForm.comment"
-                  rows="3"
-                  placeholder="Describe el bloqueo operativo para que Red Aviation coordine la solucion."
-                ></textarea>
-              </label>
-              <div class="provider-release-actions">
-                <button
-                  type="button"
-                  class="ghost-button"
-                  :disabled="savingProviderOperationalIssue"
-                  @click="submitProviderOperationalIssue()"
-                >
-                  {{ savingProviderOperationalIssue ? 'Reportando...' : 'Reportar a Red Aviation' }}
-                </button>
-              </div>
-            </article>
-
-            <article class="provider-release-checklist">
-              <div
-                v-for="section in buildProviderOperationalReleaseChecklist()"
-                :key="section.title"
-                class="provider-release-checklist__section"
-              >
-                <strong>{{ section.title }}</strong>
-                <span
-                  v-for="item in section.items"
-                  :key="item.label"
-                  class="provider-release-checklist__item"
-                  :class="{ 'is-done': item.done }"
-                >
-                  {{ item.label }}
-                </span>
-              </div>
-            </article>
-
-            <label class="provider-release-notes">
-              <span>Notas operativas</span>
-              <textarea
-                v-model="providerOperationalReleaseForm.notes"
-                rows="4"
-                :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || savingProviderOperationalRelease"
-                placeholder="FBO, coordinacion de rampa, observaciones de despacho o notas tecnicas."
-              ></textarea>
-            </label>
-
-            <article class="provider-release-card provider-release-card--summary">
-              <div class="provider-release-card__head">
-                <strong>6. Confirmacion final</strong>
-                <span class="package-chip" :data-tone="isProviderOperationalReady() ? 'success' : 'neutral'">
-                  {{ isProviderOperationalReady() ? 'Listo para enviar' : 'Faltan validaciones' }}
-                </span>
-              </div>
-              <p class="muted">
-                Al confirmar, el proveedor declara que la aeronave, tripulacion tecnica y
-                documentacion operativa se encuentran listas o reportadas para coordinacion con Red Aviation.
-              </p>
-              <div class="provider-release-summary">
-                <div
-                  v-for="item in getProviderOperationalFinalSummary()"
-                  :key="item.label"
-                  class="provider-release-summary__item"
-                >
-                  <span>{{ item.label }}</span>
-                  <strong>{{ item.statusLabel }}</strong>
-                  <small>{{ item.detail }}</small>
-                </div>
-              </div>
-            </article>
-
-            <p v-if="providerOperationalReleaseFeedback" class="provider-release-feedback">
-              {{ providerOperationalReleaseFeedback }}
-            </p>
-
-            <div class="provider-release-actions">
-              <button
-                type="button"
-                class="primary-action"
-                :disabled="
-                  !canManageProviderOperationalRelease(releaseProviderRequest) ||
-                  !isProviderOperationalReady() ||
-                  savingProviderOperationalRelease
-                "
-                @click="saveProviderOperationalRelease('operational_ready')"
-              >
-                Confirmar liberacion operativa
-              </button>
-            </div>
-          </article>
-        </template>
-
-        <p v-else class="empty-state">
-          No hay un vuelo confirmado listo para abrir para liberacion.
-        </p>
-      </article>
-    </section>
-
-    <section v-else-if="section === 'operaciones'" class="page-grid">
-      <article class="surface">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">Operaciones</p>
-            <h2>Seguimiento de vuelos confirmados</h2>
-          </div>
-        </div>
-
-        <div class="list-grid">
-          <article v-for="operation in operations" :key="operation.id" class="list-card">
-            <div class="card-top">
-              <div>
-                <strong>Operacion #{{ operation.id }} · {{ operation.route }}</strong>
-                <p class="muted">
-                  {{ operation.aircraft }} - {{ operation.departure }} -> {{ operation.arrival }}
-                </p>
-              </div>
-              <span class="badge">{{ operation.status }}</span>
-            </div>
-
-            <p class="muted">Tripulacion: {{ operation.crew }}</p>
-            <p class="muted">Estado crew: {{ operation.crewStatusLabel }}</p>
-            <p v-if="operation.crewConfirmedAt" class="muted">
-              Confirmado: {{ operation.crewConfirmedAt }}
-            </p>
-            <p v-if="operation.crewCheckinAt" class="muted">
-              Check-in: {{ operation.crewCheckinAt }}
-            </p>
-            <p v-if="operation.crewServiceStartedAt" class="muted">
-              Servicio iniciado: {{ operation.crewServiceStartedAt }}
-            </p>
-            <p v-if="operation.crewServiceCompletedAt" class="muted">
-              Servicio completado: {{ operation.crewServiceCompletedAt }}
-            </p>
-            <p v-if="operation.crewDeclineReason" class="muted">
-              Motivo rechazo: {{ operation.crewDeclineReason }}
-            </p>
-            <p class="muted">{{ operation.crewNotes || operation.notes }}</p>
-
-            <div class="form-grid compact">
-              <label>
-                <span>Sobrecargo</span>
-                <select v-model="getOperationCrewDraft(operation.id).crewId">
-                  <option value="">Selecciona</option>
-                  <option
-                    v-for="member in assignableCrewOptions"
-                    :key="member.id"
-                    :value="member.id"
-                  >
-                    {{ member.name }} · {{ member.base }}
-                  </option>
-                </select>
-              </label>
-              <label>
-                <span>Nota de asignacion</span>
-                <input
-                  v-model="getOperationCrewDraft(operation.id).note"
-                  type="text"
-                  placeholder="VIP, base, briefing..."
-                />
-              </label>
-            </div>
-
-            <div class="chips">
-              <button
-                v-for="status in operationStatusOptions"
-                :key="status"
-                type="button"
-                class="chip-button"
-                @click="updateOperationStatus(operation.id, status)"
-              >
-                {{ status }}
-              </button>
-              <button
-                type="button"
-                class="primary-action"
-                @click="assignCrewToOperation(operation.id)"
-              >
-                Asignar sobrecargo
-              </button>
-            </div>
-          </article>
-        </div>
-      </article>
-    </section>
-
-    <section v-else-if="section === 'tripulacion'" class="page-grid">
-      <OperatorCrewSection
-        :crew-form="crewForm"
-        :crew-errors="formErrors.crew"
-        :tripulation="crew"
-        :crew-roles="crewRoleOptions"
-        :crew-states="crewStateOptions"
-        :crew-bases="crewBases"
-        :aircraft-options="aircraftOptions"
-        :editing-crew-id="editingCrewId"
-        :loading="loading"
-        :backend-status="crewBackendStatus"
-        :last-sync-label="crewLastSyncLabel"
-        :saving-crew="savingCrew"
-        @update-field="updateCrewField"
-        @activate="activateCrewMember"
-        @assign-flight="assignCrewMemberToFlight"
-        @create="createOrUpdateCrew"
-        @mark-availability="markCrewAvailability"
-        @select-person="populateCrewForm"
-        @suspend="suspendCrewMember"
-        @reset-form="resetCrewForm"
-        @view-documents="viewCrewDocuments"
-        @view-history="viewCrewHistory"
-      />
-
-      <p v-if="formSuccess.crew" class="form-feedback form-feedback-success">
-        {{ formSuccess.crew }}
-      </p>
-
-      <article class="surface">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">Control</p>
-            <h2>Politica operacional</h2>
-          </div>
-        </div>
-
-        <div class="request-detail-grid">
-          <div class="status-list">
-            <div class="status-row">
-              <span>Horas maximas vuelo</span>
-              <strong>Segun rol, fatiga y operacion vigente</strong>
-            </div>
-            <div class="status-row">
-              <span>Descanso obligatorio</span>
-              <strong>Bloquear antes de reasignar tripulacion</strong>
-            </div>
-            <div class="status-row">
-              <span>Certificaciones requeridas</span>
-              <strong>Licencia, medico, visa, pasaporte y habilitacion</strong>
-            </div>
-            <div class="status-row">
-              <span>Reglas FAA / DGAC</span>
-              <strong>Aplican segun ruta y operador</strong>
-            </div>
-          </div>
-
-          <div class="status-list">
-            <div class="status-row">
-              <span>Modo de aprobacion</span>
-              <strong>{{
-                settings.crewApprovalMode === 'suggest_only'
-                  ? 'Proveedor sugiere / Admin confirma'
-                  : 'Proveedor confirma'
-              }}</strong>
-            </div>
-            <div class="status-row">
-              <span>Ultima sincronizacion</span>
-              <strong>{{ crewLastSyncLabel }}</strong>
-            </div>
-            <div class="status-row">
-              <span>Backend status</span>
-              <strong>{{ crewBackendStatus }}</strong>
-            </div>
-            <div class="status-row">
-              <span>Usuarios conectados</span>
-              <strong>{{ crewConnectedUsers }} operativo(s)</strong>
-            </div>
-          </div>
-        </div>
-
-        <div class="status-list">
-          <div class="status-row">
-            <span>Funcion del proveedor</span>
-            <strong>Confirmar tripulacion tecnica y disponibilidad operativa</strong>
-          </div>
-          <div class="status-row">
-            <span>Equipo registrado</span>
-            <strong>{{ crew.length }} tripulante(s) sincronizados</strong>
-          </div>
-        </div>
-      </article>
-    </section>
-
-    <section v-else-if="section === 'incidencias'" class="page-grid two-columns">
-      <article class="surface">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">Incidencias</p>
-            <h2>Registrar nueva incidencia</h2>
-          </div>
-        </div>
-
-        <div class="form-grid">
-          <label>
-            <span>Solicitud</span>
-            <select
-              v-model="incidentForm.requestId"
-              :class="{ 'input-error': formErrors.incident.requestId }"
-            >
-              <option :value="null">Sin solicitud ligada</option>
-              <option v-for="request in requests" :key="request.id" :value="request.id">
-                #{{ request.id }} - {{ request.client }}
-              </option>
-            </select>
-            <small v-if="formErrors.incident.requestId" class="field-error">{{
-              formErrors.incident.requestId
-            }}</small>
-          </label>
-          <label>
-            <span>Tipo</span>
-            <select
-              v-model="incidentForm.type"
-              :class="{ 'input-error': formErrors.incident.type }"
-            >
-              <option v-for="type in incidentTypeOptions" :key="type" :value="type">
-                {{ type }}
-              </option>
-            </select>
-            <small v-if="formErrors.incident.type" class="field-error">{{
-              formErrors.incident.type
-            }}</small>
-          </label>
-          <label>
-            <span>Estado</span>
-            <select
-              v-model="incidentForm.status"
-              :class="{ 'input-error': formErrors.incident.status }"
-            >
-              <option v-for="status in incidentStatusOptions" :key="status" :value="status">
-                {{ status }}
-              </option>
-            </select>
-            <small v-if="formErrors.incident.status" class="field-error">{{
-              formErrors.incident.status
-            }}</small>
-          </label>
-          <label>
-            <span>Vuelo</span>
-            <input
-              v-model="incidentForm.flight"
-              type="text"
-              :class="{ 'input-error': formErrors.incident.flight }"
-            />
-            <small v-if="formErrors.incident.flight" class="field-error">{{
-              formErrors.incident.flight
-            }}</small>
-          </label>
-          <label>
-            <span>Prioridad</span>
-            <input
-              v-model="incidentForm.priority"
-              type="text"
-              :class="{ 'input-error': formErrors.incident.priority }"
-            />
-            <small v-if="formErrors.incident.priority" class="field-error">{{
-              formErrors.incident.priority
-            }}</small>
-          </label>
-          <label>
-            <span>Responsable</span>
-            <input
-              v-model="incidentForm.responsible"
-              type="text"
-              placeholder="Coordinacion, mantenimiento..."
-              :class="{ 'input-error': formErrors.incident.responsible }"
-            />
-            <small v-if="formErrors.incident.responsible" class="field-error">{{
-              formErrors.incident.responsible
-            }}</small>
-          </label>
-          <label>
-            <span>Evidencia</span>
-            <input
-              v-model="incidentForm.evidence"
-              type="text"
-              :class="{ 'input-error': formErrors.incident.evidence }"
-            />
-            <small v-if="formErrors.incident.evidence" class="field-error">{{
-              formErrors.incident.evidence
-            }}</small>
-          </label>
-          <label class="span-2">
-            <span>Comentario</span>
-            <textarea
-              v-model="incidentForm.comment"
-              rows="4"
-              :class="{ 'input-error': formErrors.incident.comment }"
-            ></textarea>
-            <small v-if="formErrors.incident.comment" class="field-error">{{
-              formErrors.incident.comment
-            }}</small>
-          </label>
-          <label class="span-2">
-            <span>Accion tomada</span>
-            <textarea
-              v-model="incidentForm.actionTaken"
-              rows="3"
-              :class="{ 'input-error': formErrors.incident.actionTaken }"
-            ></textarea>
-            <small v-if="formErrors.incident.actionTaken" class="field-error">{{
-              formErrors.incident.actionTaken
-            }}</small>
-          </label>
-        </div>
-
-        <p v-if="formErrors.incident._form" class="form-feedback form-feedback-error">
-          {{ formErrors.incident._form }}
-        </p>
-        <p v-if="formSuccess.incident" class="form-feedback form-feedback-success">
-          {{ formSuccess.incident }}
-        </p>
-        <div class="inline-actions">
-          <button type="button" class="primary-action" @click="createIncident">
-            Crear incidencia
-          </button>
-        </div>
-      </article>
-
-      <article class="surface">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">Seguimiento</p>
-            <h2>Incidencias abiertas</h2>
-          </div>
-        </div>
-
-        <div class="list-grid">
-          <article v-for="incident in incidents" :key="incident.id" class="list-card">
-            <div class="card-top">
-              <div>
-                <strong>{{ incident.type }} - {{ incident.flight }}</strong>
-                <p class="muted">{{ incident.comment }}</p>
-              </div>
-              <span class="badge">{{ incident.status }}</span>
-            </div>
-            <div class="fleet-summary">
-              <span class="badge">{{ mapIncidentTone(incident.priority) }}</span>
-              <span class="badge">Responsable: {{ incident.responsible }}</span>
-              <span class="badge">Solicitud: {{ incident.requestId || 'N/D' }}</span>
-            </div>
-            <p class="muted">
-              Prioridad: {{ incident.priority }} - Evidencia: {{ incident.evidence }} - Alta:
-              {{ formatDateTimeRange(incident.createdAt) }}
-            </p>
-            <div class="inline-actions">
-              <button
-                type="button"
-                class="ghost-button"
-                :disabled="isIncidentResolved(incident.status)"
-                @click="updateIncidentStatus(incident.id, 'Resuelta')"
-              >
-                Resolver
-              </button>
-              <button
-                type="button"
-                class="ghost-button"
-                :disabled="incident.status === 'Cerrada'"
-                @click="updateIncidentStatus(incident.id, 'Cerrada')"
-              >
-                Cerrar
-              </button>
-            </div>
-          </article>
-        </div>
-      </article>
-    </section>
-
-    <section v-else-if="section === 'pagos'" class="page-grid">
-      <article class="surface">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">Pagos / liquidaciones</p>
-            <h2>Vuelos completados por pagar</h2>
-          </div>
-          <span class="badge">El proveedor no cobra directo al cliente</span>
-        </div>
-
-        <div class="list-grid">
-          <article v-for="payment in payments" :key="payment.id" class="list-card">
-            <div class="card-top">
-              <div>
-                <strong>{{ payment.flight }}</strong>
-                <p class="muted">{{ payment.completedAt }} - {{ payment.amount }}</p>
-              </div>
-              <span class="badge">{{ payment.status }}</span>
-            </div>
-
-            <p class="muted">Comprobante: {{ payment.receipt }}</p>
-            <div class="inline-actions">
-              <span class="badge">Solo lectura</span>
-            </div>
-          </article>
-        </div>
-      </article>
-    </section>
-
-    <section v-else-if="section === 'historial'" class="page-grid">
-      <article class="surface">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">Historial</p>
-            <h2>Vista solo lectura</h2>
-          </div>
-          <span class="badge">No editable</span>
-        </div>
-
-        <div class="timeline">
-          <article v-for="entry in history" :key="entry.id" class="timeline-item">
-            <strong>{{ entry.action }}</strong>
-            <p class="muted">{{ entry.date }} - {{ entry.module }} - {{ entry.actor }}</p>
-          </article>
-        </div>
-      </article>
-    </section>
-
-    <section v-else class="page-grid two-columns">
-      <article class="surface">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">Configuracion</p>
-            <h2>Preferencias del portal</h2>
-          </div>
-        </div>
-
-        <div class="toggle-list">
-          <label class="toggle-row">
-            <span>Notificaciones por email</span>
-            <input v-model="settings.emailNotifications" type="checkbox" />
-          </label>
-          <label class="toggle-row">
-            <span>Alertas de pagos</span>
-            <input v-model="settings.paymentAlerts" type="checkbox" />
-          </label>
-          <label class="toggle-row">
-            <span>Alertas operativas</span>
-            <input v-model="settings.opsAlerts" type="checkbox" />
-          </label>
-          <label class="toggle-row">
-            <span>Modo de tripulacion</span>
-            <select
-              v-model="settings.crewApprovalMode"
-              :class="{ 'input-error': formErrors.settings.crewApprovalMode }"
-            >
-              <option value="suggest_only">Proveedor sugiere / Admin confirma</option>
-              <option value="provider_confirms">Proveedor confirma directo</option>
-            </select>
-          </label>
-        </div>
-
-        <p v-if="formErrors.settings._form" class="form-feedback form-feedback-error">
-          {{ formErrors.settings._form }}
-        </p>
-        <p v-if="formSuccess.settings" class="form-feedback form-feedback-success">
-          {{ formSuccess.settings }}
-        </p>
-        <div class="inline-actions">
-          <button type="button" class="primary-action" @click="saveSettings">
-            Guardar configuracion
-          </button>
-        </div>
-      </article>
-
-      <article class="surface">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">Alcance del rol</p>
-            <h2>Lo que si y no hace el proveedor</h2>
-          </div>
-        </div>
-
-        <div class="status-list">
-          <div class="status-row">
-            <span>Si hace</span>
-            <strong>
-              Publica aeronaves, mantiene disponibilidad, captura costos base y responde solicitudes
-            </strong>
-          </div>
-          <div class="status-row">
-            <span>No hace</span>
-            <strong>
-              No define precio final, no habla directo con cliente y no controla reglas comerciales
-            </strong>
-          </div>
-        </div>
-      </article>
-    </section>
-  </div>
-</template>
-
-<style scoped>
-.operator-portal-page {
-  display: grid;
-  gap: 1rem;
-  padding: 1rem;
-  background: linear-gradient(180deg, #f6f0e5 0%, #fffdfa 18%, #ffffff 100%);
-  color: #111111;
-}
-
-.surface {
-  border: 1px solid #eadfcb;
-  border-radius: 24px;
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 18px 44px rgba(80, 56, 22, 0.08);
-}
-
-.hero {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 1.4rem;
-  background:
-    radial-gradient(circle at top right, rgba(213, 174, 88, 0.28), transparent 28%),
-    linear-gradient(135deg, #fff7ea 0%, #ffffff 55%);
-}
-
-.hero h1,
-.section-head h2 {
-  margin: 0;
-  font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif;
-  letter-spacing: -0.04em;
-}
-
-.eyebrow {
-  margin: 0 0 0.35rem;
-  color: #9b6d16;
-  font-size: 0.75rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.muted {
-  color: #6d665c;
-}
-
-.helper-copy {
-  margin: 0.9rem 0 0;
-}
-
-.compact-copy {
-  margin: 0;
-}
-
-.company-shell,
-.company-status-shell {
-  display: grid;
-  gap: 1.1rem;
-}
-
-.company-progress-card,
-.company-form-section,
-.company-verification-card,
-.company-alert,
-.company-summary-row {
-  border: 1px solid #efe2ca;
-  border-radius: 20px;
-  background: #fffdfa;
-}
-
-.company-progress-card,
-.company-verification-card {
-  padding: 1rem 1.1rem;
-}
-
-.company-progress-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.progress-bar {
-  margin-top: 0.85rem;
-  height: 0.72rem;
-  overflow: hidden;
-  border-radius: 999px;
-  background: #eee4d2;
-}
-
-.progress-bar-fill {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, #111111 0%, #c8a96b 100%);
-}
-
-.company-progress-steps,
-.company-checklist,
-.company-alert-stack,
-.company-form-sections {
-  display: grid;
-  gap: 0.75rem;
-}
-
-.company-progress-steps {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin-top: 0.95rem;
-}
-
-.progress-chip {
-  display: inline-flex;
-  align-items: center;
-  min-height: 2rem;
-  padding: 0 0.8rem;
-  border-radius: 999px;
-  font-size: 0.8rem;
-  font-weight: 700;
-  background: #f4ecde;
-  color: #6f5a30;
-}
-
-.progress-chip[data-tone='success'] {
-  background: rgba(46, 139, 87, 0.14);
-  color: #1d6b42;
-}
-
-.progress-chip[data-tone='warning'] {
-  background: rgba(200, 169, 107, 0.2);
-  color: #916c1f;
-}
-
-.progress-chip[data-tone='danger'] {
-  background: rgba(184, 61, 54, 0.15);
-  color: #9f2f28;
-}
-
-.progress-chip[data-tone='neutral'] {
-  background: #f4ecde;
-  color: #6f5a30;
-}
-
-.company-form-section {
-  padding: 1rem 1.1rem;
-}
-
-.upload-dropzone {
-  position: relative;
-  display: grid;
-  gap: 0.35rem;
-  padding: 1.25rem;
-  border: 1px dashed #cdb58a;
-  border-radius: 20px;
-  background: linear-gradient(180deg, #fffdf8 0%, #faf5eb 100%);
-  text-align: center;
-  cursor: pointer;
-}
-
-.upload-dropzone-input {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  cursor: pointer;
-}
-
-.upload-dropzone strong {
-  font-size: 1rem;
-}
-
-.upload-dropzone span,
-.upload-dropzone small {
-  color: #6d665c;
-}
-
-.company-verification-card h3 {
-  margin: 0.35rem 0 0;
-}
-
-.company-verification-card p {
-  margin: 0.65rem 0 0;
-}
-
-.company-summary-grid {
-  display: grid;
-  gap: 0.75rem;
-}
-
-.company-summary-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.95rem 1rem;
-}
-
-.company-summary-row span {
-  color: #75684e;
-}
-
-.company-alert {
-  padding: 0.95rem 1rem;
-}
-
-.company-alert[data-tone='success'] {
-  border-color: rgba(46, 139, 87, 0.18);
-  background: #edfdf3;
-}
-
-.company-alert[data-tone='warning'] {
-  border-color: rgba(200, 169, 107, 0.22);
-  background: #fff7e8;
-}
-
-.company-alert[data-tone='info'] {
-  border-color: rgba(28, 92, 164, 0.16);
-  background: #eef5ff;
-}
-
-.company-document-list {
-  margin-top: 0;
-}
-
-.dashboard-hero-premium {
-  display: grid;
-  gap: 1rem;
-}
-
-.dashboard-alert-strip,
-.dashboard-quick-actions,
-.dashboard-layout,
-.dashboard-checklist {
-  display: grid;
-  gap: 1rem;
-}
-
-.dashboard-quick-actions {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.quick-action-card,
-.checklist-card {
-  display: grid;
-  gap: 0.35rem;
-  padding: 1rem;
-  border: 1px solid #efe2ca;
-  border-radius: 20px;
-  background: #fffdfa;
-  text-align: left;
-}
-
-.quick-action-card span {
-  font-size: 1.1rem;
-}
-
-.quick-action-card small,
-.checklist-card p,
-.dashboard-metric-card small {
-  color: #6d665c;
-  line-height: 1.5;
-}
-
-.dashboard-layout {
-  grid-template-columns: minmax(0, 1.6fr) minmax(320px, 0.9fr);
-  align-items: start;
-}
-
-.dashboard-main-column,
-.dashboard-side-column {
-  display: grid;
-  gap: 1rem;
-}
-
-.dashboard-metric-grid {
-  margin-top: 1rem;
-}
-
-.dashboard-metric-card {
-  display: grid;
-  gap: 0.35rem;
-}
-
-.dashboard-metric-card span {
-  font-size: 0.82rem;
-}
-
-.metric-status {
-  margin: 0;
-  color: #111111;
-  font-weight: 700;
-}
-
-.ghost-link-button {
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: #111111;
-  font-weight: 700;
-  text-align: left;
-  cursor: pointer;
-}
-
-.dashboard-checklist {
-  margin-top: 1rem;
-}
-
-.checklist-card {
-  grid-template-columns: 1fr auto;
-  align-items: center;
-}
-
-.checklist-card[data-tone='complete'] {
-  border-color: rgba(46, 139, 87, 0.2);
-  background: #edfdf3;
-}
-
-.checklist-card[data-tone='warning'] {
-  border-color: rgba(200, 169, 107, 0.24);
-  background: #fff7e8;
-}
-
-.checklist-card[data-tone='pending'] {
-  border-color: #efe2ca;
-  background: #fffdfa;
-}
-
-.checklist-card[data-tone='neutral'] {
-  border-color: rgba(28, 92, 164, 0.16);
-  background: #eef5ff;
-}
-
-.checklist-card span {
-  color: #8f6919;
-  font-size: 0.82rem;
-  font-weight: 800;
-  text-transform: uppercase;
-}
-
-.empty-state {
-  margin: 1rem 0 0;
-  color: #6d665c;
-}
-
-.empty-state--actionable {
-  display: grid;
-  gap: 0.85rem;
-}
-
-.empty-state--actionable p {
-  margin: 0;
-}
-
-.archive-inline-button {
-  justify-self: start;
-}
-
-.field-error {
-  color: #b42318;
-  font-size: 0.82rem;
-}
-
-.form-feedback {
-  margin: 1rem 0 0;
-  padding: 0.85rem 1rem;
-  border-radius: 14px;
-  font-size: 0.92rem;
-}
-
-.form-feedback-error {
-  border: 1px solid rgba(180, 35, 24, 0.22);
-  background: #fff3f2;
-  color: #912018;
-}
-
-.form-feedback-success {
-  border: 1px solid rgba(18, 122, 67, 0.22);
-  background: #edfdf3;
-  color: #0f6b3b;
-}
-
-.nested-surface {
-  margin-top: 1rem;
-  padding: 1rem;
-  border: 1px solid #efe2ca;
-  border-radius: 18px;
-  background: #fffdfa;
-}
-
-.compact-head h3 {
-  margin: 0;
-}
-
-.inline-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin: 0.85rem 0 0;
-}
-
-.mini-chip {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.38rem 0.65rem;
-  border-radius: 999px;
-  background: #f4ecde;
-  color: #6f5a30;
-  font-size: 0.82rem;
-  font-weight: 700;
-}
-
-.stored-images-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.85rem;
-  margin: 1rem 0 0;
-}
-
-.stored-image-card {
-  display: grid;
-  gap: 0.45rem;
-  padding: 0.85rem;
-  border: 1px solid #efe2ca;
-  border-radius: 16px;
-  background: #fff;
-}
-
-.stored-image-card span,
-.stored-image-card small {
-  color: #6f5a30;
-}
-
-.stored-image-preview {
-  width: 100%;
-  height: 9rem;
-  object-fit: cover;
-  border-radius: 12px;
-  background: #f7f2e8;
-}
-
-.stored-documents-list {
-  display: grid;
-  gap: 0.75rem;
-  margin: 1rem 0 0;
-}
-
-.document-library-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 1rem;
-  margin-top: 1.25rem;
-}
-
-.document-type-grid,
-.document-preview-grid {
-  display: grid;
-  gap: 0.85rem;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  margin-top: 1rem;
-}
-
-.document-type-card,
-.document-preview-card {
-  cursor: zoom-in;
-  transition:
-    border-color 0.16s ease,
-    transform 0.16s ease,
-    box-shadow 0.16s ease;
-}
-
-.document-preview-card:hover,
-.document-preview-card:focus-visible {
-  border-color: rgba(200, 169, 107, 0.7);
-  box-shadow: 0 16px 34px rgba(47, 39, 21, 0.1);
-  transform: translateY(-1px);
-  outline: none;
-}
-
-.document-preview-card {
-  display: grid;
-  gap: 0.4rem;
-  padding: 0.95rem;
-  border: 1px solid #efe2ca;
-  border-radius: 16px;
-  background: #fffdfa;
-  text-align: left;
-}
-
-.document-type-card.active {
-  border-color: rgba(200, 169, 107, 0.72);
-  background: linear-gradient(180deg, #fff7e5 0%, #fffdfa 100%);
-  box-shadow: inset 0 0 0 1px rgba(200, 169, 107, 0.18);
-}
-
-.document-type-card span,
-.document-type-card small,
-.document-preview-card span {
-  color: #6d665c;
-  line-height: 1.45;
-}
-
-.document-upload-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
-  margin-top: 1rem;
-}
-
-.document-dropzone {
-  position: relative;
-  grid-column: 1 / -1;
-  display: grid;
-  place-items: center;
-  gap: 0.35rem;
-  min-height: 9rem;
-  padding: 1.2rem;
-  border: 1.5px dashed #c8a96b;
-  border-radius: 18px;
-  background: #fffaf0;
-  text-align: center;
-}
-
-.document-dropzone.active {
-  background: #f7edd8;
-  border-color: #8f6919;
-}
-
-.document-dropzone input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.document-dropzone span,
-.document-dropzone small {
-  color: #6d665c;
-}
-
-.document-preview-card img,
-.pdf-preview {
-  width: 100%;
-  height: 8rem;
-  border-radius: 12px;
-  background: #f4ecde;
-  object-fit: cover;
-}
-
-.pdf-preview {
-  display: grid;
-  place-items: center;
-  color: #8f6919;
-  font-weight: 900;
-}
-
-.admin-text-link {
-  color: #8f6919;
-  font-weight: 800;
-  text-decoration: none;
-}
-
-.document-preview-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 2300;
-  display: grid;
-  place-items: center;
-  padding: 1rem;
-  background: rgba(10, 13, 18, 0.62);
-  backdrop-filter: blur(10px);
-}
-
-.document-preview-modal {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 1rem;
-  width: min(100%, 980px);
-  height: min(90vh, 780px);
-  padding: 1rem;
-  border: 1px solid #efe2ca;
-  border-radius: 22px;
-  background: #fffdfa;
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.28);
-}
-
-.document-preview-head {
-  display: flex;
-  align-items: start;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.document-preview-head h3 {
-  margin: 0.2rem 0 0;
-  overflow-wrap: anywhere;
-}
-
-.document-preview-full,
-.document-preview-frame {
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-  border: 0;
-  border-radius: 16px;
-  background: #f4ecde;
-}
-
-.document-preview-full {
-  object-fit: contain;
-}
-
-.fleet-hero,
-.fleet-section-card {
-  padding: 1.35rem;
-}
-
-.fleet-kpi-grid,
-.fleet-layout,
-.fleet-premium-grid,
-.wizard-stepper,
-.wizard-review-grid {
-  display: grid;
-  gap: 1rem;
-}
-
-.fleet-kpi-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.fleet-kpi-card {
-  padding: 1.1rem 1.15rem;
-  border: 1px solid #efe2ca;
-  border-radius: 20px;
-  background: linear-gradient(180deg, #fffdf8 0%, #ffffff 100%);
-}
-
-.fleet-kpi-card span,
-.mini-label,
-.ops-timeline-time {
-  color: #7a6b53;
-  font-size: 0.78rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.fleet-kpi-card strong {
-  display: block;
-  margin-top: 0.45rem;
-  font-size: 2rem;
-  line-height: 1;
-}
-
-.fleet-kpi-card p {
-  margin: 0.55rem 0 0;
-  color: #6d665c;
-}
-
-.fleet-layout {
-  grid-template-columns: minmax(0, 1.7fr) minmax(320px, 0.9fr);
-  align-items: start;
-}
-
-.fleet-main-column,
-.fleet-side-column {
-  display: grid;
-  gap: 1rem;
-}
-
-.fleet-premium-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin-top: 1rem;
-}
-
-.fleet-premium-card {
-  overflow: hidden;
-  border: 1px solid #efe2ca;
-  border-radius: 24px;
-  background: #fffdfa;
-}
-
-.fleet-visual {
-  position: relative;
-  display: grid;
-  align-content: space-between;
-  min-height: 17rem;
-  padding: 1rem;
-  background:
-    linear-gradient(180deg, rgba(8, 11, 18, 0.05) 0%, rgba(8, 11, 18, 0.72) 100%),
-    linear-gradient(135deg, #f6efe2 0%, #d9c8aa 100%);
-  background-size: cover;
-  background-position: center;
-}
-
-.fleet-visual-image {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  z-index: 0;
-}
-
-.fleet-visual-top,
-.fleet-inline-metrics,
-.weekly-dots,
-.wizard-footer,
-.wizard-footer-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-}
-
-.status-pill {
-  display: inline-flex;
-  align-items: center;
-  min-height: 2rem;
-  padding: 0 0.8rem;
-  border-radius: 999px;
-  font-size: 0.78rem;
-  font-weight: 800;
-}
-
-.status-pill[data-tone='success'] {
-  background: rgba(46, 139, 87, 0.14);
-  color: #1d6b42;
-}
-
-.status-pill[data-tone='info'] {
-  background: rgba(28, 92, 164, 0.16);
-  color: #184f8d;
-}
-
-.status-pill[data-tone='warning'] {
-  background: rgba(200, 169, 107, 0.2);
-  color: #916c1f;
-}
-
-.status-pill[data-tone='danger'] {
-  background: rgba(184, 61, 54, 0.15);
-  color: #9f2f28;
-}
-
-.status-pill--ghost {
-  background: rgba(255, 255, 255, 0.16);
-  color: #ffffff;
-  backdrop-filter: blur(8px);
-}
-
-.fleet-visual-copy {
-  position: relative;
-  z-index: 1;
-  color: #ffffff;
-}
-
-.fleet-visual-top {
-  position: relative;
-  z-index: 1;
-}
-
-.fleet-visual-copy strong {
-  display: block;
-  font-size: 1.55rem;
-}
-
-.fleet-visual-copy p {
-  margin: 0.3rem 0 0.75rem;
-  color: rgba(255, 255, 255, 0.8);
-}
-
-.fleet-inline-metrics span,
-.weekly-dot {
-  display: inline-flex;
-  align-items: center;
-  min-height: 2rem;
-  padding: 0 0.72rem;
-  border-radius: 999px;
-  background: #f4ecde;
-  color: #6f5a30;
-  font-size: 0.82rem;
-  font-weight: 700;
-}
-
-.fleet-card-body {
-  display: grid;
-  gap: 1rem;
-  padding: 1rem;
-}
-
-.fleet-card-row {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
-  align-items: start;
-}
-
-.weekly-strip {
-  display: grid;
-  gap: 0.55rem;
-}
-
-.weekly-dot {
-  justify-content: center;
-  min-width: 2rem;
-  padding: 0;
-}
-
-.weekly-dot[data-tone='success'] {
-  background: rgba(46, 139, 87, 0.14);
-  color: #1d6b42;
-}
-
-.weekly-dot[data-tone='warning'] {
-  background: rgba(200, 169, 107, 0.2);
-  color: #916c1f;
-}
-
-.weekly-dot[data-tone='danger'] {
-  background: rgba(184, 61, 54, 0.15);
-  color: #9f2f28;
-}
-
-.ops-timeline {
-  display: grid;
-  gap: 0.9rem;
-  margin-top: 1rem;
-}
-
-.ops-timeline-item {
-  display: grid;
-  grid-template-columns: 6.5rem 1fr;
-  gap: 0.9rem;
-  padding-bottom: 0.9rem;
-  border-bottom: 1px solid #efe2ca;
-}
-
-.ops-timeline-item:last-child {
-  padding-bottom: 0;
-  border-bottom: 0;
-}
-
-.priority-item--static {
-  cursor: default;
-}
-
-.gold-button {
-  border-color: rgba(200, 169, 107, 0.4);
-  color: #8f6919;
-  background: rgba(240, 199, 92, 0.12);
-}
-
-.danger-button {
-  border-color: rgba(185, 28, 28, 0.28);
-  color: #991b1b;
-  background: rgba(254, 226, 226, 0.52);
-}
-
-.wizard-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 2200;
-  display: grid;
-  place-items: center;
-  padding: 1.2rem;
-  background: rgba(10, 13, 18, 0.48);
-  backdrop-filter: blur(10px);
-}
-
-.wizard-modal {
-  width: min(1200px, 100%);
-  max-height: calc(100vh - 2.4rem);
-  overflow: auto;
-  padding: 1.35rem;
-}
-
-.wizard-sticky-head {
-  position: sticky;
-  top: -1.35rem;
-  z-index: 5;
-  margin: -1.35rem -1.35rem 0;
-  padding: 1.35rem 1.35rem 1rem;
-  border-bottom: 1px solid rgba(239, 226, 202, 0.72);
-  background: rgba(255, 253, 250, 0.96);
-  backdrop-filter: blur(10px);
-}
-
-.wizard-header {
-  display: flex;
-  align-items: start;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.wizard-stepper {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  margin-top: 1rem;
-}
-
-.wizard-step {
-  display: grid;
-  gap: 0.35rem;
-  padding: 1rem;
-  border: 1px solid #efe2ca;
-  border-radius: 18px;
-  background: #fffdfa;
-  text-align: left;
-}
-
-.wizard-step.active {
-  border-color: rgba(200, 169, 107, 0.65);
-  background: linear-gradient(180deg, #fffaf0 0%, #fffdfa 100%);
-}
-
-.wizard-step.complete {
-  background: #f6f1e7;
-}
-
-.wizard-step span {
-  color: #8f6919;
-  font-size: 0.8rem;
-  font-weight: 800;
-}
-
-.wizard-step small {
-  color: #6d665c;
-  line-height: 1.5;
-}
-
-.wizard-body {
-  margin-top: 1rem;
-}
-
-.wizard-panel {
-  padding: 1.2rem;
-  border: 1px solid #efe2ca;
-  border-radius: 24px;
-  background: #fffdfa;
-}
-
-.wizard-review-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin-top: 1rem;
-}
-
-.wizard-review-card {
-  padding: 1rem;
-  border: 1px solid #efe2ca;
-  border-radius: 18px;
-  background: #ffffff;
-}
-
-.wizard-review-card strong {
-  display: block;
-  margin-top: 0.4rem;
-}
-
-.wizard-review-card p {
-  margin: 0.35rem 0 0;
-}
-
-.wizard-footer {
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 1rem;
-}
-
-.availability-hero,
-.availability-heatmap,
-.availability-records {
-  display: grid;
-  gap: 1rem;
-}
-
-.availability-calendar-shell {
-  display: grid;
-  gap: 1rem;
-}
-
-.availability-calendar-toolbar,
-.availability-calendar-actions,
-.availability-calendar-row,
-.availability-calendar-aircraft,
-.availability-calendar-day-head,
-.availability-calendar-cell,
-.availability-calendar-filter {
-  display: flex;
-}
-
-.availability-calendar-toolbar,
-.availability-calendar-actions {
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  flex-wrap: wrap;
-}
-
-.availability-calendar-filter {
-  flex-direction: column;
-  gap: 0.35rem;
-  min-width: 16rem;
-}
-
-.availability-calendar-filter span {
-  color: #6f6250;
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.availability-calendar-grid {
-  display: grid;
-  gap: 0.7rem;
-}
-
-.availability-calendar-row {
-  gap: 0.7rem;
-}
-
-.availability-calendar-row--head,
-.availability-calendar-row--body {
-  display: grid;
-  grid-template-columns: minmax(14rem, 1.1fr) repeat(7, minmax(7.5rem, 1fr));
-  align-items: stretch;
-}
-
-.availability-calendar-aircraft-head,
-.availability-calendar-day-head,
-.availability-calendar-aircraft,
-.availability-calendar-cell {
-  border: 1px solid #efe2ca;
-  border-radius: 18px;
-  background: #fffdfa;
-  min-height: 6.2rem;
-  padding: 0.9rem;
-}
-
-.availability-calendar-aircraft-head,
-.availability-calendar-day-head {
-  background: #faf4e8;
-}
-
-.availability-calendar-aircraft-head {
-  display: flex;
-  align-items: center;
-  font-weight: 800;
-  color: #5e4d2e;
-}
-
-.availability-calendar-day-head,
-.availability-calendar-aircraft,
-.availability-calendar-cell {
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 0.35rem;
-}
-
-.availability-calendar-day-head strong,
-.availability-calendar-cell strong {
-  text-transform: capitalize;
-}
-
-.availability-calendar-day-head.is-today {
-  border-color: #111111;
-  box-shadow: inset 0 0 0 1px rgba(17, 17, 17, 0.08);
-}
-
-.availability-calendar-cell {
-  cursor: pointer;
-  text-align: left;
-  transition:
-    transform 0.16s ease,
-    border-color 0.16s ease,
-    box-shadow 0.16s ease;
-}
-
-.availability-calendar-cell:hover,
-.availability-calendar-cell:focus-visible {
-  border-color: #c8a96b;
-  box-shadow: 0 16px 30px rgba(28, 22, 12, 0.08);
-  transform: translateY(-1px);
-  outline: none;
-}
-
-.availability-calendar-cell span,
-.availability-calendar-day-head span {
-  color: #6d6151;
-  font-size: 0.82rem;
-  line-height: 1.3;
-}
-
-.availability-calendar-cell[data-tone='success'] {
-  background: linear-gradient(180deg, #f5fff8, #eefbf1);
-}
-
-.availability-calendar-cell[data-tone='warning'] {
-  background: linear-gradient(180deg, #fff8eb, #fff1d2);
-}
-
-.availability-calendar-cell[data-tone='danger'] {
-  background: linear-gradient(180deg, #fff1ef, #ffe0da);
-}
-
-.availability-calendar-cell[data-tone='info'] {
-  background: linear-gradient(180deg, #eff7ff, #dfeefe);
-}
-
-.availability-calendar-cell[data-tone='dark'] {
-  background: linear-gradient(180deg, #f0ede8, #e4ddd3);
-}
-
-.availability-calendar-cell.is-available strong {
-  color: #17663a;
-}
-
-.availability-heatmap-row,
-.availability-record-card {
-  padding: 1rem;
-  border: 1px solid #efe2ca;
-  border-radius: 20px;
-  background: #fffdfa;
-}
-
-.availability-record-card {
-  display: grid;
-  gap: 0.8rem;
-}
-
-.stored-document-card {
-  display: grid;
-  gap: 0.7rem;
-  padding: 0.9rem;
-  border: 1px solid #efe2ca;
-  border-radius: 16px;
-  background: #fffdfa;
-  cursor: pointer;
-  transition:
-    border-color 0.16s ease,
-    transform 0.16s ease,
-    box-shadow 0.16s ease;
-}
-
-.stored-document-card:hover,
-.stored-document-card:focus-visible {
-  border-color: rgba(200, 169, 107, 0.7);
-  box-shadow: 0 16px 34px rgba(47, 39, 21, 0.1);
-  transform: translateY(-1px);
-  outline: none;
-}
-
-.hero-actions,
-.inline-actions,
-.chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-}
-
-.fleet-summary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.65rem;
-  margin: 1rem 0;
-}
-
-.page-grid {
-  display: grid;
-  gap: 1rem;
-}
-
-.two-columns {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.section-head,
-.card-top,
-.status-row,
-.toggle-row {
-  display: flex;
-  align-items: start;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.surface,
-.metric-card,
-.list-card,
-.timeline-item {
-  padding: 1.2rem;
-}
-
-.metrics-grid,
-.list-grid,
-.document-list,
-.priority-list,
-.pricing-list,
-.timeline,
-.toggle-list,
-.status-list {
-  display: grid;
-  gap: 0.9rem;
-}
-
-.metrics-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  margin-top: 1rem;
-}
-
-.metric-card {
-  border: 1px solid #efe2ca;
-  border-radius: 18px;
-  background: #fffaf2;
-}
-
-.metric-card span {
-  display: block;
-  color: #75684e;
-  font-size: 0.9rem;
-}
-
-.metric-card strong {
-  display: block;
-  margin-top: 0.5rem;
-  font-size: 1.4rem;
-}
-
-.priority-item,
-.chip-button,
-.ghost-button,
-.primary-action {
-  border-radius: 14px;
-  cursor: pointer;
-}
-
-.priority-item {
-  display: grid;
-  gap: 0.25rem;
-  padding: 1rem;
-  border: 1px solid #efe2ca;
-  background: #fffdfa;
-  text-align: left;
-}
-
-.priority-item strong,
-.list-card strong,
-.timeline-item strong {
-  font-size: 1rem;
-}
-
-.badge {
-  display: inline-flex;
-  align-items: center;
-  min-height: 2rem;
-  padding: 0 0.8rem;
-  border: 1px solid rgba(213, 174, 88, 0.26);
-  border-radius: 999px;
-  color: #8f6919;
-  background: rgba(213, 174, 88, 0.12);
-  font-size: 0.78rem;
-  font-weight: 700;
-}
-
-.form-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.9rem;
-  margin-top: 1rem;
-}
-
-.form-grid.compact {
-  margin-top: 0;
-}
-
-.form-grid label,
-.coverage-field,
-.toggle-row {
-  display: grid;
-  gap: 0.35rem;
-}
-
-.span-2 {
-  grid-column: span 2;
-}
-
-input,
-textarea,
-select {
-  min-height: 2.9rem;
-  border: 1px solid #dccfb9;
-  border-radius: 14px;
-  background: #ffffff;
-  color: #111111;
-  padding: 0 0.85rem;
-}
-
-input.input-error,
-textarea.input-error,
-select.input-error {
-  border-color: #d92d20;
-  box-shadow: 0 0 0 1px rgba(217, 45, 32, 0.08);
-}
-
-.coverage-options {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.65rem;
-}
-
-.coverage-option {
-  min-height: 2.9rem;
-  display: flex !important;
-  align-items: center;
-  gap: 0.55rem !important;
-  border: 1px solid #dccfb9;
-  border-radius: 14px;
-  padding: 0 0.85rem;
-  background: #ffffff;
-  color: #111111;
-  font-weight: 800;
-}
-
-.coverage-option input {
-  width: 1rem;
-  min-height: 1rem;
-  accent-color: #111111;
-}
-
-.coverage-options.input-error .coverage-option {
-  border-color: #d92d20;
-  box-shadow: 0 0 0 1px rgba(217, 45, 32, 0.08);
-}
-
-textarea {
-  padding: 0.8rem;
-}
-
-.ghost-button,
-.chip-button {
-  min-height: 2.7rem;
-  padding: 0 0.95rem;
-  border: 1px solid #dccfb9;
-  background: #fffdfa;
-  color: #2e2a22;
-}
-
-.primary-action {
-  min-height: 2.9rem;
-  padding: 0 1.1rem;
-  border: 1px solid #111111;
-  background: #111111;
-  color: #ffffff;
-}
-
-.ghost-button,
-.primary-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.55rem;
-}
-
-.button-spinner {
-  width: 0.95rem;
-  height: 0.95rem;
-  border-radius: 999px;
-  border: 2px solid currentColor;
-  border-right-color: transparent;
-  animation: operator-button-spin 0.7s linear infinite;
-}
-
-.primary-action:disabled,
-.ghost-button:disabled,
-.chip-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-@keyframes operator-button-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.list-card,
-.timeline-item {
-  border: 1px solid #efe2ca;
-  border-radius: 18px;
-  background: #fffdfa;
-}
-
-.aircraft-image-wrap {
-  margin: 0.9rem 0;
-  overflow: hidden;
-  border: 1px solid #efe2ca;
-  border-radius: 16px;
-  background: #f5efe4;
-  aspect-ratio: 16 / 9;
-}
-
-.aircraft-image {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-.pricing-card {
-  gap: 1rem;
-}
-
-.table-shell {
-  margin-top: 1rem;
-  overflow: auto;
-  border: 1px solid #efe2ca;
-  border-radius: 18px;
-  background: #fffdfa;
-}
-
-.pricing-table-head,
-.pricing-table-row {
-  display: grid;
-  grid-template-columns: 1.7fr repeat(8, minmax(7rem, 0.8fr)) minmax(7rem, 0.9fr);
-  gap: 0.75rem;
-  align-items: center;
-  min-width: 78rem;
-  padding: 0.95rem 1rem;
-}
-
-.availability-table-head,
-.availability-table-row {
-  display: grid;
-  grid-template-columns: 1.2fr 1fr 1fr 0.9fr 1.3fr 0.8fr;
-  gap: 0.9rem;
-  align-items: center;
-  min-width: 58rem;
-  padding: 0.95rem 1rem;
-}
-
-.pricing-table-head,
-.availability-table-head {
-  border-bottom: 1px solid #efe2ca;
-  background: #faf4e8;
-  color: #7b6840;
-  font-size: 0.78rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.pricing-table-row + .pricing-table-row,
-.availability-table-row + .availability-table-row {
-  border-top: 1px solid #f1e7d6;
-}
-
-.pricing-table-row input {
-  min-width: 0;
-}
-
-.pricing-aircraft-cell {
-  display: grid;
-  gap: 0.2rem;
-}
-
-.pricing-save-button,
-.availability-action {
-  min-height: 2.5rem;
-}
-
-.requests-dispatch-surface {
-  gap: 1.4rem;
-}
-
-.request-kpi-grid {
-  margin-top: 1rem;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 0.8rem;
-}
-
-.request-kpi-card {
-  min-height: 6.4rem;
-  padding: 0.9rem 1rem;
-}
-
-.request-kpi-card span {
-  font-size: 0.82rem;
-}
-
-.request-kpi-card strong {
-  margin-top: 0.25rem;
-  font-size: 1rem;
-  line-height: 1.05;
-}
-
-.request-kpi-card small {
-  display: block;
-  margin-top: 0.15rem;
-  font-size: 0.82rem;
-  line-height: 1.25;
-}
-
-.requests-toolbar {
-  display: grid;
-  grid-template-columns: minmax(16rem, 1.1fr) minmax(0, 1.9fr) minmax(12rem, 0.7fr);
-  gap: 1rem;
-  align-items: end;
-  margin-top: 1.4rem;
-}
-
-.requests-head-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-}
-
-.archive-toggle,
-.archive-inline-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.6rem;
-  min-height: 3rem;
-  padding: 0.75rem 1rem;
-  border: 1px solid #e4d3b2;
-  border-radius: 16px;
-  background: #fff8ed;
-  color: #2c241b;
-  font-weight: 700;
-  transition:
-    border-color 0.18s ease,
-    box-shadow 0.18s ease,
-    transform 0.18s ease;
-}
-
-.archive-toggle:hover,
-.archive-toggle.is-active,
-.archive-inline-button:hover {
-  border-color: #c8a96b;
-  box-shadow: 0 16px 28px rgba(31, 24, 16, 0.08);
-  transform: translateY(-1px);
-}
-
-.archive-toggle__icon,
-.archive-inline-button span[aria-hidden='true'] {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2rem;
-  height: 2rem;
-  border-radius: 999px;
-  background: #f3e3c1;
-  font-size: 1rem;
-}
-
-.archive-toggle__label {
-  color: #6f5a30;
-}
-
-.archive-toggle strong,
-.archive-inline-button strong {
-  min-width: 1.9rem;
-  padding: 0.2rem 0.45rem;
-  border-radius: 999px;
-  background: #1c1711;
-  color: #fffaf1;
-  text-align: center;
-  font-size: 0.84rem;
-}
-
-.request-search,
-.request-priority-filter {
-  display: grid;
-  gap: 0.45rem;
-}
-
-.request-search span,
-.request-priority-filter span {
-  color: #6f6250;
-  font-size: 0.8rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.requests-tab-row {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 0.75rem;
-}
-
-.request-tab {
-  min-height: 4.2rem;
-  border: 1px solid #eadcc2;
-  border-radius: 18px;
-  background: #fffaf1;
-  color: #211b14;
-  display: grid;
-  gap: 0.2rem;
-  justify-items: start;
-  padding: 0.85rem 1rem;
-  transition:
-    transform 0.18s ease,
-    border-color 0.18s ease,
-    box-shadow 0.18s ease;
-}
-
-.request-tab strong {
-  font-size: 1.15rem;
-}
-
-.request-tab.is-active {
-  border-color: #c8a96b;
-  box-shadow: 0 18px 30px rgba(31, 24, 16, 0.08);
-  transform: translateY(-1px);
-}
-
-.archived-requests-panel {
-  margin-top: 1.25rem;
-  padding: 1.1rem;
-  border: 1px solid #ebdcc4;
-  border-radius: 24px;
-  background: linear-gradient(180deg, rgba(255, 250, 241, 0.92), rgba(247, 238, 223, 0.82));
-}
-
-.archived-requests-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
-  gap: 0.95rem;
-  margin-top: 1rem;
-}
-
-.archived-request-card {
-  display: grid;
-  gap: 0.7rem;
-  padding: 1rem;
-  border: 1px solid #ead9be;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.88);
-}
-
-.requests-dispatch-layout {
-  display: grid;
-  grid-template-columns: minmax(20rem, 0.85fr) minmax(0, 1.45fr);
-  gap: 1.2rem;
-  margin-top: 1.5rem;
-  align-items: start;
-}
-
-.requests-queue,
-.request-side-stack {
-  display: grid;
-  gap: 1rem;
-}
-
-.request-queue-card {
-  border: 1px solid #efe2ca;
-  border-radius: 22px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(250, 244, 232, 0.88));
-  padding: 1rem 1.05rem;
-  display: grid;
-  gap: 0.75rem;
-  cursor: pointer;
-  transition:
-    transform 0.18s ease,
-    border-color 0.18s ease,
-    box-shadow 0.18s ease;
-}
-
-.request-queue-card:hover,
-.request-queue-card.is-active {
-  border-color: #c8a96b;
-  box-shadow: 0 22px 38px rgba(21, 18, 14, 0.08);
-  transform: translateY(-1px);
-}
-
-.request-queue-top,
-.request-detail-head,
-.request-detail-actions,
-.request-queue-meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-}
-
-.request-queue-route {
-  margin: 0;
-  font-size: 1.05rem;
-  font-weight: 700;
-  color: #16110d;
-}
-
-.request-queue-meta {
-  color: #6c6355;
-  font-size: 0.92rem;
-}
-
-.request-detail-surface,
-.request-detail-card {
-  display: grid;
-  gap: 1rem;
-}
-
-.request-detail-surface {
-  border: 1px solid #efe2ca;
-  border-radius: 26px;
-  background: #fffdfa;
-  padding: 1.3rem;
-}
-
-.request-alert-strip {
-  margin-top: 0.25rem;
-}
-
-.request-flow-strip {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 0.75rem;
-}
-
-.request-flow-pill {
-  display: grid;
-  gap: 0.25rem;
-  padding: 0.9rem 1rem;
-  border-radius: 18px;
-  border: 1px solid #eadfcd;
-  background: #fffdfa;
-}
-
-.request-flow-pill[data-state='done'] {
-  border-color: #d7ead8;
-  background: #eef9ef;
-}
-
-.request-flow-pill[data-state='active'] {
-  border-color: #f0cf85;
-  background: #fff5d9;
-}
-
-.request-flow-pill__index {
-  font-size: 0.76rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #7c6a4a;
-}
-
-.request-summary-grid,
-.request-detail-grid,
-.request-detail-blocks,
-.request-match-hints {
-  display: grid;
-  gap: 1rem;
-}
-
-.request-summary-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.request-summary-card,
-.request-detail-block,
-.request-match-hint,
-.request-match-card {
-  border: 1px solid #f0e5d1;
-  border-radius: 18px;
-  background: #fffaf4;
-  padding: 1rem;
-}
-
-.request-summary-card strong,
-.request-detail-block strong,
-.request-match-card strong {
-  color: #16110d;
-}
-
-.request-detail-grid {
-  grid-template-columns: minmax(0, 1.25fr) minmax(18rem, 0.9fr);
-  align-items: start;
-}
-
-.request-detail-card {
-  padding: 1.1rem;
-  border-radius: 22px;
-}
-
-.request-detail-blocks {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.request-detail-note {
-  margin: 0;
-}
-
-.provider-release-panel,
-.provider-release-card,
-.provider-release-checklist,
-.provider-release-checklist__section {
-  border: 1px solid #f0e5d1;
-  border-radius: 20px;
-  background: #fffaf4;
-}
-
-.provider-release-panel {
-  display: grid;
-  gap: 1rem;
-  padding: 1.1rem;
-}
-
-.provider-release-panel__head,
-.provider-release-card__head,
-.provider-release-progress,
-.provider-release-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-}
-
-.provider-release-progress strong {
-  color: #16110d;
-  font-size: 1.2rem;
-}
-
-.provider-release-lock {
-  margin: 0;
-  padding: 0.85rem 1rem;
-  border-radius: 16px;
-  background: #f3eee4;
-}
-
-.provider-release-form-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
-}
-
-.provider-release-form-grid.is-disabled {
-  opacity: 0.68;
-}
-
-.provider-release-card {
-  display: grid;
-  gap: 0.85rem;
-  padding: 1rem;
-}
-
-.provider-release-note {
-  margin: 0;
-  color: #6f6558;
-  font-size: 0.95rem;
-  line-height: 1.45;
-}
-
-.provider-release-inline-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.85rem;
-}
-
-.provider-release-support {
-  display: grid;
-  gap: 0.55rem;
-}
-
-.provider-release-support > span {
-  color: #7b6d58;
-  font-size: 0.8rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.provider-release-support__actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.7rem;
-}
-
-.provider-release-validation-list {
-  display: grid;
-  gap: 0.85rem;
-  padding: 1rem 1.05rem;
-  border: 1px solid #eadfcf;
-  border-radius: 18px;
-  background: linear-gradient(180deg, #fffdf9, #fff8f0);
-}
-
-.provider-release-validation-list span {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.6rem;
-  color: #7b715f;
-  font-size: 0.98rem;
-  line-height: 1.25;
-}
-
-.provider-release-validation-list span::before {
-  content: '○';
-  flex: 0 0 auto;
-  color: #8a7d69;
-  font-size: 1.05rem;
-  line-height: 1;
-}
-
-.provider-release-validation-list span.is-done {
-  color: #1a6d43;
-  font-weight: 700;
-}
-
-.provider-release-validation-list span.is-done::before {
-  content: '✓';
-  color: #1a6d43;
-}
-
-.provider-release-checks {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.7rem;
-}
-
-.provider-release-checks--compact {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.provider-check {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  min-height: 3rem;
-  padding: 0.8rem 0.9rem;
-  border: 1px solid #eadfcf;
-  border-radius: 16px;
-  background: #fffdfa;
-  color: #2f271e;
-  font-weight: 600;
-}
-
-.provider-check input {
-  width: 1rem;
-  height: 1rem;
-}
-
-.provider-release-checklist {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
-  padding: 1rem;
-}
-
-.provider-release-checklist__section {
-  display: grid;
-  gap: 0.9rem;
-  padding: 1.15rem 1.1rem;
-}
-
-.provider-release-checklist__section strong {
-  color: #16110d;
-  font-size: 1rem;
-  line-height: 1.15;
-}
-
-.provider-release-checklist__item {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.6rem;
-  color: #7b715f;
-  font-size: 1rem;
-  line-height: 1.25;
-}
-
-.provider-release-checklist__item::before {
-  content: '○';
-  flex: 0 0 auto;
-  color: #8a7d69;
-  font-size: 1.05rem;
-  line-height: 1;
-}
-
-.provider-release-checklist__item.is-done {
-  color: #1a6d43;
-  font-weight: 700;
-}
-
-.provider-release-checklist__item.is-done::before {
-  content: '✓';
-  color: #1a6d43;
-}
-
-.provider-release-summary {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.9rem;
-}
-
-.provider-release-summary__item {
-  display: grid;
-  gap: 0.2rem;
-  padding: 0.95rem 1rem;
-  border: 1px solid #eadfcf;
-  border-radius: 16px;
-  background: #fffdfa;
-}
-
-.provider-release-summary__item span {
-  color: #7b6d58;
-  font-size: 0.76rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.provider-release-summary__item strong {
-  color: #16110d;
-  font-size: 1.05rem;
-  line-height: 1.15;
-}
-
-.provider-release-summary__item small {
-  color: #6f6558;
-  font-size: 0.9rem;
-  line-height: 1.35;
-}
-
-.provider-release-notes {
-  display: grid;
-  gap: 0.45rem;
-}
-
-.provider-release-actions {
-  justify-content: flex-end;
-}
-
-.provider-release-cta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 1rem 1.1rem;
-  border: 1px solid #f0e5d1;
-  border-radius: 20px;
-  background: linear-gradient(180deg, #fffdf9, #fff8ee);
-}
-
-.package-chip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.2rem 0.6rem;
-  border-radius: 999px;
-  font-size: 0.74rem;
-  font-weight: 800;
-  border: 1px solid #ead8b7;
-  background: #fff3de;
-  color: #8a6220;
-}
-
-.package-chip[data-tone='warning'] {
-  background: #fff6df;
-  color: #9b6f17;
-}
-
-.package-chip[data-tone='danger'] {
-  background: #fff1e7;
-  color: #a35323;
-}
-
-.request-itinerary-table,
-.request-validation-list,
-.request-cost-grid,
-.request-comparison-list,
-.request-inline-actions,
-.request-decision-toolbar,
-.request-aircraft-table,
-.request-route-assignment-table,
-.request-executive-strip {
-  display: grid;
-  gap: 0.75rem;
-}
-
-.request-itinerary-head,
-.request-itinerary-row,
-.request-aircraft-head,
-.request-aircraft-row,
-.request-route-assignment-head,
-.request-route-assignment-row {
-  display: grid;
-  gap: 0.75rem;
-  align-items: center;
-}
-
-.request-itinerary-head,
-.request-itinerary-row {
-  grid-template-columns: 3.5rem 1.4fr 1.2fr 4rem 7rem 8rem;
-}
-
-.request-aircraft-head,
-.request-aircraft-row {
-  grid-template-columns: 1.35fr 5rem 4rem 6.5rem 4.5rem 4.5rem 7rem 7.5rem;
-}
-
-.request-route-assignment-head,
-.request-route-assignment-row {
-  grid-template-columns: 1.2fr 1fr 1fr 4rem;
-}
-
-.request-itinerary-head {
-  color: #7f715c;
-  font-size: 0.76rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-.request-itinerary-row {
-  padding: 0.9rem 1rem;
-  border: 1px solid #f0e5d1;
-  border-radius: 16px;
-  background: #fffaf4;
-}
-
-.request-aircraft-head,
-.request-route-assignment-head {
-  color: #7f715c;
-  font-size: 0.76rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-.request-aircraft-row,
-.request-route-assignment-row {
-  padding: 0.9rem 1rem;
-  border: 1px solid #f0e5d1;
-  border-radius: 16px;
-  background: #fffaf4;
-}
-
-.request-aircraft-row-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 2.4rem;
-  padding: 0.45rem 0.75rem;
-  border: 1px solid #dccfb9;
-  border-radius: 14px;
-  background: #fffdfa;
-  color: #2e2a22;
-  font-size: 0.85rem;
-  font-weight: 700;
-}
-
-.request-aircraft-row-action[data-tone='success'] {
-  border-color: rgba(22, 163, 74, 0.24);
-  background: rgba(22, 163, 74, 0.08);
-  color: #166534;
-}
-
-.request-aircraft-row-action[data-tone='warning'] {
-  border-color: rgba(202, 138, 4, 0.24);
-  background: rgba(202, 138, 4, 0.08);
-  color: #8f6919;
-}
-
-.request-aircraft-row-action[data-tone='danger'] {
-  border-color: rgba(185, 28, 28, 0.24);
-  background: rgba(185, 28, 28, 0.08);
-  color: #991b1b;
-}
-
-.request-validation-item,
-.request-cost-item {
-  border: 1px solid #f0e5d1;
-  border-radius: 16px;
-  background: #fffaf4;
-  padding: 0.9rem 1rem;
-}
-
-.request-validation-item[data-state='ok'] {
-  border-color: rgba(100, 170, 120, 0.35);
-  background: #f7fcf8;
-}
-
-.request-validation-item[data-state='review'] {
-  border-color: rgba(210, 164, 65, 0.34);
-  background: #fffaf0;
-}
-
-.request-validation-item[data-state='blocked'] {
-  border-color: rgba(212, 110, 96, 0.3);
-  background: #fff6f4;
-}
-
-.request-validation-item span {
-  display: inline-flex;
-  width: fit-content;
-  margin: 0.35rem 0;
-  font-size: 0.8rem;
-  font-weight: 800;
-}
-
-.request-semaphore-summary {
-  padding: 0.95rem 1rem;
-  border-radius: 16px;
-  border: 1px solid #f0e5d1;
-  background: #fffaf4;
-}
-
-.request-semaphore-summary[data-tone='success'] {
-  border-color: rgba(100, 170, 120, 0.35);
-  background: #f7fcf8;
-}
-
-.request-semaphore-summary[data-tone='warning'] {
-  border-color: rgba(210, 164, 65, 0.34);
-  background: #fffaf0;
-}
-
-.request-semaphore-summary[data-tone='danger'] {
-  border-color: rgba(212, 110, 96, 0.3);
-  background: #fff6f4;
-}
-
-.request-cost-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.request-cost-item span,
-.request-comparison-list span {
-  color: #6c5d47;
-  font-size: 0.9rem;
-}
-
-.request-comparison-list {
-  margin-top: 0.75rem;
-}
-
-.request-inline-actions {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.request-decision-toolbar {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.request-priority-reco {
-  padding: 0.95rem 1rem;
-  border: 1px solid #f0e5d1;
-  border-radius: 16px;
-  background: linear-gradient(180deg, #fffdf9, #fff8ee);
-}
-
-.request-executive-strip {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.request-cost-details {
-  border: 1px solid #f0e5d1;
-  border-radius: 16px;
-  background: #fffdfa;
-  padding: 0.9rem 1rem;
-}
-
-.request-cost-details summary {
-  cursor: pointer;
-  font-weight: 800;
-  color: #241b13;
-}
-
-.request-internal-comment {
-  width: 100%;
-  border: 1px solid #dbcdb5;
-  border-radius: 16px;
-  padding: 0.9rem 1rem;
-  background: #fffdfa;
-  color: #201914;
-  font: inherit;
-  resize: vertical;
-}
-
-.toggle-row {
-  min-height: 3.2rem;
-  padding: 0.9rem 1rem;
-  border: 1px solid #efe2ca;
-  border-radius: 16px;
-  background: #fffdfa;
-}
-
-.toggle-row input[type='checkbox'] {
-  min-height: auto;
-  width: 1.1rem;
-  height: 1.1rem;
-  margin: 0;
-}
-
-@media (max-width: 1080px) {
-  .metrics-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .two-columns {
-    grid-template-columns: 1fr;
-  }
-
-  .fleet-kpi-grid,
-  .fleet-layout,
-  .fleet-premium-grid,
-  .document-type-grid,
-  .document-preview-grid,
-  .document-upload-grid,
-  .wizard-stepper,
-  .wizard-review-grid,
-  .company-progress-steps,
-  .dashboard-quick-actions,
-  .dashboard-layout,
-  .request-summary-grid,
-  .request-detail-grid,
-  .request-detail-blocks,
-  .provider-release-form-grid,
-  .provider-release-inline-grid,
-  .provider-release-checklist,
-  .provider-release-summary,
-  .request-cost-grid,
-  .request-inline-actions,
-  .request-decision-toolbar,
-  .request-executive-strip {
-    grid-template-columns: 1fr;
-  }
-
-  .request-itinerary-head,
-  .request-itinerary-row,
-  .request-aircraft-head,
-  .request-aircraft-row,
-  .request-route-assignment-head,
-  .request-route-assignment-row {
-    grid-template-columns: 1fr;
-  }
-
-  .requests-toolbar,
-  .requests-dispatch-layout,
-  .requests-tab-row {
-    grid-template-columns: 1fr;
-  }
-
-  .wizard-modal {
-    max-height: calc(100vh - 1.4rem);
-  }
-}
-
-@media (max-width: 720px) {
-  .operator-portal-page {
-    padding: 0.75rem;
-  }
-
-  .hero,
-  .section-head,
-  .card-top,
-  .status-row,
-  .toggle-row,
-  .request-detail-head,
-  .request-detail-actions,
-  .request-queue-top,
-  .request-queue-meta {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .form-grid,
-  .metrics-grid,
-  .provider-release-checks,
-  .provider-release-checks--compact {
-    grid-template-columns: 1fr;
-  }
-
-  .fleet-card-row,
-  .ops-timeline-item {
-    grid-template-columns: 1fr;
-  }
-
-  .wizard-header,
-  .wizard-footer {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .span-2 {
-    grid-column: auto;
-  }
-}
-</style>
+    return {
+      route,
+      router,
+      auth,
+      ui,
+      loading,
+      refreshingRequests,
+      portalLoadSequence,
+      portalLoadScheduled,
+      OPERATOR_REQUESTS_POLL_INTERVAL_MS,
+      OPERATOR_BOOT_TIMEOUT_MS,
+      OPERATOR_SECTION_TIMEOUT_MS,
+      OPERATOR_BACKGROUND_TIMEOUT_MS,
+      PROVIDER_OPERATIONAL_RELEASE_AUTOSAVE_MS,
+      requestsPollTimer,
+      removeWorkflowSyncSubscription,
+      providerOperationalReleaseAutosaveTimer,
+      OPERATOR_FLOW_STEPS,
+      companyId,
+      settings,
+      availabilityStatusOptions,
+      operationStatusOptions,
+      incidentStatusOptions,
+      incidentTypeOptions,
+      crewRoleOptions,
+      crewStateOptions,
+      defaultCrewBases,
+      company,
+      aircraft,
+      availability,
+      requests,
+      operations,
+      crew,
+      incidents,
+      payments,
+      history,
+      editingAircraftId,
+      selectedAvailabilityCalendarAircraftId,
+      availabilityWeekAnchor,
+      companyForm,
+      aircraftForm,
+      imageForm,
+      documentForm,
+      documentPreview,
+      availabilityForm,
+      incidentForm,
+      crewForm,
+      formErrors,
+      formSuccess,
+      aircraftWizardOpen,
+      aircraftWizardStep,
+      aircraftWizardSubmitting,
+      aircraftWizardReadOnly,
+      editingCrewId,
+      savingCrew,
+      operationCrewDrafts,
+      requestSearch,
+      requestStatusFilter,
+      requestPriorityFilter,
+      selectedRequestId,
+      requestInternalCommentDraft,
+      archivedTrayOpen,
+      requestStatusUpdate,
+      savingProviderOperationalRelease,
+      syncingProviderOperationalRelease: computed(() => false),
+      savingProviderOperationalIssue,
+      providerOperationalReleaseFeedback,
+      providerOperationalReleaseForm,
+      providerOperationalReleaseDirty,
+      providerOperationalReleaseHydrating,
+      providerOperationalReleaseLoadedRequestId,
+      providerOperationalReleaseAutosaveQueued,
+      providerOperationalReleaseActiveStep,
+      providerOperationalIssueOpen,
+      providerOperationalIssueForm,
+      requestsConnectionWarningShown,
+      sectionLoadState,
+      aircraftDecisionMode,
+      aircraftFilterBase,
+      aircraftFilterType,
+      aircraftFilterSort,
+      aircraftWizardSteps,
+      aircraftCategoryOptions,
+      aircraftCategoryRules,
+      aircraftDocumentTypes,
+      maxAircraftDocumentFiles,
+      maxImageDocumentBytes,
+      maxPdfDocumentBytes,
+      providerId,
+      canLoadProviderData,
+      providerName,
+      activeAircraft,
+      pendingRequests,
+      activeOperations,
+      openIncidents,
+      paymentsPending,
+      aircraftOptions,
+      selectedAvailabilityAircraft,
+      availabilityCalendarAircraftOptions,
+      availabilityCalendarWeekDays,
+      availabilityCalendarRows,
+      availabilityCalendarWindowLabel,
+      selectedImageAircraft,
+      selectedDocumentAircraft,
+      selectedDocumentType,
+      crewBases,
+      assignableCrewOptions,
+      crewLastSyncLabel,
+      crewBackendStatus,
+      crewConnectedUsers,
+      fleetGroupedByStatus,
+      aircraftPricingRows,
+      dashboardCards,
+      aircraftDueDocuments,
+      aircraftAvailableToday,
+      aircraftOperationalKpis,
+      aircraftOperationalTimeline,
+      aircraftPriorityNotes,
+      aircraftWizardTitle,
+      companyStatusMeta,
+      companyLastAuditDate,
+      companyOperationalBase,
+      companyOnboardingSteps,
+      companyOnboardingProgress,
+      companyValidationSummary,
+      companyAlerts,
+      companyAuditTimeline,
+      dashboardCompletion,
+      dashboardGlobalStatus,
+      dashboardAlerts,
+      dashboardQuickActions,
+      dashboardChecklist,
+      dashboardRecentActivity,
+      availabilityStatusCatalog,
+      availabilityReadyCount,
+      availabilityImmediatePercent,
+      availabilityGlobalStatus,
+      availabilitySummaryCards,
+      availabilityFormSteps,
+      requestKpis,
+      requestStatusTabs,
+      archivedRequests,
+      filteredRequests,
+      selectedRequest,
+      releaseProviderRequest,
+      requestOperationalAlerts,
+      selectedRequestAircraftComparison,
+      providerOperationalBinaryStatusOptions,
+      providerOperationalCrewOverallOptions,
+      providerOperationalAircraftOverallOptions,
+      createEmptyCompany,
+      createEmptyProviderOperationalReleaseForm,
+      resetProviderOperationalReleaseForm,
+      getProviderOperationalReleaseRequestId,
+      getProviderOperationalReleaseStatusMeta,
+      normalizeProviderOperationalRelease,
+      hydrateProviderOperationalReleaseForm,
+      getProviderOperationalReleaseAircraftRecord,
+      getActiveProviderReleaseRequest,
+      getProviderOperationalReleaseAircraftLabel,
+      clearProviderOperationalReleaseAutosaveTimer,
+      scheduleProviderOperationalReleaseAutosave,
+      persistProviderOperationalReleaseDraft,
+      isProviderOperationalStatusConfirmed,
+      isProviderAircraftConfirmedReady,
+      isProviderCrewConfirmedReady,
+      isProviderOperationalReady,
+      deriveProviderOperationalReleaseStatus,
+      getProviderOperationalReleaseCurrentStatus,
+      canManageProviderOperationalRelease,
+      buildProviderOperationalReleaseChecklist,
+      getProviderOperationalReleaseProgress,
+      getProviderOperationalAircraftSectionStatus,
+      getProviderOperationalCrewSectionStatus,
+      getProviderOperationalDispatchSectionStatus,
+      getProviderOperationalReadinessSectionStatus,
+      getProviderOperationalFinalSummary,
+      getProviderOperationalSectionCompletion,
+      buildProviderOperationalWizardSections,
+      setProviderOperationalActiveStep,
+      toggleProviderOperationalIssuePanel,
+      requestProviderOperationalSupport,
+      applyLocalProviderOperationalRelease,
+      syncCompanyForm,
+      pushHistory,
+      showError,
+      isBackendConnectionError,
+      getBackendConnectionMessage,
+      clearFormFeedback,
+      setFormSuccess,
+      setFormErrors,
+      applyBackendValidationErrors,
+      buildApiErrorMessage,
+      applyDashboardResponse,
+      applyAircraftResponse,
+      applyRequestsResponse,
+      applyOperationsResponse,
+      applyIncidentsResponse,
+      applyPaymentsResponse,
+      applyHistoryResponse,
+      applyCrewResponse,
+      applyAvailabilityResponse,
+      goToSection,
+      openProviderRelease,
+      normalizeCompany,
+      normalizeCompanyDocument,
+      normalizeAircraft,
+      normalizeAircraftImage,
+      normalizeAircraftDocument,
+      normalizeAvailability,
+      humanizeAircraftStatus,
+      normalizeMediaUrl,
+      hasImage,
+      getAircraftVisualStyle,
+      normalizeClientLabel,
+      resolveOperatorRequestStatusSource,
+      pickPreferredRequestMatch,
+      resolveRequestAircraftLabel,
+      parseRequestAmount,
+      resolveRequestFinalPriceValue,
+      resolveRequestQuoteValue,
+      resolveRequestResponseLimit,
+      normalizeRequest,
+      normalizeOperation,
+      findLinkedOperationForRequest,
+      normalizeIncident,
+      normalizePayment,
+      normalizeCrew,
+      normalizeCrewRole,
+      normalizeCrewState,
+      hydrateSettings,
+      normalizeHistory,
+      hydrateCompany,
+      setCompanyDocumentFile,
+      reloadCompany,
+      uploadCompanyDocument,
+      resetAircraftForm,
+      uppercaseText,
+      nullableText,
+      knotsToKmh,
+      inferAircraftMinimumHours,
+      getAircraftCategoryRule,
+      inferAircraftEngineType,
+      kmhToKnots,
+      inferredAircraftMinimumHours,
+      uppercaseAircraftFormTextFields,
+      setUppercaseAircraftField,
+      applyAircraftCategoryRule,
+      resetImageForm,
+      resetDocumentForm,
+      startEditingAircraft,
+      cancelEditingAircraft,
+      openAircraftWizard,
+      closeAircraftWizard,
+      nextAircraftWizardStep,
+      previousAircraftWizardStep,
+      getAircraftLiveStatus,
+      getAircraftDocumentHealth,
+      getAircraftUpcomingOperation,
+      getAircraftWeeklyAvailability,
+      getAvailabilityStatusMeta,
+      getAvailabilityOperationalStatus,
+      submitAircraftWizard,
+      syncAircraftScopedForms,
+      setAircraftImageField,
+      getAircraftDocumentTypeMeta,
+      getDocumentKind,
+      formatFileSize,
+      revokeDocumentPreviewUrls,
+      validateAircraftDocumentFile,
+      addAircraftDocumentFiles,
+      setAircraftDocumentFiles,
+      handleDocumentDrop,
+      removeAircraftDocumentFile,
+      removeStoredAircraftDocument,
+      openDocumentPreview,
+      openStoredDocumentPreview,
+      getStoredDocumentKind,
+      closeDocumentPreview,
+      selectDocumentType,
+      optimizeImageDocumentFile,
+      updateCrewField,
+      getOperationCrewDraft,
+      resetCrewForm,
+      populateCrewForm,
+      upsertCrewRecord,
+      reloadCrewList,
+      upsertAircraftRecord,
+      reloadAircraftList,
+      formatDateTimeRange,
+      startOfAvailabilityWeek,
+      addDays,
+      startOfAvailabilityDay,
+      endOfAvailabilityDay,
+      isSameAvailabilityDay,
+      formatDateTimeDisplay,
+      formatCurrency,
+      formatDocumentExpiry,
+      normalizeAvailabilityStatusForBackend,
+      getAvailabilityEntriesForAircraft,
+      buildAvailabilityCalendarCell,
+      moveAvailabilityWeek,
+      jumpAvailabilityWeekToToday,
+      selectAvailabilityCalendarCell,
+      toDateTimeLocalValue,
+      getRequestRouteLabel,
+      parseOperationalDate,
+      isRequestSameOperationalDay,
+      getRequestStatusMeta,
+      applyLocalRequestStatusUpdate,
+      getRequestPriorityMeta,
+      getRequestStatusCopy,
+      operatorWorkflowRank,
+      preferOperatorWorkflowValue,
+      resolveRequestWorkflowValue,
+      normalizeWorkflowLabel,
+      resolveWorkflowState,
+      resolveOperatorVisualStepId,
+      buildOperatorRequestFlowSteps,
+      getRequestPrimaryActionLabel,
+      shouldDisableRequestPrimaryAction,
+      canTriggerRequestPrimaryAction,
+      handleRequestPrimaryAction,
+      getRequestHelperCopy,
+      resolveOperatorDecisionState,
+      canOperatorAcceptRequest,
+      getRequestResponseCountdown,
+      getRequestClientLabel,
+      getRequestQuoteLabel,
+      getRequestSuggestedAircraft,
+      getRequestServiceTierLabel,
+      getRequestServiceTierTone,
+      getRequestTripTypeLabel,
+      buildRequestLegs,
+      buildRequestAircraftComparison,
+      getRequestPriorityDriver,
+      computeAircraftCompatibilityScore,
+      estimateAircraftOperationalQuote,
+      formatInternalCostBand,
+      getOperationalRiskLabel,
+      getAvailabilitySymbol,
+      buildRequestAircraftRows,
+      buildProposalSummary,
+      buildOperationalProposal,
+      selectRequest,
+      countSelectedImageFiles,
+      getAircraftImageByKind,
+      isRequestAccepted,
+      isRequestRejected,
+      isRequestPendingValidation,
+      isIncidentResolved,
+      mapIncidentTone,
+      isUpdatingRequestStatus,
+      loadPortal,
+      ensureSectionDataLoaded,
+      schedulePortalLoad,
+      saveCompany,
+      sendCompanyToReview,
+      createAircraft,
+      uploadAircraftImages,
+      uploadAircraftDocument,
+      archiveAircraft,
+      deleteAircraft,
+      sendAircraftToReview,
+      saveAircraftEdits,
+      updatePricing,
+      savePricing,
+      reloadRequestsList,
+      shouldAutoRefreshRequests,
+      refreshRequestsList,
+      clearRequestsPolling,
+      startRequestsPolling,
+      handleRequestsVisibilityRefresh,
+      reloadOperationsList,
+      createOrUpdateCrew,
+      suspendCrewMember,
+      activateCrewMember,
+      assignCrewMemberToFlight,
+      viewCrewDocuments,
+      viewCrewHistory,
+      markCrewAvailability,
+      createAvailabilityBlock,
+      releaseAvailability,
+      updateRequestStatus,
+      saveProviderOperationalRelease,
+      submitProviderOperationalIssue,
+      updateOperationStatus,
+      assignCrewToOperation,
+      createIncident,
+      updateIncidentStatus,
+      saveSettings
+    }
+  },
+})

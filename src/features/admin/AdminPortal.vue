@@ -11,12 +11,14 @@ import AdminCrudSection from './AdminCrudSection.vue'
 import AdminExecutiveSection from './AdminExecutiveSection.vue'
 import AdminImportsSection from './AdminImportsSection.vue'
 import AdminProvidersNetworkSection from './AdminProvidersNetworkSection.vue'
+import AdminReleasesSection from './AdminReleasesSection.vue'
 import AdminReservationsSection from './AdminReservationsSection.vue'
 import AdminUsersSection from './AdminUsersSection.vue'
 import { normalizeWorkflowLabel, SHARED_WORKFLOW_STEPS } from '../../utils/flightWorkflow'
 import { emitWorkflowSync, subscribeWorkflowSync } from '../../lib/workflowSync'
 import {
   delayAdminReservation,
+  getAdminReleases,
   getAdminReservations,
   resumeAdminReservation,
   updateAdminReservationStage,
@@ -45,9 +47,10 @@ let operationsRequestPromise = null
 const adminPortalInstanceId = `admin-${Math.random().toString(16).slice(2, 10)}`
 let lastReservationsRefreshAt = 0
 const ADMIN_RESERVATIONS_POLL_INTERVAL_MS = 10000
-const ADMIN_RESERVATIONS_TIMEOUT_MS = Number(import.meta.env.VITE_ADMIN_RESERVATIONS_TIMEOUT_MS || 8000)
+const ADMIN_RESERVATIONS_TIMEOUT_MS = Number(import.meta.env.VITE_ADMIN_RESERVATIONS_TIMEOUT_MS || 20000)
 const ADMIN_FLOW_UPDATE_TIMEOUT_MS = Number(import.meta.env.VITE_ADMIN_FLOW_UPDATE_TIMEOUT_MS || 12000)
 const ADMIN_RESERVATIONS_REFRESH_COOLDOWN_MS = 4000
+const adminReservationsLoadWarningShown = ref(false)
 
 const displayKpis = [
   { label: 'Ventas del dia', value: '$286,000 MXN', detail: 'Ingresos confirmados durante la jornada.' },
@@ -130,7 +133,7 @@ const policies = [
     description: 'Solo accede a la operacion asignada, checklist, incidencias y pagos propios.',
   },
   {
-    title: 'Cliente ve Red Aviation',
+    title: 'Cliente ',
     description: 'Toda la experiencia se concentra bajo la marca y el frente comercial oficial.',
   },
 ]
@@ -586,11 +589,14 @@ function isTimeoutLikeError(error) {
 
 async function loadOperations(options = {}) {
   const preserveExistingOnEmpty = options.preserveExistingOnEmpty !== false
+  const silent = options.silent !== false
   if (operationsRequestPromise) return operationsRequestPromise
 
   operationsRequestPromise = (async () => {
     try {
-      const nextOperations = await getAdminReservations({ timeoutMs: ADMIN_RESERVATIONS_TIMEOUT_MS })
+      const nextOperations = await getAdminReservations({
+        timeoutMs: options.timeoutMs || ADMIN_RESERVATIONS_TIMEOUT_MS,
+      })
 
       if (
         preserveExistingOnEmpty &&
@@ -603,9 +609,67 @@ async function loadOperations(options = {}) {
 
       operations.value = nextOperations
       lastReservationsRefreshAt = Date.now()
-    } catch {
+      adminReservationsLoadWarningShown.value = false
+    } catch (error) {
       if (!preserveExistingOnEmpty) {
         operations.value = []
+      }
+
+      if (!silent && !adminReservationsLoadWarningShown.value) {
+        adminReservationsLoadWarningShown.value = true
+        ui.pushToast({
+          tone: 'warning',
+          title: 'No se pudieron cargar las reservas',
+          message: isTimeoutLikeError(error)
+            ? 'El backend admin tardo mas de lo esperado al responder /admin/requests. Intenta de nuevo o aumenta el timeout.'
+            : error?.message || 'La vista de reservas no pudo sincronizarse con el backend.',
+        })
+      }
+    } finally {
+      operationsRequestPromise = null
+    }
+  })()
+
+  return operationsRequestPromise
+}
+
+async function loadReleases(options = {}) {
+  const preserveExistingOnEmpty = options.preserveExistingOnEmpty !== false
+  const silent = options.silent !== false
+  if (operationsRequestPromise) return operationsRequestPromise
+
+  operationsRequestPromise = (async () => {
+    try {
+      const nextOperations = await getAdminReleases({
+        timeoutMs: options.timeoutMs || ADMIN_RESERVATIONS_TIMEOUT_MS,
+      })
+
+      if (
+        preserveExistingOnEmpty &&
+        Array.isArray(nextOperations) &&
+        nextOperations.length === 0 &&
+        operations.value.length > 0
+      ) {
+        return
+      }
+
+      operations.value = nextOperations
+      lastReservationsRefreshAt = Date.now()
+      adminReservationsLoadWarningShown.value = false
+    } catch (error) {
+      if (!preserveExistingOnEmpty) {
+        operations.value = []
+      }
+
+      if (!silent && !adminReservationsLoadWarningShown.value) {
+        adminReservationsLoadWarningShown.value = true
+        ui.pushToast({
+          tone: 'warning',
+          title: 'No se pudieron cargar las liberaciones',
+          message: isTimeoutLikeError(error)
+            ? 'El backend admin tardo mas de lo esperado al responder /admin/releases. Intenta de nuevo.'
+            : error?.message || 'La vista de liberaciones no pudo sincronizarse con el backend.',
+        })
       }
     } finally {
       operationsRequestPromise = null
@@ -642,7 +706,7 @@ async function loadPortalSection(section) {
   }
 
   if (section === 'sobrecargos') {
-    await Promise.all([loadCrewMembers(), loadOperations()])
+    await Promise.all([loadCrewMembers(), loadOperations({ silent: false })])
     if (!auditEntries.value.length) {
       pushAuditEntry('Admin listo para auditar sobrecargos', 'Se inicializo la bitacora de validacion y asignacion.')
     }
@@ -650,7 +714,12 @@ async function loadPortalSection(section) {
   }
 
   if (section === 'reservas') {
-    await loadOperations()
+    await loadOperations({ silent: false })
+    return
+  }
+
+  if (section === 'liberaciones') {
+    await loadReleases({ silent: false })
     return
   }
 
@@ -660,7 +729,7 @@ async function loadPortalSection(section) {
 }
 
 function shouldAutoRefreshReservations() {
-  return props.section === 'reservas'
+  return ['reservas', 'liberaciones'].includes(props.section)
 }
 
 function clearReservationsPolling() {
@@ -1074,11 +1143,11 @@ onMounted(() => {
   }
   removeWorkflowSyncSubscription = subscribeWorkflowSync((payload = {}) => {
     if (payload.scope !== 'reservation-workflow') return
-    if (props.section !== 'reservas') return
+    if (!['reservas', 'liberaciones'].includes(props.section)) return
     if (payload.source === adminPortalInstanceId) return
     applyExternalWorkflowSync(payload)
     if (Date.now() - lastReservationsRefreshAt < ADMIN_RESERVATIONS_REFRESH_COOLDOWN_MS) return
-    loadPortalSection('reservas')
+    loadPortalSection(props.section)
   })
   startReservationsPolling()
 })
@@ -1155,6 +1224,17 @@ watch(
   />
   <AdminReservationsSection
     v-else-if="section === 'reservas'"
+    :reservations="reservationRecords"
+    :audit-entries="reservationAuditEntries"
+    :is-flow-loading="reservationFlowLoading"
+    :flow-loading-label="reservationFlowLoadingLabel"
+    :show-provider-release-panel="false"
+    @update-flow="handleUpdateReservationFlow"
+    @delay-flow="handleDelayReservationFlow"
+    @resume-flow="handleResumeReservationFlow"
+  />
+  <AdminReleasesSection
+    v-else-if="section === 'liberaciones'"
     :reservations="reservationRecords"
     :audit-entries="reservationAuditEntries"
     :is-flow-loading="reservationFlowLoading"

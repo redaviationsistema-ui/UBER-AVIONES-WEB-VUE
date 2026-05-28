@@ -40,7 +40,7 @@ function onImageSelected(field, event) {
         <span class="eyebrow">Aeronaves del proveedor</span>
         <h3>Datos tecnicos, imagenes S3 y documentos para revision</h3>
         <p class="muted">
-          {{ providerName }} puede publicar su aeronave, cargar material comercial visible al cliente y separar la capa documental para validacion de Red Aviation.
+          {{ providerName }} puede publicar su aeronave, cargar material comercial visible al cliente y separar la capa documental para validacion.
         </p>
       </div>
     </div>

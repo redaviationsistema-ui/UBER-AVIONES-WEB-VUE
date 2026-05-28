@@ -17,6 +17,23 @@ const props = defineProps({
   auditEntries: { type: Array, default: () => [] },
   isFlowLoading: { type: Boolean, default: false },
   flowLoadingLabel: { type: String, default: '' },
+  headerEyebrow: { type: String, default: 'Solicitudes / Reservas' },
+  headerTitle: { type: String, default: 'Control administrativo del flujo del cliente' },
+  headerDescription: {
+    type: String,
+    default:
+      'Desde aqui el administrador puede ver la etapa real de cada reserva, moverla de fase y pausarla si surge un detalle con el cliente o con la operacion.',
+  },
+  emptyTitle: { type: String, default: 'Aun no hay operaciones para administrar' },
+  emptyDescription: {
+    type: String,
+    default: 'En cuanto entren solicitudes o reservas, esta cabina mostrara el flujo editable del admin.',
+  },
+  showAdminFlowPanel: { type: Boolean, default: true },
+  showHeroHeader: { type: Boolean, default: true },
+  showQueueSummary: { type: Boolean, default: true },
+  showProviderReleasePanel: { type: Boolean, default: true },
+  compactMode: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['update-flow', 'delay-flow', 'resume-flow'])
@@ -32,6 +49,7 @@ const holdDrafts = reactive({})
 const searchQuery = ref('')
 const stateFilter = ref('all')
 const stageFilter = ref('all')
+const detailTab = ref('summary')
 
 const sortedReservations = computed(() =>
   [...props.reservations].sort((left, right) => {
@@ -182,6 +200,13 @@ watch(
   { immediate: true },
 )
 
+watch(
+  () => selectedReservation.value?.id,
+  () => {
+    detailTab.value = 'summary'
+  },
+)
+
 function getFlowDraft(reservationId) {
   if (!flowDrafts[reservationId]) {
     flowDrafts[reservationId] = { stage: 'reserved', note: '' }
@@ -247,10 +272,6 @@ function humanizePaymentStatus(value = '') {
   return value || 'Pendiente'
 }
 
-function resolvedVisualStep(reservation = {}) {
-  return visualWorkflowStepId(effectiveWorkflowValue(reservation))
-}
-
 function stepState(reservation, stepId) {
   const step = buildSharedFlowStepStates(effectiveWorkflowValue(reservation)).find((item) => item.id === stepId)
   if (step?.state === 'done') return 'done'
@@ -292,6 +313,140 @@ function adminStateTone(value) {
 
 function reservationStageLabel(reservation) {
   return workflowStageTitle(effectiveWorkflowValue(reservation))
+}
+
+function getProviderReleaseSource(reservation = {}) {
+  const raw = reservation?.raw && typeof reservation.raw === 'object' ? reservation.raw : {}
+  return (
+    raw.provider_operational_release ||
+    raw.operational_release ||
+    raw.release_checklist ||
+    raw.visibility_payload?.provider_operational_release ||
+    null
+  )
+}
+
+function getProviderReleaseStatusMeta(reservation = {}) {
+  const source = getProviderReleaseSource(reservation)
+  const status = String(
+    source?.status ||
+      reservation?.raw?.visibility_payload?.operational_status ||
+      '',
+  )
+    .trim()
+    .toLowerCase()
+
+  if (status === 'operational_ready') {
+    return {
+      label: 'Lista para confirmacion',
+      tone: 'success',
+      detail: 'El proveedor reporta aeronave, tripulacion y despacho listos.',
+    }
+  }
+
+  if (status === 'crew_confirmed') {
+    return {
+      label: 'Tripulacion confirmada',
+      tone: 'warning',
+      detail: 'Ya se valido la tripulacion tecnica y faltan cierres finales de despacho.',
+    }
+  }
+
+  if (status === 'aircraft_confirmed') {
+    return {
+      label: 'Aeronave confirmada',
+      tone: 'warning',
+      detail: 'La aeronave ya fue validada, pero aun faltan pasos operativos.',
+    }
+  }
+
+  return {
+    label: 'Pendiente operativa',
+    tone: 'muted',
+    detail: 'El proveedor aun no cierra la liberacion operativa.',
+  }
+}
+
+function hasProviderRelease(reservation = {}) {
+  return Boolean(getProviderReleaseSource(reservation))
+}
+
+function providerReleaseBooleanItems(reservation = {}) {
+  const source = getProviderReleaseSource(reservation) || {}
+  return [
+    { label: 'Aeronave disponible', done: Boolean(source.availability_confirmed) },
+    { label: 'Sin mantenimiento pendiente', done: Boolean(source.maintenance_clear) },
+    { label: 'Cobertura de ruta confirmada', done: Boolean(source.route_coverage_confirmed) },
+    { label: 'Horarios confirmados', done: Boolean(source.crew_schedule_confirmed) },
+    { label: 'Docs tripulacion listos', done: Boolean(source.crew_documents_ready) },
+    { label: 'Plan de vuelo listo', done: Boolean(source.flight_plan_ready) },
+    { label: 'Permisos / slots listos', done: Boolean(source.permits_ready) },
+    { label: 'Handling confirmado', done: Boolean(source.handling_ready) },
+    { label: 'Combustible listo', done: Boolean(source.fuel_ready) },
+    { label: 'Limpieza lista', done: Boolean(source.cleaning_ready) },
+    { label: 'Documentos listos', done: Boolean(source.documents_ready) },
+    { label: 'Seguro listo', done: Boolean(source.insurance_ready) },
+    { label: 'Matricula lista', done: Boolean(source.registration_ready) },
+    { label: 'Bitacora lista', done: Boolean(source.logbook_ready) },
+  ]
+}
+
+function providerReleaseCrewItems(reservation = {}) {
+  const source = getProviderReleaseSource(reservation) || {}
+  const confirmed = (value) => String(value || '').trim().toLowerCase() === 'confirmed'
+  return [
+    { label: 'Capitan asignado', done: confirmed(source.captain_status) },
+    { label: 'Copiloto asignado', done: confirmed(source.copilot_status) },
+    { label: 'Tripulacion disponible', done: confirmed(source.crew_availability_status) },
+    { label: 'Tripulacion cumple requisitos', done: confirmed(source.crew_requirements_status) },
+    {
+      label: 'Estado general',
+      done: ['confirmed', 'red_aviation_review'].includes(
+        String(source.crew_overall_status || '').trim().toLowerCase(),
+      ),
+      value: source.crew_overall_status || 'pending',
+    },
+  ]
+}
+
+function providerReleaseAircraftItems(reservation = {}) {
+  const source = getProviderReleaseSource(reservation) || {}
+  return [
+    { label: 'Aeronave disponible', done: Boolean(source.availability_confirmed) },
+    { label: 'Sin mantenimiento pendiente', done: Boolean(source.maintenance_clear) },
+    { label: 'Cobertura de ruta confirmada', done: Boolean(source.route_coverage_confirmed) },
+    { label: 'Combustible listo', done: Boolean(source.fuel_ready) },
+    { label: 'Limpieza lista', done: Boolean(source.cleaning_ready) },
+    { label: 'Seguro listo', done: Boolean(source.insurance_ready) },
+    { label: 'Matricula lista', done: Boolean(source.registration_ready) },
+  ]
+}
+
+function providerReleaseDispatchItems(reservation = {}) {
+  const source = getProviderReleaseSource(reservation) || {}
+  return [
+    { label: 'Plan de vuelo listo', done: Boolean(source.flight_plan_ready) },
+    { label: 'Permisos / slots listos', done: Boolean(source.permits_ready) },
+    { label: 'Handling confirmado', done: Boolean(source.handling_ready) },
+    { label: 'Horarios confirmados', done: Boolean(source.crew_schedule_confirmed) },
+    { label: 'Docs tripulacion listos', done: Boolean(source.crew_documents_ready) },
+    { label: 'Documentos operativos listos', done: Boolean(source.documents_ready) },
+    { label: 'Bitacora lista', done: Boolean(source.logbook_ready) },
+  ]
+}
+
+function providerReleaseProgress(reservation = {}) {
+  const items = providerReleaseBooleanItems(reservation)
+  const done = items.filter((item) => item.done).length
+  return { done, total: items.length }
+}
+
+function providerReleaseCrewLabel(reservation = {}) {
+  const source = getProviderReleaseSource(reservation) || {}
+  const overall = String(source.crew_overall_status || '').trim().toLowerCase()
+  if (overall === 'confirmed') return 'Confirmada'
+  if (overall === 'red_aviation_review') return 'En revision'
+  return 'Pendiente'
 }
 
 function clearFilters() {
@@ -352,14 +507,11 @@ function submitResume(reservation) {
       </div>
     </transition>
 
-    <article class="surface hero-card">
-      <div>
-        <p class="eyebrow">Solicitudes / Reservas</p>
-        <h2>Control administrativo del flujo del cliente</h2>
-        <p class="muted">
-          Desde aqui el administrador puede ver la etapa real de cada reserva, moverla de fase y pausarla
-          si surge un detalle con el cliente o con la operacion.
-        </p>
+    <article v-if="props.showHeroHeader" class="surface hero-card">
+        <div>
+        <p class="eyebrow">{{ props.headerEyebrow }}</p>
+        <h2>{{ props.headerTitle }}</h2>
+        <p class="muted">{{ props.headerDescription }}</p>
       </div>
 
       <div class="hero-metrics">
@@ -370,17 +522,17 @@ function submitResume(reservation) {
       </div>
     </article>
 
-    <div v-if="activeReservations.length" class="page-grid">
+    <div v-if="activeReservations.length" class="page-grid" :class="{ 'page-grid--compact': props.compactMode }">
       <article class="surface section-card reservations-panel">
         <div class="section-head">
           <div>
             <p class="eyebrow">Bandeja</p>
-            <h3>Reservas con seguimiento admin</h3>
+            <h3>{{ props.compactMode ? 'Bandeja operativa compacta' : 'Reservas con seguimiento admin' }}</h3>
           </div>
           <span class="badge badge-muted">{{ activeReservations.length }} visibles</span>
         </div>
 
-        <div class="queue-summary">
+        <div v-if="props.showQueueSummary" class="queue-summary">
           <article v-for="card in queueCards" :key="card.label" class="queue-stat">
             <span>{{ card.label }}</span>
             <strong>{{ card.value }}</strong>
@@ -425,7 +577,47 @@ function submitResume(reservation) {
           </div>
         </div>
 
-        <div class="reservation-list">
+        <div v-if="props.compactMode" class="compact-table">
+          <div class="compact-table__head">
+            <span>Folio</span>
+            <span>Cliente</span>
+            <span>Ruta</span>
+            <span>Aeronave</span>
+            <span>Proveedor</span>
+            <span>Trip.</span>
+            <span>Pago</span>
+            <span>Accion</span>
+          </div>
+
+          <button
+            v-for="reservation in activeReservations"
+            :key="reservation.id"
+            type="button"
+            class="compact-row"
+            :class="{ 'compact-row--selected': reservation.id === selectedReservation?.id }"
+            @click="selectedReservationId = reservation.id"
+          >
+            <strong>#{{ reservation.id }}</strong>
+            <div class="compact-row__cell">
+              <strong>{{ reservation.clientName }}</strong>
+              <small>{{ reservation.clientCompany || 'Cuenta individual' }}</small>
+            </div>
+            <span class="compact-route">{{ reservation.route }}</span>
+            <span>{{ reservation.aircraft || 'Por definir' }}</span>
+            <span class="badge" :class="`badge-${getProviderReleaseStatusMeta(reservation).tone}`">
+              {{ getProviderReleaseStatusMeta(reservation).label }}
+            </span>
+            <span class="badge badge-muted">
+              {{ providerReleaseCrewLabel(reservation) }}
+            </span>
+            <span class="badge badge-muted">
+              {{ humanizePaymentStatus(reservation.paymentStatus) }}
+            </span>
+            <span class="compact-row__action">Ver</span>
+          </button>
+        </div>
+
+        <div v-else class="reservation-list">
           <button
             v-for="reservation in activeReservations"
             :key="reservation.id"
@@ -495,7 +687,240 @@ function submitResume(reservation) {
           </article>
         </div>
 
-        <div class="flow-shell">
+        <article
+          v-if="props.showProviderReleasePanel && hasProviderRelease(selectedReservation)"
+          class="provider-release-admin"
+          :class="{ 'provider-release-admin--compact': props.compactMode }"
+        >
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Liberacion operativa del proveedor</p>
+              <h4>{{ getProviderReleaseStatusMeta(selectedReservation).label }}</h4>
+            </div>
+            <span class="badge" :class="`badge-${getProviderReleaseStatusMeta(selectedReservation).tone}`">
+              {{ getProviderReleaseStatusMeta(selectedReservation).label }}
+            </span>
+          </div>
+
+          <p class="muted">{{ getProviderReleaseStatusMeta(selectedReservation).detail }}</p>
+
+          <div v-if="props.compactMode" class="compact-release-kpis">
+            <article class="compact-release-kpi">
+              <span>Checklist</span>
+              <strong>{{ providerReleaseProgress(selectedReservation).done }}/{{ providerReleaseProgress(selectedReservation).total }}</strong>
+              <small>Puntos operativos validados</small>
+            </article>
+            <article class="compact-release-kpi">
+              <span>Tripulacion</span>
+              <strong>{{ providerReleaseCrewLabel(selectedReservation) }}</strong>
+              <small>Estado general reportado</small>
+            </article>
+            <article class="compact-release-kpi">
+              <span>Ultima actualizacion</span>
+              <strong>{{ getProviderReleaseSource(selectedReservation)?.updated_at || selectedReservation.departure }}</strong>
+              <small>Referencia de sincronizacion</small>
+            </article>
+          </div>
+
+          <div class="info-grid">
+            <article class="info-card">
+              <span>Aeronave reportada</span>
+              <strong>
+                {{ getProviderReleaseSource(selectedReservation)?.aircraft_label || selectedReservation.aircraft || 'Por definir' }}
+              </strong>
+            </article>
+            <article class="info-card">
+              <span>Ruta operativa</span>
+              <strong>
+                {{ getProviderReleaseSource(selectedReservation)?.departure_airport || 'N/D' }}
+                -
+                {{ getProviderReleaseSource(selectedReservation)?.arrival_airport || 'N/D' }}
+              </strong>
+            </article>
+            <article class="info-card">
+              <span>FBO / handling</span>
+              <strong>{{ getProviderReleaseSource(selectedReservation)?.fbo || 'Pendiente' }}</strong>
+            </article>
+            <article class="info-card">
+              <span>Notas del proveedor</span>
+              <strong>{{ getProviderReleaseSource(selectedReservation)?.notes || 'Sin notas' }}</strong>
+            </article>
+          </div>
+
+          <div v-if="props.compactMode" class="release-tabs">
+            <button
+              type="button"
+              class="release-tab"
+              :class="{ 'release-tab--active': detailTab === 'summary' }"
+              @click="detailTab = 'summary'"
+            >
+              Resumen
+            </button>
+            <button
+              type="button"
+              class="release-tab"
+              :class="{ 'release-tab--active': detailTab === 'aircraft' }"
+              @click="detailTab = 'aircraft'"
+            >
+              Aeronave
+            </button>
+            <button
+              type="button"
+              class="release-tab"
+              :class="{ 'release-tab--active': detailTab === 'crew' }"
+              @click="detailTab = 'crew'"
+            >
+              Tripulacion
+            </button>
+            <button
+              type="button"
+              class="release-tab"
+              :class="{ 'release-tab--active': detailTab === 'dispatch' }"
+              @click="detailTab = 'dispatch'"
+            >
+              Despacho
+            </button>
+            <button
+              type="button"
+              class="release-tab"
+              :class="{ 'release-tab--active': detailTab === 'log' }"
+              @click="detailTab = 'log'"
+            >
+              Bitacora
+            </button>
+          </div>
+
+          <div v-if="!props.compactMode" class="provider-release-admin__grid">
+            <article class="control-card">
+              <div class="section-mini-head">
+                <h4>Disponibilidad y despacho</h4>
+                <p>Lectura rapida de lo que el proveedor ya confirmo para liberar el vuelo.</p>
+              </div>
+              <div class="provider-release-admin__list">
+                <span
+                  v-for="item in providerReleaseBooleanItems(selectedReservation)"
+                  :key="item.label"
+                  :class="{ 'is-done': item.done }"
+                >
+                  {{ item.label }}
+                </span>
+              </div>
+            </article>
+
+            <article class="control-card">
+              <div class="section-mini-head">
+                <h4>Tripulacion tecnica</h4>
+                <p>Estados operativos reportados por el proveedor, sin exponer datos sensibles.</p>
+              </div>
+              <div class="provider-release-admin__list">
+                <span
+                  v-for="item in providerReleaseCrewItems(selectedReservation)"
+                  :key="item.label"
+                  :class="{ 'is-done': item.done }"
+                >
+                  {{ item.label }}{{ item.value ? ` · ${item.value}` : '' }}
+                </span>
+              </div>
+            </article>
+          </div>
+
+          <div v-else class="provider-release-admin__grid provider-release-admin__grid--compact">
+            <article v-if="detailTab === 'summary'" class="control-card control-card--wide">
+              <div class="section-mini-head">
+                <h4>Resumen operativo</h4>
+                <p>Lectura rapida del avance real del proveedor antes de confirmar el vuelo.</p>
+              </div>
+              <div class="provider-release-admin__list">
+                <span
+                  v-for="item in providerReleaseBooleanItems(selectedReservation)"
+                  :key="item.label"
+                  :class="{ 'is-done': item.done }"
+                >
+                  {{ item.label }}
+                </span>
+              </div>
+            </article>
+
+            <article v-if="detailTab === 'aircraft'" class="control-card control-card--wide">
+              <div class="section-mini-head">
+                <h4>Aeronave y alistamiento</h4>
+                <p>Estado de disponibilidad, mantenimiento y alistamiento final de cabina.</p>
+              </div>
+              <div class="provider-release-admin__list">
+                <span
+                  v-for="item in providerReleaseAircraftItems(selectedReservation)"
+                  :key="item.label"
+                  :class="{ 'is-done': item.done }"
+                >
+                  {{ item.label }}
+                </span>
+              </div>
+            </article>
+
+            <article v-if="detailTab === 'crew'" class="control-card control-card--wide">
+              <div class="section-mini-head">
+                <h4>Tripulacion tecnica</h4>
+                <p>Estados operativos reportados por el proveedor, sin exponer datos sensibles.</p>
+              </div>
+              <div class="provider-release-admin__list">
+                <span
+                  v-for="item in providerReleaseCrewItems(selectedReservation)"
+                  :key="item.label"
+                  :class="{ 'is-done': item.done }"
+                >
+                  {{ item.label }}{{ item.value ? ` · ${item.value}` : '' }}
+                </span>
+              </div>
+            </article>
+
+            <article v-if="detailTab === 'dispatch'" class="control-card control-card--wide">
+              <div class="section-mini-head">
+                <h4>Despacho y coordinacion</h4>
+                <p>Plan de vuelo, permisos, handling y documentos listos para salida.</p>
+              </div>
+              <div class="provider-release-admin__list">
+                <span
+                  v-for="item in providerReleaseDispatchItems(selectedReservation)"
+                  :key="item.label"
+                  :class="{ 'is-done': item.done }"
+                >
+                  {{ item.label }}
+                </span>
+              </div>
+            </article>
+
+            <article v-if="detailTab === 'log'" class="control-card control-card--wide">
+              <div class="section-mini-head">
+                <h4>Bitacora operativa</h4>
+                <p>Referencia rapida para seguimiento administrativo y coordinacion interna.</p>
+              </div>
+              <div class="provider-release-log">
+                <div class="info-card">
+                  <span>Notas del proveedor</span>
+                  <strong>{{ getProviderReleaseSource(selectedReservation)?.notes || 'Sin notas registradas.' }}</strong>
+                </div>
+                <div class="info-card">
+                  <span>FBO / handling</span>
+                  <strong>{{ getProviderReleaseSource(selectedReservation)?.fbo || 'Pendiente por definir' }}</strong>
+                </div>
+                <div class="info-card">
+                  <span>Ruta operativa</span>
+                  <strong>
+                    {{ getProviderReleaseSource(selectedReservation)?.departure_airport || 'N/D' }}
+                    -
+                    {{ getProviderReleaseSource(selectedReservation)?.arrival_airport || 'N/D' }}
+                  </strong>
+                </div>
+                <div class="info-card">
+                  <span>Ultima actualizacion</span>
+                  <strong>{{ getProviderReleaseSource(selectedReservation)?.updated_at || 'Sin sello de tiempo' }}</strong>
+                </div>
+              </div>
+            </article>
+          </div>
+        </article>
+
+        <div v-if="props.showAdminFlowPanel" class="flow-shell">
           <div class="section-mini-head">
             <h4>Flujo visible para el admin</h4>
             <p>El admin puede llevar el caso al paso correcto aun cuando el cliente necesite ajustes o validaciones extra.</p>
@@ -532,7 +957,7 @@ function submitResume(reservation) {
           </div>
         </div>
 
-        <div class="control-grid">
+        <div v-if="props.showAdminFlowPanel" class="control-grid">
           <article class="control-card">
             <div class="section-mini-head">
               <h4>Cambiar etapa</h4>
@@ -633,7 +1058,11 @@ function submitResume(reservation) {
           </article>
         </div>
 
-        <article class="alert-card" :class="adminStateTone(selectedReservation.adminFlowState)">
+        <article
+          v-if="props.showAdminFlowPanel"
+          class="alert-card"
+          :class="adminStateTone(selectedReservation.adminFlowState)"
+        >
           <strong>Seguimiento administrativo</strong>
           <p v-if="selectedReservation.adminFlowState === 'active'">
             La reserva esta activa y puede seguir avanzando normalmente.
@@ -678,8 +1107,8 @@ function submitResume(reservation) {
 
     <article v-if="!activeReservations.length" class="surface section-card empty-shell">
       <p class="eyebrow">Sin reservas</p>
-      <h3>Aun no hay operaciones para administrar</h3>
-      <p class="muted">En cuanto entren solicitudes o reservas, esta cabina mostrara el flujo editable del admin.</p>
+      <h3>{{ props.emptyTitle }}</h3>
+      <p class="muted">{{ props.emptyDescription }}</p>
     </article>
   </section>
 </template>
@@ -829,6 +1258,10 @@ function submitResume(reservation) {
   align-items: start;
 }
 
+.page-grid--compact {
+  grid-template-columns: minmax(420px, 0.95fr) minmax(0, 1.05fr);
+}
+
 .hero-card,
 .section-card,
 .metric-card,
@@ -907,7 +1340,14 @@ function submitResume(reservation) {
 .detail-panel,
 .reservation-card,
 .flow-shell,
-.filters-shell {
+.filters-shell,
+.provider-release-admin,
+.compact-table,
+.compact-table__head,
+.compact-row,
+.compact-row__cell,
+.compact-release-kpis,
+.provider-release-log {
   display: grid;
   gap: 1rem;
 }
@@ -932,6 +1372,64 @@ function submitResume(reservation) {
   border-color: rgba(200, 169, 107, 0.75);
   box-shadow: 0 20px 45px rgba(141, 105, 25, 0.12);
   transform: translateY(-1px);
+}
+
+.compact-table {
+  gap: 0.6rem;
+}
+
+.compact-table__head,
+.compact-row {
+  grid-template-columns: 0.7fr 1.2fr 1.6fr 1fr 1fr 0.85fr 0.8fr 0.55fr;
+  align-items: center;
+  column-gap: 0.8rem;
+}
+
+.compact-table__head {
+  padding: 0 0.75rem;
+  color: #78684e;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.compact-row {
+  width: 100%;
+  padding: 0.9rem 0.75rem;
+  text-align: left;
+  border: 1px solid #eee2cc;
+  border-radius: 18px;
+  background: #fffdfa;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+
+.compact-row:hover,
+.compact-row--selected {
+  border-color: rgba(200, 169, 107, 0.75);
+  box-shadow: 0 18px 40px rgba(141, 105, 25, 0.1);
+  transform: translateY(-1px);
+}
+
+.compact-row__cell {
+  gap: 0.2rem;
+}
+
+.compact-row__cell small {
+  color: #7a6b57;
+}
+
+.compact-route,
+.compact-row__action {
+  color: #4f4638;
+}
+
+.compact-row__action {
+  font-weight: 700;
 }
 
 .queue-summary {
@@ -1005,11 +1503,101 @@ function submitResume(reservation) {
 }
 
 .flow-shell,
+.provider-release-admin,
 .control-card {
   padding: 1rem;
   border: 1px solid #eee2cc;
   border-radius: 20px;
   background: linear-gradient(180deg, #fffdfa 0%, #fff8ef 100%);
+}
+
+.provider-release-admin__grid,
+.provider-release-admin__list {
+  display: grid;
+  gap: 1rem;
+}
+
+.provider-release-admin__grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.provider-release-admin--compact {
+  gap: 1.1rem;
+}
+
+.compact-release-kpis {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.compact-release-kpi {
+  padding: 0.95rem 1rem;
+  border: 1px solid #eadfc9;
+  border-radius: 18px;
+  background: #fffdfa;
+}
+
+.compact-release-kpi span,
+.compact-release-kpi strong,
+.compact-release-kpi small {
+  display: block;
+}
+
+.compact-release-kpi strong {
+  margin: 0.25rem 0;
+}
+
+.release-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.release-tab {
+  min-height: 2.4rem;
+  padding: 0 0.95rem;
+  border: 1px solid #eadfc9;
+  border-radius: 999px;
+  background: #fffdfa;
+  color: #5d5243;
+  cursor: pointer;
+}
+
+.release-tab--active {
+  border-color: rgba(200, 146, 17, 0.35);
+  background: #fff0c9;
+  color: #8f6a1d;
+  font-weight: 700;
+}
+
+.provider-release-admin__grid--compact {
+  grid-template-columns: 1fr;
+}
+
+.control-card--wide {
+  min-width: 0;
+}
+
+.provider-release-log {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.provider-release-admin__list span {
+  display: flex;
+  align-items: center;
+  min-height: 2.5rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid #eadfc9;
+  border-radius: 14px;
+  background: #fffdfa;
+  color: #6c5c47;
+  font-size: 0.92rem;
+}
+
+.provider-release-admin__list span.is-done {
+  border-color: rgba(31, 128, 61, 0.22);
+  background: #eef9f0;
+  color: #1f803d;
+  font-weight: 700;
 }
 
 .signature-callout {
@@ -1304,6 +1892,9 @@ textarea::placeholder {
   .queue-summary,
   .info-grid,
   .control-grid,
+  .compact-release-kpis,
+  .provider-release-log,
+  .provider-release-admin__grid,
   .toggle-grid,
   .filters-grid,
   .stepper-strip,
@@ -1313,6 +1904,15 @@ textarea::placeholder {
 
   .hero-card {
     display: grid;
+  }
+
+  .compact-table__head {
+    display: none;
+  }
+
+  .compact-row {
+    grid-template-columns: 1fr;
+    row-gap: 0.5rem;
   }
 }
 

@@ -37,7 +37,7 @@
           <h3>Proveedor como motor SaaS</h3>
           <p>
             Mientras el cliente entra facil, el proveedor monetiza con suscripcion por aeronave y
-            Red Aviation captura margen por vuelo.
+            Captura margen por vuelo.
           </p>
         </article>
       </div>

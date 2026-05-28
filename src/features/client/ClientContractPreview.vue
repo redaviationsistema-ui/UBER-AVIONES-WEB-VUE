@@ -792,7 +792,7 @@ const balanceAmount = computed(() => {
 
 const includesItems = [
   'Aeronave y tripulación asignada para la ruta contratada.',
-  'Coordinación operativa y seguimiento comercial de SKY Group / Red Aviation.',
+  'Coordinación operativa y seguimiento comercial de SKY Group .',
   'Combustible y operación contemplados en la cotización validada.',
   'Uso de aeronave conforme al itinerario confirmado en este Anexo A.',
 ]

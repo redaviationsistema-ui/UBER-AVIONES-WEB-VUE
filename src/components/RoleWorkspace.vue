@@ -5,7 +5,7 @@ import BrandLogo from './BrandLogo.vue'
 import AdminPortal from '../features/admin/AdminPortal.vue'
 import ClientPortal from '../features/client/ClientPortal.vue'
 import CrewPortal from '../features/crew/CrewPortal.vue'
-import OperatorPortal from '../features/operator/OperatorPortal.vue'
+import OperatorPortal from '../features/operator/portal/OperatorPortal.vue'
 import { buildMenuGroups, roleBasePaths, roleSections } from '../data/roleFlows'
 import { useAuthStore } from '../stores/auth'
 import { useUiStore } from '../stores/ui'
@@ -42,8 +42,8 @@ const isSessionReady = computed(() => auth.initialized && auth.isAuthenticated)
 
 const roleInsights = {
   client: {
-    title: 'Reserva integral con Red Aviation',
-    description: 'Busca, compara, reserva, firma y paga sin salir del ecosistema Red Aviation.',
+    title: 'Reserva integral ',
+    description: 'Busca, compara, reserva, firma y paga sin salir del ecosistema .',
   },
   operator: {
     title: 'Publicacion y respuesta operativa',
@@ -55,7 +55,7 @@ const roleInsights = {
     description: 'Todo lo necesario para operar con orden, visibilidad y seguimiento claro.',
   },
   admin: {
-    title: 'Control total de Red Aviation',
+    title: 'Control total ',
     description:
       'Administra inventario, precios, reservas, soporte, margenes y reglas de negocio desde una vista central.',
   },
@@ -99,8 +99,7 @@ watch(
   ([initialized, isAuthenticated]) => {
     if (initialized && !isAuthenticated) {
       router.replace({
-        name: props.activeRole === 'client' ? 'login-cliente' : 'acceso',
-        query: { redirect: router.currentRoute.value.fullPath },
+        name: props.activeRole === 'client' ? 'login-cliente' : 'home',
       })
     }
   },

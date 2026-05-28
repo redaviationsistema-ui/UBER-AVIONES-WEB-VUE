@@ -66,6 +66,7 @@ const WORKFLOW_DEFINITIONS = {
       'aceptada',
       'aceptado',
       'operador asignado',
+      'operador_asignado',
       'operador confirmado',
       'approved',
       'aprobada',
@@ -223,7 +224,7 @@ const SHARED_WORKFLOW_ACTION_COPY = {
   },
   provider_pending: {
     title: 'Respuesta del proveedor',
-    detail: 'Red Aviation valida disponibilidad, aeronave y ventana operativa.',
+    detail: 'Valida disponibilidad, aeronave y ventana operativa.',
   },
   provider_accepted: {
     title: 'Firma de contrato',
@@ -244,7 +245,7 @@ const SHARED_WORKFLOW_ACTION_COPY = {
   payment_confirmed: {
     title: 'Confirmacion de vuelo',
     detail:
-      'Pago confirmado. Red Aviation coordina proveedor, sobrecargo, aeropuerto y pasajeros sin exponer contacto directo entre cliente, proveedor y tripulacion.',
+      'Pago confirmado. Coordina proveedor, sobrecargo, aeropuerto y pasajeros sin exponer contacto directo entre cliente, proveedor y tripulacion.',
   },
   flight_confirmed: {
     title: 'Tracking de servicio',
@@ -276,7 +277,7 @@ const SHARED_WORKFLOW_STEP_DESCRIPTIONS = {
   },
   provider_accepted: {
     pending: 'El operador o proveedor debe responder para que la reserva siga avanzando.',
-    current: 'Red Aviation valida disponibilidad, aeronave y ventana operativa.',
+    current: 'Valida disponibilidad, aeronave y ventana operativa.',
     done: 'La respuesta del proveedor ya se resolvio y la reserva siguio avanzando.',
   },
   contract_pending: {
@@ -737,7 +738,7 @@ export function buildClientWorkflowTimeline(value, hasRequests = false) {
   return [
     {
       title: 'Buscar y cotizar',
-      description: 'Red Aviation valida ruta, cobertura, capacidad y opciones para entregarte alternativas claras.',
+      description: 'Valida ruta, cobertura, capacidad y opciones para entregarte alternativas claras.',
       meta: 'Reservar',
       done: hasRequests && hasReachedWorkflowStage(value, 'quoted'),
     },
@@ -749,7 +750,7 @@ export function buildClientWorkflowTimeline(value, hasRequests = false) {
     },
     {
       title: 'Proveedor responde la solicitud',
-      description: 'Red Aviation coordina con el proveedor la aceptacion o rechazo operativo sin exponer contacto directo.',
+      description: 'Coordina con el proveedor la aceptacion o rechazo operativo sin exponer contacto directo.',
       meta: 'Proveedor',
       done: hasRequests && hasReachedWorkflowStage(value, 'provider_accepted'),
     },
