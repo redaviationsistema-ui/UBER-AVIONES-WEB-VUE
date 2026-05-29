@@ -1,16 +1,14 @@
 <script setup>
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import RegisterBillingStep from '../features/register/RegisterBillingStep.vue'
 import RegisterClientStep from '../features/register/RegisterClientStep.vue'
 import RegisterCredentialsStep from '../features/register/RegisterCredentialsStep.vue'
 import RegisterIneStep from '../features/register/RegisterIneStep.vue'
-import RegisterPassengersStep from '../features/register/RegisterPassengersStep.vue'
 import RegisterProgress from '../features/register/RegisterProgress.vue'
 import RegisterRoleStep from '../features/register/RegisterRoleStep.vue'
 import {
   allowedRoles,
-  registrationSteps,
+  buildRegistrationSteps,
   roleLabels,
 } from '../features/register/registrationSteps'
 import '../features/register/registerWizard.css'
@@ -23,21 +21,10 @@ const auth = useAuthStore()
 const currentStep = ref(0)
 const errorMessage = ref('')
 const successMessage = ref('')
-let passengerId = 1
-
-function createPassenger() {
-  const passenger = {
-    id: passengerId,
-    name: '',
-    birthDate: '',
-    nationality: '',
-    documentType: 'INE',
-    documentNumber: '',
-  }
-  passengerId += 1
-  return passenger
-}
-
+const errorModalOpen = ref(false)
+const errorModalTitle = ref('No fue posible crear la cuenta')
+const errorModalMessage = ref('')
+const errorModalDetails = ref([])
 const form = reactive({
   name: '',
   email: '',
@@ -63,7 +50,6 @@ const form = reactive({
   ineFrontName: '',
   ineBack: null,
   ineBackName: '',
-  passengers: [createPassenger()],
   billingRfc: '',
   billingName: '',
   billingRegime: '',
@@ -71,13 +57,26 @@ const form = reactive({
   billingCfdiUse: '',
 })
 
-const selectedStep = computed(() => registrationSteps[currentStep.value])
+const wizardSteps = computed(() => buildRegistrationSteps(form.role))
+const selectedStep = computed(() => wizardSteps.value[currentStep.value] || wizardSteps.value[0])
 const selectedRoleLabel = computed(() => roleLabels[form.role] || 'Cliente')
-const isLastStep = computed(() => currentStep.value === registrationSteps.length - 1)
+const isLastStep = computed(() => currentStep.value === wizardSteps.value.length - 1)
 const loginRoute = computed(() =>
   form.role === 'client'
     ? { name: 'login-cliente' }
     : { name: 'login', query: { role: form.role } },
+)
+
+const currentStepId = computed(() => selectedStep.value?.id || wizardSteps.value[0]?.id || '')
+
+watch(
+  wizardSteps,
+  (steps) => {
+    if (currentStep.value > steps.length - 1) {
+      currentStep.value = Math.max(steps.length - 1, 0)
+    }
+  },
+  { immediate: true },
 )
 
 function setFile(field, event) {
@@ -88,10 +87,37 @@ function setFile(field, event) {
   form.ineScanRaw = ''
 }
 
+function setFormField(field, value) {
+  form[field] = value
+}
+
+function mergeFormFields(patch = {}) {
+  Object.entries(patch || {}).forEach(([field, value]) => {
+    form[field] = value
+  })
+}
+
 function validateCurrentStep() {
   errorMessage.value = ''
 
-  if (currentStep.value === 0) {
+  if (currentStepId.value === 'rol') {
+    if (!allowedRoles.includes(form.role)) {
+      errorMessage.value = 'Selecciona un rol valido para la cuenta.'
+      return false
+    }
+  }
+
+  if (currentStepId.value === 'perfil') {
+    if (!form.name.trim() || !form.phone.trim()) {
+      errorMessage.value = 'Completa nombre y telefono del usuario.'
+      return false
+    }
+
+    if (!form.birthDate || !form.nationality.trim()) {
+      errorMessage.value = 'Completa fecha de nacimiento y nacionalidad.'
+      return false
+    }
+
     if (!form.documentType || !form.documentNumber.trim() || !form.documentExpiration) {
       errorMessage.value = 'Completa identificacion, numero de documento y vigencia.'
       return false
@@ -103,34 +129,12 @@ function validateCurrentStep() {
     }
   }
 
-  if (currentStep.value === 1) {
-    if (!form.name.trim() || !form.email.trim() || !form.phone.trim()) {
-      errorMessage.value = 'Completa nombre, correo y telefono del cliente.'
+  if (currentStepId.value === 'acceso') {
+    if (!form.email.trim()) {
+      errorMessage.value = 'Completa el correo de acceso.'
       return false
     }
 
-    if (!form.birthDate || !form.nationality.trim()) {
-      errorMessage.value = 'Completa fecha de nacimiento y nacionalidad.'
-      return false
-    }
-  }
-
-  if (currentStep.value === 2 && !form.passengers.every(isValidPassenger)) {
-    errorMessage.value = 'Completa los datos de cada pasajero.'
-    return false
-  }
-
-  if (currentStep.value === 3 && !isValidBilling()) {
-    errorMessage.value = 'Completa RFC, razon social, regimen, codigo postal fiscal y uso CFDI.'
-    return false
-  }
-
-  if (currentStep.value === 4 && !allowedRoles.includes(form.role)) {
-    errorMessage.value = 'Selecciona un rol valido para la cuenta.'
-    return false
-  }
-
-  if (currentStep.value === 5) {
     if (form.password.length < 8) {
       errorMessage.value = 'La contrasena debe tener al menos 8 caracteres.'
       return false
@@ -145,37 +149,41 @@ function validateCurrentStep() {
   return true
 }
 
-function isValidPassenger(passenger) {
-  return (
-    passenger.name.trim() &&
-    passenger.birthDate &&
-    passenger.nationality.trim() &&
-    passenger.documentType &&
-    passenger.documentNumber.trim()
-  )
+function normalizeErrorDetails(error) {
+  const fieldErrors = error?.payload?.errors
+
+  if (!fieldErrors || typeof fieldErrors !== 'object') {
+    return []
+  }
+
+  return Object.entries(fieldErrors).flatMap(([field, messages]) => {
+    const fieldLabel = field === 'email' ? 'Correo' : field
+
+    if (!Array.isArray(messages)) {
+      return []
+    }
+
+    return messages
+      .filter(Boolean)
+      .map((message) => `${fieldLabel}: ${String(message).replace(/^The\s+/i, '')}`)
+  })
 }
 
-function isValidBilling() {
-  return (
-    form.billingRfc.trim() &&
-    form.billingName.trim() &&
-    form.billingRegime &&
-    form.billingPostalCode.trim() &&
-    form.billingCfdiUse
-  )
+function openErrorModal(error) {
+  errorModalTitle.value = 'No fue posible crear la cuenta'
+  errorModalMessage.value =
+    error?.payload?.message || error?.message || 'Ocurrio un error al registrar el usuario.'
+  errorModalDetails.value = normalizeErrorDetails(error)
+  errorModalOpen.value = true
 }
 
-function addPassenger() {
-  form.passengers.push(createPassenger())
-}
-
-function removePassenger(index) {
-  form.passengers.splice(index, 1)
+function closeErrorModal() {
+  errorModalOpen.value = false
 }
 
 function nextStep() {
   if (!validateCurrentStep()) return
-  currentStep.value = Math.min(currentStep.value + 1, registrationSteps.length - 1)
+  currentStep.value = Math.min(currentStep.value + 1, wizardSteps.value.length - 1)
 }
 
 function previousStep() {
@@ -187,6 +195,8 @@ async function submit() {
   if (!validateCurrentStep()) return
 
   successMessage.value = ''
+  errorMessage.value = ''
+  closeErrorModal()
 
   try {
     await auth.register({
@@ -205,12 +215,42 @@ async function submit() {
     router.push(form.role === 'client' ? '/cliente/reservar' : auth.dashboardPath)
   } catch (error) {
     errorMessage.value = error.message || 'No fue posible crear el usuario.'
+    openErrorModal(error)
   }
 }
 </script>
 
 <template>
   <main class="register-page">
+    <transition name="register-error-fade">
+      <div
+        v-if="errorModalOpen"
+        class="register-error-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="register-error-title"
+        @click.self="closeErrorModal"
+      >
+        <div class="register-error-backdrop"></div>
+        <div class="register-error-card">
+          <span class="register-error-orb" aria-hidden="true">!</span>
+          <p class="eyebrow">Registro no completado</p>
+          <h3 id="register-error-title">{{ errorModalTitle }}</h3>
+          <p class="register-error-copy">{{ errorModalMessage }}</p>
+
+          <ul v-if="errorModalDetails.length" class="register-error-list">
+            <li v-for="detail in errorModalDetails" :key="detail">{{ detail }}</li>
+          </ul>
+
+          <div class="register-error-actions">
+            <button type="button" class="primary-button" @click="closeErrorModal">
+              Entendido
+            </button>
+          </div>
+        </div>
+      </div>
+    </transition>
+
     <section class="register-shell">
       <aside class="register-aside">
         <RouterLink to="/" class="brand">Sky Group</RouterLink>
@@ -219,12 +259,13 @@ async function submit() {
           <p class="eyebrow">Nuevo usuario</p>
           <h1>Crea una cuenta por pasos.</h1>
           <p>
-            Escanea el documento, revisa los datos editables, registra pasajeros, facturacion y
-            credenciales. Si el rol es cliente, entrara al cotizador y a la membresia de USD $115.
+            Define primero el rol de acceso, completa en una sola pantalla los datos del
+            usuario con su identificacion y al final crea el correo y la contrasena.
+            Si el rol es cliente, entrara al cotizador y a la membresia de USD $115.
           </p>
         </div>
 
-        <RegisterProgress :steps="registrationSteps" :current-step="currentStep" />
+        <RegisterProgress :steps="wizardSteps" :current-step="currentStep" />
       </aside>
 
       <section class="register-panel">
@@ -235,20 +276,22 @@ async function submit() {
         </div>
 
         <form class="register-form" @submit.prevent="submit">
-          <RegisterIneStep v-if="currentStep === 0" :form="form" @file-selected="setFile" />
-          <RegisterClientStep v-else-if="currentStep === 1" :form="form" />
-          <RegisterPassengersStep
-            v-else-if="currentStep === 2"
-            :passengers="form.passengers"
-            @add-passenger="addPassenger"
-            @remove-passenger="removePassenger"
-          />
-          <RegisterBillingStep v-else-if="currentStep === 3" :form="form" />
-          <RegisterRoleStep v-else-if="currentStep === 4" :form="form" />
+          <RegisterRoleStep v-if="currentStepId === 'rol'" :form="form" />
+          <div v-else-if="currentStepId === 'perfil'" class="step-fields">
+            <RegisterClientStep :form="form" />
+            <RegisterIneStep
+              :form="form"
+              @file-selected="setFile"
+              @update-field="setFormField"
+              @merge-fields="mergeFormFields"
+            />
+          </div>
           <RegisterCredentialsStep
             v-else
             :form="form"
             :loading="auth.loading"
+            @update-field="setFormField"
+            @merge-fields="mergeFormFields"
           />
 
           <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
