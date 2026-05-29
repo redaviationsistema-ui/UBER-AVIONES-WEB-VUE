@@ -228,15 +228,7 @@ export const useAuthStore = defineStore('auth', () => {
       if (storedSnapshot?.user) {
         applyStoredAuthSnapshot(storedSnapshot)
         initialized.value = true
-        fetchMe()
-          .catch((error) => {
-            if (isUnauthorizedError(error)) {
-              clearAuth()
-            }
-          })
-          .finally(() => {
-            initializePromise = null
-          })
+        initializePromise = null
         return
       }
 

@@ -6,44 +6,35 @@ export const roleLabels = {
 
 export const allowedRoles = Object.keys(roleLabels)
 
-export const registrationSteps = [
-  {
-    id: 'identificacion',
-    title: 'Identificacion',
-    eyebrow: 'Paso 1',
-    description: 'Escanea la INE para obtener datos y dejarlos listos para revision.',
-  },
-  {
-    id: 'cliente',
-    title: 'Datos del cliente',
-    eyebrow: 'Paso 2',
-    description: 'Revisa y modifica la informacion principal obtenida del documento.',
-  },
-  {
-    id: 'pasajeros',
-    title: 'Pasajeros',
-    eyebrow: 'Paso 3',
-    description: 'Agrega los datos de quienes podran viajar dentro de la cuenta.',
-  },
-  {
-    id: 'facturacion',
-    title: 'Facturacion',
-    eyebrow: 'Paso 4',
-    description: 'Registra datos fiscales y uso CFDI para que el sistema pueda facturar.',
-  },
-  {
+const baseSteps = {
+  rol: {
     id: 'rol',
     title: 'Rol de acceso',
-    eyebrow: 'Paso 5',
     description: 'Define a que vista entrara despues de iniciar sesion.',
   },
-  {
-    id: 'credenciales',
-    title: 'Contrasena',
-    eyebrow: 'Paso 6',
-    description: 'Crea las credenciales con las que iniciara sesion.',
+  perfil: {
+    id: 'perfil',
+    title: 'Datos del usuario / Identificacion',
+    description: 'Captura los datos base y escanea la identificacion dentro de la misma pantalla.',
   },
-]
+  acceso: {
+    id: 'acceso',
+    title: 'Correo / Contrasena',
+    description: 'Define el correo de acceso y crea la contrasena para iniciar sesion.',
+  },
+}
+
+export function buildRegistrationSteps(role = 'client') {
+  const normalizedRole = allowedRoles.includes(role) ? role : 'client'
+  const stepOrder = normalizedRole ? ['rol', 'perfil', 'acceso'] : ['rol', 'perfil', 'acceso']
+
+  return stepOrder.map((stepId, index) => ({
+    ...baseSteps[stepId],
+    eyebrow: `Paso ${index + 1}`,
+  }))
+}
+
+export const registrationSteps = buildRegistrationSteps('client')
 
 export const clientAccessPreview = [
   'Acceso inmediato al cotizador de vuelos como prueba.',

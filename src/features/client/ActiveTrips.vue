@@ -53,14 +53,28 @@ function workflowId(status = '') {
   return resolveWorkflowState(status).id
 }
 
+function displayWorkflowLabel(status = '') {
+  return workflowId(status) === 'completed' ? 'Buen viaje' : statusMeta(status).label
+}
+
 function progressSteps(status = '') {
   const sharedStates = buildSharedFlowStepStates(status)
+  const currentWorkflowId = workflowId(status)
 
   return PROGRESS_STEPS.map((step) => {
     const sharedStep = sharedStates.find((item) => item.id === step.id)
+    let state = sharedStep?.state || 'todo'
+
+    // En cliente, cuando el vuelo ya esta confirmado, mostramos "Vuelo" como concluido
+    // y dejamos "Tracking" como el siguiente paso visible del servicio.
+    if (currentWorkflowId === 'flight_confirmed') {
+      if (step.id === 'flight_confirmed') state = 'done'
+      if (step.id === 'tracking_live') state = 'active'
+    }
+
     return {
       ...step,
-      state: sharedStep?.state || 'todo',
+      state,
     }
   })
 }
@@ -206,7 +220,7 @@ function countdownLabel(value = '') {
   const hours = totalHours % 24
 
   if (days > 0) return `Sale en ${days}d ${hours}h`
-  return `Sale en ${hours}h`
+  return `checklist `
 }
 
 function nextAction(status = '') {
@@ -254,6 +268,7 @@ function workflowSupportLines(reservation = {}) {
 function flightActionLabel(reservation = {}) {
   const stateId = workflowId(reservationWorkflowValue(reservation))
 
+  if (stateId === 'completed') return '✈ Buen viaje'
   if (stateId === 'tracking_live') return '📡 Tracking en vivo'
   if (stateId === 'flight_confirmed') return '🛫 Vuelo confirmado'
   if (stateId === 'payment_confirmed') return '🛫 Vuelo en liberacion operativa'
@@ -268,7 +283,7 @@ function hasWorkflowIn(status = '', states = []) {
 function reservationWorkflowValue(reservation = {}) {
   return (
     resolveSharedWorkflowStatus({
-      ...(reservation || {}),
+      ...reservation,
       workflow_status: reservation.workflow_status || reservation.status || '',
       contract_status: reservation.contract_status || '',
       payment_status: reservation.payment_status || '',
@@ -430,7 +445,7 @@ watch(
           :class="`status-badge--${statusMeta(reservationWorkflowValue(reservation)).tone}`"
         >
           {{ statusMeta(reservationWorkflowValue(reservation)).icon }}
-          {{ statusMeta(reservationWorkflowValue(reservation)).label }}
+          {{ displayWorkflowLabel(reservationWorkflowValue(reservation)) }}
         </span>
       </div>
 

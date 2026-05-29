@@ -91,7 +91,7 @@ async function handleLogout() {
     title: 'Sesion cerrada',
     message: 'Se cerraron tus credenciales y regresaste al inicio.',
   })
-  router.push('/')
+  router.push({ name: 'home' })
 }
 
 watch(
@@ -285,10 +285,10 @@ watch(
         </header>
 
         <template v-if="isSessionReady">
-          <ClientPortal v-if="activeRole === 'client'" :section="section" />
-          <OperatorPortal v-else-if="activeRole === 'operator'" :section="section" />
-          <CrewPortal v-else-if="activeRole === 'crew'" :section="section" />
-          <AdminPortal v-else :section="section" />
+          <ClientPortal v-if="activeRole === 'client'" :key="`client-${section}`" :section="section" />
+          <OperatorPortal v-else-if="activeRole === 'operator'" :key="`operator-${section}`" :section="section" />
+          <CrewPortal v-else-if="activeRole === 'crew'" :key="`crew-${section}`" :section="section" />
+          <AdminPortal v-else :key="`admin-${section}`" :section="section" />
         </template>
       </section>
     </section>

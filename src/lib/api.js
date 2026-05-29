@@ -147,9 +147,18 @@ function shouldLogAircraftRequest(path = '') {
     .includes('aircraft')
 }
 
+function shouldTraceOperationalRequest(path = '', debugTag = '') {
+  return false
+}
+
 function logAircraftRequest(label, details = {}) {
   if (typeof console === 'undefined') return
   console.log(`[aircraft-debug] ${label}`, details)
+}
+
+function logOperationalRequest(label, details = {}) {
+  if (typeof console === 'undefined') return
+  console.warn(`[ops-request-debug] ${label}`, details)
 }
 
 function getFilenameFromDisposition(disposition = '') {
@@ -308,6 +317,7 @@ export async function apiRequest(path, options = {}) {
   const timeoutMs = Number.isFinite(Number(options.timeoutMs))
     ? Number(options.timeoutMs)
     : API_TIMEOUT_MS
+  const debugTag = String(options.debugTag || '').trim()
   const config = {
     method: options.method || 'GET',
     headers: buildHeaders(options.headers),
@@ -332,6 +342,11 @@ export async function apiRequest(path, options = {}) {
   for (const candidate of orderedCandidates) {
     const url = buildUrl(path, options.query, candidate)
     const isAircraftRequest = shouldLogAircraftRequest(path)
+    const shouldTraceRequest = shouldTraceOperationalRequest(path, debugTag)
+    const startedAt =
+      typeof performance !== 'undefined' && typeof performance.now === 'function'
+        ? performance.now()
+        : Date.now()
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null
     const timeoutId =
       controller && timeoutMs > 0
@@ -355,6 +370,11 @@ export async function apiRequest(path, options = {}) {
         config.signal = controller.signal
       }
       response = await fetch(url, config)
+      const finishedAt =
+        typeof performance !== 'undefined' && typeof performance.now === 'function'
+          ? performance.now()
+          : Date.now()
+      const elapsedMs = Math.round(finishedAt - startedAt)
 
       if (isAircraftRequest && !response.ok) {
         logAircraftRequest('http-error-response', {
@@ -367,6 +387,18 @@ export async function apiRequest(path, options = {}) {
         })
       }
 
+      if (shouldTraceRequest && elapsedMs >= 1000) {
+        logOperationalRequest('response', {
+          tag: debugTag || path,
+          method: config.method,
+          path,
+          url,
+          status: response.status,
+          elapsedMs,
+          timeoutMs,
+        })
+      }
+
       const matchedIndex = candidates.findIndex(
         (item) => item.apiBaseUrl === candidate.apiBaseUrl && item.origin === candidate.origin,
       )
@@ -374,6 +406,12 @@ export async function apiRequest(path, options = {}) {
       lastError = null
       break
     } catch (error) {
+      const finishedAt =
+        typeof performance !== 'undefined' && typeof performance.now === 'function'
+          ? performance.now()
+          : Date.now()
+      const elapsedMs = Math.round(finishedAt - startedAt)
+
       if (isAircraftRequest) {
         logAircraftRequest('network-error', {
           method: config.method,
@@ -382,6 +420,18 @@ export async function apiRequest(path, options = {}) {
           url,
           message: error?.message || 'Unknown network error',
           error,
+        })
+      }
+
+      if (shouldTraceRequest) {
+        logOperationalRequest(isTimeoutError(error) ? 'timeout' : 'network-error', {
+          tag: debugTag || path,
+          method: config.method,
+          path,
+          url,
+          elapsedMs,
+          timeoutMs,
+          message: error?.message || 'Unknown network error',
         })
       }
 

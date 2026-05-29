@@ -41,6 +41,31 @@ export function parseIneData(rawText = '') {
   }
 }
 
+function hasUsefulParsedData(data = {}) {
+  return Boolean(
+    data.curp ||
+      data.clave ||
+      data.cic ||
+      data.ocr ||
+      data.name ||
+      data.birthDate ||
+      data.expirationDate,
+  )
+}
+
+function mergeParsedIneData(primary = {}, secondary = {}) {
+  return {
+    curp: primary.curp || secondary.curp || '',
+    clave: primary.clave || secondary.clave || '',
+    cic: primary.cic || secondary.cic || '',
+    ocr: primary.ocr || secondary.ocr || '',
+    name: primary.name || secondary.name || '',
+    birthDate: primary.birthDate || secondary.birthDate || '',
+    expirationDate: primary.expirationDate || secondary.expirationDate || '',
+    raw: [primary.raw, secondary.raw].filter(Boolean).join('\n\n'),
+  }
+}
+
 function extractCurp(rawText = '') {
   const normalizedText = normalizeText(rawText).toUpperCase()
   const directMatch = normalizedText.match(/[A-Z][AEIOUX][A-Z]{2}\d{6}[HM][A-Z]{5}[A-Z0-9]\d/)
@@ -168,11 +193,25 @@ export async function scanIneFiles(files = []) {
   const barcodeText = await scanBarcodes(imageFiles)
 
   if (barcodeText) {
-    return { method: 'codigo', rawText: barcodeText, data: parseIneData(barcodeText) }
+    const barcodeData = parseIneData(barcodeText)
+
+    if (hasUsefulParsedData(barcodeData)) {
+      return { method: 'codigo', rawText: barcodeText, data: barcodeData }
+    }
+
+    const ocrTextFromBarcodeFallback = await scanTextWithOcr(imageFiles)
+    const ocrDataFromBarcodeFallback = parseIneData(ocrTextFromBarcodeFallback)
+
+    return {
+      method: 'codigo+ocr',
+      rawText: [barcodeText, ocrTextFromBarcodeFallback].filter(Boolean).join('\n\n'),
+      data: mergeParsedIneData(ocrDataFromBarcodeFallback, barcodeData),
+    }
   }
 
   const ocrText = await scanTextWithOcr(imageFiles)
-  return { method: 'ocr', rawText: ocrText, data: parseIneData(ocrText) }
+  const ocrData = parseIneData(ocrText)
+  return { method: 'ocr', rawText: ocrText, data: ocrData }
 }
 
 async function scanBarcodes(files) {

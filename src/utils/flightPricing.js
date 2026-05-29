@@ -226,7 +226,7 @@ function normalizeAirportLookupText(value = '') {
 
 function tokenizeAirportValue(value = '') {
   return String(value || '')
-    .split(/[\s,/()\-]+/)
+    .split(/[\s,/()-]+/)
     .map((token) => normalizeAirportLookupText(token))
     .filter(Boolean)
 }

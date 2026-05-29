@@ -58,6 +58,7 @@ const activeResultFilter = ref('best_value')
 const technicalSheetOpen = ref(false)
 const technicalAircraft = ref(null)
 let removeWorkflowSyncSubscription = null
+let workflowSyncRefreshTimer = null
 let reservationsRequestPromise = null
 
 const searchForm = reactive({
@@ -1877,7 +1878,7 @@ function mergeReservationUpdate(updatedReservation = null) {
   if (!normalizedReservationId) return
 
   const nextReservation = {
-    ...(updatedReservation || {}),
+    ...updatedReservation,
     id: normalizedReservationId,
   }
   const existingIndex = reservations.value.findIndex(
@@ -1889,6 +1890,51 @@ function mergeReservationUpdate(updatedReservation = null) {
   reservations.value = reservations.value.map((reservation, index) =>
     index === existingIndex ? { ...reservation, ...nextReservation } : reservation,
   )
+}
+
+function applyExternalWorkflowSync(payload = {}) {
+  const synchronizedId = String(payload.reservationId || payload.requestId || '').trim()
+  const nextStage = String(payload.nextStage || '').trim()
+  if (!synchronizedId || !nextStage) return
+
+  const currentReservation = reservations.value.find(
+    (reservation) =>
+      String(reservation.id || '').trim() === synchronizedId ||
+      String(reservation.requestId || '').trim() === synchronizedId ||
+      String(reservation.reservationId || '').trim() === synchronizedId,
+  )
+
+  if (!currentReservation) return
+
+  const patch = {
+    id: String(currentReservation.id || synchronizedId).trim(),
+    status: nextStage,
+    workflow_status: nextStage,
+    updated_at: new Date().toISOString(),
+  }
+
+  if (nextStage === 'contract_pending') {
+    patch.contract_status = 'generated'
+  }
+
+  if (nextStage === 'payment_pending') {
+    patch.contract_status = 'signed'
+    patch.payment_status = 'Pendiente de pago'
+  }
+
+  if (nextStage === 'tracking_live') {
+    patch.payment_status = currentReservation.payment_status || 'Pago confirmado'
+  }
+
+  if (nextStage === 'completed') {
+    patch.payment_status = currentReservation.payment_status || 'Pago confirmado'
+    patch.completed_at = new Date().toISOString()
+  }
+
+  mergeReservationUpdate({
+    ...currentReservation,
+    ...patch,
+  })
 }
 
 async function handleContractConfirm(contractPayload = {}) {
@@ -2124,8 +2170,8 @@ async function handlePaymentSubmit() {
       }
 
       const confirmedPaymentReservation = {
-        ...(selectedReservation.value || {}),
-        ...(persistedConfirmedReservation || {}),
+        ...selectedReservation.value,
+        ...persistedConfirmedReservation,
         id: reservationId || resolveEntityIdentifier(selectedReservation.value?.id) || flightRequestId,
         flight_request_id:
           resolveEntityIdentifier(
@@ -2138,7 +2184,7 @@ async function handlePaymentSubmit() {
         contract_status: selectedReservation.value?.contract_status || 'signed',
         payment_status: 'Pagado',
         payment_order: {
-          ...(selectedReservation.value?.payment_order || {}),
+          ...selectedReservation.value?.payment_order,
           status: 'paid',
           payment_intent_id: result.paymentIntent?.id || '',
           brand: normalizeCardBrand(paymentCardBrand.value),
@@ -2801,7 +2847,7 @@ async function handleLogout() {
     title: 'Sesion cerrada',
     message: 'Cerraste tu acceso de cliente correctamente.',
   })
-  router.push('/')
+  router.push({ name: 'home' })
 }
 
 function shouldAutoRefreshTrips() {
@@ -2838,11 +2884,18 @@ function clearReservationsPolling() {
 }
 
 function clearWorkflowSyncRefreshTimer() {
-  // El refresh ahora es manual desde la vista de viajes.
+  if (!workflowSyncRefreshTimer) return
+  window.clearTimeout(workflowSyncRefreshTimer)
+  workflowSyncRefreshTimer = null
 }
 
-function scheduleWorkflowSyncRefresh() {
-  return
+function scheduleWorkflowSyncRefresh(payload = {}) {
+  applyExternalWorkflowSync(payload)
+  clearWorkflowSyncRefreshTimer()
+  workflowSyncRefreshTimer = window.setTimeout(() => {
+    workflowSyncRefreshTimer = null
+    void refreshReservations({ silent: true })
+  }, 900)
 }
 
 function startReservationsPolling() {
@@ -2881,7 +2934,7 @@ onMounted(() => {
 
   removeWorkflowSyncSubscription = subscribeWorkflowSync((payload = {}) => {
     if (payload.scope !== 'reservation-workflow') return
-    scheduleWorkflowSyncRefresh()
+    scheduleWorkflowSyncRefresh(payload)
   })
 })
 

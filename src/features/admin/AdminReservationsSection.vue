@@ -17,6 +17,7 @@ const props = defineProps({
   auditEntries: { type: Array, default: () => [] },
   isFlowLoading: { type: Boolean, default: false },
   flowLoadingLabel: { type: String, default: '' },
+  isContentRefreshing: { type: Boolean, default: false },
   headerEyebrow: { type: String, default: 'Solicitudes / Reservas' },
   headerTitle: { type: String, default: 'Control administrativo del flujo del cliente' },
   headerDescription: {
@@ -36,7 +37,7 @@ const props = defineProps({
   compactMode: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['update-flow', 'delay-flow', 'resume-flow'])
+const emit = defineEmits(['update-flow', 'delay-flow', 'resume-flow', 'refresh-content'])
 
 const flowSteps = SHARED_WORKFLOW_STEPS.map((step) => ({
   ...step,
@@ -348,7 +349,7 @@ function getProviderReleaseStatusMeta(reservation = {}) {
     return {
       label: 'Tripulacion confirmada',
       tone: 'warning',
-      detail: 'Ya se valido la tripulacion tecnica y faltan cierres finales de despacho.',
+      detail: 'Ya se valido la tripulacion  y faltan cierres finales de despacho.',
     }
   }
 
@@ -447,6 +448,11 @@ function providerReleaseCrewLabel(reservation = {}) {
   if (overall === 'confirmed') return 'Confirmada'
   if (overall === 'red_aviation_review') return 'En revision'
   return 'Pendiente'
+}
+
+function getProviderReleaseNotes(reservation = {}) {
+  const source = getProviderReleaseSource(reservation) || {}
+  return String(source.notes || source.comment || '').trim() || 'Sin notas registradas.'
 }
 
 function clearFilters() {
@@ -659,6 +665,14 @@ function submitResume(reservation) {
             <h3>#{{ selectedReservation.id }} · {{ selectedReservation.clientName }}</h3>
           </div>
           <div class="status-stack">
+            <button
+              type="button"
+              class="ghost-button"
+              :disabled="props.isContentRefreshing"
+              @click="emit('refresh-content')"
+            >
+              {{ props.isContentRefreshing ? 'Refrescando...' : 'Refrescar' }}
+            </button>
             <span class="badge" :class="adminStateTone(selectedReservation.adminFlowState)">
               {{ adminStateLabel(selectedReservation.adminFlowState) }}
             </span>
@@ -809,7 +823,7 @@ function submitResume(reservation) {
 
             <article class="control-card">
               <div class="section-mini-head">
-                <h4>Tripulacion tecnica</h4>
+                <h4>Tripulacion</h4>
                 <p>Estados operativos reportados por el proveedor, sin exponer datos sensibles.</p>
               </div>
               <div class="provider-release-admin__list">
@@ -821,6 +835,14 @@ function submitResume(reservation) {
                   {{ item.label }}{{ item.value ? ` · ${item.value}` : '' }}
                 </span>
               </div>
+            </article>
+
+            <article class="control-card control-card--wide">
+              <div class="section-mini-head">
+                <h4>Notas operativas</h4>
+                <p>Observaciones capturadas por el proveedor para seguimiento administrativo.</p>
+              </div>
+              <p class="provider-release-note-copy">{{ getProviderReleaseNotes(selectedReservation) }}</p>
             </article>
           </div>
 
@@ -838,6 +860,10 @@ function submitResume(reservation) {
                 >
                   {{ item.label }}
                 </span>
+              </div>
+              <div class="provider-release-note-shell">
+                <span class="mini-label">Notas operativas</span>
+                <p class="provider-release-note-copy">{{ getProviderReleaseNotes(selectedReservation) }}</p>
               </div>
             </article>
 
@@ -859,7 +885,7 @@ function submitResume(reservation) {
 
             <article v-if="detailTab === 'crew'" class="control-card control-card--wide">
               <div class="section-mini-head">
-                <h4>Tripulacion tecnica</h4>
+                <h4>Tripulacion</h4>
                 <p>Estados operativos reportados por el proveedor, sin exponer datos sensibles.</p>
               </div>
               <div class="provider-release-admin__list">
@@ -897,7 +923,7 @@ function submitResume(reservation) {
               <div class="provider-release-log">
                 <div class="info-card">
                   <span>Notas del proveedor</span>
-                  <strong>{{ getProviderReleaseSource(selectedReservation)?.notes || 'Sin notas registradas.' }}</strong>
+                  <strong>{{ getProviderReleaseNotes(selectedReservation) }}</strong>
                 </div>
                 <div class="info-card">
                   <span>FBO / handling</span>
@@ -1350,6 +1376,21 @@ function submitResume(reservation) {
 .provider-release-log {
   display: grid;
   gap: 1rem;
+}
+
+.provider-release-note-shell {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #eee2cc;
+}
+
+.provider-release-note-copy {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #4f4638;
 }
 
 .reservation-card {

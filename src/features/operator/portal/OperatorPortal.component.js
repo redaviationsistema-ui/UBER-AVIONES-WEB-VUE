@@ -53,6 +53,7 @@ const OPERATOR_BOOT_TIMEOUT_MS = 45000
 const OPERATOR_SECTION_TIMEOUT_MS = 45000
 
 const OPERATOR_BACKGROUND_TIMEOUT_MS = 15000
+const PROVIDER_RELEASE_REQUEST_TIMEOUT_MS = 45000
 
 const PROVIDER_OPERATIONAL_RELEASE_AUTOSAVE_MS = 700
 
@@ -334,12 +335,14 @@ const savingProviderOperationalIssue = ref(false)
 const providerOperationalReleaseFeedback = ref('')
 
 const providerOperationalReleaseForm = reactive(createEmptyProviderOperationalReleaseForm())
+const providerOperationalReleaseLocalOverrides = reactive({})
 
 const providerOperationalReleaseDirty = ref(false)
 
 const providerOperationalReleaseHydrating = ref(false)
 
 const providerOperationalReleaseLoadedRequestId = ref('')
+const providerOperationalReleaseLastHydratedSourceStamp = ref('')
 
 const providerOperationalReleaseAutosaveQueued = ref(false)
 
@@ -1275,8 +1278,9 @@ const filteredRequests = computed(() => {
 
 const selectedRequest = computed(() => {
   if (!filteredRequests.value.length) return null
+  const targetId = String(selectedRequestId.value || '').trim()
   return (
-    filteredRequests.value.find((request) => request.id === selectedRequestId.value) ||
+    filteredRequests.value.find((request) => String(request.id || '').trim() === targetId) ||
     filteredRequests.value[0]
   )
 })
@@ -1292,7 +1296,9 @@ const releaseProviderRequest = computed(() => {
 
   return (
     requests.value.find(
-      (request) => resolveWorkflowState(resolveRequestWorkflowValue(request)).id === 'flight_confirmed',
+      (request) => ['flight_confirmed', 'tracking_live', 'completed'].includes(
+        resolveWorkflowState(resolveRequestWorkflowValue(request)).id,
+      ),
     ) || null
   )
 })
@@ -1366,12 +1372,33 @@ watch(
 
 watch(
   releaseProviderRequest,
-  (request) => {
+  (request, previousRequest) => {
     if (props.section !== 'release-provider') return
     requestInternalCommentDraft.value = request?.internalComment || request?.specialRequirements || ''
+    const requestId = getProviderOperationalReleaseRequestId(request)
+    const previousRequestId = getProviderOperationalReleaseRequestId(previousRequest)
+    const sourceStamp = getProviderOperationalReleaseSourceStamp(request)
+    const hasLocalOverride = Boolean(
+      requestId &&
+        providerOperationalReleaseLocalOverrides[requestId] &&
+        typeof providerOperationalReleaseLocalOverrides[requestId] === 'object',
+    )
+
+    if (
+      requestId &&
+      requestId === previousRequestId &&
+      requestId === providerOperationalReleaseLoadedRequestId.value &&
+      (hasLocalOverride || sourceStamp === providerOperationalReleaseLastHydratedSourceStamp.value)
+    ) {
+      return
+    }
+
     hydrateProviderOperationalReleaseForm(request)
-    providerOperationalReleaseActiveStep.value = 'aircraft'
-    providerOperationalIssueOpen.value = false
+
+    if (requestId !== previousRequestId) {
+      providerOperationalReleaseActiveStep.value = 'aircraft'
+      providerOperationalIssueOpen.value = false
+    }
   },
   { immediate: true },
 )
@@ -1380,6 +1407,7 @@ watch(
   providerOperationalReleaseForm,
   () => {
     if (providerOperationalReleaseHydrating.value) return
+    syncProviderOperationalDerivedStatuses()
     providerOperationalReleaseDirty.value = true
     scheduleProviderOperationalReleaseAutosave()
   },
@@ -1454,6 +1482,34 @@ function createEmptyProviderOperationalReleaseForm() {
   }
 }
 
+function syncProviderOperationalDerivedStatuses() {
+  if (providerOperationalReleaseHydrating.value) return
+
+  const aircraftReady =
+    providerOperationalReleaseForm.availabilityConfirmed &&
+    providerOperationalReleaseForm.maintenanceClear &&
+    providerOperationalReleaseForm.routeCoverageConfirmed
+
+  const crewReady =
+    isProviderOperationalStatusConfirmed(providerOperationalReleaseForm.captainStatus) &&
+    isProviderOperationalStatusConfirmed(providerOperationalReleaseForm.copilotStatus) &&
+    isProviderOperationalStatusConfirmed(providerOperationalReleaseForm.crewAvailabilityStatus) &&
+    isProviderOperationalStatusConfirmed(providerOperationalReleaseForm.crewRequirementsStatus) &&
+    providerOperationalReleaseForm.crewScheduleConfirmed &&
+    providerOperationalReleaseForm.crewDocumentsReady
+
+  if (
+    aircraftReady &&
+    !['ready', 'available'].includes(providerOperationalReleaseForm.aircraftOverallStatus)
+  ) {
+    providerOperationalReleaseForm.aircraftOverallStatus = 'ready'
+  }
+
+  if (crewReady && providerOperationalReleaseForm.crewOverallStatus !== 'confirmed') {
+    providerOperationalReleaseForm.crewOverallStatus = 'confirmed'
+  }
+}
+
 function resetProviderOperationalReleaseForm() {
   clearProviderOperationalReleaseAutosaveTimer()
   providerOperationalReleaseHydrating.value = true
@@ -1461,6 +1517,7 @@ function resetProviderOperationalReleaseForm() {
   providerOperationalReleaseHydrating.value = false
   providerOperationalReleaseDirty.value = false
   providerOperationalReleaseLoadedRequestId.value = ''
+  providerOperationalReleaseLastHydratedSourceStamp.value = ''
   providerOperationalReleaseAutosaveQueued.value = false
   providerOperationalReleaseFeedback.value = ''
 }
@@ -1476,7 +1533,7 @@ function getProviderOperationalReleaseStatusMeta(status = 'pending') {
     return {
       label: 'Operational ready',
       tone: 'success',
-      detail: 'Aeronave, tripulacion tecnica y despacho ya quedaron listos para confirmar vuelo.',
+      detail: 'Aeronave, Tripulaciony despacho ya quedaron listos para confirmar vuelo.',
     }
   }
 
@@ -1484,7 +1541,7 @@ function getProviderOperationalReleaseStatusMeta(status = 'pending') {
     return {
       label: 'Crew confirmed',
       tone: 'info',
-      detail: 'La tripulacion tecnica ya fue validada y falta cerrar despacho final de la aeronave.',
+      detail: 'La Tripulacionya fue validada y falta cerrar despacho final de la aeronave.',
     }
   }
 
@@ -1492,7 +1549,7 @@ function getProviderOperationalReleaseStatusMeta(status = 'pending') {
     return {
       label: 'Aircraft confirmed',
       tone: 'warning',
-      detail: 'La aeronave ya fue validada y falta completar tripulacion tecnica y liberacion final.',
+      detail: 'La aeronave ya fue validada y falta completar Tripulaciony liberacion final.',
     }
   }
 
@@ -1505,16 +1562,7 @@ function getProviderOperationalReleaseStatusMeta(status = 'pending') {
 
 function normalizeProviderOperationalRelease(request = {}) {
   const raw = request?.raw && typeof request.raw === 'object' ? request.raw : request || {}
-  const source =
-    (raw.provider_operational_release &&
-    typeof raw.provider_operational_release === 'object'
-      ? raw.provider_operational_release
-      : null) ||
-    (raw.operational_release && typeof raw.operational_release === 'object'
-      ? raw.operational_release
-      : null) ||
-    (raw.release_checklist && typeof raw.release_checklist === 'object' ? raw.release_checklist : null) ||
-    {}
+  const source = resolveProviderOperationalReleaseSource(raw) || {}
 
   const aircraftCandidate =
     source.aircraft_id ||
@@ -1543,6 +1591,7 @@ function normalizeProviderOperationalRelease(request = {}) {
     aircraftId: aircraftCandidate ? String(aircraftCandidate) : '',
     aircraftOverallStatus:
       source.aircraft_overall_status ||
+      source.aircraft_operational_status ||
       source.aircraftOverallStatus ||
       (raw.operational_ready || source.operational_ready
         ? 'ready'
@@ -1558,10 +1607,12 @@ function normalizeProviderOperationalRelease(request = {}) {
     ),
     captainStatus:
       source.captain_status ||
+      source.captain_assigned_status ||
       source.captainStatus ||
       (source.pilot_id || source.pilotId ? 'confirmed' : 'pending'),
     copilotStatus:
       source.copilot_status ||
+      source.copilot_assigned_status ||
       source.copilotStatus ||
       (source.copilot_id || source.copilotId ? 'confirmed' : 'pending'),
     crewAvailabilityStatus:
@@ -1574,6 +1625,7 @@ function normalizeProviderOperationalRelease(request = {}) {
       ((source.crew_requirements_confirmed ?? source.crewRequirementsConfirmed) ? 'confirmed' : 'pending'),
     crewOverallStatus:
       source.crew_overall_status ||
+      source.crew_general_status ||
       source.crewOverallStatus ||
       (raw.crew_confirmed || source.crew_confirmed ? 'confirmed' : 'pending'),
     crewScheduleConfirmed: Boolean(
@@ -1595,6 +1647,115 @@ function normalizeProviderOperationalRelease(request = {}) {
     registrationReady: Boolean(source.registration_ready ?? source.registrationReady),
     logbookReady: Boolean(source.logbook_ready ?? source.logbookReady),
     notes: source.notes || source.comment || raw.operational_notes || '',
+  }
+}
+
+function resolveProviderOperationalReleaseSource(raw = {}) {
+  return (
+    (raw.provider_operational_release &&
+    typeof raw.provider_operational_release === 'object'
+      ? raw.provider_operational_release
+      : null) ||
+    (raw.operational_release && typeof raw.operational_release === 'object'
+      ? raw.operational_release
+      : null) ||
+    (raw.release_checklist && typeof raw.release_checklist === 'object'
+      ? raw.release_checklist
+      : null) ||
+    (raw.visibility_payload?.provider_operational_release &&
+    typeof raw.visibility_payload.provider_operational_release === 'object'
+      ? raw.visibility_payload.provider_operational_release
+      : null) ||
+    null
+  )
+}
+
+function getProviderOperationalReleaseSourceStamp(request = {}) {
+  const raw = request?.raw && typeof request.raw === 'object' ? request.raw : request || {}
+  const source = resolveProviderOperationalReleaseSource(raw)
+
+  return String(
+    source?.updated_at ||
+      raw.visibility_payload?.provider_operational_release?.updated_at ||
+      raw.visibility_payload?.operational_release_updated_at ||
+      raw.provider_operational_release_updated_at ||
+      raw.operational_release_updated_at ||
+      '',
+  ).trim()
+}
+
+function getProviderOperationalReleaseOverrideKeys(request = {}) {
+  return [
+    request?.id,
+    request?.requestId,
+    request?.reservationId,
+    request?.flight_request_id,
+    request?.request_id,
+    request?.booking_id,
+    request?.reservation_id,
+    request?.raw?.id,
+    request?.raw?.request_id,
+    request?.raw?.flight_request_id,
+    request?.raw?.reservation_id,
+    request?.raw?.booking_id,
+  ]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+}
+
+function mergeRequestWithLocalOperationalRelease(raw = {}) {
+  const overrideKeys = getProviderOperationalReleaseOverrideKeys(raw)
+  const localOverride = overrideKeys
+    .map((key) => providerOperationalReleaseLocalOverrides[key])
+    .find((candidate) => candidate && typeof candidate === 'object')
+
+  if (!localOverride || typeof localOverride !== 'object') {
+    return raw
+  }
+
+  const backendRelease = resolveProviderOperationalReleaseSource(raw)
+  const backendTimestamp = String(backendRelease?.updated_at || '').trim()
+  const localTimestamp = String(localOverride.updated_at || '').trim()
+
+  if (backendRelease && backendTimestamp && localTimestamp && backendTimestamp >= localTimestamp) {
+    overrideKeys.forEach((key) => {
+      delete providerOperationalReleaseLocalOverrides[key]
+    })
+    return raw
+  }
+
+  return {
+    ...raw,
+    provider_operational_release: {
+      ...(backendRelease && typeof backendRelease === 'object' ? backendRelease : {}),
+      ...localOverride,
+    },
+    operational_release: {
+      ...(backendRelease && typeof backendRelease === 'object' ? backendRelease : {}),
+      ...localOverride,
+    },
+    visibility_payload: {
+      ...(raw.visibility_payload && typeof raw.visibility_payload === 'object'
+        ? raw.visibility_payload
+        : {}),
+      provider_operational_release: {
+        ...(raw.visibility_payload?.provider_operational_release &&
+        typeof raw.visibility_payload.provider_operational_release === 'object'
+          ? raw.visibility_payload.provider_operational_release
+          : {}),
+        ...(backendRelease && typeof backendRelease === 'object' ? backendRelease : {}),
+        ...localOverride,
+      },
+      operational_status: localOverride.status || raw.visibility_payload?.operational_status,
+    },
+    operational_status: localOverride.status || raw.operational_status,
+    aircraft_confirmed:
+      ['aircraft_confirmed', 'crew_confirmed', 'operational_ready'].includes(localOverride.status) ||
+      raw.aircraft_confirmed,
+    crew_confirmed:
+      ['crew_confirmed', 'operational_ready'].includes(localOverride.status) || raw.crew_confirmed,
+    operational_ready:
+      localOverride.status === 'operational_ready' || raw.operational_ready,
   }
 }
 
@@ -1633,6 +1794,9 @@ function hydrateProviderOperationalReleaseForm(request = null, options = {}) {
   providerOperationalReleaseHydrating.value = false
   providerOperationalReleaseDirty.value = false
   providerOperationalReleaseLoadedRequestId.value = requestId
+  providerOperationalReleaseLastHydratedSourceStamp.value = getProviderOperationalReleaseSourceStamp(
+    request,
+  )
 }
 
 function getProviderOperationalReleaseAircraftRecord() {
@@ -1698,6 +1862,12 @@ async function persistProviderOperationalReleaseDraft() {
   })
 }
 
+async function flushProviderOperationalReleaseDraft() {
+  if (props.section !== 'release-provider') return
+  if (!providerOperationalReleaseDirty.value) return
+  await persistProviderOperationalReleaseDraft()
+}
+
 function isProviderOperationalStatusConfirmed(value = '') {
   return String(value || '').trim().toLowerCase() === 'confirmed'
 }
@@ -1757,9 +1927,39 @@ function getProviderOperationalReleaseCurrentStatus() {
   return order.indexOf(derivedStatus) > order.indexOf(storedStatus) ? derivedStatus : storedStatus
 }
 
+function getProviderOperationalWorkflowStage(request = getActiveProviderReleaseRequest()) {
+  return resolveWorkflowState(resolveRequestWorkflowValue(request)).id
+}
+
+function isProviderReleaseFinalized(request = getActiveProviderReleaseRequest()) {
+  return getProviderOperationalWorkflowStage(request) === 'completed'
+}
+
+function getProviderReleasePrimaryActionLabel(request = getActiveProviderReleaseRequest()) {
+  const workflowId = getProviderOperationalWorkflowStage(request)
+  if (workflowId === 'completed') return 'Vuelo finalizado'
+  if (workflowId === 'tracking_live') return 'Finalizar vuelo'
+  return 'Confirmar liberacion operativa'
+}
+
+function getProviderReleasePrimaryActionStatus(request = getActiveProviderReleaseRequest()) {
+  const workflowId = getProviderOperationalWorkflowStage(request)
+  if (workflowId === 'completed') return 'completed'
+  if (workflowId === 'tracking_live') return 'tracking_live'
+  return 'operational_ready'
+}
+
 function canManageProviderOperationalRelease(request = {}) {
   const workflowId = resolveWorkflowState(resolveRequestWorkflowValue(request)).id
-  return ['payment_confirmed', 'flight_confirmed', 'tracking_live', 'completed'].includes(workflowId)
+  return [
+    'contract_pending',
+    'contract_signed',
+    'payment_pending',
+    'payment_confirmed',
+    'flight_confirmed',
+    'tracking_live',
+    'completed',
+  ].includes(workflowId)
 }
 
 function buildProviderOperationalReleaseChecklist() {
@@ -1773,7 +1973,7 @@ function buildProviderOperationalReleaseChecklist() {
       ],
     },
     {
-      title: 'Tripulacion tecnica',
+      title: 'Tripulacion',
       items: [
         { label: 'Capitan asignado', done: isProviderOperationalStatusConfirmed(providerOperationalReleaseForm.captainStatus) },
         { label: 'Copiloto asignado', done: isProviderOperationalStatusConfirmed(providerOperationalReleaseForm.copilotStatus) },
@@ -1833,7 +2033,7 @@ function getProviderOperationalAircraftSectionStatus() {
 
 function getProviderOperationalCrewSectionStatus() {
   if (isProviderCrewConfirmedReady()) {
-    return { label: 'Confirmada', tone: 'success', detail: 'La tripulacion tecnica ya quedo validada sin exponer datos personales.' }
+    return { label: 'Confirmada', tone: 'success', detail: 'La Tripulacionya quedo validada sin exponer datos personales.' }
   }
   if (providerOperationalReleaseForm.crewOverallStatus === 'not_available') {
     return { label: 'No disponible', tone: 'danger', detail: 'No hay tripulacion completa para esta operacion.' }
@@ -1846,7 +2046,7 @@ function getProviderOperationalCrewSectionStatus() {
     isProviderOperationalStatusConfirmed(providerOperationalReleaseForm.copilotStatus) ||
     isProviderOperationalStatusConfirmed(providerOperationalReleaseForm.crewAvailabilityStatus)
   ) {
-    return { label: 'En proceso', tone: 'warning', detail: 'La tripulacion tecnica avanza, pero aun faltan validaciones.' }
+    return { label: 'En proceso', tone: 'warning', detail: 'La Tripulacionavanza, pero aun faltan validaciones.' }
   }
   return { label: 'Pendiente', tone: 'neutral', detail: 'La validacion tecnica de tripulacion aun no inicia.' }
 }
@@ -1900,7 +2100,7 @@ function getProviderOperationalFinalSummary() {
       tone: getProviderOperationalAircraftSectionStatus().tone,
     },
     {
-      label: 'Tripulacion tecnica',
+      label: 'Tripulacion',
       statusLabel: getProviderOperationalCrewSectionStatus().label,
       detail: getProviderOperationalCrewSectionStatus().detail,
       tone: getProviderOperationalCrewSectionStatus().tone,
@@ -1953,7 +2153,7 @@ function buildProviderOperationalWizardSections() {
     {
       id: 'crew',
       number: 2,
-      title: 'Tripulacion tecnica',
+      title: 'Tripulacion',
       shortTitle: 'Tripulacion',
       status: getProviderOperationalCrewSectionStatus(),
       completion: crewCompletion,
@@ -2043,9 +2243,25 @@ function applyLocalProviderOperationalRelease(requestId, releasePayload, sharedW
   requests.value = requests.value.map((request) => {
     if (String(request.id) !== String(requestId)) return request
 
+    const overrideKeys = getProviderOperationalReleaseOverrideKeys(request)
+
+    overrideKeys.forEach((key) => {
+      providerOperationalReleaseLocalOverrides[key] = {
+        ...releasePayload,
+      }
+    })
+
     const nextRaw = {
       ...(request.raw && typeof request.raw === 'object' ? request.raw : {}),
       provider_operational_release: releasePayload,
+      operational_release: releasePayload,
+      visibility_payload: {
+        ...(request.raw?.visibility_payload && typeof request.raw.visibility_payload === 'object'
+          ? request.raw.visibility_payload
+          : {}),
+        provider_operational_release: releasePayload,
+        operational_status: releasePayload.status,
+      },
       operational_status: releasePayload.status,
       aircraft_confirmed: ['aircraft_confirmed', 'crew_confirmed', 'operational_ready'].includes(
         releasePayload.status,
@@ -2333,7 +2549,8 @@ function applyAvailabilityResponse(payload) {
 
 function goToSection(section, query = {}) {
   router.push({
-    path: `/operador/${section}`,
+    name: 'operador',
+    params: { section },
     query,
   })
 }
@@ -2700,6 +2917,7 @@ function resolveRequestResponseLimit(raw = {}) {
 }
 
 function normalizeRequest(raw = {}, index = 0) {
+  raw = mergeRequestWithLocalOperationalRelease(raw)
   const sourceRouteFamily = activeRequestsRouteFamily.value === 'operator' ? 'operator' : 'proveedor'
   const sharedWorkflowStatus = resolveOperatorRequestStatusSource(raw) || 'reserved'
 
@@ -4316,11 +4534,11 @@ function buildOperatorDecisionCandidates(request, payload, action) {
 
 function buildProviderReleaseCandidates(request, payload) {
   const targetIds = getOperatorFlightRequestTargetIds(request)
-
   return targetIds.map((targetId) => ({
     method: 'put',
     path: `/proveedor/solicitudes/${targetId}/release-provider`,
     body: payload,
+    timeoutMs: PROVIDER_RELEASE_REQUEST_TIMEOUT_MS,
   }))
 }
 
@@ -6034,6 +6252,7 @@ async function updateRequestStatus(id, status) {
 async function saveProviderOperationalRelease(statusOverride = '', options = {}) {
   const background = Boolean(options?.background)
   const skipWorkflowPromotion = Boolean(options?.skipWorkflowPromotion)
+  const workflowStageOverride = String(options?.workflowStageOverride || '').trim()
   const request = getActiveProviderReleaseRequest()
   if (!request) return
   if (!canManageProviderOperationalRelease(request) || syncingProviderOperationalRelease.value) {
@@ -6061,7 +6280,7 @@ async function saveProviderOperationalRelease(statusOverride = '', options = {})
   if (statusOverride === 'operational_ready' && !isProviderOperationalReady()) {
     return showError(
       'Liberacion operativa incompleta',
-      'Confirma aeronave, tripulacion tecnica, permisos, handling y alistamiento final antes de marcar operational_ready.',
+      'Confirma aeronave, Tripulacion, permisos, handling y alistamiento final antes de marcar operational_ready.',
     )
   }
 
@@ -6116,8 +6335,12 @@ async function saveProviderOperationalRelease(statusOverride = '', options = {})
   }
 
   let sharedWorkflowStatus = ''
-  if (!skipWorkflowPromotion && nextStatus === 'operational_ready') {
-    const sharedWorkflowPayload = buildWorkflowApiPayload('flight_confirmed')
+  if (!skipWorkflowPromotion && (nextStatus === 'operational_ready' || workflowStageOverride)) {
+    const requestWorkflowId = resolveWorkflowState(resolveRequestWorkflowValue(request)).id
+    const nextWorkflowStage =
+      workflowStageOverride ||
+      (requestWorkflowId === 'flight_confirmed' ? 'tracking_live' : 'flight_confirmed')
+    const sharedWorkflowPayload = buildWorkflowApiPayload(nextWorkflowStage)
     sharedWorkflowStatus = sharedWorkflowPayload.status
     Object.assign(payload, sharedWorkflowPayload, {
       state: sharedWorkflowPayload.status,
@@ -6128,9 +6351,15 @@ async function saveProviderOperationalRelease(statusOverride = '', options = {})
   savingProviderOperationalRelease.value = !background
 
   try {
-    await requestWithCandidates([
+    const response = await requestWithCandidates([
       ...buildProviderReleaseCandidates(request, payload),
     ])
+    console.log('[provider-release-response]', {
+      requestId: request?.id || request?.requestId || request?.reservationId || null,
+      nextStatus,
+      sharedWorkflowStatus,
+      response,
+    })
 
     applyLocalProviderOperationalRelease(request.id, releasePayload, sharedWorkflowStatus)
     providerOperationalReleaseDirty.value = false
@@ -6149,17 +6378,23 @@ async function saveProviderOperationalRelease(statusOverride = '', options = {})
       ui.pushToast({
         tone: nextStatus === 'operational_ready' ? 'success' : 'info',
         title:
-          nextStatus === 'operational_ready'
-            ? 'Vuelo listo para confirmacion'
+          sharedWorkflowStatus === 'completed'
+            ? 'Vuelo finalizado'
+            : nextStatus === 'operational_ready'
+            ? 'Liberacion operativa confirmada'
             : `Estado ${getProviderOperationalReleaseStatusMeta(nextStatus).label} guardado`,
         message:
-          nextStatus === 'operational_ready'
-            ? 'La operacion del proveedor ya quedo lista y el flujo compartido avanza a vuelo confirmado.'
+          sharedWorkflowStatus === 'completed'
+            ? 'El flujo compartido avanzo a completado.'
+            : nextStatus === 'operational_ready'
+            ? 'La operacion del proveedor ya quedo lista y el flujo compartido avanza a tracking activo.'
             : 'La liberacion operativa quedo registrada en la solicitud del proveedor.',
       })
       providerOperationalReleaseFeedback.value =
-        nextStatus === 'operational_ready'
-          ? 'Liberacion enviada a Red Aviation. El equipo administrativo revisara la informacion, coordinara sobrecargo y confirmara el vuelo al cliente.'
+        sharedWorkflowStatus === 'completed'
+          ? 'Vuelo finalizado correctamente. El flujo compartido quedo cerrado.'
+          : nextStatus === 'operational_ready'
+          ? 'Liberacion enviada a Red Aviation. El flujo del vuelo fue actualizado y la operacion pasa a tracking activo.'
           : 'El avance operativo quedo guardado y Red Aviation puede seguir la coordinacion centralizada.'
 
       pushHistory(
@@ -6211,6 +6446,23 @@ async function saveProviderOperationalRelease(statusOverride = '', options = {})
       scheduleProviderOperationalReleaseAutosave()
     }
   }
+}
+
+async function submitProviderReleasePrimaryAction() {
+  const workflowId = getProviderOperationalWorkflowStage()
+
+  if (workflowId === 'completed') {
+    return
+  }
+
+  if (workflowId === 'tracking_live') {
+    await saveProviderOperationalRelease('operational_ready', {
+      workflowStageOverride: 'completed',
+    })
+    return
+  }
+
+  await saveProviderOperationalRelease('operational_ready')
 }
 
 async function submitProviderOperationalIssue() {
@@ -6529,7 +6781,12 @@ watch(
       return
     }
 
-    if (!nextRequests.some((request) => request.id === selectedRequestId.value)) {
+    if (
+      !nextRequests.some(
+        (request) =>
+          String(request.id || '').trim() === String(selectedRequestId.value || '').trim(),
+      )
+    ) {
       selectedRequestId.value = nextRequests[0].id
     }
   },
@@ -6758,12 +7015,17 @@ watch(
       clearProviderOperationalReleaseAutosaveTimer,
       scheduleProviderOperationalReleaseAutosave,
       persistProviderOperationalReleaseDraft,
+      flushProviderOperationalReleaseDraft,
       isProviderOperationalStatusConfirmed,
       isProviderAircraftConfirmedReady,
       isProviderCrewConfirmedReady,
       isProviderOperationalReady,
       deriveProviderOperationalReleaseStatus,
       getProviderOperationalReleaseCurrentStatus,
+      getProviderOperationalWorkflowStage,
+      isProviderReleaseFinalized,
+      getProviderReleasePrimaryActionLabel,
+      getProviderReleasePrimaryActionStatus,
       canManageProviderOperationalRelease,
       buildProviderOperationalReleaseChecklist,
       getProviderOperationalReleaseProgress,
@@ -6777,6 +7039,7 @@ watch(
       setProviderOperationalActiveStep,
       toggleProviderOperationalIssuePanel,
       requestProviderOperationalSupport,
+      submitProviderReleasePrimaryAction,
       applyLocalProviderOperationalRelease,
       syncCompanyForm,
       pushHistory,

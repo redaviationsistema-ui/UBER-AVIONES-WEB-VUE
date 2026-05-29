@@ -19,73 +19,344 @@ const activeTab = ref('validation')
 const selectedCrewId = ref(null)
 const selectedOperationId = ref(null)
 const selectedAuditId = ref(null)
+const actionMode = ref('')
+const searchTerm = ref('')
+const statusFilter = ref('all')
+const baseFilter = ref('all')
+const providerFilter = ref('all')
+const certificationFilter = ref('all')
+const availabilityFilter = ref('all')
 const validationNotes = reactive({})
 const assignmentDrafts = reactive({})
 
-const validationStates = ['Pendiente', 'En revision', 'Requiere cambios']
+const pendingValidationTokens = ['pend', 'revision', 'cambio', 'valid']
 
-const pendingValidation = computed(() =>
-  props.crewMembers.filter((member) =>
-    validationStates.includes(member.profileState || member.validationStatus),
+function normalizeToken(value = '') {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+}
+
+function includesAny(value = '', tokens = []) {
+  const normalized = normalizeToken(value)
+  return tokens.some((token) => normalized.includes(token))
+}
+
+function toneClass(value = '') {
+  const normalized = normalizeToken(value)
+
+  if (
+    normalized.includes('pend') ||
+    normalized.includes('revision') ||
+    normalized.includes('cambio') ||
+    normalized.includes('venc')
+  ) {
+    return 'chip-warning'
+  }
+
+  if (
+    normalized.includes('aprob') ||
+    normalized.includes('confirm') ||
+    normalized.includes('completa') ||
+    normalized.includes('disponible')
+  ) {
+    return 'chip-success'
+  }
+
+  if (
+    normalized.includes('rech') ||
+    normalized.includes('suspend') ||
+    normalized.includes('bloq') ||
+    normalized.includes('alert')
+  ) {
+    return 'chip-danger'
+  }
+
+  if (
+    normalized.includes('asignad') ||
+    normalized.includes('operacion') ||
+    normalized.includes('vuelo') ||
+    normalized.includes('tracking')
+  ) {
+    return 'chip-info'
+  }
+
+  return 'chip-neutral'
+}
+
+function certificationTone(value = '') {
+  const normalized = normalizeToken(value)
+  if (!normalized || normalized.includes('pend') || normalized.includes('venc')) return 'chip-danger'
+  if (normalized.includes('complet') || normalized.includes('vigent') || normalized.includes('ok')) {
+    return 'chip-success'
+  }
+  return 'chip-warning'
+}
+
+function formatDate(value) {
+  if (!value) return 'Por definir'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return new Intl.DateTimeFormat('es-MX', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  }).format(date)
+}
+
+function ratingNumber(value = '') {
+  const parsed = Number.parseFloat(String(value || '').replace(/[^\d.]/g, ''))
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+const operationAssignments = computed(() => {
+  const map = new Map()
+  props.operations.forEach((operation) => {
+    const crewId = String(operation.crewId || '').trim()
+    const crewName = normalizeToken(operation.crew || '')
+    if (crewId) map.set(`id:${crewId}`, operation)
+    if (crewName) map.set(`name:${crewName}`, operation)
+  })
+  return map
+})
+
+function crewOperation(member = {}) {
+  const byId = operationAssignments.value.get(`id:${String(member.id || '').trim()}`)
+  if (byId) return byId
+  return operationAssignments.value.get(`name:${normalizeToken(member.name || '')}`) || null
+}
+
+function crewValidationState(member = {}) {
+  return member.profileState || member.validationStatus || 'Pendiente'
+}
+
+function crewOperationalState(member = {}) {
+  return member.state || 'Disponible'
+}
+
+function certificationLabel(member = {}) {
+  const raw = member.certifications || member.documentsSummary || ''
+  const normalized = normalizeToken(raw)
+
+  if (!normalized) return 'Sin expediente'
+  if (normalized.includes('venc')) return 'Certificaciones vencidas'
+  if (normalized.includes('complet') || normalized.includes('vigent')) return 'Expediente completo'
+  if (normalized.includes('pend')) return 'Expediente incompleto'
+
+  return raw
+}
+
+function isCrewApproved(member = {}) {
+  return includesAny(crewValidationState(member), ['aprob'])
+}
+
+function isCrewPendingValidation(member = {}) {
+  return includesAny(crewValidationState(member), pendingValidationTokens)
+}
+
+function isCrewSuspended(member = {}) {
+  return includesAny(crewOperationalState(member), ['suspend', 'bloq'])
+}
+
+function isCrewAssigned(member = {}) {
+  return Boolean(crewOperation(member))
+}
+
+function isCrewAvailableToday(member = {}) {
+  return isCrewApproved(member) && !isCrewSuspended(member) && !isCrewAssigned(member)
+}
+
+function buildCrewAlerts(member = {}) {
+  const alerts = []
+  const certifications = normalizeToken(certificationLabel(member))
+
+  if (isCrewPendingValidation(member)) alerts.push('Requiere validacion administrativa')
+  if (certifications.includes('venc')) alerts.push('Certificacion vencida')
+  if (certifications.includes('incompleto') || certifications.includes('sin expediente')) {
+    alerts.push('Expediente incompleto')
+  }
+  if (!String(member.base || '').trim()) alerts.push('Sin base asignada')
+  if (isCrewSuspended(member)) alerts.push('Sobrecargo suspendido')
+  if (!isCrewAvailableToday(member) && !isCrewAssigned(member) && isCrewApproved(member)) {
+    alerts.push('No disponible hoy')
+  }
+
+  return alerts
+}
+
+function matchesSearch(candidate = {}) {
+  const query = normalizeToken(searchTerm.value)
+  if (!query) return true
+
+  const haystack = normalizeToken([
+    candidate.name,
+    candidate.providerName,
+    candidate.base,
+    candidate.certifications,
+    candidate.documentsSummary,
+    candidate.state,
+    candidate.profileState,
+    candidate.route,
+    candidate.aircraft,
+    candidate.clientName,
+  ].join(' '))
+
+  return haystack.includes(query)
+}
+
+const normalizedCrewMembers = computed(() =>
+  props.crewMembers.map((member) => {
+    const linkedOperation = crewOperation(member)
+    const alerts = buildCrewAlerts(member)
+    return {
+      ...member,
+      validationState: crewValidationState(member),
+      operationalState: crewOperationalState(member),
+      certificationStatus: certificationLabel(member),
+      assignedOperation: linkedOperation,
+      isApproved: isCrewApproved(member),
+      isPendingValidation: isCrewPendingValidation(member),
+      isSuspended: isCrewSuspended(member),
+      isAssigned: Boolean(linkedOperation),
+      isAvailableToday: isCrewAvailableToday(member),
+      alerts,
+      alertsCount: alerts.length,
+    }
+  }),
+)
+
+const statusOptions = computed(() => [
+  { value: 'all', label: 'Estado' },
+  { value: 'pending', label: 'Pendientes' },
+  { value: 'approved', label: 'Aprobados' },
+  { value: 'assigned', label: 'Asignados' },
+  { value: 'suspended', label: 'Suspendidos' },
+  { value: 'alerts', label: 'Con alerta' },
+])
+
+const baseOptions = computed(() => [
+  'all',
+  ...new Set(normalizedCrewMembers.value.map((member) => String(member.base || '').trim()).filter(Boolean)),
+])
+
+const providerOptions = computed(() => [
+  'all',
+  ...new Set(normalizedCrewMembers.value.map((member) => String(member.providerName || '').trim()).filter(Boolean)),
+])
+
+const filteredCrewMembers = computed(() =>
+  normalizedCrewMembers.value
+    .filter((member) => matchesSearch(member))
+    .filter((member) => {
+      if (statusFilter.value === 'pending') return member.isPendingValidation
+      if (statusFilter.value === 'approved') return member.isApproved && !member.isAssigned
+      if (statusFilter.value === 'assigned') return member.isAssigned
+      if (statusFilter.value === 'suspended') return member.isSuspended
+      if (statusFilter.value === 'alerts') return member.alertsCount > 0
+      return true
+    })
+    .filter((member) =>
+      baseFilter.value === 'all' ? true : String(member.base || '').trim() === baseFilter.value,
+    )
+    .filter((member) =>
+      providerFilter.value === 'all'
+        ? true
+        : String(member.providerName || '').trim() === providerFilter.value,
+    )
+    .filter((member) => {
+      if (certificationFilter.value === 'all') return true
+      if (certificationFilter.value === 'expired') {
+        return normalizeToken(member.certificationStatus).includes('venc')
+      }
+      if (certificationFilter.value === 'incomplete') {
+        return includesAny(member.certificationStatus, ['incompleto', 'sin expediente', 'pend'])
+      }
+      if (certificationFilter.value === 'complete') {
+        return includesAny(member.certificationStatus, ['completo', 'vigent'])
+      }
+      return true
+    })
+    .filter((member) => {
+      if (availabilityFilter.value === 'all') return true
+      if (availabilityFilter.value === 'available') return member.isAvailableToday
+      if (availabilityFilter.value === 'assigned') return member.isAssigned
+      if (availabilityFilter.value === 'unavailable') return !member.isAvailableToday
+      return true
+    })
+    .sort((left, right) => {
+      if (left.alertsCount !== right.alertsCount) return right.alertsCount - left.alertsCount
+      if (left.isPendingValidation !== right.isPendingValidation) {
+        return left.isPendingValidation ? -1 : 1
+      }
+      return String(left.name || '').localeCompare(String(right.name || ''))
+    }),
+)
+
+const validationQueue = computed(() =>
+  filteredCrewMembers.value.filter(
+    (member) => member.isPendingValidation || member.alertsCount > 0 || !member.isApproved,
   ),
 )
 
+const availableQueue = computed(() =>
+  filteredCrewMembers.value.filter((member) => member.isAvailableToday),
+)
+
 const approvedCrew = computed(() =>
-  props.crewMembers.filter((member) => {
-    const validationState = String(
-      member.profileState || member.validationStatus || '',
-    ).toLowerCase()
-    const operationalState = String(member.state || '').toLowerCase()
-    return validationState.includes('aprob') && !operationalState.includes('suspend')
-  }),
+  filteredCrewMembers.value.filter((member) => member.isApproved && !member.isSuspended),
 )
 
-const sortedCrewMembers = computed(() =>
-  [...props.crewMembers].sort((left, right) => {
-    const leftPending = pendingValidation.value.some((member) => member.id === left.id) ? 0 : 1
-    const rightPending = pendingValidation.value.some((member) => member.id === right.id) ? 0 : 1
-    if (leftPending !== rightPending) return leftPending - rightPending
-    return String(left.name || '').localeCompare(String(right.name || ''))
-  }),
+const assignedOperations = computed(() =>
+  [...props.operations]
+    .filter((operation) => matchesSearch(operation))
+    .sort((left, right) => {
+      const leftAssigned = String(left.crew || left.crewId || '').trim() ? 0 : -1
+      const rightAssigned = String(right.crew || right.crewId || '').trim() ? 0 : -1
+      if (leftAssigned !== rightAssigned) return leftAssigned - rightAssigned
+      return Number(right.id || 0) - Number(left.id || 0)
+    }),
 )
 
-const sortedOperations = computed(() =>
-  [...props.operations].sort((left, right) => Number(right.id || 0) - Number(left.id || 0)),
+const auditQueue = computed(() =>
+  props.auditEntries.filter((entry) => matchesSearch(entry)),
 )
+
+const summaryCards = computed(() => [
+  { label: 'Pendientes de validar', value: validationQueue.value.length, tone: 'warning' },
+  { label: 'Aprobados activos', value: approvedCrew.value.length, tone: 'success' },
+  { label: 'Asignados a vuelo', value: assignedOperations.value.filter((item) => item.crew || item.crewId).length, tone: 'info' },
+  { label: 'Con alerta', value: normalizedCrewMembers.value.filter((item) => item.alertsCount > 0).length, tone: 'danger' },
+  { label: 'Disponibles hoy', value: availableQueue.value.length, tone: 'neutral' },
+])
+
+const tabs = computed(() => [
+  { id: 'validation', label: 'Validacion', count: validationQueue.value.length },
+  { id: 'available', label: 'Disponibles', count: availableQueue.value.length },
+  { id: 'assigned', label: 'Asignados', count: assignedOperations.value.length },
+  { id: 'audit', label: 'Auditoria', count: auditQueue.value.length },
+])
+
+const activeCrewQueue = computed(() => {
+  if (activeTab.value === 'available') return availableQueue.value
+  if (activeTab.value === 'validation') return validationQueue.value
+  return []
+})
 
 const selectedCrew = computed(
-  () =>
-    sortedCrewMembers.value.find((member) => member.id === selectedCrewId.value) ||
-    sortedCrewMembers.value[0] ||
-    null,
+  () => activeCrewQueue.value.find((member) => member.id === selectedCrewId.value) || activeCrewQueue.value[0] || null,
 )
 
 const selectedOperation = computed(
   () =>
-    sortedOperations.value.find((operation) => operation.id === selectedOperationId.value) ||
-    sortedOperations.value[0] ||
+    assignedOperations.value.find((operation) => operation.id === selectedOperationId.value) ||
+    assignedOperations.value[0] ||
     null,
 )
 
 const selectedAuditEntry = computed(
-  () =>
-    props.auditEntries.find((entry) => entry.id === selectedAuditId.value) ||
-    props.auditEntries[0] ||
-    null,
+  () => auditQueue.value.find((entry) => entry.id === selectedAuditId.value) || auditQueue.value[0] || null,
 )
-
-const summaryCards = computed(() => [
-  { label: 'Pendientes', value: pendingValidation.value.length, tone: 'warning' },
-  { label: 'Aprobados', value: approvedCrew.value.length, tone: 'success' },
-  { label: 'Operaciones', value: props.operations.length, tone: 'info' },
-  { label: 'Auditorias', value: props.auditEntries.length, tone: 'neutral' },
-])
-
-const tabs = computed(() => [
-  { id: 'validation', label: 'Validacion', count: sortedCrewMembers.value.length },
-  { id: 'assignment', label: 'Asignacion', count: sortedOperations.value.length },
-  { id: 'audit', label: 'Auditoria', count: props.auditEntries.length },
-])
 
 watch(
   () => props.operations,
@@ -103,13 +374,12 @@ watch(
 )
 
 watch(
-  () => sortedCrewMembers.value,
+  () => activeCrewQueue.value,
   (members) => {
     if (!members.length) {
       selectedCrewId.value = null
       return
     }
-
     if (!members.some((member) => member.id === selectedCrewId.value)) {
       selectedCrewId.value = members[0].id
     }
@@ -118,13 +388,12 @@ watch(
 )
 
 watch(
-  () => sortedOperations.value,
+  () => assignedOperations.value,
   (operations) => {
     if (!operations.length) {
       selectedOperationId.value = null
       return
     }
-
     if (!operations.some((operation) => operation.id === selectedOperationId.value)) {
       selectedOperationId.value = operations[0].id
     }
@@ -133,13 +402,12 @@ watch(
 )
 
 watch(
-  () => props.auditEntries,
+  () => auditQueue.value,
   (entries) => {
     if (!entries.length) {
       selectedAuditId.value = null
       return
     }
-
     if (!entries.some((entry) => entry.id === selectedAuditId.value)) {
       selectedAuditId.value = entries[0].id
     }
@@ -147,11 +415,59 @@ watch(
   { immediate: true },
 )
 
+watch(activeTab, () => {
+  actionMode.value = ''
+})
+
 function getDraft(operationId) {
   if (!assignmentDrafts[operationId]) {
     assignmentDrafts[operationId] = { crewId: '', note: '' }
   }
   return assignmentDrafts[operationId]
+}
+
+function selectCrew(memberId) {
+  selectedCrewId.value = memberId
+}
+
+function selectOperation(operationId) {
+  selectedOperationId.value = operationId
+}
+
+function selectAudit(entryId) {
+  selectedAuditId.value = entryId
+}
+
+function setActionMode(mode = '') {
+  actionMode.value = actionMode.value === mode ? '' : mode
+}
+
+function submitCrewAction(mode) {
+  if (!selectedCrew.value) return
+
+  const payload = {
+    member: selectedCrew.value,
+    note: validationNotes[selectedCrew.value.id] || '',
+  }
+
+  if (mode === 'approve') {
+    emit('approve-crew', payload)
+    return
+  }
+
+  if (mode === 'reject') {
+    emit('reject-crew', payload)
+    return
+  }
+
+  if (mode === 'suspend') {
+    emit('suspend-crew', payload)
+    return
+  }
+
+  if (mode === 'audit') {
+    emit('audit-crew', payload)
+  }
 }
 
 function submitAssignment(operationId) {
@@ -163,94 +479,8 @@ function submitAssignment(operationId) {
   })
 }
 
-function normalizeToken(value = '') {
-  return String(value || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[_-]+/g, ' ')
-}
-
-function toneClass(value = '') {
-  const normalized = normalizeToken(value)
-
-  if (
-    normalized.includes('pend') ||
-    normalized.includes('revision') ||
-    normalized.includes('cambios') ||
-    normalized.includes('venc')
-  ) {
-    return 'chip-warning'
-  }
-
-  if (
-    normalized.includes('aprob') ||
-    normalized.includes('confirm') ||
-    normalized.includes('completa')
-  ) {
-    return 'chip-success'
-  }
-
-  if (
-    normalized.includes('rech') ||
-    normalized.includes('suspend') ||
-    normalized.includes('problema')
-  ) {
-    return 'chip-danger'
-  }
-
-  if (
-    normalized.includes('asignad') ||
-    normalized.includes('active') ||
-    normalized.includes('servicio')
-  ) {
-    return 'chip-info'
-  }
-
-  return 'chip-neutral'
-}
-
-function documentsTone(value = '') {
-  const normalized = normalizeToken(value)
-  if (normalized.includes('pend') || normalized.includes('venc')) return 'chip-danger'
-  if (normalized.includes('complet')) return 'chip-success'
-  return 'chip-neutral'
-}
-
-function certificationLabel(member) {
-  const raw = member.certifications || member.documentsSummary || ''
-  const normalized = normalizeToken(raw)
-
-  if (!normalized) return 'No visibles'
-  if (normalized.includes('venc')) return 'Vencidas'
-  if (normalized.includes('complet')) return 'Completas'
-  if (normalized.includes('pend')) return 'Pendientes'
-  return raw
-}
-
-function formatDate(value) {
-  if (!value) return 'Por definir'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return new Intl.DateTimeFormat('es-MX', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(date)
-}
-
-function openCrew(memberId) {
-  selectedCrewId.value = memberId
-  activeTab.value = 'validation'
-}
-
-function openOperation(operationId) {
-  selectedOperationId.value = operationId
-  activeTab.value = 'assignment'
-}
-
-function openAudit(entryId) {
-  selectedAuditId.value = entryId
-  activeTab.value = 'audit'
+function assignmentUrgency(operation = {}) {
+  return String(operation.crew || operation.crewId || '').trim() ? 'Confirmado' : 'Urgente'
 }
 </script>
 
@@ -259,10 +489,10 @@ function openAudit(entryId) {
     <article class="surface hero-card">
       <div class="hero-copy">
         <p class="eyebrow">Sobrecargos</p>
-        <h2>Cola operativa de validacion, asignacion y auditoria</h2>
+        <h2>Mesa operativa de validacion y asignacion</h2>
         <p class="muted">
-          Admin centraliza la revision de expedientes, la asignacion por vuelo y la bitacora en una
-          sola mesa compacta.
+          Admin centraliza validacion, disponibilidad, asignacion por vuelo y auditoria en una
+          sola mesa de control compacta.
         </p>
       </div>
 
@@ -282,8 +512,9 @@ function openAudit(entryId) {
     <article class="surface section-card workspace-card">
       <div class="section-head workspace-head">
         <div>
-          <p class="eyebrow">Centro de control</p>
-          <h3>Sobrecargos</h3>
+          <p class="eyebrow">Centro de despacho</p>
+          <h3>Sobrecargos operativos</h3>
+          <p class="muted">Lista compacta, filtros rapidos y panel de detalle para operar con velocidad.</p>
         </div>
 
         <div class="tabs-strip" role="tablist" aria-label="Procesos de sobrecargos">
@@ -302,15 +533,75 @@ function openAudit(entryId) {
         </div>
       </div>
 
+      <div class="filters-shell">
+        <label class="field field--search">
+          <span>Buscar sobrecargo / proveedor / base</span>
+          <input v-model="searchTerm" type="text" placeholder="Nombre, proveedor, base o vuelo" />
+        </label>
+
+        <label class="field">
+          <span>Estado</span>
+          <select v-model="statusFilter">
+            <option v-for="option in statusOptions" :key="option.value" :value="option.value">
+              {{ option.label }}
+            </option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Base</span>
+          <select v-model="baseFilter">
+            <option value="all">Todas</option>
+            <option v-for="base in baseOptions.slice(1)" :key="base" :value="base">{{ base }}</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Proveedor</span>
+          <select v-model="providerFilter">
+            <option value="all">Todos</option>
+            <option v-for="provider in providerOptions.slice(1)" :key="provider" :value="provider">
+              {{ provider }}
+            </option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Certificacion</span>
+          <select v-model="certificationFilter">
+            <option value="all">Todas</option>
+            <option value="complete">Completas</option>
+            <option value="incomplete">Incompletas</option>
+            <option value="expired">Vencidas</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Disponibilidad</span>
+          <select v-model="availabilityFilter">
+            <option value="all">Todas</option>
+            <option value="available">Disponibles hoy</option>
+            <option value="assigned">Asignadas a vuelo</option>
+            <option value="unavailable">No disponibles</option>
+          </select>
+        </label>
+      </div>
+
       <div class="workspace-grid">
         <div class="queue-panel">
-          <div v-if="activeTab === 'validation'" class="table-shell">
+          <div v-if="activeTab === 'validation' || activeTab === 'available'" class="table-shell">
             <div class="table-head">
               <div>
-                <p class="eyebrow">Validacion</p>
-                <h4>Cola de sobrecargos pendientes</h4>
+                <p class="eyebrow">{{ activeTab === 'validation' ? 'Validacion' : 'Disponibles' }}</p>
+                <h4>
+                  {{
+                    activeTab === 'validation'
+                      ? 'Cola de sobrecargos por revisar'
+                      : 'Sobrecargos listos para asignarse'
+                  }}
+                </h4>
               </div>
-              <span class="badge badge-muted">{{ pendingValidation.length }} pendientes</span>
+              <span class="badge badge-muted">{{ activeCrewQueue.length }} registros</span>
             </div>
 
             <div class="table-wrap">
@@ -322,125 +613,114 @@ function openAudit(entryId) {
                     <th>Estado</th>
                     <th>Certificaciones</th>
                     <th>Rating</th>
+                    <th>Ultima revision</th>
                     <th>Accion</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr
-                    v-for="member in sortedCrewMembers"
+                    v-for="member in activeCrewQueue"
                     :key="member.id"
                     :class="{ 'is-selected': member.id === selectedCrew?.id }"
-                    @click="openCrew(member.id)"
+                    @click="selectCrew(member.id)"
                   >
                     <td>
                       <div class="table-primary">
                         <strong>{{ member.name }}</strong>
-                        <small>{{ member.base || 'Base por definir' }}</small>
+                        <small>{{ member.base || 'Sin base' }}</small>
                       </div>
                     </td>
                     <td>{{ member.providerName || 'Sin ligar' }}</td>
                     <td>
-                      <span
-                        class="status-chip"
-                        :class="toneClass(member.profileState || member.validationStatus)"
-                      >
-                        {{ member.profileState || member.validationStatus || 'Pendiente' }}
-                      </span>
+                      <div class="status-stack-inline">
+                        <span class="status-chip" :class="toneClass(member.validationState)">
+                          {{ member.validationState }}
+                        </span>
+                        <span class="status-chip" :class="toneClass(member.operationalState)">
+                          {{ member.operationalState }}
+                        </span>
+                      </div>
                     </td>
                     <td>
-                      <span
-                        class="status-chip"
-                        :class="documentsTone(member.certifications || member.documentsSummary)"
-                      >
-                        {{ certificationLabel(member) }}
+                      <span class="status-chip" :class="certificationTone(member.certificationStatus)">
+                        {{ member.certificationStatus }}
                       </span>
                     </td>
                     <td>{{ member.rating || 'N/D' }}</td>
+                    <td>{{ member.lastAudit || 'Sin auditoria' }}</td>
                     <td>
-                      <button
-                        type="button"
-                        class="ghost-button ghost-button--sm"
-                        @click.stop="openCrew(member.id)"
-                      >
-                        Revisar
-                      </button>
+                      <div class="row-action-pack">
+                        <span v-if="member.alertsCount" class="mini-alert">{{ member.alertsCount }} alerta(s)</span>
+                        <button type="button" class="ghost-button ghost-button--sm" @click.stop="selectCrew(member.id)">
+                          Revisar
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 </tbody>
               </table>
             </div>
 
-            <p v-if="!sortedCrewMembers.length" class="empty-state">
-              No hay sobrecargos cargados en esta vista.
+            <p v-if="!activeCrewQueue.length" class="empty-state">
+              No hay sobrecargos para esta bandeja con los filtros actuales.
             </p>
           </div>
 
-          <div v-else-if="activeTab === 'assignment'" class="table-shell">
+          <div v-else-if="activeTab === 'assigned'" class="table-shell">
             <div class="table-head">
               <div>
-                <p class="eyebrow">Asignacion</p>
-                <h4>Operaciones que requieren sobrecargo</h4>
+                <p class="eyebrow">Operacion por vuelo</p>
+                <h4>Asignacion y seguimiento de sobrecargos</h4>
               </div>
-              <span class="badge badge-muted">{{ operations.length }} operaciones</span>
+              <span class="badge badge-muted">{{ assignedOperations.length }} vuelos</span>
             </div>
 
             <div class="table-wrap">
               <table class="queue-table queue-table--ops">
                 <thead>
                   <tr>
-                    <th>Operacion</th>
+                    <th>Vuelo</th>
                     <th>Ruta</th>
-                    <th>Aeronave</th>
                     <th>Fecha</th>
-                    <th>Pago</th>
-                    <th>Sobrecargo</th>
-                    <th>Nota</th>
+                    <th>Cliente</th>
+                    <th>Sobrecargo asignado</th>
+                    <th>Estado</th>
+                    <th>Asignar</th>
                     <th>Accion</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr
-                    v-for="operation in sortedOperations"
+                    v-for="operation in assignedOperations"
                     :key="operation.id"
                     :class="{ 'is-selected': operation.id === selectedOperation?.id }"
-                    @click="openOperation(operation.id)"
+                    @click="selectOperation(operation.id)"
                   >
                     <td>
                       <div class="table-primary">
-                        <strong>#{{ operation.id }}</strong>
-                        <small>{{ operation.crew || 'Sin asignar' }}</small>
+                        <strong>RA-{{ operation.id }}</strong>
+                        <small>{{ operation.aircraft || 'Aeronave por definir' }}</small>
                       </div>
                     </td>
                     <td>{{ operation.route }}</td>
-                    <td>{{ operation.aircraft }}</td>
                     <td>{{ formatDate(operation.departure) }}</td>
+                    <td>{{ operation.clientName || 'Cliente por confirmar' }}</td>
+                    <td>{{ operation.crew || 'Pendiente asignar' }}</td>
                     <td>
-                      <span class="status-chip" :class="toneClass(operation.status)">
-                        {{ operation.status }}
+                      <span class="status-chip" :class="toneClass(assignmentUrgency(operation))">
+                        {{ assignmentUrgency(operation) }}
                       </span>
                     </td>
                     <td @click.stop>
                       <select v-model="getDraft(operation.id).crewId" class="compact-field">
                         <option value="">Selecciona</option>
                         <option v-for="member in approvedCrew" :key="member.id" :value="member.id">
-                          {{ member.name }}
+                          {{ member.name }} · {{ member.base || 'Sin base' }}
                         </option>
                       </select>
                     </td>
                     <td @click.stop>
-                      <input
-                        v-model="getDraft(operation.id).note"
-                        class="compact-field"
-                        type="text"
-                        placeholder="Briefing, VIP, SLA..."
-                      />
-                    </td>
-                    <td @click.stop>
-                      <button
-                        type="button"
-                        class="primary-action primary-action--sm"
-                        @click="submitAssignment(operation.id)"
-                      >
+                      <button type="button" class="primary-action primary-action--sm" @click="submitAssignment(operation.id)">
                         Asignar
                       </button>
                     </td>
@@ -449,8 +729,8 @@ function openAudit(entryId) {
               </table>
             </div>
 
-            <p v-if="!sortedOperations.length" class="empty-state">
-              No hay operaciones pendientes de asignacion.
+            <p v-if="!assignedOperations.length" class="empty-state">
+              No hay vuelos operativos para mostrar en esta mesa.
             </p>
           </div>
 
@@ -458,9 +738,9 @@ function openAudit(entryId) {
             <div class="table-head">
               <div>
                 <p class="eyebrow">Auditoria</p>
-                <h4>Bitacora de cambios</h4>
+                <h4>Historial administrativo</h4>
               </div>
-              <span class="badge badge-muted">{{ auditEntries.length }} registros</span>
+              <span class="badge badge-muted">{{ auditQueue.length }} eventos</span>
             </div>
 
             <div class="table-wrap">
@@ -475,24 +755,16 @@ function openAudit(entryId) {
                 </thead>
                 <tbody>
                   <tr
-                    v-for="entry in auditEntries"
+                    v-for="entry in auditQueue"
                     :key="entry.id"
                     :class="{ 'is-selected': entry.id === selectedAuditEntry?.id }"
-                    @click="openAudit(entry.id)"
+                    @click="selectAudit(entry.id)"
                   >
                     <td>{{ entry.date }}</td>
-                    <td>
-                      <div class="table-primary">
-                        <strong>{{ entry.title }}</strong>
-                      </div>
-                    </td>
+                    <td><strong>{{ entry.title }}</strong></td>
                     <td class="detail-cell">{{ entry.detail }}</td>
                     <td>
-                      <button
-                        type="button"
-                        class="ghost-button ghost-button--sm"
-                        @click.stop="openAudit(entry.id)"
-                      >
+                      <button type="button" class="ghost-button ghost-button--sm" @click.stop="selectAudit(entry.id)">
                         Ver
                       </button>
                     </td>
@@ -501,28 +773,25 @@ function openAudit(entryId) {
               </table>
             </div>
 
-            <p v-if="!auditEntries.length" class="empty-state">
-              La bitacora aparecera aqui conforme se registren validaciones y asignaciones.
+            <p v-if="!auditQueue.length" class="empty-state">
+              La bitacora aparecera aqui conforme se registren cambios de validacion y operacion.
             </p>
           </div>
         </div>
 
         <aside class="surface detail-panel">
-          <template v-if="activeTab === 'validation' && selectedCrew">
+          <template v-if="(activeTab === 'validation' || activeTab === 'available') && selectedCrew">
             <div class="section-head detail-head">
               <div>
-                <p class="eyebrow">Detalle de sobrecargo</p>
+                <p class="eyebrow">Panel de detalle</p>
                 <h3>{{ selectedCrew.name }}</h3>
               </div>
               <div class="status-stack">
-                <span
-                  class="status-chip"
-                  :class="toneClass(selectedCrew.profileState || selectedCrew.validationStatus)"
-                >
-                  {{ selectedCrew.profileState || selectedCrew.validationStatus || 'Pendiente' }}
+                <span class="status-chip" :class="toneClass(selectedCrew.validationState)">
+                  {{ selectedCrew.validationState }}
                 </span>
-                <span class="status-chip" :class="toneClass(selectedCrew.state)">
-                  {{ selectedCrew.state || 'Activo' }}
+                <span class="status-chip" :class="toneClass(selectedCrew.operationalState)">
+                  {{ selectedCrew.operationalState }}
                 </span>
               </div>
             </div>
@@ -534,106 +803,110 @@ function openAudit(entryId) {
               </article>
               <article class="info-card">
                 <span>Base</span>
-                <strong>{{ selectedCrew.base || 'Por definir' }}</strong>
-              </article>
-              <article class="info-card">
-                <span>Certificaciones</span>
-                <strong>{{ selectedCrew.certifications || 'Sin certificaciones visibles' }}</strong>
+                <strong>{{ selectedCrew.base || 'Sin base' }}</strong>
               </article>
               <article class="info-card">
                 <span>Rating</span>
                 <strong>{{ selectedCrew.rating || 'N/D' }}</strong>
               </article>
+              <article class="info-card">
+                <span>Disponibilidad</span>
+                <strong>{{ selectedCrew.isAssigned ? 'Asignada a vuelo' : selectedCrew.isAvailableToday ? 'Disponible hoy' : 'No disponible' }}</strong>
+              </article>
+              <article class="info-card info-card--wide">
+                <span>Certificaciones</span>
+                <strong>{{ selectedCrew.certifications || selectedCrew.documentsSummary || 'Sin expediente visible' }}</strong>
+              </article>
             </div>
 
             <article class="detail-block">
               <div class="section-mini-head">
-                <h4>Expediente y hallazgos</h4>
-                <p>{{ selectedCrew.documentsSummary || 'Sin resumen documental disponible.' }}</p>
+                <h4>Alertas</h4>
+                <p>Hallazgos que requieren atencion inmediata para no frenar la operacion.</p>
               </div>
-
-              <label class="field">
-                <span>Observaciones admin</span>
-                <textarea
-                  v-model="validationNotes[selectedCrew.id]"
-                  rows="5"
-                  placeholder="Motivo, hallazgo, instruccion o condicion para liberar la operacion"
-                ></textarea>
-              </label>
+              <div v-if="selectedCrew.alerts.length" class="alerts-stack">
+                <span v-for="alert in selectedCrew.alerts" :key="alert" class="alert-pill">{{ alert }}</span>
+              </div>
+              <p v-else class="muted">Sin alertas activas. El expediente luce operativo.</p>
             </article>
 
             <article class="detail-block">
               <div class="section-mini-head">
-                <h4>Historial rapido</h4>
-                <p>
-                  Ultima revision registrada: {{ selectedCrew.lastAudit || 'Sin auditoria previa' }}
-                </p>
+                <h4>Acciones administrativas</h4>
+                <p>Activa observaciones solo cuando audites, rechaces o suspendas.</p>
+              </div>
+
+              <div class="action-mode-strip">
+                <button type="button" class="ghost-button ghost-button--sm" :class="{ 'ghost-button--active': actionMode === 'audit' }" @click="setActionMode('audit')">
+                  Auditar
+                </button>
+                <button type="button" class="ghost-button ghost-button--sm" :class="{ 'ghost-button--active': actionMode === 'reject' }" @click="setActionMode('reject')">
+                  Rechazar
+                </button>
+                <button type="button" class="ghost-button ghost-button--sm" :class="{ 'ghost-button--active': actionMode === 'suspend' }" @click="setActionMode('suspend')">
+                  Suspender
+                </button>
+                <button type="button" class="primary-action primary-action--sm" @click="submitCrewAction('approve')">
+                  Aprobar
+                </button>
+              </div>
+
+              <label v-if="actionMode" class="field">
+                <span>Observaciones</span>
+                <textarea
+                  v-model="validationNotes[selectedCrew.id]"
+                  rows="5"
+                  placeholder="Motivo, hallazgo, instruccion o criterio para documentar la accion"
+                ></textarea>
+              </label>
+            </article>
+
+            <article v-if="selectedCrew.assignedOperation" class="detail-block">
+              <div class="section-mini-head">
+                <h4>Operacion ligada</h4>
+                <p>{{ selectedCrew.assignedOperation.route }}</p>
               </div>
               <p class="muted">
-                {{ selectedCrew.adminNotes || 'Aun no hay notas administrativas guardadas.' }}
+                Vuelo RA-{{ selectedCrew.assignedOperation.id }} · {{ formatDate(selectedCrew.assignedOperation.departure) }}
               </p>
             </article>
 
             <div class="detail-actions">
               <button
+                v-if="actionMode === 'audit'"
                 type="button"
                 class="ghost-button"
-                @click="
-                  emit('audit-crew', {
-                    member: selectedCrew,
-                    note: validationNotes[selectedCrew.id] || '',
-                  })
-                "
+                @click="submitCrewAction('audit')"
               >
-                Auditar
+                Guardar auditoria
               </button>
               <button
+                v-if="actionMode === 'reject'"
                 type="button"
                 class="ghost-button"
-                @click="
-                  emit('reject-crew', {
-                    member: selectedCrew,
-                    note: validationNotes[selectedCrew.id] || '',
-                  })
-                "
+                @click="submitCrewAction('reject')"
               >
-                Rechazar
+                Confirmar rechazo
               </button>
               <button
+                v-if="actionMode === 'suspend'"
                 type="button"
                 class="ghost-button"
-                @click="
-                  emit('suspend-crew', {
-                    member: selectedCrew,
-                    note: validationNotes[selectedCrew.id] || '',
-                  })
-                "
+                @click="submitCrewAction('suspend')"
               >
-                Suspender
-              </button>
-              <button
-                type="button"
-                class="primary-action"
-                @click="
-                  emit('approve-crew', {
-                    member: selectedCrew,
-                    note: validationNotes[selectedCrew.id] || '',
-                  })
-                "
-              >
-                Aprobar
+                Confirmar suspension
               </button>
             </div>
           </template>
 
-          <template v-else-if="activeTab === 'assignment' && selectedOperation">
+          <template v-else-if="activeTab === 'assigned' && selectedOperation">
             <div class="section-head detail-head">
               <div>
-                <p class="eyebrow">Detalle de operacion</p>
-                <h3>#{{ selectedOperation.id }}</h3>
+                <p class="eyebrow">Detalle por vuelo</p>
+                <h3>RA-{{ selectedOperation.id }}</h3>
               </div>
-              <span class="status-chip" :class="toneClass(selectedOperation.status)">
-                {{ selectedOperation.status }}
+              <span class="status-chip" :class="toneClass(assignmentUrgency(selectedOperation))">
+                {{ assignmentUrgency(selectedOperation) }}
               </span>
             </div>
 
@@ -643,26 +916,23 @@ function openAudit(entryId) {
                 <strong>{{ selectedOperation.route }}</strong>
               </article>
               <article class="info-card">
-                <span>Aeronave</span>
-                <strong>{{ selectedOperation.aircraft || 'Por definir' }}</strong>
-              </article>
-              <article class="info-card">
                 <span>Fecha</span>
                 <strong>{{ formatDate(selectedOperation.departure) }}</strong>
               </article>
               <article class="info-card">
-                <span>Sobrecargo asignada</span>
-                <strong>{{ selectedOperation.crew || 'Sin asignar' }}</strong>
+                <span>Cliente</span>
+                <strong>{{ selectedOperation.clientName || 'Cliente por confirmar' }}</strong>
+              </article>
+              <article class="info-card">
+                <span>Sobrecargo actual</span>
+                <strong>{{ selectedOperation.crew || 'Pendiente asignar' }}</strong>
               </article>
             </div>
 
             <article class="detail-block">
               <div class="section-mini-head">
                 <h4>Asignacion operativa</h4>
-                <p>
-                  Selecciona talento habilitado y deja la nota de briefing sin ensanchar la bandeja
-                  principal.
-                </p>
+                <p>Selecciona talento aprobado y deja nota de briefing solo en el panel lateral.</p>
               </div>
 
               <label class="field">
@@ -670,7 +940,7 @@ function openAudit(entryId) {
                 <select v-model="getDraft(selectedOperation.id).crewId">
                   <option value="">Selecciona</option>
                   <option v-for="member in approvedCrew" :key="member.id" :value="member.id">
-                    {{ member.name }} · {{ member.base || 'Base por definir' }}
+                    {{ member.name }} · {{ member.base || 'Sin base' }}
                   </option>
                 </select>
               </label>
@@ -680,7 +950,7 @@ function openAudit(entryId) {
                 <textarea
                   v-model="getDraft(selectedOperation.id).note"
                   rows="5"
-                  placeholder="Briefing, pax VIP, SLA, base o cualquier alerta para cabina"
+                  placeholder="VIP, briefing, horarios, alerta de cabina o seguimiento"
                 ></textarea>
               </label>
             </article>
@@ -688,25 +958,14 @@ function openAudit(entryId) {
             <article class="detail-block">
               <div class="section-mini-head">
                 <h4>Trazabilidad</h4>
-                <p>Ultima nota visible en la operacion.</p>
+                <p>Ultima nota registrada para el vuelo.</p>
               </div>
-              <p class="muted">
-                {{
-                  selectedOperation.notes ||
-                  'Aun no hay observaciones registradas para esta operacion.'
-                }}
-              </p>
+              <p class="muted">{{ selectedOperation.notes || 'Sin observaciones operativas.' }}</p>
             </article>
 
             <div class="detail-actions">
-              <button type="button" class="ghost-button" @click="activeTab = 'audit'">
-                Ver bitacora
-              </button>
-              <button
-                type="button"
-                class="primary-action"
-                @click="submitAssignment(selectedOperation.id)"
-              >
+              <button type="button" class="ghost-button" @click="activeTab = 'audit'">Ver historial</button>
+              <button type="button" class="primary-action" @click="submitAssignment(selectedOperation.id)">
                 Asignar sobrecargo
               </button>
             </div>
@@ -739,7 +998,7 @@ function openAudit(entryId) {
           <div v-else class="empty-shell">
             <p class="eyebrow">Sin seleccion</p>
             <h3>No hay datos para mostrar</h3>
-            <p class="muted">Selecciona un registro en la tabla para ver el detalle operativo.</p>
+            <p class="muted">Selecciona un registro de la mesa para ver el detalle operativo.</p>
           </div>
         </aside>
       </div>
@@ -752,7 +1011,8 @@ function openAudit(entryId) {
 .hero-metrics,
 .workspace-grid,
 .info-grid,
-.status-stack {
+.status-stack,
+.filters-shell {
   display: grid;
   gap: 1rem;
 }
@@ -825,21 +1085,24 @@ function openAudit(entryId) {
 .hero-card,
 .section-head,
 .table-head,
-.detail-actions {
+.detail-actions,
+.workspace-head {
   display: flex;
   gap: 1rem;
 }
 
 .hero-card,
 .section-head,
-.table-head {
+.table-head,
+.workspace-head {
   justify-content: space-between;
 }
 
 .hero-card,
 .section-head,
 .table-head,
-.detail-actions {
+.detail-actions,
+.workspace-head {
   align-items: center;
 }
 
@@ -852,8 +1115,8 @@ function openAudit(entryId) {
 }
 
 .hero-metrics {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  min-width: min(36rem, 100%);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  min-width: min(56rem, 100%);
 }
 
 .metric-card {
@@ -874,7 +1137,7 @@ function openAudit(entryId) {
 .metric-card strong {
   display: block;
   margin-top: 0.35rem;
-  font-size: 1.8rem;
+  font-size: 1.55rem;
 }
 
 .metric-card--warning {
@@ -889,6 +1152,14 @@ function openAudit(entryId) {
   box-shadow: inset 0 0 0 1px rgba(51, 102, 204, 0.14);
 }
 
+.metric-card--danger {
+  box-shadow: inset 0 0 0 1px rgba(201, 73, 73, 0.16);
+}
+
+.metric-card--neutral {
+  box-shadow: inset 0 0 0 1px rgba(17, 17, 17, 0.08);
+}
+
 .workspace-card {
   display: grid;
   gap: 1rem;
@@ -896,6 +1167,7 @@ function openAudit(entryId) {
 
 .workspace-head {
   align-items: end;
+  flex-wrap: wrap;
 }
 
 .tabs-strip {
@@ -938,8 +1210,25 @@ function openAudit(entryId) {
   color: #fff8eb;
 }
 
+.filters-shell {
+  grid-template-columns: minmax(280px, 2.3fr) repeat(5, minmax(160px, 1fr));
+  align-items: end;
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+}
+
+.field {
+  display: grid;
+  gap: 0.38rem;
+  min-width: 0;
+}
+
+.field--search {
+  min-width: 0;
+}
+
 .workspace-grid {
-  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.8fr);
+  grid-template-columns: minmax(0, 1.55fr) minmax(360px, 0.9fr);
   align-items: start;
 }
 
@@ -965,12 +1254,12 @@ function openAudit(entryId) {
 
 .queue-table {
   width: 100%;
-  min-width: 760px;
+  min-width: 980px;
   border-collapse: collapse;
 }
 
 .queue-table--ops {
-  min-width: 1100px;
+  min-width: 1120px;
 }
 
 .queue-table th,
@@ -1020,7 +1309,9 @@ function openAudit(entryId) {
 }
 
 .status-chip,
-.badge {
+.badge,
+.mini-alert,
+.alert-pill {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1040,7 +1331,8 @@ function openAudit(entryId) {
   color: #4b5563;
 }
 
-.chip-warning {
+.chip-warning,
+.mini-alert {
   background: rgba(232, 180, 63, 0.14);
   border-color: rgba(232, 180, 63, 0.24);
   color: #99640a;
@@ -1052,7 +1344,8 @@ function openAudit(entryId) {
   color: #17613d;
 }
 
-.chip-danger {
+.chip-danger,
+.alert-pill {
   background: rgba(201, 73, 73, 0.12);
   border-color: rgba(201, 73, 73, 0.22);
   color: #922c2c;
@@ -1064,6 +1357,20 @@ function openAudit(entryId) {
   color: #224c9d;
 }
 
+.status-stack,
+.status-stack-inline,
+.action-mode-strip,
+.alerts-stack,
+.row-action-pack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.row-action-pack {
+  align-items: center;
+}
+
 .info-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -1071,6 +1378,10 @@ function openAudit(entryId) {
 .info-card,
 .detail-block {
   padding: 0.95rem 1rem;
+}
+
+.info-card--wide {
+  grid-column: 1 / -1;
 }
 
 .detail-block {
@@ -1081,11 +1392,6 @@ function openAudit(entryId) {
 .section-mini-head {
   display: grid;
   gap: 0.3rem;
-}
-
-.field {
-  display: grid;
-  gap: 0.38rem;
 }
 
 input,
@@ -1107,7 +1413,7 @@ textarea {
 }
 
 .compact-field {
-  min-width: 9rem;
+  min-width: 11rem;
   min-height: 2.45rem;
   border-radius: 12px;
   padding: 0 0.7rem;
@@ -1133,6 +1439,11 @@ textarea {
   color: #2e2a22;
 }
 
+.ghost-button--active {
+  border-color: #c28a12;
+  background: #fff1cf;
+}
+
 .ghost-button--sm,
 .primary-action--sm {
   min-height: 2.35rem;
@@ -1156,7 +1467,7 @@ textarea {
   min-height: 14rem;
 }
 
-@media (max-width: 1180px) {
+@media (max-width: 1280px) {
   .workspace-grid,
   .hero-metrics {
     grid-template-columns: 1fr;
@@ -1168,10 +1479,16 @@ textarea {
 }
 
 @media (max-width: 720px) {
+  .filters-shell {
+    grid-template-columns: 1fr;
+    overflow-x: visible;
+  }
+
   .hero-card,
   .section-head,
   .table-head,
-  .detail-actions {
+  .detail-actions,
+  .workspace-head {
     flex-direction: column;
     align-items: stretch;
   }

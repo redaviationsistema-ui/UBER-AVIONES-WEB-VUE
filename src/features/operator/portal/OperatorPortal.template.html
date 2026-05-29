@@ -2031,7 +2031,7 @@
             <article class="provider-release-alert">
               <strong>Importante:</strong>
               <p>
-                El proveedor solo confirma aeronave, tripulacion tecnica y despacho operativo.
+                El proveedor solo confirma aeronave, Tripulacion y despacho operativo.
                 Red Aviation coordina cliente, concierge, sobrecargo y liberacion final del vuelo.
               </p>
             </article>
@@ -2158,7 +2158,7 @@
 
                 <article v-else-if="providerOperationalReleaseActiveStep === 'crew'" class="provider-release-card">
                   <div class="provider-release-card__head">
-                    <strong>2. Tripulacion tecnica</strong>
+                    <strong>2. Tripulacion</strong>
                     <span class="package-chip" :data-tone="getProviderOperationalCrewSectionStatus().tone">
                       {{ getProviderOperationalCrewSectionStatus().label }}
                     </span>
@@ -2463,7 +2463,7 @@
                     </span>
                   </div>
                   <p class="muted">
-                    Al confirmar, el proveedor declara que la aeronave, tripulacion tecnica y documentacion operativa se encuentran listas o reportadas para coordinacion.
+                    Al confirmar, el proveedor declara que la aeronave, Tripulacion y documentacion operativa se encuentran listas o reportadas para coordinacion.
                   </p>
                   <div class="provider-release-summary provider-release-summary--compact">
                     <div
@@ -2487,6 +2487,7 @@
                 rows="4"
                 :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || syncingProviderOperationalRelease"
                 placeholder="FBO, coordinacion de rampa, observaciones de despacho o notas tecnicas."
+                @blur="flushProviderOperationalReleaseDraft()"
               ></textarea>
             </label>
 
@@ -2501,11 +2502,12 @@
                 :disabled="
                   !canManageProviderOperationalRelease(releaseProviderRequest) ||
                   !isProviderOperationalReady() ||
-                  savingProviderOperationalRelease
+                  savingProviderOperationalRelease ||
+                  isProviderReleaseFinalized(releaseProviderRequest)
                 "
-                @click="saveProviderOperationalRelease('operational_ready')"
+                @click="submitProviderReleasePrimaryAction()"
               >
-                Confirmar liberacion operativa
+                {{ getProviderReleasePrimaryActionLabel(releaseProviderRequest) }}
               </button>
             </div>
           </article>
@@ -2689,7 +2691,7 @@
         <div class="status-list">
           <div class="status-row">
             <span>Funcion del proveedor</span>
-            <strong>Confirmar tripulacion tecnica y disponibilidad operativa</strong>
+            <strong>Confirmar Tripulacion y disponibilidad operativa</strong>
           </div>
           <div class="status-row">
             <span>Equipo registrado</span>

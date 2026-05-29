@@ -10,7 +10,7 @@ const router = useRouter()
 const auth = useAuthStore()
 
 const publicLinks = [
-  { label: 'Renta', icon: 'jet', to: '/renta-aeronaves' },
+  { label: 'Renta', icon: '', to: '/renta-aeronaves' },
   { label: 'Servicios', icon: 'service', to: '/servicios' },
   { label: 'Plataforma', icon: 'grid', to: '/plataforma' },
   { label: 'Membresias', icon: 'membership', to: '/membresias' },
@@ -219,7 +219,7 @@ async function handleLogout() {
   auth.logout()
   workspaceMenuOpen.value = false
   closeAllMenus()
-  router.push('/')
+  router.push({ name: 'home' })
 }
 
 onMounted(() => {
@@ -422,7 +422,12 @@ onBeforeUnmount(() => {
               <ul class="workspace-drawer-list">
                 <li v-for="item in group.items" :key="item.label">
                   <RouterLink :to="item.to" class="workspace-drawer-link">
-                    <svg class="workspace-link-icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <svg
+                      v-if="item.icon"
+                      class="workspace-link-icon"
+                      viewBox="0 0 24 24"
+                      aria-hidden="true"
+                    >
                       <path fill="currentColor" :d="resolveIcon(item.icon)" />
                     </svg>
                     <span>{{ item.label }}</span>

@@ -6,8 +6,11 @@ defineProps({
 
 <template>
   <div class="step-fields">
-    <p class="form-note">
-      Si la INE completo algun dato, revisalo aqui y modificalo antes de continuar.
+    <p v-if="form.ineScanStatus === 'scanned' || form.ineScanStatus === 'partial'" class="form-note">
+      La informacion detectada en la INE se refleja aqui. Revisa y corrige lo necesario antes de continuar.
+    </p>
+    <p v-else class="form-note">
+      Si escaneas la INE en esta misma pantalla, los datos detectados se reflejaran aqui para revision.
     </p>
 
     <label>
@@ -17,11 +20,6 @@ defineProps({
 
     <div class="form-grid">
       <label>
-        Correo
-        <input v-model="form.email" type="email" placeholder="correo@empresa.com" autocomplete="email" />
-      </label>
-
-      <label>
         Telefono
         <input v-model="form.phone" type="tel" placeholder="+52 55 0000 0000" autocomplete="tel" />
       </label>
@@ -29,11 +27,6 @@ defineProps({
       <label>
         Fecha de nacimiento
         <input v-model="form.birthDate" type="date" />
-      </label>
-
-      <label>
-        Nacionalidad
-        <input v-model="form.nationality" type="text" placeholder="Mexicana" />
       </label>
     </div>
   </div>

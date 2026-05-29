@@ -7,9 +7,10 @@ const props = defineProps({
   auditEntries: { type: Array, default: () => [] },
   isFlowLoading: { type: Boolean, default: false },
   flowLoadingLabel: { type: String, default: '' },
+  isContentRefreshing: { type: Boolean, default: false },
 })
 
-defineEmits(['update-flow', 'delay-flow', 'resume-flow'])
+defineEmits(['update-flow', 'delay-flow', 'resume-flow', 'refresh-content'])
 
 function hasProviderRelease(reservation = {}) {
   const raw = reservation?.raw && typeof reservation.raw === 'object' ? reservation.raw : {}
@@ -103,7 +104,7 @@ const releaseStageCards = computed(() => {
         <h2>Liberacion operativa del proveedor</h2>
         <p class="muted">
           Sigue el avance operativo del proveedor en una cabina separada: disponibilidad real,
-          tripulacion tecnica, despacho y alistamiento final antes de confirmar el vuelo.
+          tripulacion , despacho y alistamiento final antes de confirmar el vuelo.
         </p>
       </div>
 
@@ -126,6 +127,7 @@ const releaseStageCards = computed(() => {
       :audit-entries="auditEntries"
       :is-flow-loading="isFlowLoading"
       :flow-loading-label="flowLoadingLabel"
+      :is-content-refreshing="isContentRefreshing"
       :compact-mode="true"
       :show-admin-flow-panel="false"
       :show-hero-header="false"
@@ -138,6 +140,7 @@ const releaseStageCards = computed(() => {
       @update-flow="$emit('update-flow', $event)"
       @delay-flow="$emit('delay-flow', $event)"
       @resume-flow="$emit('resume-flow', $event)"
+      @refresh-content="$emit('refresh-content')"
     />
   </section>
 </template>

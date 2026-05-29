@@ -1017,7 +1017,7 @@ function tokenizeAirportValue(value = '') {
   if (!rawValue) return []
 
   return rawValue
-    .split(/[\s,/()\-]+/)
+    .split(/[\s,/()-]+/)
     .map((token) => normalizeText(token))
     .filter(Boolean)
 }
