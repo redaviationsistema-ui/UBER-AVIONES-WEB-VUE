@@ -60,13 +60,11 @@ export const roleSections = {
     { id: 'sobrecargos', label: 'Sobrecargos', icon: 'crew' },
     { id: 'reservas', label: 'Solicitudes / Reservas', icon: 'reservations' },
     { id: 'liberaciones', label: 'Liberaciones', icon: 'clipboard' },
-    { id: 'pricing', label: 'Pricing y margenes', icon: 'chart' },
     { id: 'suscripciones', label: 'Suscripciones', icon: 'wallet' },
     { id: 'contratos', label: 'Contratos', icon: 'link' },
     { id: 'pagos', label: 'Pagos / Finanzas', icon: 'wallet' },
     { id: 'incidencias', label: 'Incidencias', icon: 'alert' },
     { id: 'documentos', label: 'Documentos', icon: 'clipboard' },
-    { id: 'notificaciones', label: 'Notificaciones', icon: 'alert' },
     { id: 'configuracion', label: 'Configuracion', icon: 'grid' },
   ],
 }
@@ -92,12 +90,12 @@ export const roleSectionGroups = {
     { label: 'Control', ids: ['pagos', 'historial', 'configuracion'] },
   ],
   admin: [
-    { label: 'Ejecutivo', ids: ['ejecutivo', 'importaciones', 'usuarios', 'analytics', 'configuracion'] },
-    { label: 'Comercial', ids: ['clientes', 'reservas', 'pricing', 'paquetes', 'suscripciones', 'pagos'] },
+    { label: 'Cliente y Comercial', ids: ['clientes', 'reservas', 'contratos', 'pricing', 'paquetes', 'suscripciones', 'pagos'] },
     {
-      label: 'Operacion',
-      ids: ['proveedores', 'aeronaves', 'operadores', 'sobrecargos', 'liberaciones', 'contratos', 'documentos', 'incidencias', 'notificaciones'],
+      label: 'Operacion y Proveedores',
+      ids: ['proveedores', 'aeronaves', 'operadores', 'sobrecargos', 'liberaciones', 'documentos', 'incidencias', 'notificaciones'],
     },
+    { label: 'Control Interno', ids: ['ejecutivo', 'importaciones', 'usuarios', 'analytics', 'configuracion'] },
   ],
 }
 

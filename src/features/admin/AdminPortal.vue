@@ -7,6 +7,7 @@ import { useUiStore } from '../../stores/ui'
 import AdminAlertsSection from './AdminAlertsSection.vue'
 import AdminAircraftSubscriptionsSection from './AdminAircraftSubscriptionsSection.vue'
 import AdminCrewOperationsSection from './AdminCrewOperationsSection.vue'
+import AdminContractsSection from './AdminContractsSection.vue'
 import AdminCrudSection from './AdminCrudSection.vue'
 import AdminExecutiveSection from './AdminExecutiveSection.vue'
 import AdminImportsSection from './AdminImportsSection.vue'
@@ -34,6 +35,7 @@ const flags = ref([])
 const providers = ref([])
 const aircraft = ref([])
 const subscriptions = ref([])
+const contracts = ref([])
 const crewMembers = ref([])
 const operations = ref([])
 const auditEntries = ref([])
@@ -566,6 +568,15 @@ async function loadProviders() {
   }
 }
 
+async function loadContracts() {
+  try {
+    const response = await requestWithCandidates([{ method: 'get', path: '/admin/contracts' }])
+    contracts.value = pickCollection(response, ['contracts'])
+  } catch {
+    contracts.value = []
+  }
+}
+
 async function loadCrewMembers() {
   const [crewResult, usersResult] = await Promise.allSettled([
     requestWithCandidates([
@@ -734,6 +745,11 @@ async function loadPortalSection(section) {
 
   if (section === 'reservas') {
     await loadOperations({ silent: false })
+    return
+  }
+
+  if (section === 'contratos') {
+    await loadContracts()
     return
   }
 
@@ -1329,6 +1345,10 @@ watch(
     @delay-flow="handleDelayReservationFlow"
     @resume-flow="handleResumeReservationFlow"
     @refresh-content="refreshReservationContent"
+  />
+  <AdminContractsSection
+    v-else-if="section === 'contratos'"
+    :contracts="contracts"
   />
   <AdminCrudSection
     v-else

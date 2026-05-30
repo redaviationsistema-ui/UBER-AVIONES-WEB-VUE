@@ -12,6 +12,7 @@ import {
   roleLabels,
 } from '../features/register/registrationSteps'
 import '../features/register/registerWizard.css'
+import { resolveDashboardPathByRole } from '../lib/authRouting'
 import { useAuthStore } from '../stores/auth'
 
 const router = useRouter()
@@ -212,6 +213,18 @@ function validateCurrentStep() {
       return false
     }
 
+    if (form.identityValidationRequired) {
+      if (form.documentType === 'INE' && (!form.ineFront || !form.ineBack)) {
+        errorMessage.value = 'Sube la imagen de frente y reverso de la INE para escanearla.'
+        return false
+      }
+
+      if (!form.documentNumber.trim() || !form.documentExpiration) {
+        errorMessage.value = 'Completa numero de documento y vigencia antes de continuar.'
+        return false
+      }
+    }
+
     const biometricCaptureReady =
       Boolean(form.selfieFile) &&
       Boolean(form.selfiePreviewUrl) &&
@@ -348,6 +361,8 @@ function buildRegistrationPayload() {
 
   Object.entries(baseFields).forEach(([key, value]) => appendFormValue(formData, key, value))
 
+  appendFormValue(formData, 'ine_front', form.ineFront)
+  appendFormValue(formData, 'ine_back', form.ineBack)
   appendFormValue(formData, 'selfie_biometric', form.selfieFile)
 
   return formData
@@ -382,13 +397,16 @@ async function submit() {
     const payload = buildRegistrationPayload()
     logRegistrationPayload(payload)
     await auth.register(payload)
+    const targetDashboard = resolveDashboardPathByRole(form.role)
 
     successMessage.value =
       form.role === 'client'
-        ? 'Usuario creado. Entrando a la cotizacion gratis antes de activar membresia...'
-        : 'Usuario creado correctamente. Redirigiendo a tu cuenta...'
+        ? 'Usuario cliente creado. Entrando a su portal correspondiente.'
+        : form.role === 'provider'
+          ? 'Operador creado correctamente. Entrando a su panel operativo.'
+          : 'Sobrecargo creado correctamente. Entrando a su panel correspondiente.'
 
-    router.push(form.role === 'client' ? '/cliente/reservar' : auth.dashboardPath)
+    router.push(targetDashboard || auth.dashboardPath)
   } catch (error) {
     errorMessage.value = error.message || 'No fue posible crear el usuario.'
     openErrorModal(error)

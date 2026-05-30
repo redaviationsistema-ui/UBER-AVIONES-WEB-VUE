@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { pickCollection, requestWithCandidates } from '../../lib/backendCrud'
+import { resolveMediaUrl } from '../../lib/api'
 import { resolveProviderIdForUser } from '../../lib/providerContext'
 import { useUiStore } from '../../stores/ui'
 
@@ -21,14 +22,14 @@ const defaultRoleBlueprints = [
   },
   {
     key: 'provider',
-    name: 'Provider',
+    name: 'Operador',
     description: 'Gestiona flota, disponibilidad, documentos y cumplimiento operativo.',
     permissions: ['Flota', 'Disponibilidad', 'Documentos', 'Asignaciones'],
     scope: 'Red operativa y capacidad',
   },
   {
     key: 'client',
-    name: 'Client',
+    name: 'Cliente',
     description: 'Cotiza, reserva, firma y consulta su operacion comercial.',
     permissions: ['Cotizaciones', 'Reservas', 'Contratos', 'Pagos'],
     scope: 'Experiencia comercial protegida',
@@ -49,6 +50,8 @@ const filtersOpen = ref(true)
 const searchTerm = ref('')
 const statusFilter = ref('todos')
 const roleFilter = ref('todos')
+const commercialAccessFilter = ref('todos')
+const activePanel = ref('users')
 const drawerMode = ref('create')
 const drawerOpen = ref(false)
 const roleModalMode = ref('create')
@@ -105,18 +108,15 @@ const filteredUsers = computed(() =>
     const matchesStatus =
       statusFilter.value === 'todos' || normalizeStatusKey(user.status) === statusFilter.value
     const matchesRole = roleFilter.value === 'todos' || normalizeRoleKey(user.role) === roleFilter.value
+    const matchesCommercialAccess =
+      commercialAccessFilter.value === 'todos' ||
+      (commercialAccessFilter.value === 'no-aplica' && !isClientUser(user)) ||
+      (isClientUser(user) &&
+        ((commercialAccessFilter.value === 'habilitado' && commercialAccessTone(user) === 'success') ||
+          (commercialAccessFilter.value === 'bloqueado' && commercialAccessTone(user) === 'blocked')))
 
-    return matchesSearch && matchesStatus && matchesRole
+    return matchesSearch && matchesStatus && matchesRole && matchesCommercialAccess
   }),
-)
-
-const featuredUsers = computed(() => filteredUsers.value.slice(0, 4))
-
-const usersByRole = computed(() =>
-  roleSummaries.value.map((role) => ({
-    ...role,
-    usersList: filteredUsers.value.filter((user) => normalizeRoleKey(user.role) === role.key),
-  })),
 )
 
 const userSignals = computed(() => {
@@ -127,49 +127,13 @@ const userSignals = computed(() => {
   const suspended = localUsers.value.filter((user) => normalizeStatusKey(user.status) === 'suspendido').length
 
   return [
-    { label: 'Usuarios registrados', value: String(total), detail: 'Base total visible en el panel.' },
-    { label: 'Activos', value: String(active), detail: 'Perfiles con acceso operativo habilitado.' },
-    { label: 'Admins', value: String(admins), detail: 'Usuarios con control ejecutivo o total.' },
-    { label: 'Clientes', value: String(clients), detail: 'Perfiles comerciales y corporativos.' },
-    { label: 'Suspendidos', value: String(suspended), detail: 'Cuentas en pausa o bajo observacion.' },
+    { label: 'Total usuarios', value: String(total), detail: 'Base visible en el panel.', tone: 'neutral' },
+    { label: 'Activos', value: String(active), detail: 'Perfiles operativos habilitados.', tone: 'success' },
+    { label: 'Administradores', value: String(admins), detail: 'Control ejecutivo o total.', tone: 'accent' },
+    { label: 'Clientes', value: String(clients), detail: 'Perfiles comerciales y corporativos.', tone: 'info' },
+    { label: 'Suspendidos', value: String(suspended), detail: 'Cuentas en pausa o revision.', tone: 'danger' },
   ]
 })
-
-const governanceNotes = computed(() => [
-  {
-    title: 'CRUD principal en directorio',
-    text: 'Altas, edicion, cambio de rol y suspension viven donde esta la base completa de usuarios.',
-  },
-  {
-    title: 'Roles en capa separada',
-    text: 'La administracion de permisos no se mezcla con tarjetas de perfil ni lectura ejecutiva.',
-  },
-  {
-    title: 'Destacados solo para acceso rapido',
-    text: 'Las tarjetas se reservan para revisar y auditar, no para concentrar toda la operacion.',
-  },
-])
-
-const recentActivity = computed(() =>
-  localUsers.value.slice(0, 4).map((user, index) => ({
-    id: user.id,
-    title:
-      index % 2 === 0
-        ? `Revision de acceso para ${user.name}`
-        : `Perfil actualizado en ${user.role}`,
-    detail:
-      index % 2 === 0
-        ? `Se reviso estado ${user.status.toLowerCase()} y permisos especiales.`
-        : `Ultimo movimiento registrado en ${user.lastAudit}.`,
-  })),
-)
-
-const accessCoverage = computed(() => [
-  { label: 'Roles activos', value: String(localRoles.value.length) },
-  { label: 'Permisos auditables', value: String(roleSummaries.value.reduce((acc, role) => acc + role.permissions.length, 0)) },
-  { label: 'Usuarios filtrados', value: String(filteredUsers.value.length) },
-  { label: 'Invitaciones listas', value: String(localUsers.value.filter((user) => user.invitationSent).length) },
-])
 
 function buildEmptyUser() {
   return {
@@ -292,13 +256,24 @@ function normalizeUserRecord(user = {}, index = 0) {
 }
 
 function normalizeRoleRecord(role = {}) {
-  const name = role.display_name || role.name || role.label || 'Nuevo rol'
+  const normalizedKey = normalizeRoleKey(role.key || role.slug || role.code || role.display_name || role.name || role.label)
+  const fallbackName =
+    normalizedKey === 'provider'
+      ? 'Operador'
+      : normalizedKey === 'client'
+        ? 'Cliente'
+        : normalizedKey === 'sobrecargo'
+          ? 'Sobrecargo'
+          : normalizedKey === 'admin'
+            ? 'Admin'
+            : 'Nuevo rol'
+  const name = role.display_name || role.name || role.label || fallbackName
   return {
-    key: normalizeRoleKey(role.key || role.slug || role.code || name),
+    key: normalizedKey,
     name,
     description: role.description || 'Permisos personalizados del modulo.',
     permissions: normalizePermissions(role.permissions),
-    scope: role.scope || role.coverage || 'Cobertura personalizada',
+    scope: role.scope || role.coverage || 'Permisos personalizados',
   }
 }
 
@@ -418,6 +393,144 @@ function userDetailRows(detail = {}) {
   ])
 }
 
+function identityDetailRows(detail = {}) {
+  return buildDetailRows(detail, [
+    { label: 'Tipo de documento', paths: ['user.profile.document_type'] },
+    { label: 'Numero de documento', paths: ['user.profile.document_number'] },
+    { label: 'Vigencia', paths: ['user.profile.document_expiration'] },
+    { label: 'Nacionalidad', paths: ['user.profile.nationality'] },
+    { label: 'CURP', paths: ['user.profile.ine_curp'] },
+    { label: 'CIC', paths: ['user.profile.ine_cic'] },
+    { label: 'OCR', paths: ['user.profile.ine_ocr'] },
+    { label: 'Estado de escaneo', paths: ['user.profile.ine_scan_status'] },
+    { label: 'Validacion requerida', paths: ['user.profile.identity_validation_required'] },
+    { label: 'INE frente', paths: ['user.profile.ine_front_path'] },
+    { label: 'INE reverso', paths: ['user.profile.ine_back_path'] },
+  ])
+}
+
+function resolveLatestVerification(detail = {}) {
+  const verifications =
+    detail?.user?.raw?.identityVerifications ||
+    detail?.user?.raw?.identity_verifications ||
+    detail?.user?.identityVerifications ||
+    detail?.user?.identity_verifications
+  if (Array.isArray(verifications) && verifications.length) {
+    return verifications[0]
+  }
+  return null
+}
+
+function resolveBiometricSelfieUrl(detail = {}) {
+  const rawUrl =
+    getNestedValue(detail, [
+      'user.biometric_selfie_url',
+      'user.raw.biometric_selfie_url',
+      'user.raw.biometricSelfieUrl',
+    ]) ||
+    ''
+
+  if (rawUrl) {
+    return resolveMediaUrl(rawUrl)
+  }
+
+  return ''
+}
+
+function biometricDetailRows(detail = {}) {
+  const verification = resolveLatestVerification(detail)
+
+  return [
+    {
+      label: 'Estado biometrico',
+      value: formatDetailValue(
+        getNestedValue(detail, ['user.raw.identity_verification_status', 'user.raw.identityVerificationStatus']),
+      ),
+    },
+    {
+      label: 'Mensaje biometrico',
+      value: formatDetailValue(
+        getNestedValue(detail, ['user.raw.identity_verification_message', 'user.raw.identityVerificationMessage']),
+      ),
+    },
+    {
+      label: 'Identidad verificada',
+      value: formatDetailValue(
+        getNestedValue(detail, ['user.raw.identity_verified', 'user.raw.identityVerified']),
+      ),
+    },
+    {
+      label: 'Rostro detectado',
+      value: formatDetailValue(
+        getNestedValue(detail, ['user.raw.face_detected', 'user.raw.faceDetected']),
+      ),
+    },
+    {
+      label: 'Face confidence',
+      value: formatDetailValue(verification?.face_confidence),
+    },
+    {
+      label: 'Face match score',
+      value: formatDetailValue(
+        getNestedValue(detail, ['user.raw.face_match_score', 'user.raw.faceMatchScore']) ||
+          verification?.face_match_score ||
+          verification?.face_confidence,
+      ),
+    },
+    {
+      label: 'Liveness score',
+      value: formatDetailValue(
+        getNestedValue(detail, ['user.raw.liveness_score', 'user.raw.livenessScore']) || verification?.liveness_score,
+      ),
+    },
+    {
+      label: 'Brightness',
+      value: formatDetailValue(verification?.brightness),
+    },
+    {
+      label: 'Sharpness',
+      value: formatDetailValue(verification?.sharpness),
+    },
+    {
+      label: 'Pose yaw / pitch / roll',
+      value: formatDetailValue(
+        verification
+          ? `${verification.yaw ?? 'Sin dato'} / ${verification.pitch ?? 'Sin dato'} / ${verification.roll ?? 'Sin dato'}`
+          : '',
+      ),
+    },
+    {
+      label: 'Face occluded',
+      value: formatDetailValue(verification?.face_occluded),
+    },
+    {
+      label: 'Proveedor biometrico',
+      value: formatDetailValue(
+        getNestedValue(detail, ['user.raw.biometric_provider', 'user.raw.biometricProvider']) || verification?.provider,
+      ),
+    },
+    {
+      label: 'Tipo de plantilla',
+      value: formatDetailValue(
+        getNestedValue(detail, ['user.raw.biometric_template_type', 'user.raw.biometricTemplateType']) ||
+          verification?.template_type,
+      ),
+    },
+    {
+      label: 'Selfie biometrica',
+      value: formatDetailValue(
+        getNestedValue(detail, ['user.raw.biometric_selfie_path', 'user.raw.biometricSelfiePath']) || verification?.image_path,
+      ),
+    },
+    {
+      label: 'Capturada en',
+      value: formatDetailValue(
+        getNestedValue(detail, ['user.raw.biometric_captured_at', 'user.raw.biometricCapturedAt']),
+      ),
+    },
+  ]
+}
+
 function resolveCommercialAccessState(detail = {}) {
   const user = detail?.user || {}
   const access = user.access || user.raw?.access || {}
@@ -523,9 +636,15 @@ async function openUserDetail(user) {
   }
 
   try {
+    const response = await requestWithCandidates([
+      { method: 'get', path: `/admin/usuarios/${user.id}` },
+      { method: 'get', path: `/admin/users/${user.id}` },
+    ])
+    const detailedUser = normalizeUserRecord(pickRecord(response, ['user']), 0)
+
     selectedUserDetail.value = {
-      user,
-      provider: user.provider,
+      user: detailedUser,
+      provider: detailedUser.provider,
     }
   } catch (error) {
     detailError.value = error.message || 'No fue posible cargar el detalle completo.'
@@ -580,6 +699,14 @@ function formatRoleName(roleKey) {
 
 function toggleFilters() {
   filtersOpen.value = !filtersOpen.value
+}
+
+function openUsersPanel() {
+  activePanel.value = 'users'
+}
+
+function openRolesPanel() {
+  activePanel.value = 'roles'
 }
 
 watch(
@@ -645,8 +772,8 @@ function validateUserForm() {
     errors.phone = 'El telefono debe tener al menos 7 digitos.'
   }
 
-  if (drawerMode.value === 'create' && trimmedPassword && trimmedPassword.length < 6) {
-    errors.password = 'La password temporal debe tener al menos 6 caracteres.'
+  if (drawerMode.value === 'create' && trimmedPassword && trimmedPassword.length < 8) {
+    errors.password = 'La password temporal debe tener al menos 8 caracteres.'
   }
 
   if (!String(userForm.value.role || '').trim()) {
@@ -1018,25 +1145,43 @@ function auditUser(user) {
 <template>
   <div class="admin-users-page">
     <section class="dashboard-hero">
-      <div class="hero-center">
+      <div class="hero-center hero-compact">
         <p class="eyebrow dark-eyebrow">Usuarios y roles</p>
-        <h1>Gestiona accesos, perfiles y permisos desde una sola vista de control.</h1>
+        <h1>Usuarios y roles</h1>
         <p class="hero-subtitle">
-          Administra el ciclo completo de usuarios desde una lectura clara, ejecutiva y consistente con el resto del admin.
+          Administra accesos, permisos y perfiles del equipo desde una operacion mas clara y rapida.
         </p>
         <div class="hero-actions">
-          <button type="button" class="admin-btn admin-btn-primary" @click="openCreateUser">Nuevo usuario</button>
+          <button type="button" class="admin-btn admin-btn-primary" @click="openCreateUser">+ Nuevo usuario</button>
           <button type="button" class="admin-btn admin-btn-secondary" @click="openCreateRole">Sincronizar roles</button>
           <button type="button" class="admin-btn admin-btn-ghost" @click="exportUsers">Exportar</button>
           <button type="button" class="admin-btn admin-btn-ghost" @click="toggleFilters">
             {{ filtersOpen ? 'Ocultar filtros' : 'Filtros' }}
           </button>
         </div>
+        <div class="panel-switch" role="tablist" aria-label="Vista de usuarios y roles">
+          <button
+            type="button"
+            class="panel-switch-btn"
+            :class="{ 'panel-switch-btn-active': activePanel === 'users' }"
+            @click="openUsersPanel"
+          >
+            Usuarios
+          </button>
+          <button
+            type="button"
+            class="panel-switch-btn"
+            :class="{ 'panel-switch-btn-active': activePanel === 'roles' }"
+            @click="openRolesPanel"
+          >
+            Roles y permisos
+          </button>
+        </div>
       </div>
     </section>
 
     <section class="status-strip">
-      <article v-for="item in userSignals" :key="item.label" class="signal-card">
+      <article v-for="item in userSignals" :key="item.label" class="signal-card" :class="`signal-card-${item.tone}`">
         <span>{{ item.label }}</span>
         <strong>{{ item.value }}</strong>
         <p>{{ item.detail }}</p>
@@ -1045,8 +1190,8 @@ function auditUser(user) {
 
     <section v-if="filtersOpen" class="filters-panel">
       <label class="field search-field">
-        <span>Buscar usuario</span>
-        <input v-model="searchTerm" type="search" placeholder="Nombre, correo, telefono, rol o estado" />
+        <span>Buscar</span>
+        <input v-model="searchTerm" type="search" placeholder="Nombre, correo o telefono" />
       </label>
 
       <label class="field">
@@ -1065,13 +1210,23 @@ function auditUser(user) {
           <option v-for="role in roleSummaries" :key="role.key" :value="role.key">{{ role.name }}</option>
         </select>
       </label>
+
+      <label class="field">
+        <span>Acceso comercial</span>
+        <select v-model="commercialAccessFilter">
+          <option value="todos">Todos</option>
+          <option value="habilitado">Habilitado</option>
+          <option value="bloqueado">Bloqueado</option>
+          <option value="no-aplica">No aplica</option>
+        </select>
+      </label>
     </section>
 
-    <section class="editorial-section">
+    <section v-if="activePanel === 'roles'" class="editorial-section">
       <div class="section-heading split-heading">
         <div>
           <h2>Roles y permisos</h2>
-          <p>Esta capa resume los roles disponibles para que el admin los asigne desde el directorio de usuarios.</p>
+          <p>Consulta el alcance de cada rol y despues vuelve al directorio para asignarlo a usuarios existentes.</p>
         </div>
         <button type="button" class="admin-btn admin-btn-secondary" @click="openCreateRole">Recargar roles</button>
       </div>
@@ -1079,184 +1234,30 @@ function auditUser(user) {
       <div class="workstreams-grid roles-layout">
         <article v-for="role in roleSummaries" :key="role.key" class="workstream-card role-stream-card">
           <span class="workstream-label">{{ role.name }}</span>
-          <h3>{{ role.scope }}</h3>
+          <h3>{{ role.name }}</h3>
+          <span class="role-scope">{{ role.scope }}</span>
           <p class="workstream-copy">{{ role.description }}</p>
           <strong class="stream-meta">{{ role.users }} usuarios</strong>
           <ul>
             <li v-for="permission in role.permissions" :key="permission">{{ permission }}</li>
           </ul>
           <div class="inline-actions">
-            <button type="button" class="admin-text-btn" @click="openEditRole(role)">Ver rol</button>
+            <button type="button" class="admin-text-btn" @click="openEditRole(role)">Ver permisos</button>
+            <button type="button" class="admin-text-btn" @click="openUsersPanel">Asignar desde usuarios</button>
           </div>
         </article>
       </div>
     </section>
 
-    <section class="editorial-section">
-      <div class="section-heading">
-        <h2>Como opera esta vista</h2>
-        <p>La administracion se organiza en capas para que el equipo sepa donde crear, revisar, editar y auditar sin saturar una sola zona.</p>
-      </div>
-
-      <div class="workstreams-grid">
-        <article v-for="note in governanceNotes" :key="note.title" class="workstream-card">
-          <span class="workstream-label">{{ note.title }}</span>
-          <p class="workstream-copy">{{ note.text }}</p>
-        </article>
-        <article class="workstream-card">
-          <span class="workstream-label">Cobertura</span>
-          <ul>
-            <li v-for="item in accessCoverage" :key="item.label">{{ item.label }}: {{ item.value }}</li>
-          </ul>
-        </article>
-        <article class="workstream-card">
-          <span class="workstream-label">Actividad reciente</span>
-          <ul>
-            <li v-for="item in recentActivity" :key="item.id">{{ item.title }}</li>
-          </ul>
-        </article>
-      </div>
-    </section>
-
-    <section class="editorial-section">
-      <div class="section-heading">
-        <h2>Perfiles destacados</h2>
-        <p>Una seleccion rapida para auditar y revisar perfiles sin mezclar toda la administracion operativa en las tarjetas.</p>
-      </div>
-
-      <div class="featured-grid">
-        <article v-for="user in featuredUsers" :key="user.id" class="featured-card">
-          <div class="profile-topline">
-            <div class="avatar-badge">{{ userInitials(user.name) }}</div>
-            <div>
-              <span class="role-chip">{{ user.role }}</span>
-              <h3>{{ user.name }}</h3>
-            </div>
-          </div>
-
-          <p>{{ user.email }}</p>
-
-          <div class="meta-row">
-            <span
-              class="status-pill"
-              :class="{
-                'status-pill-warn': normalizeStatusKey(user.status) === 'suspendido',
-                'status-pill-danger': normalizeStatusKey(user.status) === 'inactivo',
-              }"
-            >
-              {{ user.status }}
-            </span>
-            <span
-              v-if="isClientUser(user)"
-              class="status-pill status-pill-commercial"
-              :class="{
-                'status-pill-success': commercialAccessTone(user) === 'success',
-                'status-pill-danger': commercialAccessTone(user) === 'blocked',
-              }"
-            >
-              {{ commercialAccessLabel(user) }}
-            </span>
-            <button
-              v-if="shouldShowCommercialAccessAction(user)"
-              type="button"
-              class="admin-mini-btn commercial-access-btn"
-              @click="toggleCommercialAccess(user)"
-            >
-              {{ commercialAccessActionLabel(user) }} comercial
-            </button>
-            <small>Ultima auditoria: {{ user.lastAudit }}</small>
-          </div>
-
-          <div class="inline-actions">
-            <button type="button" class="admin-text-btn" @click="openEditUser(user)">Ver perfil</button>
-            <button type="button" class="admin-text-btn" @click="auditUser(user)">Auditar</button>
-          </div>
-        </article>
-
-        <article v-if="!featuredUsers.length" class="featured-card empty-card">
-          <h3>Sin usuarios disponibles</h3>
-          <p>Cuando existan registros que cumplan con los filtros, apareceran aqui para revision operativa.</p>
-        </article>
-      </div>
-    </section>
-
-    <section class="editorial-section">
-      <div class="section-heading">
-        <h2>Directorio por rol</h2>
-        <p>Una lectura segmentada para que el admin revise cada frente de acceso sin depender solo de filtros manuales.</p>
-      </div>
-
-      <div class="role-directory-grid">
-        <article v-for="role in usersByRole" :key="role.key" class="role-directory-card">
-          <div class="role-directory-head">
-            <div>
-              <span class="workstream-label">{{ role.name }}</span>
-              <h3>{{ role.usersList.length }} usuarios</h3>
-            </div>
-            <span class="role-chip">{{ role.scope }}</span>
-          </div>
-
-          <div v-if="role.usersList.length" class="role-directory-list">
-            <div v-for="user in role.usersList.slice(0, 5)" :key="`${role.key}-${user.id}`" class="role-directory-row">
-              <div class="user-cell">
-                <div class="avatar-mini">{{ userInitials(user.name) }}</div>
-                <div class="cell-stack">
-                  <strong>{{ user.name }}</strong>
-                  <small>{{ user.email }}</small>
-                </div>
-              </div>
-
-              <div class="role-directory-meta">
-                <div class="role-directory-badges">
-                  <span
-                    class="status-pill"
-                    :class="{
-                      'status-pill-warn': normalizeStatusKey(user.status) === 'suspendido',
-                      'status-pill-danger': normalizeStatusKey(user.status) === 'inactivo',
-                    }"
-                  >
-                    {{ user.status }}
-                  </span>
-                  <span
-                    v-if="isClientUser(user)"
-                    class="status-pill status-pill-commercial"
-                    :class="{
-                      'status-pill-success': commercialAccessTone(user) === 'success',
-                      'status-pill-danger': commercialAccessTone(user) === 'blocked',
-                    }"
-                  >
-                    {{ commercialAccessLabel(user) }}
-                  </span>
-                  <button
-                    v-if="shouldShowCommercialAccessAction(user)"
-                    type="button"
-                    class="admin-mini-btn commercial-access-btn"
-                    @click="toggleCommercialAccess(user)"
-                  >
-                    {{ commercialAccessActionLabel(user) }}
-                  </button>
-                </div>
-                <button type="button" class="admin-text-btn" @click="openEditUser(user)">Editar</button>
-              </div>
-            </div>
-          </div>
-
-          <div v-else class="role-directory-empty">
-            No hay usuarios visibles para este rol con los filtros actuales.
-          </div>
-        </article>
-      </div>
-    </section>
-
-    <section class="editorial-section">
+    <section v-else class="editorial-section">
       <div class="section-heading split-heading">
         <div>
-          <h2>Directorio completo</h2>
+          <h2>Directorio de usuarios</h2>
           <p>{{ filteredUsers.length }} registros listos para consulta, edicion, suspension y cambio de rol.</p>
         </div>
         <div class="hero-actions">
-          <button type="button" class="admin-btn admin-btn-primary" @click="openCreateUser">Nuevo usuario</button>
-          <button type="button" class="admin-btn admin-btn-secondary" @click="openCreateRole">Recargar roles</button>
+          <button type="button" class="admin-btn admin-btn-primary" @click="openCreateUser">+ Nuevo usuario</button>
+          <button type="button" class="admin-btn admin-btn-secondary" @click="openRolesPanel">Ver roles</button>
         </div>
       </div>
 
@@ -1510,6 +1511,39 @@ function auditUser(user) {
               </div>
             </section>
 
+            <section class="detail-section">
+              <div class="detail-section-head">
+                <h4>Identidad e INE</h4>
+                <span class="status-pill">Expediente</span>
+              </div>
+              <div class="detail-grid">
+                <article v-for="row in identityDetailRows(selectedUserDetail)" :key="row.label" class="detail-card">
+                  <span>{{ row.label }}</span>
+                  <strong>{{ row.value }}</strong>
+                </article>
+              </div>
+            </section>
+
+            <section class="detail-section">
+              <div class="detail-section-head">
+                <h4>Biometria</h4>
+                <span class="status-pill">Validacion</span>
+              </div>
+              <div v-if="resolveBiometricSelfieUrl(selectedUserDetail)" class="detail-media-preview">
+                <img
+                  :src="resolveBiometricSelfieUrl(selectedUserDetail)"
+                  alt="Selfie biometrica del usuario"
+                  class="detail-media-image"
+                />
+              </div>
+              <div class="detail-grid">
+                <article v-for="row in biometricDetailRows(selectedUserDetail)" :key="row.label" class="detail-card">
+                  <span>{{ row.label }}</span>
+                  <strong>{{ row.value }}</strong>
+                </article>
+              </div>
+            </section>
+
             <section v-if="selectedUserDetail?.provider" class="detail-section">
               <div class="detail-section-head">
                 <h4>Proveedor</h4>
@@ -1633,7 +1667,7 @@ function auditUser(user) {
 
 .dashboard-hero {
   display: grid;
-  min-height: 48vh;
+  min-height: auto;
   padding-top: 1rem;
   background:
     radial-gradient(circle at top right, rgba(201, 164, 90, 0.12), transparent 18%),
@@ -1642,10 +1676,14 @@ function auditUser(user) {
 
 .hero-center {
   display: grid;
-  justify-items: center;
-  align-content: center;
+  align-content: start;
   gap: 1rem;
-  text-align: center;
+}
+
+.hero-compact {
+  max-width: 980px;
+  justify-items: start;
+  text-align: left;
 }
 
 .dark-eyebrow {
@@ -1664,9 +1702,9 @@ function auditUser(user) {
 }
 
 .hero-center h1 {
-  max-width: 14ch;
-  font-size: clamp(2.8rem, 6vw, 4.4rem);
-  line-height: 0.94;
+  max-width: none;
+  font-size: clamp(2.2rem, 5vw, 3.4rem);
+  line-height: 0.98;
 }
 
 .hero-subtitle,
@@ -1690,7 +1728,34 @@ function auditUser(user) {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
-  justify-content: center;
+  justify-content: flex-start;
+}
+
+.panel-switch {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.4rem;
+  border: 1px solid #eadfbe;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.panel-switch-btn {
+  appearance: none;
+  min-height: 2.65rem;
+  padding: 0 1rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #6b7280;
+  font: inherit;
+  font-weight: 800;
+}
+
+.panel-switch-btn-active {
+  color: #111827;
+  background: #f3ead2;
 }
 
 .admin-btn {
@@ -1770,6 +1835,22 @@ function auditUser(user) {
   padding: 1rem 1.05rem;
 }
 
+.signal-card-success {
+  background: linear-gradient(180deg, #ffffff 0%, #f1faf5 100%);
+}
+
+.signal-card-info {
+  background: linear-gradient(180deg, #ffffff 0%, #f3f7fc 100%);
+}
+
+.signal-card-accent {
+  background: linear-gradient(180deg, #ffffff 0%, #fbf6ea 100%);
+}
+
+.signal-card-danger {
+  background: linear-gradient(180deg, #ffffff 0%, #fff6f5 100%);
+}
+
 .signal-card span,
 .workstream-label {
   color: #666666;
@@ -1780,12 +1861,13 @@ function auditUser(user) {
 }
 
 .signal-card strong {
-  font-size: 1rem;
+  font-size: 1.5rem;
+  line-height: 1;
 }
 
 .filters-panel {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) repeat(2, minmax(180px, 0.5fr));
+  grid-template-columns: minmax(0, 1.8fr) repeat(3, minmax(180px, 0.6fr));
   gap: 1rem;
   margin: 0 clamp(1.25rem, 5vw, 4.5rem);
   padding: 1rem;
@@ -1838,12 +1920,18 @@ function auditUser(user) {
 }
 
 .role-stream-card h3 {
-  font-size: 1.3rem;
+  font-size: 1.2rem;
   line-height: 1.05;
 }
 
 .stream-meta {
   color: #8c6a1f;
+}
+
+.role-scope {
+  color: #8c6a1f;
+  font-size: 0.85rem;
+  font-weight: 700;
 }
 
 .admin-text-btn,
@@ -1857,65 +1945,6 @@ function auditUser(user) {
 
 .admin-text-btn {
   padding: 0;
-}
-
-.featured-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 1rem;
-}
-
-.role-directory-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
-}
-
-.role-directory-card {
-  display: grid;
-  gap: 1rem;
-  padding: 1rem;
-  border: 1px solid #ebebeb;
-  border-radius: 24px;
-  background:
-    linear-gradient(180deg, #ffffff 0%, #fbf8f1 100%);
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.05);
-}
-
-.role-directory-head,
-.role-directory-row,
-.role-directory-meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-}
-
-.role-directory-head h3 {
-  margin: 0.25rem 0 0;
-  font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif;
-  font-size: 1.35rem;
-  letter-spacing: -0.04em;
-}
-
-.role-directory-list {
-  display: grid;
-  gap: 0.75rem;
-}
-
-.role-directory-row {
-  padding: 0.9rem 0;
-  border-top: 1px solid #ece7da;
-}
-
-.role-directory-row:first-child {
-  border-top: 0;
-  padding-top: 0;
-}
-
-.role-directory-empty {
-  color: #6b7280;
-  padding: 1rem 0;
 }
 
 .profile-topline {
@@ -2047,13 +2076,6 @@ function auditUser(user) {
   flex-wrap: wrap;
   gap: 0.45rem;
   justify-content: flex-start;
-}
-
-.role-directory-badges {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 0.45rem;
 }
 
 .table-muted {
@@ -2215,6 +2237,20 @@ function auditUser(user) {
   gap: 0.75rem;
 }
 
+.detail-media-preview {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.detail-media-image {
+  width: min(100%, 320px);
+  max-height: 320px;
+  object-fit: cover;
+  border: 1px solid #ece7da;
+  border-radius: 18px;
+  background: #ffffff;
+}
+
 .detail-card,
 .detail-list-row {
   display: grid;
@@ -2353,9 +2389,7 @@ function auditUser(user) {
 }
 
 @media (max-width: 1220px) {
-  .status-strip,
-  .featured-grid,
-  .role-directory-grid {
+  .status-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -2387,9 +2421,7 @@ function auditUser(user) {
 }
 
 @media (max-width: 720px) {
-  .status-strip,
-  .featured-grid,
-  .role-directory-grid {
+  .status-strip {
     grid-template-columns: 1fr;
   }
 

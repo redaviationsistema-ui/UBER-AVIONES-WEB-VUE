@@ -2,6 +2,10 @@
 defineProps({
   form: { type: Object, required: true },
 })
+
+function handleUppercaseInput(event, form, field) {
+  form[field] = String(event?.target?.value || '').toUpperCase()
+}
 </script>
 
 <template>
@@ -13,7 +17,13 @@ defineProps({
 
     <label>
       Nombre completo
-      <input v-model="form.name" type="text" placeholder="Nombre completo" autocomplete="name" />
+      <input
+        :value="form.name"
+        type="text"
+        placeholder="Nombre completo"
+        autocomplete="name"
+        @input="handleUppercaseInput($event, form, 'name')"
+      />
     </label>
 
     <div class="form-grid">

@@ -204,12 +204,18 @@ function resolveGroupIcon(label) {
   const iconMap = {
     portal: 'grid',
     operacion: 'jet',
+    operador: 'jet',
+    'operacion y proveedores': 'jet',
     coordinacion: 'clipboard',
     control: 'shield',
+    'control interno': 'shield',
     seguimiento: 'history',
     cuenta: 'account',
     ejecutivo: 'chart',
     comercial: 'wallet',
+    cliente: 'wallet',
+    'cliente y comercial': 'wallet',
+    administrador: 'shield',
   }
 
   return resolveIcon(iconMap[String(label || '').toLowerCase()] || 'grid')
