@@ -285,7 +285,7 @@ watch(
         </header>
 
         <template v-if="isSessionReady">
-          <ClientPortal v-if="activeRole === 'client'" :key="`client-${section}`" :section="section" />
+          <ClientPortal v-if="activeRole === 'client'" key="client-portal" :section="section" />
           <OperatorPortal v-else-if="activeRole === 'operator'" :key="`operator-${section}`" :section="section" />
           <CrewPortal v-else-if="activeRole === 'crew'" :key="`crew-${section}`" :section="section" />
           <AdminPortal v-else :key="`admin-${section}`" :section="section" />

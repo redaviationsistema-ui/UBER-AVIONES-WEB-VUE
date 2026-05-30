@@ -96,11 +96,11 @@ function generatePassword() {
 
     <aside v-if="props.form.role === 'client'" class="client-preview">
       <p class="eyebrow">Acceso cliente</p>
-      <h3>Cotizador de prueba + membresia</h3>
+      <h3>Cotizacion gratis + membresia</h3>
       <ul>
         <li v-for="item in clientAccessPreview" :key="item">{{ item }}</li>
       </ul>
-      <strong>USD $115</strong>
+      <strong>USD $115 / mes</strong>
     </aside>
 
     <button type="submit" class="primary-button" :disabled="props.loading">

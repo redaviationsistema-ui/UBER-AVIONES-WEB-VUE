@@ -20,7 +20,7 @@ defineProps({
       <small>
         {{
           role === 'client'
-            ? 'Cotizar vuelos y pagar membresia'
+            ? 'Registrarse, cotizar gratis y luego activar membresia'
             : role === 'provider'
               ? 'Gestionar operacion y flota'
               : 'Acceso de tripulacion'

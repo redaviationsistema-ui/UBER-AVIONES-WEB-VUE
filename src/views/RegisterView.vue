@@ -50,6 +50,28 @@ const form = reactive({
   ineFrontName: '',
   ineBack: null,
   ineBackName: '',
+  selfieFile: null,
+  selfieFileName: '',
+  selfiePreviewUrl: '',
+  identityVerificationStatus: '',
+  identityVerificationMessage: '',
+  identityVerified: false,
+  faceDetected: false,
+  faceMatchScore: null,
+  livenessScore: null,
+  imageStorageScore: 0,
+  biometricImageSaved: false,
+  biometricCapturedAt: '',
+  biometricProvider: '',
+  biometricTemplateType: '',
+  facesCount: 0,
+  faceConfidence: null,
+  qualityBrightness: null,
+  qualitySharpness: null,
+  poseYaw: null,
+  posePitch: null,
+  poseRoll: null,
+  faceOccluded: null,
   billingRfc: '',
   billingName: '',
   billingRegime: '',
@@ -83,11 +105,83 @@ function setFile(field, event) {
   const file = event.target.files?.[0] || null
   form[field] = file
   form[`${field}Name`] = file?.name || ''
-  form.ineScanStatus = ''
-  form.ineScanRaw = ''
+  form.selfieFile = null
+  form.selfieFileName = ''
+  form.selfiePreviewUrl = ''
+  form.identityVerificationStatus = ''
+  form.identityVerificationMessage = ''
+  form.identityVerified = false
+  form.faceDetected = false
+  form.faceMatchScore = null
+  form.livenessScore = null
+  form.imageStorageScore = 0
+  form.biometricImageSaved = false
+  form.biometricCapturedAt = ''
+  form.biometricProvider = ''
+  form.biometricTemplateType = ''
+  form.facesCount = 0
+  form.faceConfidence = null
+  form.qualityBrightness = null
+  form.qualitySharpness = null
+  form.poseYaw = null
+  form.posePitch = null
+  form.poseRoll = null
+  form.faceOccluded = null
 }
 
 function setFormField(field, value) {
+  if (field === 'documentType' && form.documentType !== value) {
+    form.selfieFile = null
+    form.selfieFileName = ''
+    form.selfiePreviewUrl = ''
+    form.identityVerificationStatus = ''
+    form.identityVerificationMessage = ''
+    form.identityVerified = false
+    form.faceDetected = false
+    form.faceMatchScore = null
+    form.livenessScore = null
+    form.imageStorageScore = 0
+    form.biometricImageSaved = false
+    form.biometricCapturedAt = ''
+    form.biometricProvider = ''
+    form.biometricTemplateType = ''
+    form.facesCount = 0
+    form.faceConfidence = null
+    form.qualityBrightness = null
+    form.qualitySharpness = null
+    form.poseYaw = null
+    form.posePitch = null
+    form.poseRoll = null
+    form.faceOccluded = null
+  }
+
+  if (field === 'identityValidationRequired') {
+    form.identityVerificationStatus = ''
+    form.identityVerificationMessage = ''
+    form.identityVerified = false
+    form.faceDetected = false
+    form.faceMatchScore = null
+    form.livenessScore = null
+    form.imageStorageScore = 0
+    form.biometricImageSaved = false
+    form.biometricCapturedAt = ''
+    form.biometricProvider = ''
+    form.biometricTemplateType = ''
+    form.facesCount = 0
+    form.faceConfidence = null
+    form.qualityBrightness = null
+    form.qualitySharpness = null
+    form.poseYaw = null
+    form.posePitch = null
+    form.poseRoll = null
+    form.faceOccluded = null
+    if (!value) {
+      form.selfieFile = null
+      form.selfieFileName = ''
+      form.selfiePreviewUrl = ''
+    }
+  }
+
   form[field] = value
 }
 
@@ -118,13 +212,15 @@ function validateCurrentStep() {
       return false
     }
 
-    if (!form.documentType || !form.documentNumber.trim() || !form.documentExpiration) {
-      errorMessage.value = 'Completa identificacion, numero de documento y vigencia.'
-      return false
-    }
+    const biometricCaptureReady =
+      Boolean(form.selfieFile) &&
+      Boolean(form.selfiePreviewUrl) &&
+      String(form.identityVerificationStatus || '').trim() === 'approved' &&
+      Boolean(form.identityVerified)
 
-    if (form.identityValidationRequired && (!form.ineFront || !form.ineBack)) {
-      errorMessage.value = 'Sube la imagen de frente y reverso del documento para validar identidad.'
+    if (form.identityValidationRequired && !biometricCaptureReady) {
+      errorMessage.value =
+        form.identityVerificationMessage || 'Valida la selfie biometrica antes de continuar.'
       return false
     }
   }
@@ -191,6 +287,90 @@ function previousStep() {
   currentStep.value = Math.max(currentStep.value - 1, 0)
 }
 
+function appendFormValue(formData, key, value) {
+  if (value === undefined || value === null) return
+
+  if (value instanceof File) {
+    formData.append(key, value)
+    return
+  }
+
+  if (typeof value === 'boolean') {
+    formData.append(key, value ? '1' : '0')
+    return
+  }
+
+  formData.append(key, String(value))
+}
+
+function buildRegistrationPayload() {
+  const formData = new FormData()
+
+  const baseFields = {
+    name: form.name,
+    email: form.email,
+    phone: form.phone,
+    birth_date: form.birthDate,
+    nationality: form.nationality,
+    password: form.password,
+    password_confirmation: form.passwordConfirmation,
+    role: form.role,
+    document_type: form.documentType,
+    document_number: form.documentNumber,
+    document_expiration: form.documentExpiration,
+    identity_validation_required: form.identityValidationRequired,
+    ine_curp: form.ineCurp,
+    ine_cic: form.ineCic,
+    ine_ocr: form.ineOcr,
+    ine_scan_raw: form.ineScanRaw,
+    ine_scan_status: form.ineScanStatus,
+    identity_verification_status: form.identityVerificationStatus,
+    identity_verification_message: form.identityVerificationMessage,
+    identity_verified: form.identityVerified,
+    face_detected: form.faceDetected,
+    face_match_score: form.faceMatchScore,
+    liveness_score: form.livenessScore,
+    image_storage_score: form.imageStorageScore,
+    biometric_image_saved: form.biometricImageSaved,
+    biometric_captured_at: form.biometricCapturedAt,
+    biometric_provider: form.biometricProvider || 'camera_capture',
+    biometric_template_type: form.biometricTemplateType || 'selfie-photo',
+    biometric_version: 'v1',
+    faces_count: form.facesCount,
+    face_confidence: form.faceConfidence,
+    quality_brightness: form.qualityBrightness,
+    quality_sharpness: form.qualitySharpness,
+    pose_yaw: form.poseYaw,
+    pose_pitch: form.posePitch,
+    pose_roll: form.poseRoll,
+    face_occluded: form.faceOccluded,
+  }
+
+  Object.entries(baseFields).forEach(([key, value]) => appendFormValue(formData, key, value))
+
+  appendFormValue(formData, 'selfie_biometric', form.selfieFile)
+
+  return formData
+}
+
+function logRegistrationPayload(formData) {
+  const printablePayload = {}
+
+  for (const [key, value] of formData.entries()) {
+    printablePayload[key] =
+      value instanceof File
+        ? {
+            type: 'file',
+            name: value.name,
+            size: value.size,
+            mime: value.type,
+          }
+        : value
+  }
+
+  console.log('[registro-biometrico] payload enviado al backend', printablePayload)
+}
+
 async function submit() {
   if (!validateCurrentStep()) return
 
@@ -199,17 +379,13 @@ async function submit() {
   closeErrorModal()
 
   try {
-    await auth.register({
-      name: form.name,
-      email: form.email,
-      password: form.password,
-      password_confirmation: form.passwordConfirmation,
-      role: form.role,
-    })
+    const payload = buildRegistrationPayload()
+    logRegistrationPayload(payload)
+    await auth.register(payload)
 
     successMessage.value =
       form.role === 'client'
-        ? 'Usuario creado. Entrando al cotizador de vuelos de prueba...'
+        ? 'Usuario creado. Entrando a la cotizacion gratis antes de activar membresia...'
         : 'Usuario creado correctamente. Redirigiendo a tu cuenta...'
 
     router.push(form.role === 'client' ? '/cliente/reservar' : auth.dashboardPath)
@@ -259,9 +435,10 @@ async function submit() {
           <p class="eyebrow">Nuevo usuario</p>
           <h1>Crea una cuenta por pasos.</h1>
           <p>
-            Define primero el rol de acceso, completa en una sola pantalla los datos del
-            usuario con su identificacion y al final crea el correo y la contrasena.
-            Si el rol es cliente, entrara al cotizador y a la membresia de USD $115.
+            Define primero el rol de acceso, completa los datos del usuario, registra la selfie
+            biometrica y al final crea el correo y la contrasena. Si el rol es cliente, entrara
+            primero a una cotizacion gratis y despues podra activar la membresia mensual de
+            USD $115.
           </p>
         </div>
 

@@ -494,7 +494,7 @@ export async function apiRequest(path, options = {}) {
       })
     }
 
-    if (isUnauthorizedResponse(response, payload)) {
+    if (isUnauthorizedResponse(response, payload) && !options.preserveAuthOnUnauthorized) {
       clearStoredToken()
       redirectToClientLogin()
     }

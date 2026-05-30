@@ -6,11 +6,9 @@ defineProps({
 
 <template>
   <div class="step-fields">
-    <p v-if="form.ineScanStatus === 'scanned' || form.ineScanStatus === 'partial'" class="form-note">
-      La informacion detectada en la INE se refleja aqui. Revisa y corrige lo necesario antes de continuar.
-    </p>
-    <p v-else class="form-note">
-      Si escaneas la INE en esta misma pantalla, los datos detectados se reflejaran aqui para revision.
+    <p class="form-note">
+      Primero llena los datos base. Despues toma una selfie desde la camara para validarla de una
+      vez contra el backend antes de continuar.
     </p>
 
     <label>

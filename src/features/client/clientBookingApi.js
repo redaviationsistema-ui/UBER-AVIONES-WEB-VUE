@@ -41,6 +41,7 @@ const configuredWirePath = String(import.meta.env.VITE_CLIENT_WIRE_PATH || '').t
 const configuredPaymentConfirmPath = String(
   import.meta.env.VITE_CLIENT_PAYMENT_CONFIRM_PATH || '',
 ).trim()
+const CLIENT_QUOTES_TIMEOUT_MS = Number(import.meta.env.VITE_CLIENT_QUOTES_TIMEOUT_MS || 45000)
 
 const QUOTES_PREVIEW_PATH = configuredQuotesPreviewPath || '/client/quotes/preview'
 const CLIENT_TRIPS_PATHS = [
@@ -680,7 +681,46 @@ function normalizeMatches(payload, itinerary = {}) {
         aircraftRecord?.category ||
         'Aeronave verificada',
       cabin: match.cabin || match.cabin_type || match.type || aircraftRecord?.category || '',
-      time: match.time || match.flight_time || match.duration || '',
+      time:
+        match.trip_time ||
+        match.card_time ||
+        match.display_time ||
+        match.ui_time ||
+        match.time ||
+        match.flight_time ||
+        match.duration ||
+        '',
+      trip_time:
+        match.trip_time ||
+        match.card_time ||
+        match.display_time ||
+        match.ui_time ||
+        match.time ||
+        match.flight_time ||
+        match.duration ||
+        '',
+      billed_time: match.billed_time || '',
+      operative_time: match.operative_time || '',
+      repositioning_time: match.repositioning_time || '',
+      return_to_base_time: match.return_to_base_time || '',
+      time_display_mode:
+        match.time_display_mode || backendPricing?.time_display_mode || 'direct',
+      billing_hours_mode:
+        match.billing_hours_mode || backendPricing?.billing_hours_mode || 'direct',
+      flight_base_source:
+        match.flight_base_source || backendPricing?.flight_base_source || 'billable_hours',
+      include_repositioning_in_billed_hours:
+        match.include_repositioning_in_billed_hours ??
+        backendPricing?.include_repositioning_in_billed_hours ??
+        false,
+      include_return_to_base_in_billed_hours:
+        match.include_return_to_base_in_billed_hours ??
+        backendPricing?.include_return_to_base_in_billed_hours ??
+        true,
+      include_overnight_in_billed_hours:
+        match.include_overnight_in_billed_hours ??
+        backendPricing?.include_overnight_in_billed_hours ??
+        false,
       final_price:
         match.final_price ||
         match.price ||
@@ -2108,9 +2148,40 @@ export function buildFlightRequestPayload(itinerary = {}) {
         .filter((leg) => leg.origin && leg.destination)
     : []
   const firstLeg = normalizedLegs[0] || {}
+  const lastLeg = normalizedLegs[normalizedLegs.length - 1] || {}
+  const inferredClosedRoute =
+    normalizedLegs.length > 1 &&
+    String(firstLeg.origin || '').trim() !== '' &&
+    String(lastLeg.destination || '').trim() !== '' &&
+    String(firstLeg.origin || '').trim().toUpperCase() ===
+      String(lastLeg.destination || '').trim().toUpperCase()
+  const explicitTripType = normalizeTripType(itinerary.trip_type, itinerary.trip_label)
+  const tripType =
+    explicitTripType !== 'one_way'
+      ? explicitTripType
+      : normalizedLegs.length > 2 || (normalizedLegs.length > 1 && !inferredClosedRoute)
+        ? 'multi_leg'
+        : normalizedLegs.length === 2 && inferredClosedRoute
+          ? 'round_trip'
+          : 'one_way'
+  const hasExplicitOpenRoute =
+    itinerary.open_route !== undefined && itinerary.open_route !== null
+      ? Boolean(itinerary.open_route)
+      : false
+  const shouldCloseRoute =
+    tripType === 'multi_leg' &&
+    !hasExplicitOpenRoute &&
+    (Boolean(itinerary.return_to_origin) ||
+      Boolean(itinerary.return_to_start) ||
+      Boolean(itinerary.close_route) ||
+      Boolean(itinerary.return_datetime) ||
+      inferredClosedRoute ||
+      normalizedLegs.length > 1)
   const departureDate = firstLeg.date || ''
   const departureTime = firstLeg.time || '09:00'
-  const tripType = normalizeTripType(itinerary.trip_type, itinerary.trip_label)
+  const returnDepartureDatetime =
+    String(itinerary.return_datetime || '').trim() ||
+    (inferredClosedRoute ? String(lastLeg.departure_datetime || '').trim() : '')
   const flightPackage = String(itinerary.flight_package || itinerary.service_tier || '').trim()
   const priorityType = normalizePriorityType(itinerary.priority_type || flightPackage)
   const attentionLevel = normalizeAttentionLevel(
@@ -2176,9 +2247,16 @@ export function buildFlightRequestPayload(itinerary = {}) {
     base_airport: firstLeg.origin || itinerary.origin || '',
     destination: firstLeg.destination || itinerary.destination || '',
     departure_datetime: departureDate ? `${departureDate} ${departureTime}` : '',
+    return_datetime: returnDepartureDatetime || null,
     passengers: Number(itinerary.passengers) || 1,
     trip_type: tripType,
     trip_label: itinerary.trip_label || 'Ida',
+    return_to_origin:
+      tripType === 'multi_leg' ? shouldCloseRoute : Boolean(itinerary.return_to_origin),
+    return_to_start:
+      tripType === 'multi_leg' ? shouldCloseRoute : Boolean(itinerary.return_to_start),
+    close_route: tripType === 'multi_leg' ? shouldCloseRoute : Boolean(itinerary.close_route),
+    open_route: tripType === 'multi_leg' ? !shouldCloseRoute : Boolean(itinerary.open_route),
     aircraft_type: selectedAircraftModel || itinerary.preference || null,
     aircraft_model: selectedAircraftModel || null,
     assigned_aircraft_model: selectedAircraftModel || null,
@@ -2199,6 +2277,15 @@ export function buildFlightRequestPayload(itinerary = {}) {
     estimated_total: finalPrice || null,
     total: finalPrice || null,
     final_price: finalPrice || null,
+    time_display_mode: itinerary.time_display_mode || 'direct',
+    billing_hours_mode: itinerary.billing_hours_mode || 'operational',
+    flight_base_source: itinerary.flight_base_source || 'billable_hours',
+    include_repositioning_in_billed_hours:
+      itinerary.include_repositioning_in_billed_hours ?? true,
+    include_return_to_base_in_billed_hours:
+      itinerary.include_return_to_base_in_billed_hours ?? true,
+    include_overnight_in_billed_hours:
+      itinerary.include_overnight_in_billed_hours ?? false,
     selected_card_price: asNumber(itinerary.selected_card_price || finalPrice || 0, 0) || null,
     pricing_formula_version: pricingContext.pricing_formula_version,
     pricing_context: pricingContext,
@@ -2216,7 +2303,12 @@ export function buildFlightRequestPayload(itinerary = {}) {
       itinerary.aircraft_snapshot && typeof itinerary.aircraft_snapshot === 'object'
         ? itinerary.aircraft_snapshot
         : null,
-    requirements: normalizedLegs.length > 1 ? normalizedLegs.slice(1) : [],
+    requirements:
+      normalizedLegs.length > 1
+        ? inferredClosedRoute && tripType === 'multi_leg'
+          ? normalizedLegs.slice(1, -1)
+          : normalizedLegs.slice(1)
+        : [],
     pets: itinerary.pets || null,
     special_baggage: itinerary.special_baggage || itinerary.specialBaggage || null,
     overnight_nights:
@@ -2743,7 +2835,7 @@ export async function downloadClientReservationContract(reservationId, options =
   )
 }
 
-export async function searchClientFlights(itinerary) {
+export async function searchClientFlights(itinerary, options = {}) {
   const firstLeg = Array.isArray(itinerary?.legs) ? itinerary.legs[0] || {} : {}
   const aircraftQuery = {
     origin: firstLeg.origin || itinerary?.origin || '',
@@ -2753,7 +2845,9 @@ export async function searchClientFlights(itinerary) {
   let matches = []
 
   try {
-    const payload = await api.post(QUOTES_PREVIEW_PATH, buildFlightRequestPayload(itinerary))
+    const payload = await api.post(QUOTES_PREVIEW_PATH, buildFlightRequestPayload(itinerary), {
+      timeoutMs: options.timeoutMs || CLIENT_QUOTES_TIMEOUT_MS,
+    })
     matches = normalizeMatches(payload, itinerary)
 
     if (typeof console !== 'undefined') {
@@ -2770,6 +2864,22 @@ export async function searchClientFlights(itinerary) {
         const ivaAmount = Number(item.taxes || item.tax || 0)
         const finalPrice = Number(item.total || item.final_price || 0)
         const billableHours = Number(item.billable_hours || 0)
+        const rawHours = Number(
+          item.flight_base_hours ||
+            item.pricing_breakdown?.flight_base_hours ||
+            item.pricing_breakdown?.time_breakdown?.flight_base_hours ||
+            item.trip_flight_hours ||
+            0,
+        )
+        const hourlyRate = Number(
+          item.hourly_rate || item.pricing_breakdown?.hourly_rate || 0,
+        )
+
+        console.log(`[Cotizador backend crudo] ${aircraftLabel}`)
+        console.log(`- Horas exactas usadas: ${rawHours}`)
+        console.log(`- Horas mostradas/redondeadas: ${billableHours}`)
+        console.log(`- Precio por hora: ${hourlyRate}`)
+        console.log(`- Vuelo base backend: ${basePrice}`)
 
         console.log(
           [

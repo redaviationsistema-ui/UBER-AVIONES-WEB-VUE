@@ -542,6 +542,398 @@
   line-height: 1.45;
 }
 
+.register-page .verification-panel {
+  display: grid;
+  gap: 1.15rem;
+  border: 1px solid rgba(16, 17, 20, 0.08);
+  border-radius: 28px;
+  padding: 1.35rem;
+  background:
+    radial-gradient(circle at top right, rgba(240, 199, 92, 0.22), transparent 28%),
+    radial-gradient(circle at bottom left, rgba(17, 19, 24, 0.04), transparent 28%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 251, 245, 0.98));
+  box-shadow:
+    0 24px 70px rgba(32, 24, 13, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.register-page .verification-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.register-page .verification-head h3 {
+  margin: 0;
+  font-size: 1.55rem;
+  line-height: 1.05;
+}
+
+.register-page .verification-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.55rem;
+  padding: 0 1rem;
+  border-radius: 999px;
+  font-size: 0.88rem;
+  font-weight: 900;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+.register-page .verification-badge.is-success {
+  background: linear-gradient(180deg, rgba(6, 118, 71, 0.16), rgba(6, 118, 71, 0.08));
+  color: #067647;
+}
+
+.register-page .verification-badge.is-pending {
+  background: linear-gradient(180deg, rgba(194, 138, 18, 0.18), rgba(194, 138, 18, 0.1));
+  color: #8c6a1f;
+}
+
+.register-page .verification-intro-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(16rem, 0.95fr);
+  gap: 1rem;
+  align-items: stretch;
+}
+
+.register-page .verification-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.register-page .flow-summary {
+  margin: 0;
+  color: #4f473c;
+  font-weight: 700;
+  line-height: 1.6;
+  font-size: 1.02rem;
+}
+
+.register-page .verification-note-card {
+  display: grid;
+  gap: 0.4rem;
+  align-content: start;
+  border: 1px solid rgba(194, 138, 18, 0.16);
+  border-radius: 20px;
+  padding: 1rem 1.1rem;
+  background:
+    linear-gradient(135deg, rgba(255, 248, 229, 0.92), rgba(255, 255, 255, 0.96));
+}
+
+.register-page .verification-note-card strong,
+.register-page .summary-headline h4 {
+  margin: 0;
+  font-size: 1.04rem;
+  line-height: 1.2;
+}
+
+.register-page .verification-note-card p,
+.register-page .summary-headline p {
+  margin: 0;
+}
+
+.register-page .note-kicker {
+  color: #8c6a1f;
+  font-size: 0.76rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.register-page .verification-step-chip {
+  padding: 0.62rem 0.9rem;
+  border: 1px solid rgba(16, 17, 20, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.95);
+  color: #675d50;
+  font-size: 0.82rem;
+  font-weight: 800;
+  box-shadow: 0 6px 18px rgba(17, 19, 24, 0.04);
+}
+
+.register-page .verification-step-chip.complete {
+  border-color: rgba(6, 118, 71, 0.2);
+  background: rgba(6, 118, 71, 0.08);
+  color: #067647;
+}
+
+.register-page .camera-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(18rem, 0.9fr);
+  gap: 1rem;
+}
+
+.register-page .camera-stage,
+.register-page .verification-summary {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.register-page .summary-headline {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.register-page .support-warning {
+  margin: 0;
+  border: 1px solid rgba(194, 138, 18, 0.22);
+  border-radius: 14px;
+  padding: 0.9rem 1rem;
+  background: rgba(255, 248, 229, 0.92);
+  color: #7a5a15;
+  font-weight: 800;
+  line-height: 1.5;
+}
+
+.register-page .camera-frame,
+.register-page .camera-placeholder,
+.register-page .selfie-preview-card {
+  overflow: hidden;
+  border: 1px solid rgba(16, 17, 20, 0.08);
+  border-radius: 26px;
+  background: #ffffff;
+}
+
+.register-page .camera-frame {
+  position: relative;
+  min-height: 21rem;
+  background:
+    radial-gradient(circle at center, rgba(240, 199, 92, 0.18), transparent 42%),
+    linear-gradient(180deg, #15171c, #0c0d10);
+  box-shadow: 0 20px 50px rgba(17, 19, 24, 0.18);
+}
+
+.register-page .camera-frame video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 21rem;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+
+.register-page .camera-live-pill {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 2rem;
+  padding: 0 0.8rem;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(15, 17, 21, 0.64);
+  color: #ffffff;
+  font-size: 0.76rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  backdrop-filter: blur(12px);
+}
+
+.register-page .camera-live-pill::before {
+  content: '';
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: #ff6d58;
+  box-shadow: 0 0 0 0.28rem rgba(255, 109, 88, 0.18);
+}
+
+.register-page .camera-debug-chip {
+  position: absolute;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 2;
+  display: grid;
+  gap: 0.18rem;
+  min-width: 13rem;
+  max-width: calc(100% - 2rem);
+  padding: 0.8rem 0.9rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 16px;
+  background: rgba(15, 17, 21, 0.68);
+  color: #ffffff;
+  backdrop-filter: blur(12px);
+}
+
+.register-page .camera-debug-chip.detected {
+  border-color: rgba(99, 227, 164, 0.3);
+  background: rgba(7, 34, 23, 0.74);
+}
+
+.register-page .camera-debug-chip strong {
+  font-size: 0.86rem;
+  font-weight: 900;
+}
+
+.register-page .camera-debug-chip span {
+  font-size: 0.74rem;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.register-page .camera-face-guide {
+  position: absolute;
+  inset: 12% 19%;
+  z-index: 1;
+  border: 2px solid rgba(255, 255, 255, 0.42);
+  border-radius: 44% 44% 42% 42% / 34% 34% 48% 48%;
+  box-shadow:
+    0 0 0 200vmax rgba(0, 0, 0, 0.12),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+  transition:
+    left 0.18s ease,
+    top 0.18s ease,
+    width 0.18s ease,
+    height 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+}
+
+.register-page .camera-face-guide.detected {
+  border-color: rgba(99, 227, 164, 0.95);
+  box-shadow:
+    0 0 0 200vmax rgba(0, 0, 0, 0.08),
+    0 0 0 1px rgba(99, 227, 164, 0.26),
+    0 0 32px rgba(99, 227, 164, 0.22);
+}
+
+.register-page .camera-placeholder,
+.register-page .selfie-preview-card {
+  padding: 1rem;
+}
+
+.register-page .camera-placeholder {
+  display: grid;
+  gap: 0.55rem;
+  align-content: center;
+}
+
+.register-page .camera-placeholder strong,
+.register-page .selfie-preview-card span {
+  font-size: 0.96rem;
+  font-weight: 900;
+}
+
+.register-page .camera-placeholder span {
+  color: #6b6254;
+  line-height: 1.55;
+}
+
+.register-page .camera-caption {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.2rem 0.1rem 0;
+}
+
+.register-page .camera-caption strong {
+  font-size: 0.82rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #8c6a1f;
+}
+
+.register-page .camera-caption span {
+  color: #6b6254;
+  line-height: 1.55;
+}
+
+.register-page .camera-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.register-page .camera-actions .primary-button,
+.register-page .camera-actions .secondary-button {
+  min-width: 12rem;
+}
+
+.register-page .score-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.register-page .score-card {
+  display: grid;
+  gap: 0.38rem;
+  border: 1px solid rgba(16, 17, 20, 0.08);
+  border-radius: 22px;
+  padding: 1rem 1.05rem;
+  background: rgba(255, 255, 255, 0.92);
+  min-height: 11.5rem;
+  align-content: end;
+  box-shadow: 0 16px 38px rgba(17, 19, 24, 0.06);
+}
+
+.register-page .score-card.active {
+  border-color: rgba(6, 118, 71, 0.18);
+  background:
+    radial-gradient(circle at top right, rgba(6, 118, 71, 0.08), transparent 34%),
+    rgba(255, 255, 255, 0.98);
+}
+
+.register-page .status-card.validated {
+  border-color: rgba(6, 118, 71, 0.2);
+  background:
+    radial-gradient(circle at top right, rgba(6, 118, 71, 0.1), transparent 34%),
+    rgba(255, 255, 255, 0.98);
+}
+
+.register-page .status-card.pending-review {
+  border-color: rgba(194, 138, 18, 0.18);
+  background:
+    radial-gradient(circle at top right, rgba(194, 138, 18, 0.1), transparent 36%),
+    rgba(255, 255, 255, 0.98);
+}
+
+.register-page .status-card.searching {
+  border-color: rgba(16, 17, 20, 0.08);
+}
+
+.register-page .score-card span {
+  color: #6b6254;
+  font-size: 0.8rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.register-page .score-card strong {
+  font-size: clamp(2rem, 4vw, 3rem);
+  line-height: 0.95;
+}
+
+.register-page .score-card small {
+  color: #7a7164;
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.register-page .selfie-preview-card {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+}
+
+.register-page .selfie-preview-card img {
+  width: 100%;
+  min-height: 12rem;
+  border-radius: 18px;
+  object-fit: cover;
+}
+
 .register-page .client-preview {
   display: grid;
   gap: 0.65rem;
@@ -633,7 +1025,10 @@
   .register-page .role-grid,
   .register-page .file-grid,
   .register-page .form-grid,
-  .register-page .scan-result-grid {
+  .register-page .verification-intro-grid,
+  .register-page .scan-result-grid,
+  .register-page .camera-grid,
+  .register-page .score-grid {
     grid-template-columns: 1fr;
   }
 

@@ -265,9 +265,14 @@ export const useAuthStore = defineStore('auth', () => {
     loading.value = true
 
     try {
-      const response = await api.post('/auth/register', payload, {
-        timeoutMs: AUTH_REQUEST_TIMEOUT_MS,
-      })
+      const response =
+        payload instanceof FormData
+          ? await api.postForm('/auth/register', payload, {
+              timeoutMs: AUTH_REQUEST_TIMEOUT_MS,
+            })
+          : await api.post('/auth/register', payload, {
+              timeoutMs: AUTH_REQUEST_TIMEOUT_MS,
+            })
       applyAuth(response)
       return response
     } finally {

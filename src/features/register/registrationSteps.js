@@ -14,8 +14,8 @@ const baseSteps = {
   },
   perfil: {
     id: 'perfil',
-    title: 'Datos del usuario / Identificacion',
-    description: 'Captura los datos base y escanea la identificacion dentro de la misma pantalla.',
+    title: 'Datos del usuario / Biometria',
+    description: 'Captura tus datos, abre camara, valida el rostro en backend y registra la selfie.',
   },
   acceso: {
     id: 'acceso',
@@ -37,7 +37,7 @@ export function buildRegistrationSteps(role = 'client') {
 export const registrationSteps = buildRegistrationSteps('client')
 
 export const clientAccessPreview = [
-  'Acceso inmediato al cotizador de vuelos como prueba.',
-  'Ruta directa a reservar desde el portal del cliente.',
-  'Membresia disponible por USD $115 para activar beneficios premium.',
+  'Acceso inmediato a una cotizacion gratis al terminar el registro.',
+  'La selfie biometrica queda lista para que el backend guarde foto o plantilla.',
+  'Despues puedes activar la membresia mensual de USD $115 para operar la cuenta.',
 ]
