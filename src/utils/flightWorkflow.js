@@ -636,7 +636,7 @@ export function resolveSharedWorkflowStatus(record = {}) {
 export function resolveSharedVisualWorkflowStepId(value = '') {
   const workflowId = resolveWorkflowState(value).id
 
-  if (workflowId === 'provider_accepted') return 'provider_pending'
+  if (workflowId === 'provider_accepted') return 'contract_pending'
   if (workflowId === 'contract_signed') return 'contract_pending'
   if (workflowId === 'payment_confirmed') return 'flight_confirmed'
   if (workflowId === 'completed') return 'tracking_live'

@@ -7,6 +7,7 @@ const props = defineProps({
   reservationId: { type: [String, Number], default: '' },
   customerName: { type: String, default: '' },
   submitting: { type: Boolean, default: false },
+  readOnly: { type: Boolean, default: false },
 })
 
 
@@ -1334,20 +1335,6 @@ function handleConfirmClick() {
 
           <div class="signatures-grid">
             <article class="signature-card contract-card signature-block">
-              <span class="signature-card__role">Prestador del Servicio</span>
-              <strong>RED AVIATION COMPANY S.A. DE C.V.</strong>
-              <small>Nombre: José Luis Hernández Ortiz</small>
-              <small>Cargo: Representante Legal</small>
-              <div class="signature-line signature-line--provider">
-                <img
-                  :src="providerSignatureSrc"
-                  alt="Firma del representante legal"
-                  class="provider-signature-image"
-                />
-              </div>
-              <small class="signature-card__caption">Firma autorizada</small>
-            </article>
-            <article class="signature-card contract-card signature-block">
               <span class="signature-card__role">Cliente</span>
               <strong>{{ customerLabel }}</strong>
               <small>Por: {{ customerRepresentative }}</small>
@@ -1386,7 +1373,7 @@ function handleConfirmClick() {
       </div>
     </section>
 
-    <section class="signature-panel">
+    <section v-if="!props.readOnly" class="signature-panel">
       <div class="signature-box">
         <input
           ref="signatureInput"

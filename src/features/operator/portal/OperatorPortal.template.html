@@ -1894,7 +1894,12 @@
                 class="request-flow-pill"
                 :data-state="step.state"
               >
-                <span class="request-flow-pill__index">{{ step.shortLabel }}</span>
+                <span class="request-flow-pill__index">
+                  <span class="request-flow-pill__icon">
+                    {{ step.state === 'done' ? '✓' : step.state === 'active' ? '●' : '○' }}
+                  </span>
+                  <span>{{ step.shortLabel }}</span>
+                </span>
                 <strong>{{ step.title }}</strong>
               </article>
             </div>

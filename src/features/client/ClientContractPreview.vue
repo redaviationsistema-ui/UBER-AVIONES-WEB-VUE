@@ -6,6 +6,7 @@ defineProps({
   reservationId: { type: [String, Number], default: '' },
   customerName: { type: String, default: '' },
   submitting: { type: Boolean, default: false },
+  readOnly: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['confirm'])

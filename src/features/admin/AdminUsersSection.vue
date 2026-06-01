@@ -64,6 +64,7 @@ const detailError = ref('')
 const selectedUserDetail = ref(null)
 const userFormErrors = ref({})
 const savingUser = ref(false)
+const ADMIN_USERS_TIMEOUT_MS = 45000
 
 const userForm = ref(buildEmptyUser())
 const roleForm = ref(buildEmptyRole())
@@ -654,7 +655,9 @@ async function openUserDetail(user) {
 }
 
 async function loadUsersFromBackend() {
-  const response = await requestWithCandidates([{ method: 'get', path: '/admin/users' }])
+  const response = await requestWithCandidates([
+    { method: 'get', path: '/admin/users', timeoutMs: ADMIN_USERS_TIMEOUT_MS },
+  ])
 
   const users = pickCollection(response, ['users'])
   if (users.length) {
@@ -664,7 +667,9 @@ async function loadUsersFromBackend() {
 
 async function loadRolesFromBackend() {
   try {
-    const response = await requestWithCandidates([{ method: 'get', path: '/admin/roles' }])
+    const response = await requestWithCandidates([
+      { method: 'get', path: '/admin/roles', timeoutMs: ADMIN_USERS_TIMEOUT_MS },
+    ])
     const roles = pickCollection(response, ['roles']).map((role) => normalizeRoleRecord(role))
 
     localRoles.value = roles.length ? roles : defaultRoleBlueprints.map((role) => ({ ...role }))

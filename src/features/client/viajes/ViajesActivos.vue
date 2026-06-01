@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
+import { resolveMediaUrl } from '../../../lib/api'
 import { featuredAirports } from '../../../utils/airports'
 import {
   buildSharedFlowStepStates,
@@ -174,27 +175,63 @@ function itinerarySegments(reservation = {}) {
     ]
   }
 
+  const contractSnapshot =
+    reservation.contract?.terms_snapshot?.client_contract_snapshot &&
+    typeof reservation.contract.terms_snapshot.client_contract_snapshot === 'object'
+      ? reservation.contract.terms_snapshot.client_contract_snapshot
+      : null
+
+  if (Array.isArray(contractSnapshot?.itinerary_segments) && contractSnapshot.itinerary_segments.length) {
+    return contractSnapshot.itinerary_segments.map((segment, index) => ({
+      key: segment.key || segment.id || `contract-leg-${index + 1}`,
+      order: segment.order || index + 1,
+      origin: segment.origin || 'Origen por confirmar',
+      destination: segment.destination || 'Destino por confirmar',
+      departure: segment.departure || '',
+    }))
+  }
+
   return []
 }
 
+
 function routeDisplay(reservation = {}) {
   const segments = itinerarySegments(reservation)
-  const firstLeg = segments[0]
-  const lastLeg = segments[segments.length - 1]
-  const origin = firstLeg?.origin || airportDisplay(reservation.origin || '')
-  const destination = lastLeg?.destination || airportDisplay(reservation.destination || '')
+  const snapshotRoute = reservation.contract?.terms_snapshot?.client_contract_snapshot?.route || ''
 
-  if (!origin && !destination)
-    return reservation.route || reservation.title || `Vuelo privado #${reservation.id}`
-  return `${origin} → ${destination}`
+  if (segments.length) {
+    const routePoints = []
+
+    segments.forEach((segment) => {
+      if (segment.origin && routePoints[routePoints.length - 1] !== segment.origin) {
+        routePoints.push(segment.origin)
+      }
+
+      if (segment.destination && routePoints[routePoints.length - 1] !== segment.destination) {
+        routePoints.push(segment.destination)
+      }
+    })
+
+    if (routePoints.length) return routePoints.join(' -> ')
+  }
+
+  const origin = airportDisplay(reservation.origin || '')
+  const destination = airportDisplay(reservation.destination || '')
+
+  if (!origin && !destination) {
+    return snapshotRoute || reservation.route || reservation.title || `Vuelo privado #${reservation.id}`
+  }
+
+  return [origin, destination].filter(Boolean).join(' -> ')
 }
 
 function routeSegmentsLabel(reservation = {}) {
   const segments = itinerarySegments(reservation)
   if (segments.length <= 1) return ''
 
-  return segments.map((segment) => `${segment.origin} → ${segment.destination}`).join(' · ')
+  return segments.map((segment) => `${segment.origin} -> ${segment.destination}`).join(' | ')
 }
+
 
 function overnightLabel(reservation = {}) {
   const nights = Number(reservation.overnight_nights || 0)
@@ -265,6 +302,114 @@ function workflowSupportLines(reservation = {}) {
   return lines
 }
 
+function getPrimaryImageValue(raw = {}) {
+  if (typeof raw === 'string') return raw
+
+  return (
+    raw.main_image ||
+    raw.mainImage ||
+    raw.image_url ||
+    raw.imageUrl ||
+    raw.image ||
+    raw.image_path ||
+    raw.imagePath ||
+    raw.photo ||
+    raw.photo_url ||
+    raw.photoUrl ||
+    raw.thumbnail ||
+    raw.thumbnail_url ||
+    raw.thumbnailUrl ||
+    ''
+  )
+}
+
+function normalizeImageCollection(value) {
+  if (!value) return []
+  if (Array.isArray(value)) return value
+  if (typeof value === 'string') return [value]
+  if (typeof value === 'object') return [value]
+  return []
+}
+
+function resolvePrimaryAircraftImage(raw = {}) {
+  if (!raw || typeof raw !== 'object') return ''
+
+  const images = [
+    ...normalizeImageCollection(raw.images),
+    ...normalizeImageCollection(raw.aircraft_images),
+    ...normalizeImageCollection(raw.aircraftImages),
+    ...normalizeImageCollection(raw.gallery_images),
+    ...normalizeImageCollection(raw.galleryImages),
+    ...normalizeImageCollection(raw.gallery),
+    ...normalizeImageCollection(raw.photos),
+    ...normalizeImageCollection(raw.media),
+    ...normalizeImageCollection(raw.multimedia),
+    ...normalizeImageCollection(raw.pictures),
+    ...normalizeImageCollection(raw.files),
+  ]
+
+  for (const image of images) {
+    const imageRecord = typeof image === 'string' ? { url: image } : image || {}
+    const candidate = resolveMediaUrl(
+      getPrimaryImageValue(imageRecord) ||
+        imageRecord.url ||
+        imageRecord.path ||
+        imageRecord.file_url ||
+        imageRecord.fileUrl ||
+        imageRecord.public_url ||
+        imageRecord.publicUrl ||
+        imageRecord.src ||
+        '',
+    )
+
+    if (candidate) return candidate
+  }
+
+  return resolveMediaUrl(getPrimaryImageValue(raw)) || ''
+}
+
+function reservationAircraftName(reservation = {}) {
+  return (
+    reservation.aircraft ||
+    reservation.assigned_aircraft_model ||
+    reservation.aircraft_model ||
+    reservation.aircraft_name ||
+    reservation.contract?.terms_snapshot?.client_contract_snapshot?.aircraft ||
+    ''
+  )
+}
+
+function reservationAircraftImage(reservation = {}) {
+  return (
+    resolveMediaUrl(reservation.aircraft_image || '') ||
+    resolveMediaUrl(reservation.image_url || '') ||
+    resolveMediaUrl(reservation.aircraft_photo || '') ||
+    resolveMediaUrl(reservation.aircraft_photo_url || '') ||
+    resolveMediaUrl(reservation.aircraft_thumbnail || '') ||
+    resolvePrimaryAircraftImage(reservation.aircraft_snapshot || {}) ||
+    resolvePrimaryAircraftImage(reservation.contract?.terms_snapshot?.aircraft_snapshot || {}) ||
+    resolveMediaUrl(reservation.contract?.terms_snapshot?.aircraft_image || '') ||
+    resolveMediaUrl(reservation.contract?.terms_snapshot?.client_contract_snapshot?.aircraft_image || '') ||
+    ''
+  )
+}
+
+function reservationAircraftCapacity(reservation = {}) {
+  return (
+    reservation.aircraft_capacity ||
+    reservation.contract?.terms_snapshot?.client_contract_snapshot?.passengers ||
+    ''
+  )
+}
+
+function reservationAircraftCategory(reservation = {}) {
+  return (
+    reservation.aircraft_category ||
+    reservation.contract?.terms_snapshot?.client_contract_snapshot?.aircraft_category ||
+    ''
+  )
+}
+
 function flightActionLabel(reservation = {}) {
   const stateId = workflowId(reservationWorkflowValue(reservation))
 
@@ -307,6 +452,15 @@ function paymentEnabled(reservation = {}) {
   return hasWorkflowIn(reservationWorkflowValue(reservation), [
     'contract_signed',
     'payment_pending',
+  ])
+}
+
+function flightEnabled(reservation = {}) {
+  return hasWorkflowIn(reservationWorkflowValue(reservation), [
+    'payment_confirmed',
+    'flight_confirmed',
+    'tracking_live',
+    'completed',
   ])
 }
 
@@ -431,7 +585,7 @@ watch(
           <div class="hero-meta">
             <span v-if="reservation.date">📅 {{ departureLine(reservation) }}</span>
             <span v-if="reservation.passengers">👥 {{ reservation.passengers }} pasajeros</span>
-            <span v-if="reservation.aircraft">🛩 {{ reservation.aircraft }}</span>
+            <span v-if="reservationAircraftName(reservation)">🛩 {{ reservationAircraftName(reservation) }}</span>
             <span v-if="itinerarySegments(reservation).length"
               >✈ {{ itinerarySegments(reservation).length }} tramos</span
             >
@@ -476,24 +630,24 @@ watch(
       </div>
 
       <div class="executive-grid">
-        <article v-if="reservation.aircraft" class="executive-card executive-card--aircraft">
+        <article v-if="reservationAircraftName(reservation) || reservationAircraftImage(reservation)" class="executive-card executive-card--aircraft">
           <div
             class="executive-card__media"
-            :class="{ 'executive-card__media--placeholder': !reservation.aircraft_image }"
+            :class="{ 'executive-card__media--placeholder': !reservationAircraftImage(reservation) }"
           >
             <img
-              v-if="reservation.aircraft_image"
-              :src="reservation.aircraft_image"
-              :alt="reservation.aircraft"
+              v-if="reservationAircraftImage(reservation)"
+              :src="reservationAircraftImage(reservation)"
+              :alt="reservationAircraftName(reservation) || 'Aeronave'"
             />
             <span v-else>Jet privado</span>
           </div>
           <div class="executive-card__copy">
-            <strong>🛩 {{ reservation.aircraft }}</strong>
-            <span v-if="reservation.aircraft_capacity"
-              >Capacidad: {{ reservation.aircraft_capacity }} pax</span
+            <strong>🛩 {{ reservationAircraftName(reservation) || 'Aeronave por confirmar' }}</strong>
+            <span v-if="reservationAircraftCapacity(reservation)"
+              >Capacidad: {{ reservationAircraftCapacity(reservation) }} pax</span
             >
-            <span v-if="reservation.aircraft_category">Cabina: {{ reservation.aircraft_category }}</span>
+            <span v-if="reservationAircraftCategory(reservation)">Cabina: {{ reservationAircraftCategory(reservation) }}</span>
             <span v-if="reservation.amenities?.length"
               >Servicios: {{ reservation.amenities.slice(0, 3).join(' • ') }}</span
             >
@@ -530,7 +684,9 @@ watch(
         >
           💳 Pago
         </button>
-        <button type="button">{{ flightActionLabel(reservation) }}</button>
+        <button type="button" :disabled="!flightEnabled(reservation)">
+          {{ flightActionLabel(reservation) }}
+        </button>
         <button
           type="button"
           :disabled="!conciergeEnabled(reservation)"

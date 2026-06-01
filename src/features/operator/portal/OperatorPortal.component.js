@@ -1264,14 +1264,15 @@ const filteredRequests = computed(() => {
       return matchesStatus && matchesPriority && matchesSearch
     })
     .sort((left, right) => {
-      const priorityDiff = getRequestPriorityMeta(right).rank - getRequestPriorityMeta(left).rank
-      if (priorityDiff !== 0) return priorityDiff
-
-      const leftDate = parseOperationalDate(left.responseLimit || left.date)
-      const rightDate = parseOperationalDate(right.responseLimit || right.date)
-      if (leftDate && rightDate) return leftDate.getTime() - rightDate.getTime()
-      if (leftDate) return -1
+      const rightDate = parseOperationalDate(
+        right.createdAt || right.updatedAt || right.date || right.responseLimit,
+      )
+      const leftDate = parseOperationalDate(
+        left.createdAt || left.updatedAt || left.date || left.responseLimit,
+      )
+      if (leftDate && rightDate) return rightDate.getTime() - leftDate.getTime()
       if (rightDate) return 1
+      if (leftDate) return -1
       return Number(right.id) - Number(left.id)
     })
 })
@@ -2462,7 +2463,7 @@ function applyRequestsResponse(payload) {
   sectionLoadState.solicitudes = true
 }
 
-async function fetchRequestsPayload(timeoutMs = OPERATOR_BACKGROUND_TIMEOUT_MS) {
+async function fetchRequestsPayload(timeoutMs = OPERATOR_SECTION_TIMEOUT_MS) {
   let firstSuccessfulPayload = null
   let firstSuccessfulPath = ''
   let lastError = null
@@ -2782,10 +2783,13 @@ function normalizeClientLabel(rawClient) {
 function resolveOperatorRequestStatusSource(raw = {}) {
   const explicitWorkflowStatus = String(raw.workflow_status || raw.workflow || '').trim()
   if (explicitWorkflowStatus) {
-    return explicitWorkflowStatus
+    return resolveWorkflowState(explicitWorkflowStatus).id === 'provider_accepted'
+      ? 'contract_pending'
+      : explicitWorkflowStatus
   }
 
-  return (
+  const resolvedStatus =
+    (
     resolveSharedWorkflowStatus({
       ...raw,
       workflow_status: raw.workflow_status || raw.state || '',
@@ -2796,7 +2800,11 @@ function resolveOperatorRequestStatusSource(raw = {}) {
     raw.state ||
     raw.status ||
     ''
-  )
+    )
+
+  return resolveWorkflowState(resolvedStatus).id === 'provider_accepted'
+    ? 'contract_pending'
+    : resolvedStatus
 }
 
 function pickPreferredRequestMatch(matches = []) {
@@ -4230,7 +4238,17 @@ function getRequestStatusMeta(statusOrRequest = '') {
       headline: label,
     }
   }
-  if (workflowState === 'provider_accepted' || isRequestAccepted(status)) {
+  if (
+    workflowState === 'provider_accepted' ||
+    workflowState === 'contract_pending' ||
+    workflowState === 'contract_signed' ||
+    workflowState === 'payment_pending' ||
+    workflowState === 'payment_confirmed' ||
+    workflowState === 'flight_confirmed' ||
+    workflowState === 'tracking_live' ||
+    workflowState === 'completed' ||
+    isRequestAccepted(status)
+  ) {
     return {
       label,
       tone: 'success',
@@ -4483,9 +4501,7 @@ function getRequestHelperCopy(request = {}) {
 
 function resolveOperatorDecisionState(request, status) {
   if (status !== 'Aceptada') return 'rejected'
-  const workflowId = resolveWorkflowState(resolveRequestWorkflowValue(request)).id
-  if (workflowId === 'provider_accepted') return 'contract_pending'
-  return 'accepted'
+  return 'contract_pending'
 }
 
 function canOperatorAcceptRequest(request = {}) {
@@ -5676,8 +5692,8 @@ async function savePricing(id) {
   }
 }
 
-async function reloadRequestsList() {
-  const response = await fetchRequestsPayload(OPERATOR_BACKGROUND_TIMEOUT_MS)
+async function reloadRequestsList(timeoutMs = OPERATOR_SECTION_TIMEOUT_MS) {
+  const response = await fetchRequestsPayload(timeoutMs)
   const { collection, found } = pickRequestsCollectionState(response)
   if (found || !requests.value.length) {
     requests.value = collection.map(normalizeRequest)
@@ -5698,7 +5714,7 @@ async function refreshRequestsList({ silent = true } = {}) {
   refreshingRequests.value = true
 
   try {
-    await reloadRequestsList()
+    await reloadRequestsList(OPERATOR_SECTION_TIMEOUT_MS)
     requestsConnectionWarningShown.value = false
   } catch (error) {
     if (isBackendConnectionError(error)) {
@@ -6205,18 +6221,6 @@ async function updateRequestStatus(id, status) {
     )
   }
 
-  try {
-    await reloadRequestsList()
-  } catch (error) {
-    requestStatusUpdate.requestId = null
-    requestStatusUpdate.action = ''
-    return showError(
-      'Estado actualizado pero no sincronizado',
-      error.message ||
-        'La solicitud si pudo cambiar en backend, pero no se pudo recargar el estado real del portal.',
-    )
-  }
-
   applyLocalRequestStatusUpdate(id, status, backendStatus)
   if (status === 'Aceptada') {
     requestStatusFilter.value = 'confirmed'
@@ -6247,6 +6251,11 @@ async function updateRequestStatus(id, status) {
   })
   requestStatusUpdate.requestId = null
   requestStatusUpdate.action = ''
+
+  // Sincroniza en segundo plano sin bloquear la tarjeta que el operador acaba de actualizar.
+  window.setTimeout(() => {
+    void refreshRequestsList({ silent: true })
+  }, 600)
 }
 
 async function saveProviderOperationalRelease(statusOverride = '', options = {}) {

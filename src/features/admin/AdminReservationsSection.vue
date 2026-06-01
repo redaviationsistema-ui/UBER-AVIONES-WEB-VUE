@@ -18,7 +18,7 @@ const props = defineProps({
   isFlowLoading: { type: Boolean, default: false },
   flowLoadingLabel: { type: String, default: '' },
   isContentRefreshing: { type: Boolean, default: false },
-  headerEyebrow: { type: String, default: 'Solicitudes / Reservas' },
+  headerEyebrow: { type: String, default: 'Flujo del cliente' },
   headerTitle: { type: String, default: 'Control administrativo del flujo del cliente' },
   headerDescription: {
     type: String,

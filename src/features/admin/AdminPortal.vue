@@ -53,6 +53,7 @@ let lastReleasesRefreshAt = 0
 const ADMIN_RESERVATIONS_POLL_INTERVAL_MS = 10000
 const ADMIN_RESERVATIONS_TIMEOUT_MS = Number(import.meta.env.VITE_ADMIN_RESERVATIONS_TIMEOUT_MS || 20000)
 const ADMIN_FLOW_UPDATE_TIMEOUT_MS = Number(import.meta.env.VITE_ADMIN_FLOW_UPDATE_TIMEOUT_MS || 12000)
+const ADMIN_USERS_TIMEOUT_MS = Number(import.meta.env.VITE_ADMIN_USERS_TIMEOUT_MS || 45000)
 const ADMIN_RESERVATIONS_REFRESH_COOLDOWN_MS = 4000
 const adminReservationsLoadWarningShown = ref(false)
 
@@ -525,7 +526,9 @@ async function loadDashboardKpis() {
 
 async function loadUsers() {
   try {
-    const response = await requestWithCandidates([{ method: 'get', path: '/admin/users' }])
+    const response = await requestWithCandidates([
+      { method: 'get', path: '/admin/users', timeoutMs: ADMIN_USERS_TIMEOUT_MS },
+    ])
     users.value = pickCollection(response, ['users', 'usuarios'])
   } catch {
     users.value = []
@@ -582,11 +585,13 @@ async function loadCrewMembers() {
     requestWithCandidates([
       { method: 'get', path: '/admin/sobrecargos' },
       { method: 'get', path: '/admin/crew' },
-      { method: 'get', path: '/admin/users' },
+      { method: 'get', path: '/admin/users', timeoutMs: ADMIN_USERS_TIMEOUT_MS },
     ]),
     users.value.length
       ? Promise.resolve({ users: users.value })
-      : requestWithCandidates([{ method: 'get', path: '/admin/users' }]),
+      : requestWithCandidates([
+          { method: 'get', path: '/admin/users', timeoutMs: ADMIN_USERS_TIMEOUT_MS },
+        ]),
   ])
 
   const usersCollection =

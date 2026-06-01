@@ -58,7 +58,7 @@ export const roleSections = {
     { id: 'aeronaves', label: 'Aeronaves', icon: 'jet' },
     { id: 'operadores', label: 'Operadores', icon: 'clipboard' },
     { id: 'sobrecargos', label: 'Sobrecargos', icon: 'crew' },
-    { id: 'reservas', label: 'Solicitudes / Reservas', icon: 'reservations' },
+    { id: 'reservas', label: 'Flujo del cliente', icon: 'reservations' },
     { id: 'liberaciones', label: 'Liberaciones', icon: 'clipboard' },
     { id: 'suscripciones', label: 'Suscripciones', icon: 'wallet' },
     { id: 'contratos', label: 'Contratos', icon: 'link' },

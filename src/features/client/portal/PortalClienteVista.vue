@@ -485,9 +485,15 @@ const paymentCardVisualLogo = computed(() => CARD_BRAND_LOGOS[paymentCardVisualL
 
 const accountAccessCopy = computed(() => {
   const access = auth.access || {}
+  const user = auth.user || {}
   const subscription = access.subscription || access.membership || {}
   const normalizedSubscriptionStatus = String(
-    subscription.status || access.subscription_status || access.membership_status || '',
+    subscription.status ||
+      access.subscription_status ||
+      access.membership_status ||
+      user.subscription_status ||
+      user.membership_status ||
+      '',
   )
     .trim()
     .toLowerCase()
@@ -509,18 +515,24 @@ const accountAccessCopy = computed(() => {
     'vigente',
     'approved',
     'trial_active',
+    'demo_activa',
   ])
   const activeStatuses = new Set(['active', 'activa', 'vigente', 'approved'])
-  const demoStatuses = new Set(['trial_active', 'demo_active', 'trial', 'demo'])
+  const demoStatuses = new Set(['trial_active', 'demo_active', 'demo_activa', 'trial', 'demo'])
   const flags = [
     access.has_access,
     access.active,
     access.is_active,
     access.subscription_active,
     access.demo_active,
+    access.demo?.status,
     access.has_demo,
     access.can_book,
     access.can_request_flights,
+    user.has_access,
+    user.demo_active,
+    user.demo?.status,
+    user.has_demo,
   ]
   const normalizedFlags = flags.map((value) =>
     String(value ?? '')
@@ -550,9 +562,15 @@ const accountAccessCopy = computed(() => {
 const activePlan = computed(() => accountAccessCopy.value)
 const canQuoteFlights = computed(() => {
   const access = auth.access || {}
+  const user = auth.user || {}
   const subscription = access.subscription || access.membership || {}
   const normalizedSubscriptionStatus = String(
-    subscription.status || access.subscription_status || access.membership_status || '',
+    subscription.status ||
+      access.subscription_status ||
+      access.membership_status ||
+      user.subscription_status ||
+      user.membership_status ||
+      '',
   )
     .trim()
     .toLowerCase()
@@ -566,18 +584,24 @@ const canQuoteFlights = computed(() => {
     'vigente',
     'approved',
     'trial_active',
+    'demo_activa',
   ])
   const activeStatuses = new Set(['active', 'activa', 'vigente', 'approved'])
-  const demoStatuses = new Set(['trial_active', 'demo_active', 'trial', 'demo'])
+  const demoStatuses = new Set(['trial_active', 'demo_active', 'demo_activa', 'trial', 'demo'])
   const flags = [
     access.has_access,
     access.active,
     access.is_active,
     access.subscription_active,
     access.demo_active,
+    access.demo?.status,
     access.has_demo,
     access.can_book,
     access.can_request_flights,
+    user.has_access,
+    user.demo_active,
+    user.demo?.status,
+    user.has_demo,
   ]
   const normalizedFlags = flags.map((value) =>
     String(value ?? '')
@@ -1947,7 +1971,7 @@ function buildPrintableContractFileName() {
   return normalizedName || 'contrato'
 }
 
-function openInlineContractPrint() {
+function openInlineContractPrint(onAfterPrint = null) {
   if (typeof window === 'undefined' || typeof document === 'undefined') return false
 
   const contractPanel = document.querySelector('.document-panel')
@@ -1965,6 +1989,9 @@ function openInlineContractPrint() {
   const handleAfterPrint = () => {
     document.title = previousTitle
     clearInlineContractPrintMode()
+    if (typeof onAfterPrint === 'function') {
+      onAfterPrint()
+    }
   }
 
   window.addEventListener('afterprint', handleAfterPrint, { once: true })
@@ -1994,6 +2021,20 @@ function mergeReservationUpdate(updatedReservation = null) {
 
   reservations.value = reservations.value.map((reservation, index) =>
     index === existingIndex ? { ...reservation, ...nextReservation } : reservation,
+  )
+}
+
+function findReservationRecordById(reservationId = '') {
+  const normalizedReservationId = String(reservationId || '').trim()
+  if (!normalizedReservationId) return null
+
+  return (
+    reservations.value.find(
+      (reservation) =>
+        String(reservation.id || '').trim() === normalizedReservationId ||
+        String(reservation.flight_request_id || '').trim() === normalizedReservationId ||
+        String(reservation.request_id || '').trim() === normalizedReservationId,
+    ) || null
   )
 }
 
@@ -2046,9 +2087,9 @@ async function handleContractConfirm(contractPayload = {}) {
   const reservationId = reservationContextId.value
   if (!reservationId || signingContract.value) return
   const baseReservation =
-    selectedReservation.value && String(selectedReservation.value.id) === String(reservationId)
+    (selectedReservation.value && String(selectedReservation.value.id) === String(reservationId)
       ? selectedReservation.value
-      : {}
+      : null) || findReservationRecordById(reservationId) || {}
 
   const optimisticReservation = {
     ...baseReservation,
@@ -2084,7 +2125,12 @@ async function handleContractConfirm(contractPayload = {}) {
     await refreshReservations({ silent: true })
     mergeReservationUpdate(completedContractReservation)
     await nextTick()
-    const openedStyledPrint = openInlineContractPrint()
+    const openedStyledPrint = openInlineContractPrint(() => {
+      go('historial', reservationId)
+    })
+    if (!openedStyledPrint) {
+      go('historial', reservationId)
+    }
     ui.pushToast({
       tone: 'success',
       title: 'Contrato firmado',
@@ -2351,8 +2397,14 @@ async function handlePaymentSubmit() {
   }
 }
 
-async function ensureReservationForSelectedTrip() {
-  const trip = selectedReservation.value
+async function ensureReservationForSelectedTrip(targetId = '') {
+  const normalizedTargetId = resolveEntityIdentifier(targetId)
+  const trip =
+    reservations.value.find(
+      (reservation) =>
+        resolveEntityIdentifier(reservation.id) === normalizedTargetId ||
+        resolveEntityIdentifier(reservation.flight_request_id) === normalizedTargetId,
+    ) || selectedReservation.value
 
   if (!trip) {
     throw new Error('No encontramos un viaje activo para abrir el contrato.')
@@ -2389,9 +2441,9 @@ async function ensureReservationForSelectedTrip() {
   }
 }
 
-async function handleOpenContract() {
+async function handleOpenContract(targetId = '') {
   try {
-    const reservation = await ensureReservationForSelectedTrip()
+    const reservation = await ensureReservationForSelectedTrip(targetId)
     go('contrato', reservation.id)
   } catch (error) {
     ui.pushToast({
@@ -3058,9 +3110,10 @@ async function loadServerData() {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   redirectLegacyInProgressSection()
   restoreQuotePreview()
+  await auth.refreshSession()
   loadServerData()
 
   removeWorkflowSyncSubscription = subscribeWorkflowSync((payload = {}) => {

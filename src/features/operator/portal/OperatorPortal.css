@@ -1738,11 +1738,24 @@ textarea {
 }
 
 .request-flow-pill__index {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
   font-size: 0.76rem;
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: #7c6a4a;
+}
+
+.request-flow-pill__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  min-width: 1rem;
+  font-size: 0.8rem;
+  line-height: 1;
 }
 
 .request-summary-grid,
