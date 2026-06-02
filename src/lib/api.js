@@ -1,5 +1,7 @@
 const API_BASE_URL = String(
-  import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api/v1',
+  import.meta.env.VITE_API_URL ||
+    import.meta.env.VITE_API_BASE_URL ||
+    'http://127.0.0.1:8000/api/v1',
 ).replace(/\/$/, '')
 const CONFIGURED_BACKEND_ORIGIN = String(import.meta.env.VITE_BACKEND_ORIGIN || '').replace(
   /\/$/,
@@ -15,6 +17,9 @@ const FALLBACK_BACKEND_ORIGIN = String(import.meta.env.VITE_FALLBACK_BACKEND_ORI
   '',
 )
 const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS || 15000)
+const API_CREDENTIALS_MODE = String(import.meta.env.VITE_API_CREDENTIALS_MODE || 'same-origin')
+  .trim()
+  .toLowerCase()
 
 let memoryToken = null
 const AUTH_STORAGE_KEY = 'red_aviation_auth_token'
@@ -186,6 +191,26 @@ function buildHeaders(customHeaders = {}) {
   return headers
 }
 
+function resolveCredentialsMode(options = {}) {
+  if (typeof options.credentials === 'string' && options.credentials.trim()) {
+    return options.credentials
+  }
+
+  if (options.withCredentials === true) {
+    return 'include'
+  }
+
+  if (options.withCredentials === false) {
+    return 'omit'
+  }
+
+  if (['omit', 'same-origin', 'include'].includes(API_CREDENTIALS_MODE)) {
+    return API_CREDENTIALS_MODE
+  }
+
+  return 'same-origin'
+}
+
 function canUseSessionStorage() {
   return typeof window !== 'undefined' && typeof window.sessionStorage !== 'undefined'
 }
@@ -321,7 +346,7 @@ export async function apiRequest(path, options = {}) {
   const config = {
     method: options.method || 'GET',
     headers: buildHeaders(options.headers),
-    credentials: 'include',
+    credentials: resolveCredentialsMode(options),
   }
 
   if (options.formData instanceof FormData) {

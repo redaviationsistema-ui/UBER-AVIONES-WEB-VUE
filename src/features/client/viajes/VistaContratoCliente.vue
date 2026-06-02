@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue'
+import { buildFrontendUrl } from '../../../lib/frontendUrl'
 import { featuredAirports } from '../../../utils/airports'
 
 const props = defineProps({
@@ -28,6 +29,41 @@ const externalContractFlowEnabled = String(
   .trim()
   .toLowerCase() !== 'false'
 const signatureError = ref('')
+
+function resolvePublicAssetUrl(assetPath = '') {
+  const normalizedPath = String(assetPath || '').replace(/^\/+/, '')
+  const normalizedBase = String(import.meta.env.BASE_URL || '/')
+  const basePrefix = normalizedBase.endsWith('/') ? normalizedBase : `${normalizedBase}/`
+  const relativePath = `${basePrefix}${normalizedPath}`.replace(/([^:]\/)\/+/g, '$1')
+
+  if (typeof window === 'undefined') {
+    return relativePath
+  }
+
+  return new URL(relativePath, window.location.origin).toString()
+}
+
+async function convertPublicAssetToDataUrl(assetPath = '') {
+  if (typeof window === 'undefined') {
+    return resolvePublicAssetUrl(assetPath)
+  }
+
+  try {
+    const assetUrl = resolvePublicAssetUrl(assetPath)
+    const response = await fetch(assetUrl)
+    if (!response.ok) return assetUrl
+
+    const blob = await response.blob()
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onloadend = () => resolve(String(reader.result || assetUrl))
+      reader.onerror = () => reject(reader.error)
+      reader.readAsDataURL(blob)
+    })
+  } catch {
+    return resolvePublicAssetUrl(assetPath)
+  }
+}
 
 function airportMeta(code = '') {
   const normalizedCode = String(code || '')
@@ -577,7 +613,6 @@ const contractDate = computed(
         new Date(),
     ),
 )
-const usesExternalSignatureFlow = computed(() => externalContractFlowEnabled)
 const docusignStatusLabel = computed(() => {
   const rawValue = String(
     contractRecord.value?.docusign_status ||
@@ -805,7 +840,6 @@ const clauses = computed(() => [
     title: '4. COSTO TOTAL DEL SERVICIO Y DEPÓSITO',
     paragraphs: [
       `Con sujeción a las Secciones 5 y 15 del presente Contrato, el Cliente pagará al Prestador del Servicio el Costo Total del Servicio respecto de los servicios objeto del presente Contrato, conforme al Anexo A, más los Impuestos y Tasas. Para esta operación, el costo total identificado en el flujo es ${finalPrice.value}.`,
-      `Al firmar este Contrato, el Cliente acepta pagar al Prestador del Servicio un Depósito en el monto indicado en el Anexo A. Para esta reserva, el depósito requerido es ${depositAmount.value} y el saldo restante estimado es ${balanceAmount.value}. El depósito deberá cubrirse mediante transferencia bancaria y el saldo deberá quedar liquidado, salvo acuerdo distinto por escrito, al menos 48 horas antes de la salida.`,
     ],
   },
   {
@@ -1027,10 +1061,90 @@ function buildContractPlainText() {
   return sections.join('\n').trim()
 }
 
-function buildContractHtmlDocument() {
-  const markup = contractRoot.value?.outerHTML || ''
+function escapeHtml(value = '') {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
 
-  if (!markup) return ''
+function buildContractHtmlDocument(exportAssets = {}) {
+  const exportLogoSrc = exportAssets.logoSrc || resolvePublicAssetUrl('logo.png')
+  const exportContractHeaderSrc =
+    exportAssets.headerSrc || resolvePublicAssetUrl('MARGEN/image.png')
+  const coverCards = coverSummaryRows.value
+    .map(
+      (row) => `
+        <td class="mini-card">
+          <span>${escapeHtml(row.label)}</span>
+          <strong>${escapeHtml(row.value)}</strong>
+        </td>
+      `,
+    )
+    .join('')
+
+  const itineraryRows = itinerarySegments.value
+    .map(
+      (segment) => `
+        <tr>
+          <td>${escapeHtml(segment.order)}</td>
+          <td>${escapeHtml(segment.origin)}</td>
+          <td>${escapeHtml(segment.destination)}</td>
+          <td>${escapeHtml(formatPrintableDate(segment.departure))}</td>
+          <td>${escapeHtml(formatTime(segment.departure))}</td>
+        </tr>
+      `,
+    )
+    .join('')
+
+  const includesRows = includesItems
+    .map((item) => `<li>${escapeHtml(item)}</li>`)
+    .join('')
+  const excludesRows = excludesItems
+    .map((item) => `<li>${escapeHtml(item)}</li>`)
+    .join('')
+  const considerationsRows = considerations.value
+    .map((item) => `<li>${escapeHtml(item)}</li>`)
+    .join('')
+  const definitionsRows = definitions.value
+    .map((item) => `<li>${escapeHtml(item)}</li>`)
+    .join('')
+  const clausesHtml = clauses.value
+    .map((clause) => {
+      const paragraphs = (clause.paragraphs || [])
+        .map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`)
+        .join('')
+      const items = (clause.items || []).length
+        ? `<ul>${clause.items.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`
+        : ''
+
+      return `
+        <section class="clause-block">
+          <h3>${escapeHtml(clause.title)}</h3>
+          ${paragraphs}
+          ${items}
+        </section>
+      `
+    })
+    .join('')
+
+  const accountCards = bankAccounts
+    .map(
+      (account) => `
+        <td>
+        <div class="account-card-print">
+          <strong>${escapeHtml(account.bank)}</strong>
+          <div>Cuenta: ${escapeHtml(account.account)}</div>
+          <div>CLABE: ${escapeHtml(account.clabe)}</div>
+          <div>Beneficiario: ${escapeHtml(account.beneficiary)}</div>
+          <div>RFC: ${escapeHtml(account.rfc)}</div>
+        </div>
+        </td>
+      `,
+    )
+    .join('')
 
   return `<!DOCTYPE html>
 <html lang="es">
@@ -1039,33 +1153,262 @@ function buildContractHtmlDocument() {
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Contrato ${reservationCode.value}</title>
     <style>
-      body { margin: 0; padding: 24px; background: #f6f1e7; color: #111; font-family: Arial, sans-serif; }
-      .contract-preview { display: block; padding: 0; background: transparent; }
-      .signature-panel { display: none !important; }
-      img { max-width: 100%; }
-      table { width: 100%; border-collapse: collapse; }
-      th, td { border: 1px solid #ddd; padding: 8px; text-align: left; vertical-align: top; }
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: 18px; background: #f6f1e7; color: #111; font-family: DejaVu Sans, Arial, sans-serif; font-size: 12px; line-height: 1.5; }
+      .sheet { border: 1px solid #ddd4c6; border-radius: 18px; overflow: hidden; background: #fff; }
+      .brandbar { background: #17212b; }
+      .brandbar-banner { display: block; width: 100%; }
+      .body { padding: 18px; background: #fffdf9; }
+      .eyebrow { color: #8b6a24; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+      .badge { float: right; padding: 5px 10px; border-radius: 999px; background: #f7ebcc; color: #8b6a24; font-size: 10px; font-weight: 700; }
+      h1 { margin: 8px 0 6px; font-size: 28px; line-height: 1.08; }
+      .route { margin: 0 0 10px; font-size: 18px; font-weight: 700; color: #3c3328; }
+      .meta span { display: inline-block; margin: 0 14px 6px 0; color: #625d55; font-weight: 600; }
+      .mini-grid { width: 100%; border-collapse: separate; border-spacing: 8px 8px; margin: 10px -8px 0; }
+      .mini-grid td { width: 33.33%; border: 1px solid #e1d8ca; border-radius: 10px; background: #fcfaf6; padding: 10px 12px; vertical-align: top; }
+      .mini-grid span { display: block; color: #8c7b63; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+      .mini-grid strong { display: block; margin-top: 4px; color: #1a1816; font-size: 13px; line-height: 1.35; }
+      .section { margin-top: 16px; page-break-inside: avoid; }
+      .section-title { margin: 0 0 8px; font-size: 15px; font-weight: 700; }
+      .head-center { text-align: center; margin-bottom: 10px; }
+      .head-center strong { display: block; font-size: 18px; letter-spacing: .03em; }
+      .summary { width: 100%; border-collapse: collapse; margin-top: 10px; }
+      .summary th, .summary td { border: 1px solid #e9e2d4; padding: 8px 10px; vertical-align: top; text-align: left; }
+      .summary th { background: #f4eee3; color: #625d55; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+      .summary td { background: #faf8f3; font-weight: 600; }
+      .two-cols { width: 100%; border-collapse: separate; border-spacing: 10px 0; margin: 10px -10px 0; }
+      .two-cols td { width: 50%; vertical-align: top; }
+      .note-box { border: 1px solid #e1d8ca; border-radius: 10px; background: #fcfaf6; padding: 10px 12px; }
+      .note-box strong { display: block; margin-bottom: 6px; }
+      .note-box ul { margin: 0; padding-left: 18px; }
+      .note-box li { margin-bottom: 6px; }
+      .copy p { margin: 0 0 8px; }
+      .copy ul { margin: 0; padding-left: 18px; }
+      .copy li { margin-bottom: 6px; }
+      .accounts { width: 100%; border-collapse: separate; border-spacing: 10px 10px; margin: 0 -10px; }
+      .accounts td { width: 33.33%; vertical-align: top; }
+      .account-card-print { border: 1px solid #e1d8ca; border-radius: 10px; background: #fcfaf6; padding: 10px 12px; min-height: 94px; }
+      .account-card-print strong { display: block; margin-bottom: 6px; }
+      .signature-summary-table { width: 100%; border-collapse: collapse; margin: 10px 0 12px; border: 1px solid #e2d8c9; background: #fbf8f1; }
+      .signature-summary-table td { width: 33.33%; padding: 10px 12px; vertical-align: top; color: #5d5448; border-right: 1px solid #e2d8c9; }
+      .signature-summary-table td:last-child { border-right: 0; }
+      .signature-summary-table .summary-label { display: block; color: #8d7c64; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+      .signature-summary-table .summary-value { display: block; margin-top: 4px; color: #1a1816; font-size: 13px; font-weight: 700; line-height: 1.35; }
+      .signature-card-table { width: 100%; max-width: 620px; margin: 0 auto; border-collapse: collapse; border: 1px solid #e1d8ca; background: #fcfaf6; }
+      .signature-card-table td { padding: 0; border: 0; }
+      .signature-card-body { padding: 14px 16px 12px; text-align: center; }
+      .signature-card-body .role { display: block; color: #8b6a24; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+      .signature-card-body .name { display: block; margin-top: 8px; font-size: 18px; font-weight: 700; }
+      .signature-card-body .meta-line { display: block; margin-top: 4px; color: #625d55; }
+      .signature-box-wrap { padding: 14px 18px 10px; }
+      .signature-box-table { width: 100%; border-collapse: collapse; border: 1px dashed #d3c6ab; background: #f8f2e6; }
+      .signature-box-table td { padding: 16px 18px; text-align: center; }
+      .signature-box-table .kicker { display: block; color: #6f6557; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+      .signature-box-table .title { display: block; margin-top: 8px; color: #1a1816; font-size: 16px; font-weight: 700; }
+      .signature-anchor-slot { height: 58px; padding-top: 8px; text-align: center; vertical-align: middle; }
+      .anchor-holder { display: inline-block; color: #f8f2e6; font-size: 2px; line-height: 2px; }
+      .signature-rule { padding: 0 18px; }
+      .signature-rule div { height: 2px; background: #111; }
+      .signature-caption-row td { padding: 10px 16px 14px; text-align: center; color: #756958; font-size: 13px; }
+      .contact-bar { margin-top: 14px; padding-top: 12px; border-top: 1px solid #ddd4c6; }
+      .contact-row { margin-bottom: 8px; }
+      .contact-row .label { color: #8d7c64; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+      .contact-row .value, .contact-row a { color: #1a1816; font-size: 14px; font-weight: 700; text-decoration: none; }
     </style>
   </head>
   <body>
-    ${markup}
+    <div class="sheet">
+      <div class="brandbar">
+        <img class="brandbar-banner" src="${escapeHtml(exportContractHeaderSrc)}" alt="Sky Group" />
+      </div>
+
+      <div class="body">
+        <div>
+          <span class="eyebrow">Reserva ${escapeHtml(reservationCode.value)}</span>
+          <span class="badge">Confidencial · Documento para firma</span>
+        </div>
+        <h1>Contrato de prestación de servicios de aviación ejecutiva</h1>
+        <p class="route">${escapeHtml(routeDisplay.value)}</p>
+        <div class="meta">
+          <span>Salida: ${escapeHtml(departureDate.value)}</span>
+          <span>Pasajeros: ${escapeHtml(passengerLabel.value)}</span>
+          <span>Aeronave: ${escapeHtml(aircraftLabel.value)}</span>
+          <span>Tramos: ${escapeHtml(itinerarySegments.value.length)}</span>
+          <span>Total: ${escapeHtml(finalPrice.value)}</span>
+        </div>
+
+        <table class="mini-grid">
+          <tr>${coverCards}</tr>
+        </table>
+
+        <section class="section">
+          <div class="head-center">
+            <span class="eyebrow">Contrato ${escapeHtml(props.reservationId || props.reservation?.id || '')}</span>
+            <strong>Anexo A — Datos comerciales de la reserva</strong>
+          </div>
+        </section>
+
+        <section class="section copy">
+          <p>El presente Contrato se celebra en la fecha <strong>${escapeHtml(contractDate.value)}</strong>.</p>
+          <p>ENTRE <strong>RED AVIATION COMPANY S.A. DE C.V.</strong>, sociedad constituida conforme a las leyes de los Estados Unidos Mexicanos, con domicilio en Circuito Alfonso G. de Orozco, Manzana 007, C.P. 50225, San Miguel Totoltepec, Toluca de Lerdo, Estado de México, legalmente representada en este acto por José Luis Hernández Ortiz, quien cuenta con facultades suficientes para este acto, en lo sucesivo el <strong>Prestador del Servicio</strong>.</p>
+          <p>Y <strong>${escapeHtml(customerLabel.value)}</strong>, persona física o moral según corresponda, con domicilio en <strong>${escapeHtml(customerAddress.value)}</strong>, por su propio derecho o representada en este acto por <strong>${escapeHtml(customerRepresentative.value)}</strong>, quien declara contar con la capacidad jurídica y/o facultades suficientes para obligarse en los términos del presente Contrato, en lo sucesivo el <strong>Cliente</strong>.</p>
+        </section>
+
+        <section class="section copy">
+          <h3 class="section-title">CONSIDERANDO QUE</h3>
+          <ul>${considerationsRows}</ul>
+        </section>
+
+        <section class="section">
+          <h3 class="section-title">ANEXO A — RESUMEN COMERCIAL</h3>
+          <table class="summary">
+            <tbody>
+              <tr><th>Reserva</th><td>${escapeHtml(reservationCode.value)}</td><th>Cliente</th><td>${escapeHtml(customerLabel.value)}</td><th>Prestador comercial</th><td>${escapeHtml(commercialProviderLabel)}</td></tr>
+              <tr><th>Operador aéreo</th><td>${escapeHtml(operatorLabel.value)}</td><th>Ruta</th><td>${escapeHtml(routeDisplay.value)}</td><th>Salida</th><td>${escapeHtml(departureDate.value)}</td></tr>
+              <tr><th>Aeronave</th><td>${escapeHtml(aircraftLabel.value)}</td><th>Cabina</th><td>${escapeHtml(aircraftCategory.value)}</td><th>Pasajeros</th><td>${escapeHtml(passengerLabel.value)}</td></tr>
+              <tr><th>Pernocta</th><td>${escapeHtml(overnightLabel.value)}</td><th>Servicio</th><td>${escapeHtml(serviceTier.value)}</td><th>Tramos</th><td>${escapeHtml(itinerarySegments.value.length)}</td></tr>
+              <tr><th>Costo total</th><td>${escapeHtml(finalPrice.value)}</td><th colspan="4"></th></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section class="section">
+          <strong>Itinerario</strong>
+          <table class="summary" style="margin-top:8px;">
+            <thead>
+              <tr><th>Tramo</th><th>Origen</th><th>Destino</th><th>Fecha</th><th>Hora</th></tr>
+            </thead>
+            <tbody>${itineraryRows}</tbody>
+          </table>
+        </section>
+
+        <section class="section">
+          <table class="two-cols">
+            <tr>
+              <td><div class="note-box"><strong>Incluye</strong><ul>${includesRows}</ul></div></td>
+              <td><div class="note-box"><strong>No incluye, salvo pacto expreso</strong><ul>${excludesRows}</ul></div></td>
+            </tr>
+          </table>
+        </section>
+
+        <section class="section copy">
+          <h3 class="section-title">1. DEFINICIONES</h3>
+          <ul>${definitionsRows}</ul>
+        </section>
+
+        <section class="section copy">
+          ${clausesHtml}
+        </section>
+
+        <section class="section">
+          <h3 class="section-title">CUENTAS PARA PAGO</h3>
+          <table class="accounts"><tr>${accountCards}</tr></table>
+        </section>
+
+        <section class="section copy">
+          <div class="head-center" style="text-align:left;">
+            <span class="eyebrow">Formalización</span>
+            <strong style="font-size:24px;">FIRMAS</strong>
+            <p>Las partes aceptan el presente contrato mediante firma electrónica.</p>
+            <p>La firma de este contrato se realizará de forma digital mediante DocuSign. Al completar la firma, el documento quedará registrado y asociado a esta reserva <strong>${escapeHtml(reservationCode.value)}</strong>.</p>
+          </div>
+          <table class="signature-summary-table">
+            <tr>
+              <td>
+                <span class="summary-label">Cliente</span>
+                <span class="summary-value">${escapeHtml(customerLabel.value)}</span>
+              </td>
+              <td>
+                <span class="summary-label">Ruta</span>
+                <span class="summary-value">${escapeHtml(routeDisplay.value)}</span>
+              </td>
+              <td>
+                <span class="summary-label">Total</span>
+                <span class="summary-value">${escapeHtml(finalPrice.value)}</span>
+              </td>
+            </tr>
+          </table>
+          <table class="signature-card-table">
+            <tr>
+              <td class="signature-card-body">
+                <span class="role">Cliente</span>
+                <span class="name">${escapeHtml(customerLabel.value)}</span>
+                <span class="meta-line">Representante: ${escapeHtml(customerRepresentative.value)}</span>
+                <span class="meta-line">Cargo: Cliente / Representante</span>
+              </td>
+            </tr>
+            <tr>
+              <td class="signature-box-wrap">
+                <table class="signature-box-table">
+                  <tr>
+                    <td>
+                      <span class="kicker">Espacio reservado para firma digital</span>
+                      <span class="title">Firma digital del cliente</span>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td class="signature-anchor-slot">
+                      <span class="anchor-holder">${escapeHtml(clientSignatureAnchor)}</span>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td class="signature-rule">
+                <div></div>
+              </td>
+            </tr>
+            <tr class="signature-caption-row">
+              <td>${escapeHtml(docusignStatusLabel.value)}</td>
+            </tr>
+          </table>
+          <div class="contact-bar">
+            <div class="contact-row"><span class="label">Contacto comercial</span> <span class="value">${escapeHtml(supportEmail)}</span></div>
+            <div class="contact-row"><span class="label">Sitio web</span> <span class="value">${escapeHtml(supportWebsite)}</span></div>
+            <div class="contact-row"><span class="label">Teléfonos</span> <span class="value">${escapeHtml(supportPhonesLabel)}</span></div>
+          </div>
+        </section>
+      </div>
+    </div>
   </body>
 </html>`
 }
 
-function handleConfirmClick() {
+function buildContractSourcePath(resolvedReservationId = '') {
+  const normalizedReservationId = String(resolvedReservationId || '').trim()
+  if (!normalizedReservationId) return ''
+
+  return buildFrontendUrl(`/cliente/contrato/${normalizedReservationId}`)
+}
+
+async function handleConfirmClick() {
   const resolvedReservationId =
     resolveEntityIdentifier(props.reservationId) || resolveEntityIdentifier(props.reservation)
   const resolvedFlightRequestId =
     resolveEntityIdentifier(props.reservation?.flight_request_id) ||
     resolveEntityIdentifier(props.reservation?.request_id)
+  const [embeddedLogoSrc, embeddedHeaderSrc] = await Promise.all([
+    convertPublicAssetToDataUrl('logo.png'),
+    convertPublicAssetToDataUrl('MARGEN/image.png'),
+  ])
+  const fullContractHtml = buildContractHtmlDocument({
+    logoSrc: embeddedLogoSrc,
+    headerSrc: embeddedHeaderSrc,
+  })
+  const fullContractPlainText = buildContractPlainText()
 
   signatureError.value = ''
   emit('confirm', {
     contract_snapshot: buildContractSnapshot(),
-    contract_html: buildContractHtmlDocument(),
-    contract_markup: buildContractHtmlDocument(),
-    contract_plain_text: buildContractPlainText(),
+    contract_html: fullContractHtml,
+    contract_markup: fullContractHtml,
+    contract_plain_text: fullContractPlainText,
+    document_html: fullContractHtml,
+    full_contract_html: fullContractHtml,
+    full_contract_text: fullContractPlainText,
+    source_contract_path: buildContractSourcePath(resolvedReservationId),
+    document_source: 'client_contract_full_html',
     id: resolvedReservationId,
     reservation: resolvedReservationId,
     reservation_id: resolvedReservationId,
@@ -1101,14 +1444,14 @@ function handleConfirmClick() {
           <h1>Contrato de prestación de servicios de aviación ejecutiva</h1>
           <p class="contract-cover__route">{{ routeDisplay }}</p>
           <div class="contract-cover__meta">
-            <span>📅 {{ departureDate }}</span>
-            <span>👥 {{ passengerLabel }}</span>
-            <span>🛩 {{ aircraftLabel }}</span>
+            <span>Salida: {{ departureDate }}</span>
+            <span>Pasajeros: {{ passengerLabel }}</span>
+            <span>Aeronave: {{ aircraftLabel }}</span>
             <span
-              >✈ {{ itinerarySegments.length }}
+              >Tramos: {{ itinerarySegments.length }}
               {{ itinerarySegments.length === 1 ? 'tramo' : 'tramos' }}</span
             >
-            <span>💵 {{ finalPrice }}</span>
+            <span>Total: {{ finalPrice }}</span>
           </div>
           <div class="contract-cover__brief">
             <article
@@ -1153,21 +1496,6 @@ function handleConfirmClick() {
               <span>Costo total</span>
               <strong>{{ finalPrice }}</strong>
             </article>
-          </div>
-        </section>
-
-        <section v-if="usesExternalSignatureFlow" class="contract-flow-banner contract-card">
-          <div class="contract-flow-banner__copy">
-            <span class="eyebrow">Firma electronica</span>
-            <strong>Este contrato se firmara en el flujo digital seguro.</strong>
-            <p>
-              Al continuar, generaremos este mismo contrato, abriremos la firma electronica y
-              despues habilitaremos el paso a pago.
-            </p>
-          </div>
-          <div class="contract-flow-banner__meta">
-            <span>Modo activo</span>
-            <strong>Contrato digital con redireccion externa</strong>
           </div>
         </section>
 
@@ -1353,8 +1681,8 @@ function handleConfirmClick() {
                 <div class="signature-external-placeholder signature-external-placeholder--anchor" aria-hidden="true">
                   <span>Espacio reservado para firma digital</span>
                   <strong>Firma digital del cliente</strong>
+                  <span class="docusign-anchor">{{ clientSignatureAnchor }}</span>
                 </div>
-                <span class="docusign-anchor">{{ clientSignatureAnchor }}</span>
               </div>
               <small class="signature-card__caption">
                 {{ docusignStatusLabel }}
@@ -1419,16 +1747,18 @@ function handleConfirmClick() {
 <style scoped>
 .contract-preview {
   display: grid;
-  gap: 1rem;
-  padding: 1rem;
-  border-radius: 32px;
-  background: linear-gradient(180deg, #16202a 0, #16202a 11rem, #f6f1e7 11rem, #f6f1e7 100%);
+  gap: 0.8rem;
+  padding: 0.9rem;
+  border-radius: 18px;
+  background: #efebe3;
 }
 
 .contract-block h3 {
   margin: 0;
   color: #111111;
-  font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 1rem;
+  letter-spacing: 0.02em;
 }
 
 .contract-block p,
@@ -1454,11 +1784,11 @@ function handleConfirmClick() {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0.45rem 0.85rem;
+  padding: 0.35rem 0.7rem;
   border-radius: 999px;
-  background: rgba(139, 106, 36, 0.12);
+  background: #f3ead7;
   color: #8b6a24;
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   font-weight: 800;
   letter-spacing: 0.04em;
 }
@@ -1467,8 +1797,8 @@ function handleConfirmClick() {
   position: relative;
   z-index: 1;
   display: grid;
-  gap: 0.9rem;
-  padding: 0.15rem 0 0.75rem;
+  gap: 0.55rem;
+  padding: 0.05rem 0 0.35rem;
 }
 
 .contract-cover__eyebrow-row {
@@ -1482,44 +1812,45 @@ function handleConfirmClick() {
 .contract-cover h1 {
   margin: 0;
   color: #111111;
-  font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif;
-  font-size: clamp(2rem, 4vw, 2.7rem);
-  line-height: 1.02;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: clamp(1.7rem, 3vw, 2.15rem);
+  line-height: 1.08;
+  font-weight: 700;
 }
 
 .contract-cover__route {
   margin: 0;
   color: #3c3328;
-  font-size: clamp(1.15rem, 2vw, 1.5rem);
+  font-size: clamp(1rem, 1.7vw, 1.2rem);
   font-weight: 700;
 }
 
 .contract-cover__meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.65rem 1.2rem;
+  gap: 0.35rem 1rem;
   color: #625d55;
-  font-size: 0.98rem;
-  font-weight: 700;
+  font-size: 0.84rem;
+  font-weight: 600;
 }
 
 .contract-cover__brief {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.7rem;
-  margin-top: 0.55rem;
+  gap: 0.55rem;
+  margin-top: 0.2rem;
 }
 
 .cover-brief-card {
   display: grid;
   align-content: start;
   gap: 0.32rem;
-  min-height: 5.25rem;
-  padding: 0.85rem 1rem 0.95rem;
-  border: 1px solid #eadfcd;
-  border-radius: 16px;
-  background: linear-gradient(180deg, #fbf7f0 0%, #fffdfa 100%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  min-height: 4.3rem;
+  padding: 0.75rem 0.85rem 0.8rem;
+  border: 1px solid #e3dac9;
+  border-radius: 10px;
+  background: #fbf8f2;
+  box-shadow: none;
 }
 
 .cover-brief-card span {
@@ -1532,7 +1863,7 @@ function handleConfirmClick() {
 
 .cover-brief-card strong {
   color: #1a1816;
-  font-size: 1.08rem;
+  font-size: 0.98rem;
   line-height: 1.28;
   word-break: break-word;
 }
@@ -1540,14 +1871,14 @@ function handleConfirmClick() {
 .contract-summary {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.85rem;
+  gap: 0.6rem;
 }
 
 .summary-card,
 .contract-sheet,
 .signature-panel {
-  border: 1px solid #e5e1d8;
-  border-radius: 22px;
+  border: 1px solid #dfd6c8;
+  border-radius: 12px;
   background: #ffffff;
 }
 
@@ -1555,8 +1886,8 @@ function handleConfirmClick() {
   position: relative;
   display: grid;
   gap: 0.3rem;
-  padding: 1rem;
-  background: rgba(255, 255, 255, 0.94);
+  padding: 0.8rem 0.9rem;
+  background: #fcfaf6;
 }
 
 .summary-card span,
@@ -1574,25 +1905,58 @@ function handleConfirmClick() {
 }
 
 .summary-card strong {
-  font-size: 1.05rem;
+  font-size: 0.98rem;
 }
 
 .summary-card--route strong {
-  font-size: 1.2rem;
+  font-size: 1.08rem;
 }
 
 .contract-sheet {
   display: grid;
-  gap: 1rem;
+  gap: 0.7rem;
   overflow: hidden;
-  border-radius: 28px;
+  border-radius: 14px;
   background: #ffffff;
-  box-shadow: 0 24px 56px rgba(22, 32, 42, 0.22);
+  box-shadow: 0 8px 20px rgba(54, 44, 29, 0.08);
 }
 
 .contract-brandbar {
   overflow: hidden;
   background: #16202a;
+}
+
+.contract-brandbar__topline {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.85rem 1rem 0.55rem;
+}
+
+.contract-brandbar__logo {
+  width: 88px;
+  height: auto;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+
+.contract-brandbar__legend {
+  display: grid;
+  gap: 0.12rem;
+}
+
+.contract-brandbar__legend strong {
+  color: #ffffff;
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.contract-brandbar__legend span {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 0.76rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .contract-brandbar__banner {
@@ -1604,9 +1968,9 @@ function handleConfirmClick() {
 .contract-sheet__body {
   position: relative;
   display: grid;
-  gap: 1rem;
-  padding: clamp(1.25rem, 2.5vw, 1.8rem);
-  border: 2px solid #9d9790;
+  gap: 0.8rem;
+  padding: clamp(1rem, 2vw, 1.25rem);
+  border: 1px solid #cfc4b4;
   border-top: 0;
 }
 
@@ -1630,15 +1994,15 @@ function handleConfirmClick() {
   position: relative;
   z-index: 1;
   display: grid;
-  gap: 0.4rem;
+  gap: 0.3rem;
   justify-items: center;
-  padding: 0.35rem 0 0.9rem;
+  padding: 0.2rem 0 0.45rem;
   text-align: center;
 }
 
 .contract-sheet__head strong {
-  font-size: clamp(1.5rem, 2vw, 1.9rem);
-  letter-spacing: 0.04em;
+  font-size: clamp(1.15rem, 1.5vw, 1.4rem);
+  letter-spacing: 0.03em;
 }
 
 .contract-sheet__head small {
@@ -1648,49 +2012,21 @@ function handleConfirmClick() {
 
 .contract-commercial-intro {
   display: grid;
-  gap: 0.65rem;
+  gap: 0.45rem;
   break-inside: avoid;
   page-break-inside: avoid;
-}
-
-.contract-flow-banner {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(15rem, 1fr);
-  gap: 1rem;
-  padding: 1rem 1.1rem;
-}
-
-.contract-flow-banner__copy,
-.contract-flow-banner__meta {
-  display: grid;
-  gap: 0.35rem;
-}
-
-.contract-flow-banner__copy p,
-.contract-flow-banner__meta span {
-  margin: 0;
-  color: #625d55;
-}
-
-.contract-flow-banner__meta {
-  align-content: start;
-  padding: 0.9rem 1rem;
-  border-radius: 18px;
-  background: rgba(21, 32, 42, 0.05);
 }
 
 .contract-block {
   position: relative;
   z-index: 1;
   display: grid;
-  gap: 0.6rem;
+  gap: 0.42rem;
 }
 
 .contract-list {
   display: grid;
-  gap: 0.45rem;
+  gap: 0.28rem;
   margin: 0;
   padding-left: 1.15rem;
 }
@@ -1709,16 +2045,16 @@ function handleConfirmClick() {
 .annex-table {
   width: 100%;
   border-collapse: collapse;
-  border: 1px solid #e9e2d4;
-  border-radius: 16px;
+  border: 1px solid #ddd4c6;
+  border-radius: 8px;
   overflow: hidden;
-  background: #faf8f3;
+  background: #fcfaf6;
 }
 
 .annex-table th,
 .annex-table td {
-  padding: 0.9rem 1rem;
-  border-bottom: 1px solid #e9e2d4;
+  padding: 0.6rem 0.7rem;
+  border-bottom: 1px solid #e2d8c9;
   text-align: left;
   vertical-align: top;
 }
@@ -1730,15 +2066,16 @@ function handleConfirmClick() {
 
 .annex-table th {
   width: 16%;
-  background: #f4eee3;
-  font-size: 0.82rem;
+  background: #f1eadc;
+  font-size: 0.74rem;
   font-weight: 800;
   letter-spacing: 0.03em;
   text-transform: uppercase;
 }
 
 .annex-table td {
-  font-weight: 700;
+  font-weight: 600;
+  font-size: 0.88rem;
   line-height: 1.35;
 }
 
@@ -1755,11 +2092,11 @@ function handleConfirmClick() {
 .signature-card {
   display: grid;
   gap: 0.45rem;
-  padding: 1.25rem;
-  border: 1px solid #e9e2d4;
-  border-radius: 22px;
-  background: linear-gradient(180deg, rgba(252, 250, 245, 0.98), rgba(255, 255, 255, 0.98));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  padding: 1rem;
+  border: 1px solid #e1d8ca;
+  border-radius: 10px;
+  background: #fcfaf6;
+  box-shadow: none;
   break-inside: avoid;
   page-break-inside: avoid;
 }
@@ -1788,10 +2125,10 @@ function handleConfirmClick() {
 .annex-note-card {
   display: grid;
   gap: 0.55rem;
-  padding: 1rem;
-  border: 1px solid #e9e2d4;
-  border-radius: 16px;
-  background: rgba(250, 248, 243, 0.94);
+  padding: 0.85rem;
+  border: 1px solid #e1d8ca;
+  border-radius: 10px;
+  background: #fcfaf6;
 }
 
 .signature-line {
@@ -1852,19 +2189,20 @@ function handleConfirmClick() {
 }
 
 .signatures-section {
-  gap: 1.25rem;
-  padding: 0.35rem 0 0.1rem;
+  gap: 0.85rem;
+  padding: 0.25rem 0 0.05rem;
 }
 
 .signature-sheet__header {
   display: grid;
-  gap: 0.45rem;
+  gap: 0.3rem;
   max-width: 42rem;
 }
 
 .signature-sheet__header h3 {
-  font-size: 2rem;
-  line-height: 1;
+  font-size: 1.45rem;
+  line-height: 1.05;
+  font-family: Georgia, 'Times New Roman', serif;
 }
 
 .signature-sheet__header p {
@@ -1875,12 +2213,12 @@ function handleConfirmClick() {
 
 .signature-sheet__summary {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.75rem;
-  padding: 0.9rem 1rem;
-  border: 1px solid #e8dfcf;
-  border-radius: 18px;
-  background: #f8f4eb;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.55rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid #e2d8c9;
+  border-radius: 10px;
+  background: #fbf8f1;
 }
 
 .signature-sheet__summary span {
@@ -1959,10 +2297,10 @@ function handleConfirmClick() {
 .signature-contact-bar {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 2rem;
-  margin-top: 0.5rem;
-  padding-top: 1.15rem;
-  border-top: 2px solid #e4dbcd;
+  gap: 1rem;
+  margin-top: 0.15rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #ddd4c6;
 }
 
 .signature-contact-bar__item {
@@ -1997,18 +2335,18 @@ function handleConfirmClick() {
 
 .signature-panel {
   display: grid;
-  gap: 0.75rem;
-  padding: 1rem;
+  gap: 0.65rem;
+  padding: 0.8rem;
 }
 
 .signature-box {
   display: grid;
-  min-height: 170px;
+  min-height: 120px;
   place-items: center;
-  padding: 1.2rem;
-  border: 1px dashed #b9ad96;
-  border-radius: 18px;
-  background: #fbf8ef;
+  padding: 1rem;
+  border: 1px dashed #d3c6ab;
+  border-radius: 10px;
+  background: #fcfaf6;
 }
 
 .signature-box--external {
@@ -2121,18 +2459,17 @@ function handleConfirmClick() {
 }
 
 .signature-panel__submit {
-  min-height: 3.35rem;
+  min-height: 3rem;
   border: 0;
-  border-radius: 16px;
-  background: linear-gradient(135deg, #111111, #2b2925);
+  border-radius: 10px;
+  background: #111111;
   color: #ffffff;
-  font-size: 1rem;
+  font-size: 0.96rem;
   font-weight: 800;
   cursor: pointer;
 }
 
 @media (max-width: 900px) {
-  .contract-flow-banner,
   .contract-summary,
   .annex-grid,
   .accounts-grid,
@@ -2300,6 +2637,26 @@ function handleConfirmClick() {
     display: block !important;
     width: 100% !important;
     height: auto !important;
+  }
+
+  .contract-brandbar__topline {
+    padding: 8px 12px 6px !important;
+  }
+
+  .contract-brandbar__logo {
+    width: 72px !important;
+  }
+
+  .contract-brandbar__legend strong {
+    color: #ffffff !important;
+    font-size: 11px !important;
+  }
+
+  .contract-brandbar__legend span {
+    color: rgba(255, 255, 255, 0.82) !important;
+    font-size: 8px !important;
+    letter-spacing: 0.08em !important;
+    text-transform: uppercase !important;
   }
 
   .contract-card {

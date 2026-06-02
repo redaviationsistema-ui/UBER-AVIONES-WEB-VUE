@@ -1,4 +1,5 @@
 import { api } from '../lib/api'
+import { buildFrontendUrl } from '../lib/frontendUrl'
 
 const configuredGeneratePath = String(
   import.meta.env.VITE_CLIENT_CONTRACT_GENERATE_PATH ||
@@ -98,27 +99,11 @@ function safeParseStorage(value = '') {
 }
 
 export function buildContractResultUrl({ contractId = '', reservationId = '', flightRequestId = '' } = {}) {
-  if (typeof window === 'undefined') return ''
-
-  const basePath = String(import.meta.env.BASE_URL || '/').trim() || '/'
-  const routePath = configuredResultRoute.startsWith('/')
-    ? configuredResultRoute.slice(1)
-    : configuredResultRoute
-  const url = new URL(`${basePath}${routePath}`, window.location.origin)
-
-  if (contractId) {
-    url.searchParams.set('contract_id', String(contractId).trim())
-  }
-
-  if (reservationId) {
-    url.searchParams.set('reservation_id', String(reservationId).trim())
-  }
-
-  if (flightRequestId) {
-    url.searchParams.set('flight_request_id', String(flightRequestId).trim())
-  }
-
-  return url.toString()
+  return buildFrontendUrl(configuredResultRoute || '/cliente/contrato/', {
+    contract_id: contractId ? String(contractId).trim() : '',
+    reservation_id: reservationId ? String(reservationId).trim() : '',
+    flight_request_id: flightRequestId ? String(flightRequestId).trim() : '',
+  })
 }
 
 function resolveReservationIdForRoute(payload = {}) {

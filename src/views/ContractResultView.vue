@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   contractApi,
@@ -8,6 +8,7 @@ import {
   normalizeContractFrontendState,
   readPendingContractContext,
 } from '../services/contractApi'
+import { emitWorkflowSync } from '../lib/workflowSync'
 
 const route = useRoute()
 const router = useRouter()
@@ -16,6 +17,7 @@ const loading = ref(true)
 const downloadingPdf = ref(false)
 const contract = ref(null)
 const error = ref('')
+let autoContinueTimer = null
 
 const contractId = computed(() => String(route.query.contract_id || '').trim())
 const reservationId = computed(() => String(route.query.reservation_id || '').trim())
@@ -69,6 +71,13 @@ async function loadContractStatus() {
         reservationId: effectiveReservationId.value,
         contractId: contractId.value,
       })
+      emitWorkflowSync({
+        scope: 'reservation-workflow',
+        reservationId: effectiveReservationId.value,
+        requestId: effectiveReservationId.value,
+        nextStage: 'payment_pending',
+      })
+      queueAutoContinue()
     }
   } catch (error) {
     error.value = error?.message || 'No pudimos consultar el estado del contrato.'
@@ -77,11 +86,43 @@ async function loadContractStatus() {
   }
 }
 
+function clearAutoContinueTimer() {
+  if (!autoContinueTimer) return
+  window.clearTimeout(autoContinueTimer)
+  autoContinueTimer = null
+}
+
+function queueAutoContinue() {
+  if (!docusignCompleted.value) return
+  clearAutoContinueTimer()
+  autoContinueTimer = window.setTimeout(() => {
+    continuarPago()
+  }, 1200)
+}
+
+function buildSignedContractQuery() {
+  const query = {
+    contract_signed: '1',
+  }
+
+  if (contractId.value) {
+    query.contract_id = contractId.value
+  }
+
+  if (effectiveReservationId.value) {
+    query.reservation_id = effectiveReservationId.value
+  }
+
+  return query
+}
+
 function continuarPago() {
   if (!docusignCompleted.value) {
     window.alert('El contrato aun no ha sido confirmado por DocuSign.')
     return
   }
+
+  clearAutoContinueTimer()
 
   if (effectiveReservationId.value) {
     router.push({
@@ -90,11 +131,16 @@ function continuarPago() {
         section: 'pago',
         id: effectiveReservationId.value,
       },
+      query: buildSignedContractQuery(),
     })
     return
   }
 
-  router.push({ name: 'cliente', params: { section: 'pago' } })
+  router.push({
+    name: 'cliente',
+    params: { section: 'pago' },
+    query: buildSignedContractQuery(),
+  })
 }
 
 async function handleDownloadSignedPdf() {
@@ -120,6 +166,7 @@ async function handleDownloadSignedPdf() {
 }
 
 onMounted(loadContractStatus)
+onBeforeUnmount(clearAutoContinueTimer)
 </script>
 
 <template>
@@ -133,6 +180,9 @@ onMounted(loadContractStatus)
       <template v-else>
         <p v-if="docusignCompleted" class="status-copy status-copy--success">
           Contrato firmado correctamente.
+        </p>
+        <p v-if="docusignCompleted" class="status-note">
+          Regresando al flujo de pago...
         </p>
         <p v-else-if="normalizedStatus === 'sent'" class="status-copy status-copy--pending">
           Firma pendiente de completar.

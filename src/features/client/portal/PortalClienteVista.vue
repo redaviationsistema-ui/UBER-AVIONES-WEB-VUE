@@ -30,10 +30,12 @@ import { useUiStore } from '../../../stores/ui'
 import { subscribeWorkflowSync } from '../../../lib/workflowSync'
 import {
   buildContractResultUrl,
+  clearPendingContractContext,
   contractApi,
   generateAndSendContract,
   normalizeContractFrontendState,
   persistPendingContractContext,
+  readPendingContractContext,
 } from '../../../services/contractApi'
 
 const props = defineProps({
@@ -69,6 +71,7 @@ const technicalAircraft = ref(null)
 let removeWorkflowSyncSubscription = null
 let workflowSyncRefreshTimer = null
 let reservationsRequestPromise = null
+const appliedSignedContractReturnKey = ref('')
 const CLIENT_TRIPS_TIMEOUT_MS = Number(import.meta.env.VITE_CLIENT_TRIPS_TIMEOUT_MS || 45000)
 const CLIENT_QUOTES_TIMEOUT_MS = Number(import.meta.env.VITE_CLIENT_QUOTES_TIMEOUT_MS || 45000)
 const externalContractFlowEnabled = String(
@@ -2133,6 +2136,14 @@ function mergeReservationUpdate(updatedReservation = null) {
   )
 }
 
+function isTruthyQueryFlag(value) {
+  const normalizedValue = String(value || '')
+    .trim()
+    .toLowerCase()
+
+  return ['1', 'true', 'yes', 'ok'].includes(normalizedValue)
+}
+
 function findReservationRecordById(reservationId = '') {
   const normalizedReservationId = String(reservationId || '').trim()
   if (!normalizedReservationId) return null
@@ -2145,6 +2156,71 @@ function findReservationRecordById(reservationId = '') {
         String(reservation.request_id || '').trim() === normalizedReservationId,
     ) || null
   )
+}
+
+function applySignedContractReturnState() {
+  if (!isTruthyQueryFlag(route.query.contract_signed)) return
+
+  const reservationId =
+    reservationContextId.value || String(route.query.reservation_id || '').trim()
+  const contractId = String(route.query.contract_id || '').trim()
+  const appliedKey = `${reservationId}:${contractId}:${String(route.query.contract_signed || '')}`
+
+  if (!reservationId || appliedSignedContractReturnKey.value === appliedKey) return
+
+  const pendingContext =
+    readPendingContractContext({
+      reservationId,
+      contractId,
+    }) || {}
+  const currentReservation = findReservationRecordById(reservationId)
+
+  if (!currentReservation) return
+
+  appliedSignedContractReturnKey.value = appliedKey
+
+  mergeReservationUpdate({
+    ...currentReservation,
+    id: String(currentReservation.id || reservationId).trim(),
+    is_reservation: true,
+    status: 'payment_pending',
+    workflow_status: 'contrato firmado',
+    contract_status: 'signed',
+    payment_status:
+      currentReservation.payment_status === 'Pagado' ? currentReservation.payment_status : 'Pendiente de pago',
+    updated_at: new Date().toISOString(),
+    contract:
+      currentReservation.contract || contractId
+        ? {
+            ...(currentReservation.contract || {}),
+            id: contractId || currentReservation.contract?.id || pendingContext.contractId || '',
+            docusign_status: 'completed',
+            docusign_envelope_id:
+              currentReservation.contract?.docusign_envelope_id ||
+              pendingContext.docusign_envelope_id ||
+              '',
+          }
+        : currentReservation.contract,
+    docusign_status: 'completed',
+    frontend_state: {
+      ...(currentReservation.frontend_state || {}),
+      ui_status: 'completed',
+      ready_for_payment: true,
+      next_action: 'go_to_payment',
+      status_message: 'El contrato ya quedo listo para continuar a pago.',
+      docusign_status: 'completed',
+      docusign_envelope_id:
+        currentReservation.frontend_state?.docusign_envelope_id ||
+        pendingContext.docusign_envelope_id ||
+        '',
+    },
+  })
+
+  clearPendingContractContext({
+    reservationId,
+    contractId: contractId || pendingContext.contractId || pendingContext.contract_id || '',
+  })
+  void refreshReservations({ silent: true })
 }
 
 function applyExternalWorkflowSync(payload = {}) {
@@ -2229,46 +2305,58 @@ async function handleContractConfirm(contractPayload = {}) {
     let contractResponse = null
     let contractId = existingContractId
 
-    if (contractId && dedicatedDocusignSendPath) {
+    if (contractId && dedicatedDocusignSendPath && !contractPayload?.full_contract_html) {
       contractResponse = await contractApi.sendToDocuSign(contractId, { timeoutMs: 30000 })
     } else {
       const callbackUrl = buildContractResultUrl({
         reservationId,
         flightRequestId,
       })
-      contractResponse = await generateAndSendContract(
-        {
-          booking_id: reservationId,
-          reservation_id: reservationId,
-          flight_request_id: flightRequestId || undefined,
-          client_name:
-            baseReservation.client_name ||
-            baseReservation.customer_name ||
-            customerDisplayName.value,
-          client_email:
-            baseReservation.client_email ||
-            baseReservation.customer_email ||
-            paymentForm.contactEmail.trim() ||
-            customerEmail.value,
-          route: contractPayload?.contract_snapshot?.route || '',
-          flight_date: contractPayload?.contract_snapshot?.departure_date || '',
-          aircraft: contractPayload?.contract_snapshot?.aircraft || '',
-          total:
-            contractPayload?.contract_snapshot?.final_price ||
-            baseReservation.final_price ||
-            baseReservation.total ||
-            '',
-          currency: 'USD',
-          return_url: callbackUrl,
-          callback_url: callbackUrl,
-          contract_snapshot: contractPayload?.contract_snapshot || null,
-          contract_html: contractPayload?.contract_html || '',
-          contract_markup: contractPayload?.contract_markup || '',
-          contract_plain_text: contractPayload?.contract_plain_text || '',
-          signature: null,
-        },
-        { timeoutMs: 30000 },
-      )
+      const docusignPayload = {
+        booking_id: reservationId,
+        reservation_id: reservationId,
+        flight_request_id: flightRequestId || undefined,
+        client_name:
+          baseReservation.client_name ||
+          baseReservation.customer_name ||
+          customerDisplayName.value,
+        client_email:
+          baseReservation.client_email ||
+          baseReservation.customer_email ||
+          paymentForm.contactEmail.trim() ||
+          customerEmail.value,
+        route: contractPayload?.contract_snapshot?.route || '',
+        flight_date: contractPayload?.contract_snapshot?.departure_date || '',
+        aircraft: contractPayload?.contract_snapshot?.aircraft || '',
+        total:
+          contractPayload?.contract_snapshot?.final_price ||
+          baseReservation.final_price ||
+          baseReservation.total ||
+          '',
+        currency: 'USD',
+        return_url: callbackUrl,
+        callback_url: callbackUrl,
+        contract_snapshot: contractPayload?.contract_snapshot || null,
+        contract_html: contractPayload?.contract_html || '',
+        contract_markup: contractPayload?.contract_markup || '',
+        contract_plain_text: contractPayload?.contract_plain_text || '',
+        document_html: contractPayload?.document_html || contractPayload?.contract_html || '',
+        full_contract_html:
+          contractPayload?.full_contract_html ||
+          contractPayload?.document_html ||
+          contractPayload?.contract_html ||
+          '',
+        full_contract_text:
+          contractPayload?.full_contract_text || contractPayload?.contract_plain_text || '',
+        source_contract_path: contractPayload?.source_contract_path || '',
+        document_source: contractPayload?.document_source || 'client_contract_full_html',
+        regenerate: true,
+        signature: null,
+      }
+
+      console.log('[docusign-request-payload]', docusignPayload)
+
+      contractResponse = await generateAndSendContract(docusignPayload, { timeoutMs: 30000 })
       contractId = resolveContractRecordId(contractResponse)
     }
 
@@ -2327,6 +2415,22 @@ async function handleContractConfirm(contractPayload = {}) {
     window.location.assign(signingUrl)
     return
   } catch (error) {
+    console.log('[docusign-init-error]', {
+      error,
+      message: error?.message || '',
+      status: error?.status || null,
+      payload: error?.payload || null,
+      reservationId,
+      contractPayload,
+    })
+    console.error('[docusign-init-error]', {
+      error,
+      message: error?.message || '',
+      status: error?.status || null,
+      payload: error?.payload || null,
+      reservationId,
+      contractPayload,
+    })
     ui.pushToast({
       tone: 'error',
       title: 'No se pudo iniciar la firma digital',
@@ -3307,6 +3411,21 @@ onMounted(async () => {
     scheduleWorkflowSyncRefresh(payload)
   })
 })
+
+watch(
+  () => [
+    props.section,
+    route.query.contract_signed,
+    route.query.contract_id,
+    route.query.reservation_id,
+    reservationContextId.value,
+    reservations.value.length,
+  ],
+  () => {
+    applySignedContractReturnState()
+  },
+  { immediate: true },
+)
 
 watch([submittedItinerary, aircraftOptions], () => {
   persistQuotePreview()
