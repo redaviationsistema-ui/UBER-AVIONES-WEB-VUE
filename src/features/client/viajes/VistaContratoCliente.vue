@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { featuredAirports } from '../../../utils/airports'
 
 const props = defineProps({
@@ -16,92 +16,18 @@ const emit = defineEmits(['confirm'])
 const baseUrl = import.meta.env.BASE_URL
 const logoSrc = `${baseUrl}logo.png`
 const contractHeaderSrc = `${baseUrl}MARGEN/image.png`
-const providerSignatureSrc = `${baseUrl}AUTOGRAFO/AUTOGRAFO JEFE.png`
+const contractRoot = ref(null)
 const supportPhones = ['+52 558 618 6576', '+52 722 112 6671', '+1 305 464 6394']
 const supportEmail = 'sales@redskyg.com'
 const supportWebsite = 'https://redskyg.com/mx'
 const supportPhonesLabel = supportPhones.join(' | ')
-const signatureInput = ref(null)
-const uploadedSignatureName = ref('')
-const uploadedSignatureUrl = ref('')
-const uploadedSignatureDataUrl = ref('')
-const uploadedSignatureMimeType = ref('')
-const uploadedSignatureSize = ref(0)
+const clientSignatureAnchor = '/sig_cliente/'
+const externalContractFlowEnabled = String(
+  import.meta.env.VITE_CLIENT_CONTRACT_EXTERNAL_ENABLED || 'true',
+)
+  .trim()
+  .toLowerCase() !== 'false'
 const signatureError = ref('')
-
-function resetUploadedSignature() {
-  if (uploadedSignatureUrl.value) {
-    URL.revokeObjectURL(uploadedSignatureUrl.value)
-  }
-
-  uploadedSignatureUrl.value = ''
-  uploadedSignatureName.value = ''
-  uploadedSignatureDataUrl.value = ''
-  uploadedSignatureMimeType.value = ''
-  uploadedSignatureSize.value = 0
-  signatureError.value = ''
-
-  if (signatureInput.value) {
-    signatureInput.value.value = ''
-  }
-}
-
-function openSignaturePicker() {
-  signatureInput.value?.click()
-}
-
-function readFileAsDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result || ''))
-    reader.onerror = () => reject(new Error('No pudimos leer la firma seleccionada.'))
-    reader.readAsDataURL(file)
-  })
-}
-
-async function handleSignatureUpload(event) {
-  const [file] = Array.from(event?.target?.files || [])
-
-  if (!file) {
-    resetUploadedSignature()
-    return
-  }
-
-  const mimeType = String(file.type || '').toLowerCase()
-  const isImage = mimeType.startsWith('image/')
-  const isPngByName = String(file.name || '')
-    .trim()
-    .toLowerCase()
-    .endsWith('.png')
-
-  if (!isImage && !isPngByName) {
-    resetUploadedSignature()
-    signatureError.value = 'Sube una imagen valida para usarla como firma.'
-    return
-  }
-
-  if (uploadedSignatureUrl.value) {
-    URL.revokeObjectURL(uploadedSignatureUrl.value)
-  }
-
-  try {
-    uploadedSignatureDataUrl.value = await readFileAsDataUrl(file)
-    uploadedSignatureUrl.value = URL.createObjectURL(file)
-    uploadedSignatureName.value = file.name || 'firma.png'
-    uploadedSignatureMimeType.value = file.type || 'image/png'
-    uploadedSignatureSize.value = Number(file.size || 0)
-    signatureError.value = ''
-  } catch (error) {
-    resetUploadedSignature()
-    signatureError.value = error?.message || 'No pudimos procesar la firma.'
-  }
-}
-
-onBeforeUnmount(() => {
-  if (uploadedSignatureUrl.value) {
-    URL.revokeObjectURL(uploadedSignatureUrl.value)
-  }
-})
 
 function airportMeta(code = '') {
   const normalizedCode = String(code || '')
@@ -556,7 +482,7 @@ const operatorLabel = computed(
     props.reservation?.operator ||
     props.reservation?.provider_name ||
     resolvedContractSnapshot.value.operator ||
-    'Por confirmar / asignado por Sky Group previo a la operación',
+    'Asignado por Sky Group previo a la operación',
 )
 const commercialProviderLabel = 'RED AVIATION COMPANY S.A. DE C.V.'
 const customerLabel = computed(
@@ -651,17 +577,23 @@ const contractDate = computed(
         new Date(),
     ),
 )
-const persistedSignatureDataUrl = computed(() => {
-  const signatureRecord =
-    termsSnapshot.value.client_signature && typeof termsSnapshot.value.client_signature === 'object'
-      ? termsSnapshot.value.client_signature
-      : {}
+const usesExternalSignatureFlow = computed(() => externalContractFlowEnabled)
+const docusignStatusLabel = computed(() => {
+  const rawValue = String(
+    contractRecord.value?.docusign_status ||
+      termsSnapshot.value?.docusign_status ||
+      contractRecord.value?.status ||
+      '',
+  )
+    .trim()
+    .toLowerCase()
 
-  return String(signatureRecord.data_url || '').trim()
+  if (!rawValue || rawValue === 'generated') return 'Pendiente de envio a firma digital'
+  if (rawValue === 'completed') return 'Firmado digitalmente'
+  if (rawValue === 'sent') return 'Pendiente de firma digital mediante DocuSign'
+  if (rawValue === 'delivered') return 'Firma solicitada mediante DocuSign'
+  return rawValue
 })
-const activeSignaturePreview = computed(
-  () => uploadedSignatureUrl.value || persistedSignatureDataUrl.value,
-)
 const departureDate = computed(() => {
   const liveDeparture = props.reservation?.date || itinerarySegments.value[0]?.departure || ''
   if (liveDeparture) {
@@ -1033,6 +965,8 @@ function buildContractSnapshot() {
     contract_version: 'client_contract_v1',
     reservation_id: resolvedReservationId,
     flight_request_id: resolvedFlightRequestId,
+    contract_provider: 'docusign',
+    client_signature_anchor: clientSignatureAnchor,
     reservation_code: reservationCode.value,
     route: routeDisplay.value,
     departure_date: departureDate.value,
@@ -1058,12 +992,68 @@ function buildContractSnapshot() {
   }
 }
 
-function handleConfirmClick() {
-  if (!uploadedSignatureDataUrl.value) {
-    signatureError.value = 'Carga una firma antes de confirmar el contrato.'
-    return
-  }
+function buildContractPlainText() {
+  const sections = [
+    `Contrato de prestacion de servicios de aviacion ejecutiva`,
+    `Reserva: ${reservationCode.value}`,
+    `Ruta: ${routeDisplay.value}`,
+    `Salida: ${departureDate.value}`,
+    `Cliente: ${customerLabel.value}`,
+    `Representante: ${customerRepresentative.value}`,
+    `Domicilio: ${customerAddress.value}`,
+    `Aeronave: ${aircraftLabel.value}`,
+    `Categoria: ${aircraftCategory.value}`,
+    `Servicio: ${serviceTier.value}`,
+    `Pasajeros: ${passengerLabel.value}`,
+    `Operador: ${operatorLabel.value}`,
+    `Costo total: ${finalPrice.value}`,
+    `Deposito: ${depositAmount.value}`,
+    `Saldo: ${balanceAmount.value}`,
+    '',
+    'Consideraciones:',
+    ...considerations.value.map((item) => `- ${item}`),
+    '',
+    'Definiciones:',
+    ...definitions.value.map((item) => `- ${item}`),
+    '',
+    ...clauses.value.flatMap((clause) => [
+      clause.title,
+      ...(clause.paragraphs || []).map((paragraph) => paragraph),
+      ...(clause.items || []).map((item) => `- ${item}`),
+      '',
+    ]),
+  ]
 
+  return sections.join('\n').trim()
+}
+
+function buildContractHtmlDocument() {
+  const markup = contractRoot.value?.outerHTML || ''
+
+  if (!markup) return ''
+
+  return `<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Contrato ${reservationCode.value}</title>
+    <style>
+      body { margin: 0; padding: 24px; background: #f6f1e7; color: #111; font-family: Arial, sans-serif; }
+      .contract-preview { display: block; padding: 0; background: transparent; }
+      .signature-panel { display: none !important; }
+      img { max-width: 100%; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { border: 1px solid #ddd; padding: 8px; text-align: left; vertical-align: top; }
+    </style>
+  </head>
+  <body>
+    ${markup}
+  </body>
+</html>`
+}
+
+function handleConfirmClick() {
   const resolvedReservationId =
     resolveEntityIdentifier(props.reservationId) || resolveEntityIdentifier(props.reservation)
   const resolvedFlightRequestId =
@@ -1073,24 +1063,26 @@ function handleConfirmClick() {
   signatureError.value = ''
   emit('confirm', {
     contract_snapshot: buildContractSnapshot(),
+    contract_html: buildContractHtmlDocument(),
+    contract_markup: buildContractHtmlDocument(),
+    contract_plain_text: buildContractPlainText(),
     id: resolvedReservationId,
     reservation: resolvedReservationId,
     reservation_id: resolvedReservationId,
     booking_id: resolvedReservationId,
     flight_request: resolvedFlightRequestId,
     flight_request_id: resolvedFlightRequestId,
-    signature: {
-      name: uploadedSignatureName.value || 'firma.png',
-      mime_type: uploadedSignatureMimeType.value || 'image/png',
-      size: uploadedSignatureSize.value || 0,
-      data_url: uploadedSignatureDataUrl.value,
+    signature: null,
+    docusign: {
+      provider: 'docusign',
+      client_signature_anchor: clientSignatureAnchor,
     },
   })
 }
 </script>
 
 <template>
-  <article class="contract-preview contract-pdf">
+  <article ref="contractRoot" class="contract-preview contract-pdf">
     <section class="contract-sheet">
       <header class="contract-brandbar">
         <img :src="contractHeaderSrc" alt="Sky Group" class="contract-brandbar__banner" />
@@ -1161,6 +1153,21 @@ function handleConfirmClick() {
               <span>Costo total</span>
               <strong>{{ finalPrice }}</strong>
             </article>
+          </div>
+        </section>
+
+        <section v-if="usesExternalSignatureFlow" class="contract-flow-banner contract-card">
+          <div class="contract-flow-banner__copy">
+            <span class="eyebrow">Firma electronica</span>
+            <strong>Este contrato se firmara en el flujo digital seguro.</strong>
+            <p>
+              Al continuar, generaremos este mismo contrato, abriremos la firma electronica y
+              despues habilitaremos el paso a pago.
+            </p>
+          </div>
+          <div class="contract-flow-banner__meta">
+            <span>Modo activo</span>
+            <strong>Contrato digital con redireccion externa</strong>
           </div>
         </section>
 
@@ -1321,9 +1328,12 @@ function handleConfirmClick() {
             <span class="eyebrow">Formalización</span>
             <h3>FIRMAS</h3>
             <p>
-              Las partes firman el presente Contrato para dejar constancia de su aceptación respecto
-              de la operación identificada como <strong>{{ reservationCode }}</strong
-              >.
+              Las partes aceptan el presente contrato mediante firma electrónica.
+            </p>
+            <p>
+              La firma de este contrato se realizará de forma digital mediante DocuSign. Al
+              completar la firma, el documento quedará registrado y asociado a esta reserva
+              <strong>{{ reservationCode }}</strong>.
             </p>
           </div>
 
@@ -1337,17 +1347,18 @@ function handleConfirmClick() {
             <article class="signature-card contract-card signature-block">
               <span class="signature-card__role">Cliente</span>
               <strong>{{ customerLabel }}</strong>
-              <small>Por: {{ customerRepresentative }}</small>
+              <small>Representante: {{ customerRepresentative }}</small>
               <small>Cargo: Cliente / Representante</small>
               <div class="signature-line signature-line--client">
-                <img
-                  v-if="activeSignaturePreview"
-                  :src="activeSignaturePreview"
-                  :alt="`Firma cargada por ${customerLabel}`"
-                  class="signature-image"
-                />
+                <div class="signature-external-placeholder signature-external-placeholder--anchor" aria-hidden="true">
+                  <span>Espacio reservado para firma digital</span>
+                  <strong>Firma digital del cliente</strong>
+                </div>
+                <span class="docusign-anchor">{{ clientSignatureAnchor }}</span>
               </div>
-              <small class="signature-card__caption">Firma de conformidad</small>
+              <small class="signature-card__caption">
+                {{ docusignStatusLabel }}
+              </small>
             </article>
           </div>
 
@@ -1374,48 +1385,19 @@ function handleConfirmClick() {
     </section>
 
     <section v-if="!props.readOnly" class="signature-panel">
-      <div class="signature-box">
-        <input
-          ref="signatureInput"
-          type="file"
-          accept="image/png,image/*"
-          class="signature-input"
-          @change="handleSignatureUpload"
-        />
-        <div v-if="activeSignaturePreview" class="signature-uploaded">
-          <img
-            :src="activeSignaturePreview"
-            :alt="`Firma cargada por ${customerLabel}`"
-            class="signature-uploaded__image"
-          />
-          <div class="signature-uploaded__meta">
-            <strong class="signature-ready-badge">{{
-              uploadedSignatureUrl ? '✓ Firma lista' : '✓ Firma guardada'
-            }}</strong>
-            <span>{{ uploadedSignatureName || 'Firma persistida en contrato' }}</span>
-          </div>
+      <div class="signature-box signature-box--external">
+        <div class="signature-box__copy">
+          <strong>Contrato listo para firma con DocuSign</strong>
+          <span>
+            La firma de este contrato se realizará de forma digital mediante DocuSign. Al
+            completar la firma, el documento quedará registrado y asociado a esta reserva.
+          </span>
         </div>
-        <div v-else class="signature-box__copy">
-          <strong>Firma pendiente</strong>
-          <span>Sube una firma o imagen PNG para colocarla en el contrato antes de confirmar.</span>
+        <div class="signature-external-steps">
+          <span>1. Generar contrato</span>
+          <span>2. Firmar digitalmente</span>
+          <span>3. Continuar a pago</span>
         </div>
-      </div>
-      <div class="signature-actions">
-        <button
-          type="button"
-          class="signature-action signature-action--secondary"
-          @click="openSignaturePicker"
-        >
-          {{ uploadedSignatureUrl ? 'Cambiar firma' : 'Cargar firma o PNG' }}
-        </button>
-        <button
-          v-if="uploadedSignatureUrl"
-          type="button"
-          class="signature-action signature-action--ghost"
-          @click="resetUploadedSignature"
-        >
-          Quitar firma
-        </button>
       </div>
       <small v-if="signatureError" class="signature-error">{{ signatureError }}</small>
       <button
@@ -1424,9 +1406,12 @@ function handleConfirmClick() {
         :disabled="props.submitting"
         @click="handleConfirmClick"
       >
-        {{ props.submitting ? 'Procesando firma...' : 'Firmar contrato' }}
+        {{ props.submitting ? 'Iniciando DocuSign...' : 'Firmar digitalmente' }}
       </button>
-      <small class="signature-note">Fecha de emisión del contrato: {{ contractDate }}</small>
+      <small class="signature-note">
+        Se abrira DocuSign con este contrato y el pago seguira bloqueado hasta que el estado
+        regrese como completed.
+      </small>
     </section>
   </article>
 </template>
@@ -1668,6 +1653,34 @@ function handleConfirmClick() {
   page-break-inside: avoid;
 }
 
+.contract-flow-banner {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(15rem, 1fr);
+  gap: 1rem;
+  padding: 1rem 1.1rem;
+}
+
+.contract-flow-banner__copy,
+.contract-flow-banner__meta {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.contract-flow-banner__copy p,
+.contract-flow-banner__meta span {
+  margin: 0;
+  color: #625d55;
+}
+
+.contract-flow-banner__meta {
+  align-content: start;
+  padding: 0.9rem 1rem;
+  border-radius: 18px;
+  background: rgba(21, 32, 42, 0.05);
+}
+
 .contract-block {
   position: relative;
   z-index: 1;
@@ -1754,6 +1767,11 @@ function handleConfirmClick() {
 .accounts-grid,
 .signatures-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.signatures-grid {
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
 }
 
 .annex-legs {
@@ -1883,9 +1901,59 @@ function handleConfirmClick() {
   text-transform: uppercase;
 }
 
+.signature-card.signature-block {
+  width: min(100%, 58rem);
+  justify-items: center;
+  text-align: center;
+}
+
+.signature-card.signature-block .signature-card__role,
+.signature-card.signature-block strong,
+.signature-card.signature-block small {
+  justify-self: center;
+  text-align: center;
+}
+
 .signature-card__caption {
   color: #756958 !important;
   font-size: 0.9rem;
+}
+
+.signature-external-placeholder {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 0.3rem;
+  min-height: 4.75rem;
+  padding: 0.75rem;
+  border: 1px dashed #d9cba8;
+  border-radius: 14px;
+  background: rgba(139, 106, 36, 0.06);
+  text-align: center;
+}
+
+.signature-external-placeholder span {
+  color: #6f6557;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.signature-external-placeholder strong {
+  color: #1a1816;
+  font-size: 0.95rem;
+}
+
+.docusign-anchor {
+  color: transparent;
+  font-size: 1px;
+  line-height: 1px;
+  user-select: none;
+}
+
+.signature-card.signature-block .signature-line--client {
+  width: min(100%, 54rem);
 }
 
 .signature-contact-bar {
@@ -1943,6 +2011,16 @@ function handleConfirmClick() {
   background: #fbf8ef;
 }
 
+.signature-box--external {
+  gap: 1rem;
+  place-items: stretch;
+  border-style: solid;
+  border-color: #e8dbc0;
+  background:
+    radial-gradient(circle at top right, rgba(139, 106, 36, 0.12), transparent 32%),
+    linear-gradient(180deg, #fffaf1 0%, #fff 100%);
+}
+
 .signature-input {
   display: none;
 }
@@ -1951,6 +2029,24 @@ function handleConfirmClick() {
   display: grid;
   gap: 0.35rem;
   text-align: center;
+}
+
+.signature-external-steps {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.55rem;
+}
+
+.signature-external-steps span {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.55rem 0.8rem;
+  border-radius: 999px;
+  background: rgba(21, 32, 42, 0.08);
+  color: #15202a;
+  font-size: 0.82rem;
+  font-weight: 700;
 }
 
 .signature-ready-badge {
@@ -2036,6 +2132,7 @@ function handleConfirmClick() {
 }
 
 @media (max-width: 900px) {
+  .contract-flow-banner,
   .contract-summary,
   .annex-grid,
   .accounts-grid,

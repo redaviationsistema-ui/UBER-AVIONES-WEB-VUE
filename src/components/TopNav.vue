@@ -10,7 +10,7 @@ const router = useRouter()
 const auth = useAuthStore()
 
 const publicLinks = [
-  { label: 'Renta', icon: '', to: '/renta-aeronaves' },
+  //{ label: 'Renta', icon: '', to: '/renta-aeronaves' },
   { label: 'Servicios', icon: 'service', to: '/servicios' },
   { label: 'Plataforma', icon: 'grid', to: '/plataforma' },
   { label: 'Membresias', icon: 'membership', to: '/membresias' },

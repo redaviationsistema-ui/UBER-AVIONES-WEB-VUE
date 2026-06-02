@@ -7,6 +7,7 @@ import MembershipsView from '../views/MembershipsView.vue'
 import CoverageView from '../views/CoverageView.vue'
 import HelpView from '../views/HelpView.vue'
 import ClientLoginView from '../views/ClientLoginView.vue'
+import ContractResultView from '../views/ContractResultView.vue'
 import RegisterView from '../views/RegisterView.vue'
 import RoleView from '../views/RoleView.vue'
 import AircraftRentView from '../views/AircraftRentView.vue'
@@ -93,6 +94,13 @@ const router = createRouter({
       meta: { guestOnly: true },
     },
 
+    {
+      path: '/cliente/contrato/',
+      alias: ['/cliente/contrato/resultado', '/client/contract', '/client/contract/result'],
+      name: 'contract-result',
+      component: ContractResultView,
+      meta: { requiresAuth: true, role: 'client', hideTopbar: true },
+    },
     {
       path: '/cliente/:section/:id/:subsection',
       name: 'cliente-subdetalle',

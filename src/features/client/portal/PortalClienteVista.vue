@@ -22,13 +22,19 @@ import {
   getClientDestinations,
   getClientFlightPackages,
   markClientTripPaymentConfirmed,
-  markClientTripReadyForPayment,
   getClientTrips,
   searchClientFlights,
 } from '../clientBookingApi'
 import { useAuthStore } from '../../../stores/auth'
 import { useUiStore } from '../../../stores/ui'
 import { subscribeWorkflowSync } from '../../../lib/workflowSync'
+import {
+  buildContractResultUrl,
+  contractApi,
+  generateAndSendContract,
+  normalizeContractFrontendState,
+  persistPendingContractContext,
+} from '../../../services/contractApi'
 
 const props = defineProps({
   section: { type: String, required: true },
@@ -65,6 +71,14 @@ let workflowSyncRefreshTimer = null
 let reservationsRequestPromise = null
 const CLIENT_TRIPS_TIMEOUT_MS = Number(import.meta.env.VITE_CLIENT_TRIPS_TIMEOUT_MS || 45000)
 const CLIENT_QUOTES_TIMEOUT_MS = Number(import.meta.env.VITE_CLIENT_QUOTES_TIMEOUT_MS || 45000)
+const externalContractFlowEnabled = String(
+  import.meta.env.VITE_CLIENT_CONTRACT_EXTERNAL_ENABLED || 'true',
+)
+  .trim()
+  .toLowerCase() !== 'false'
+const dedicatedDocusignSendPath = String(
+  import.meta.env.VITE_CLIENT_CONTRACT_SEND_PATH || import.meta.env.VITE_CONTRACT_SEND_PATH || '',
+).trim()
 
 const searchForm = reactive({
   origin: '',
@@ -104,6 +118,77 @@ const topNavItems = [
   { label: 'Mis vuelos', section: 'viajes' },
   { label: '  Perfil', section: 'perfil' },
 ]
+
+function resolveContractRecordId(payload = {}) {
+  return String(
+    payload?.contract_id ||
+      payload?.contractId ||
+      payload?.id ||
+      payload?.contract?.id ||
+      payload?.data?.id ||
+      '',
+  ).trim()
+}
+
+function resolveDocusignEnvelopeId(payload = {}) {
+  return String(
+    payload?.docusign_envelope_id ||
+      payload?.envelope_id ||
+      payload?.envelopeId ||
+      payload?.contract?.docusign_envelope_id ||
+      payload?.contract?.envelope_id ||
+      '',
+  ).trim()
+}
+
+function resolveDocusignStatus(payload = {}) {
+  return String(
+    payload?.docusign_status ||
+      payload?.envelope_status ||
+      payload?.status ||
+      payload?.contract?.docusign_status ||
+      payload?.contract?.envelope_status ||
+      payload?.contract?.status ||
+      '',
+  )
+    .trim()
+    .toLowerCase()
+}
+
+function resolveContractSigningUrl(payload = {}) {
+  return String(
+    payload?.signing_url ||
+      payload?.signingUrl ||
+      payload?.recipient_view_url ||
+      payload?.recipientViewUrl ||
+      payload?.embedded_signing_url ||
+      payload?.data?.signing_url ||
+      payload?.data?.recipient_view_url ||
+      '',
+  ).trim()
+}
+
+function isDocuSignRecipientSigningUrl(url = '') {
+  const normalized = String(url || '').trim().toLowerCase()
+  if (!normalized) return false
+
+  const blockedTokens = [
+    'tagger',
+    'prepare',
+    'sender',
+    'correct',
+    'edit',
+    'documents/details',
+    'addfields',
+    'console',
+  ]
+
+  return !blockedTokens.some((token) => normalized.includes(token))
+}
+
+function canUseExternalContractFlow() {
+  return externalContractFlowEnabled
+}
 const mobileNavItems = [
   { label: 'Buscar', section: 'reservar' },
   { label: 'Vuelos', section: 'viajes' },
@@ -258,6 +343,12 @@ const selectedReservation = computed(() => {
 
   return reservations.value[0] || null
 })
+const selectedReservationFrontendState = computed(() =>
+  normalizeContractFrontendState(selectedReservation.value || {}),
+)
+const paymentReadyForCheckout = computed(
+  () => selectedReservationFrontendState.value.ready_for_payment === true,
+)
 const reservationContextId = computed(
   () =>
     resolveEntityIdentifier(selectedReservation.value?.id) || String(routeId.value || '').trim(),
@@ -354,10 +445,17 @@ const customerPhone = computed(() => {
   return String(rawPhone || '').trim()
 })
 const paymentHeroTitle = computed(() => {
-  return selectedReservation.value ? 'Configura tu pago' : 'Checkout seguro'
+  if (!selectedReservation.value) return 'Checkout seguro'
+  return paymentReadyForCheckout.value ? 'Configura tu pago' : 'Pago bloqueado hasta firma'
 })
 const paymentHeroCopy = computed(() => {
   if (selectedReservation.value) {
+    if (!paymentReadyForCheckout.value) {
+      return (
+        selectedReservationFrontendState.value.status_message ||
+        'Primero necesitamos confirmar la firma del contrato antes de habilitar el pago.'
+      )
+    }
     return 'Confirma el metodo, revisa los datos de contacto y autoriza el cargo de tu reserva.'
   }
   return 'Pago protegido con tarjeta, transferencia, wire o wallet corporativa.'
@@ -640,18 +738,17 @@ const hasReservationsLoaded = computed(
 )
 const canRenderReservationWorkflow = computed(() => {
   if (!needsReservationContext.value) return true
-  if (['contrato', 'pago'].includes(props.section)) {
+  if (props.section === 'contrato') {
     return Boolean(selectedReservation.value?.is_reservation)
+  }
+  if (props.section === 'pago') {
+    return Boolean(selectedReservation.value?.is_reservation) && paymentReadyForCheckout.value
   }
   return Boolean(selectedReservation.value)
 })
 const isResultsSection = computed(() =>
   ['resultados', 'paquete-vuelo', 'aeronave', 'reserva'].includes(props.section),
 )
-const bookingStep = computed(() => {
-  if (isResultsSection.value) return 'resultados'
-  return 'reservar'
-})
 const userFirstName = computed(() => {
   const rawName = auth.user?.name || auth.user?.company_name || auth.userName || 'Kevin'
   return String(rawName).trim().split(/\s+/)[0] || 'Kevin'
@@ -1939,6 +2036,18 @@ function alignReservationWorkflowRoute() {
 }
 
 function goToPayment(reservationId = '') {
+  if (!paymentReadyForCheckout.value) {
+    ui.pushToast({
+      tone: 'warning',
+      title: 'Pago aun no disponible',
+      message:
+        selectedReservationFrontendState.value.status_message ||
+        'Necesitamos confirmar la firma del contrato antes de abrir el pago.',
+    })
+    go('contrato', reservationId || reservationContextId.value)
+    return
+  }
+
   go('pago', reservationId || reservationContextId.value)
 }
 
@@ -2095,10 +2204,10 @@ async function handleContractConfirm(contractPayload = {}) {
     ...baseReservation,
     id: reservationId,
     is_reservation: true,
-    status: 'pending_payment',
-    workflow_status: 'pago pendiente',
-    contract_status: 'signed',
-    payment_status: 'Pendiente de pago',
+    status: 'contract_pending',
+    workflow_status: 'contrato pendiente',
+    contract_status: 'pending',
+    payment_status: 'Pendiente de firma',
     updated_at: new Date().toISOString(),
   }
 
@@ -2106,45 +2215,122 @@ async function handleContractConfirm(contractPayload = {}) {
   signingContract.value = true
 
   try {
-    const updatedReservation = await markClientTripReadyForPayment(reservationId, contractPayload, {
-      timeoutMs: 20000,
-    })
-    const completedContractReservation = {
-      ...baseReservation,
-      ...(updatedReservation?.id ? updatedReservation : optimisticReservation),
-      id: reservationId,
-      is_reservation: true,
-      status: 'pending_payment',
-      workflow_status: 'pago pendiente',
-      contract_status: 'signed',
-      payment_status: 'Pendiente de pago',
-      updated_at: new Date().toISOString(),
+    if (!canUseExternalContractFlow()) {
+      throw new Error('El flujo digital de contratos con DocuSign no esta habilitado.')
     }
 
-    mergeReservationUpdate(completedContractReservation)
-    await refreshReservations({ silent: true })
-    mergeReservationUpdate(completedContractReservation)
-    await nextTick()
-    const openedStyledPrint = openInlineContractPrint(() => {
-      go('historial', reservationId)
-    })
-    if (!openedStyledPrint) {
-      go('historial', reservationId)
+    const flightRequestId = String(
+      contractPayload?.flight_request_id || baseReservation.flight_request_id || baseReservation.request_id || '',
+    ).trim()
+    const existingContractId = String(
+      contractPayload?.contract_id || baseReservation.contract?.id || baseReservation.contract_id || '',
+    ).trim()
+
+    let contractResponse = null
+    let contractId = existingContractId
+
+    if (contractId && dedicatedDocusignSendPath) {
+      contractResponse = await contractApi.sendToDocuSign(contractId, { timeoutMs: 30000 })
+    } else {
+      const callbackUrl = buildContractResultUrl({
+        reservationId,
+        flightRequestId,
+      })
+      contractResponse = await generateAndSendContract(
+        {
+          booking_id: reservationId,
+          reservation_id: reservationId,
+          flight_request_id: flightRequestId || undefined,
+          client_name:
+            baseReservation.client_name ||
+            baseReservation.customer_name ||
+            customerDisplayName.value,
+          client_email:
+            baseReservation.client_email ||
+            baseReservation.customer_email ||
+            paymentForm.contactEmail.trim() ||
+            customerEmail.value,
+          route: contractPayload?.contract_snapshot?.route || '',
+          flight_date: contractPayload?.contract_snapshot?.departure_date || '',
+          aircraft: contractPayload?.contract_snapshot?.aircraft || '',
+          total:
+            contractPayload?.contract_snapshot?.final_price ||
+            baseReservation.final_price ||
+            baseReservation.total ||
+            '',
+          currency: 'USD',
+          return_url: callbackUrl,
+          callback_url: callbackUrl,
+          contract_snapshot: contractPayload?.contract_snapshot || null,
+          contract_html: contractPayload?.contract_html || '',
+          contract_markup: contractPayload?.contract_markup || '',
+          contract_plain_text: contractPayload?.contract_plain_text || '',
+          signature: null,
+        },
+        { timeoutMs: 30000 },
+      )
+      contractId = resolveContractRecordId(contractResponse)
     }
-    ui.pushToast({
-      tone: 'success',
-      title: 'Contrato firmado',
-      message: openedStyledPrint
-        ? 'El contrato quedo listo. Usa "Guardar como PDF" en la ventana de impresion para conservar el diseño.'
-        : 'La reserva avanzo a pago. Si quieres descargarlo con diseño, vuelve a abrir el contrato e imprime desde ahi.',
+
+    const signingUrl = resolveContractSigningUrl(contractResponse)
+    const docusignEnvelopeId = resolveDocusignEnvelopeId(contractResponse)
+    const docusignStatus = resolveDocusignStatus(contractResponse) || 'sent'
+
+    if (!signingUrl) {
+      throw new Error('No se recibio la URL de firma de DocuSign.')
+    }
+    if (!isDocuSignRecipientSigningUrl(signingUrl)) {
+      throw new Error(
+        'DocuSign devolvio una vista de edicion del sobre, no la firma del cliente. El backend debe regresar la recipient view o signing_url correcta.',
+      )
+    }
+
+    persistPendingContractContext({
+      reservationId,
+      reservation_id: reservationId,
+      flightRequestId,
+      flight_request_id: flightRequestId,
+      contractId,
+      contract_id: contractId,
+      docusign_envelope_id: docusignEnvelopeId,
+      docusign_status: docusignStatus,
+      contractPayload,
+      contract_payload: contractPayload,
+      signedRedirectSection: 'contrato',
     })
+    mergeReservationUpdate({
+      ...optimisticReservation,
+      contract:
+        contractId || baseReservation.contract
+          ? {
+              ...(baseReservation.contract || {}),
+              id: contractId || baseReservation.contract?.id || '',
+              docusign_envelope_id: docusignEnvelopeId,
+              docusign_status: docusignStatus,
+            }
+          : baseReservation.contract,
+      workflow_status: 'contrato pendiente',
+      contract_status: 'pending',
+      payment_status: 'Pendiente de firma',
+      docusign_envelope_id: docusignEnvelopeId,
+      docusign_status: docusignStatus,
+      frontend_state: {
+        ui_status: 'sent',
+        ready_for_payment: false,
+        next_action: 'wait_for_signature',
+        status_message: 'Esperando confirmacion de firma de DocuSign...',
+        signed_pdf_url: '',
+        docusign_envelope_id: docusignEnvelopeId,
+        docusign_status: docusignStatus,
+      },
+    })
+    window.location.assign(signingUrl)
+    return
   } catch (error) {
     ui.pushToast({
       tone: 'error',
-      title: 'No se pudo sincronizar la firma',
-      message:
-        error?.message ||
-        'La interfaz ya avanzo a pago, pero necesitamos volver a sincronizar con el servidor.',
+      title: 'No se pudo iniciar la firma digital',
+      message: error?.message || 'No fue posible iniciar DocuSign para este contrato.',
     })
   } finally {
     signingContract.value = false
@@ -3762,16 +3948,30 @@ watch(
           <h2>
             {{
               hasReservationsLoaded
-                ? 'No encontramos una reserva para pagar'
+                ? selectedReservation?.is_reservation
+                  ? 'Pago disponible despues de la firma'
+                  : 'No encontramos una reserva para pagar'
                 : 'Preparando checkout'
             }}
           </h2>
           <p v-if="hasReservationsLoaded">
-            Primero necesitamos identificar una reserva activa para abrir el checkout.
+            {{
+              selectedReservation?.is_reservation
+                ? selectedReservationFrontendState.status_message ||
+                  'El pago se habilitara cuando el contrato tenga ready_for_payment en true.'
+                : 'Primero necesitamos identificar una reserva activa para abrir el checkout.'
+            }}
           </p>
           <p v-else>Estamos cargando la informacion de tu reserva antes de abrir el pago.</p>
           <div class="confirmation-actions">
-            <button type="button" @click="go('viajes')">Ver mis vuelos</button>
+            <button
+              v-if="selectedReservation?.is_reservation"
+              type="button"
+              @click="go('contrato', reservationContextId)"
+            >
+              Volver al contrato
+            </button>
+            <button v-else type="button" @click="go('viajes')">Ver mis vuelos</button>
             <button class="secondary-button" type="button" @click="go('reservar')">
               Reservar vuelo
             </button>
@@ -6259,6 +6459,17 @@ button {
     display: grid !important;
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     gap: 6mm !important;
+  }
+
+  :global(body.contract-print-mode .signatures-grid) {
+    grid-template-columns: minmax(0, 1fr) !important;
+    justify-items: center !important;
+  }
+
+  :global(body.contract-print-mode .signature-card.signature-block) {
+    width: min(100%, 160mm) !important;
+    justify-items: center !important;
+    text-align: center !important;
   }
 
   :global(body.contract-print-mode .signature-line) {
