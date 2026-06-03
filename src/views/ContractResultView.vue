@@ -1,10 +1,10 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { markClientTripReadyForPayment } from '../features/client/clientBookingApi'
 import {
   contractApi,
   clearPendingContractContext,
-  downloadSignedContractPdf,
   normalizeContractFrontendState,
   readPendingContractContext,
 } from '../services/contractApi'
@@ -14,19 +14,30 @@ const route = useRoute()
 const router = useRouter()
 
 const loading = ref(true)
-const downloadingPdf = ref(false)
 const contract = ref(null)
 const error = ref('')
+const syncingReadyForPayment = ref(false)
 let autoContinueTimer = null
+let contractStatusPollTimer = null
 
 const contractId = computed(() => String(route.query.contract_id || '').trim())
 const reservationId = computed(() => String(route.query.reservation_id || '').trim())
+const docusignReturnEvent = computed(() => String(route.query.event || '').trim().toLowerCase())
+const docusignReturnedAsCompleted = computed(() =>
+  ['signing_complete', 'completed', 'signing_completed'].includes(docusignReturnEvent.value),
+)
 
 const pendingContext = computed(() =>
   readPendingContractContext({
     reservationId: reservationId.value,
     contractId: contractId.value,
   }),
+)
+
+const effectiveContractId = computed(
+  () =>
+    contractId.value ||
+    String(pendingContext.value?.contractId || pendingContext.value?.contract_id || '').trim(),
 )
 
 const effectiveReservationId = computed(
@@ -40,22 +51,124 @@ const effectiveReservationId = computed(
 const frontendState = computed(() => normalizeContractFrontendState(contract.value || {}))
 const normalizedStatus = computed(() => frontendState.value.ui_status)
 const docusignCompleted = computed(
-  () => String(frontendState.value.docusign_status || '').trim().toLowerCase() === 'completed',
+  () =>
+    docusignReturnedAsCompleted.value ||
+    frontendState.value.ready_for_payment === true ||
+    ['go_to_payment', 'go_to_history'].includes(String(frontendState.value.next_action || '').trim()) ||
+    String(frontendState.value.docusign_status || '').trim().toLowerCase() === 'completed',
 )
-const statusMessage = computed(() => frontendState.value.status_message || '')
-const signedPdfUrl = computed(() => String(frontendState.value.signed_pdf_url || '').trim())
-const canDownloadSignedPdf = computed(() => Boolean(signedPdfUrl.value))
+const canNavigateToHistory = computed(() => Boolean(effectiveReservationId.value))
+const statusMessage = computed(() =>
+  docusignCompleted.value
+    ? 'DocuSign devolvio confirmacion de firma. Ya puedes continuar a tu historial.'
+    : frontendState.value.status_message ||
+      'Te llevaremos a tu historial para que sigas el estado del contrato desde ahi.',
+)
 
-async function loadContractStatus() {
-  loading.value = true
-  error.value = ''
+function clearContractStatusPollTimer() {
+  if (!contractStatusPollTimer) return
+  window.clearTimeout(contractStatusPollTimer)
+  contractStatusPollTimer = null
+}
+
+function queueContractStatusPoll() {
+  if (docusignCompleted.value || !effectiveContractId.value) return
+  clearContractStatusPollTimer()
+  contractStatusPollTimer = window.setTimeout(() => {
+    void loadContractStatus({ silent: true })
+  }, 4000)
+}
+
+async function persistReadyForPayment() {
+  if (
+    syncingReadyForPayment.value ||
+    !docusignReturnedAsCompleted.value ||
+    !effectiveReservationId.value
+  ) {
+    return null
+  }
+
+  syncingReadyForPayment.value = true
 
   try {
-    if (!contractId.value) {
+    return await markClientTripReadyForPayment(
+      effectiveReservationId.value,
+      {
+        reservation_id: effectiveReservationId.value,
+        flight_request_id:
+          route.query.flight_request_id ||
+          pendingContext.value?.flightRequestId ||
+          pendingContext.value?.flight_request_id ||
+          '',
+        contract_snapshot:
+          pendingContext.value?.contractPayload?.contract_snapshot ||
+          pendingContext.value?.contract_payload?.contract_snapshot ||
+          null,
+      },
+      { timeoutMs: 30000 },
+    )
+  } catch (syncError) {
+    console.warn('[contract-result-ready-for-payment-warning]', {
+      reservationId: effectiveReservationId.value,
+      contractId: effectiveContractId.value,
+      message: syncError?.message || 'No se pudo persistir payment_pending.',
+    })
+    return null
+  } finally {
+    syncingReadyForPayment.value = false
+  }
+}
+
+async function loadContractStatus({ silent = false } = {}) {
+  if (!silent) {
+    loading.value = true
+  }
+  error.value = ''
+  clearContractStatusPollTimer()
+
+  try {
+    if (docusignReturnedAsCompleted.value) {
+      const persistedReservation = await persistReadyForPayment()
+
+      if (persistedReservation && typeof persistedReservation === 'object') {
+        contract.value = {
+          ...persistedReservation,
+          contract:
+            persistedReservation.contract && typeof persistedReservation.contract === 'object'
+              ? persistedReservation.contract
+              : contract.value?.contract || null,
+          frontend_state: {
+            ...(persistedReservation.frontend_state || {}),
+            ready_for_payment: true,
+            next_action: 'go_to_history',
+            docusign_status: 'completed',
+          },
+          docusign_status: 'completed',
+        }
+      }
+    }
+
+    if (!effectiveContractId.value) {
+      if (docusignReturnedAsCompleted.value && effectiveReservationId.value) {
+        contract.value = {
+          docusign_status: 'completed',
+          status: 'completed',
+          frontend_state: {
+            ui_status: 'completed',
+            docusign_status: 'completed',
+            ready_for_payment: true,
+            next_action: 'go_to_history',
+            status_message: 'DocuSign devolvio confirmacion de firma. Ya puedes continuar a tu historial.',
+          },
+        }
+        queueAutoContinue()
+        return
+      }
+
       throw new Error('No encontramos el identificador del contrato para validar la firma.')
     }
 
-    const response = await contractApi.getContractStatus(contractId.value, { timeoutMs: 30000 })
+    const response = await contractApi.getContractStatus(effectiveContractId.value, { timeoutMs: 30000 })
     const nestedContract = response?.contract || response?.data?.contract || null
     contract.value =
       nestedContract && typeof nestedContract === 'object'
@@ -67,9 +180,10 @@ async function loadContractStatus() {
         : response || null
 
     if (docusignCompleted.value) {
+      clearResolvedDocuSignQuery()
       clearPendingContractContext({
         reservationId: effectiveReservationId.value,
-        contractId: contractId.value,
+        contractId: effectiveContractId.value,
       })
       emitWorkflowSync({
         scope: 'reservation-workflow',
@@ -77,12 +191,19 @@ async function loadContractStatus() {
         requestId: effectiveReservationId.value,
         nextStage: 'payment_pending',
       })
-      queueAutoContinue()
     }
+
+    queueAutoContinue()
   } catch (error) {
     error.value = error?.message || 'No pudimos consultar el estado del contrato.'
+    queueContractStatusPoll()
   } finally {
-    loading.value = false
+    if (!silent) {
+      loading.value = false
+    }
+    if (!docusignCompleted.value) {
+      queueContractStatusPoll()
+    }
   }
 }
 
@@ -93,11 +214,25 @@ function clearAutoContinueTimer() {
 }
 
 function queueAutoContinue() {
-  if (!docusignCompleted.value) return
+  if (!canNavigateToHistory.value || !docusignCompleted.value) return
   clearAutoContinueTimer()
   autoContinueTimer = window.setTimeout(() => {
-    continuarPago()
+    continuarHistorial()
   }, 1200)
+}
+
+function clearResolvedDocuSignQuery() {
+  if (!docusignReturnedAsCompleted.value) return
+
+  const nextQuery = {
+    ...route.query,
+  }
+
+  delete nextQuery.event
+
+  router.replace({
+    query: nextQuery,
+  })
 }
 
 function buildSignedContractQuery() {
@@ -107,6 +242,8 @@ function buildSignedContractQuery() {
 
   if (contractId.value) {
     query.contract_id = contractId.value
+  } else if (effectiveContractId.value) {
+    query.contract_id = effectiveContractId.value
   }
 
   if (effectiveReservationId.value) {
@@ -116,57 +253,33 @@ function buildSignedContractQuery() {
   return query
 }
 
-function continuarPago() {
-  if (!docusignCompleted.value) {
-    window.alert('El contrato aun no ha sido confirmado por DocuSign.')
-    return
-  }
-
+function continuarHistorial() {
   clearAutoContinueTimer()
 
   if (effectiveReservationId.value) {
     router.push({
       name: 'cliente-detalle',
       params: {
-        section: 'pago',
+        section: 'historial',
         id: effectiveReservationId.value,
       },
-      query: buildSignedContractQuery(),
+      query: docusignCompleted.value ? buildSignedContractQuery() : undefined,
     })
     return
   }
 
   router.push({
     name: 'cliente',
-    params: { section: 'pago' },
-    query: buildSignedContractQuery(),
+    params: { section: 'historial' },
+    query: docusignCompleted.value ? buildSignedContractQuery() : undefined,
   })
 }
 
-async function handleDownloadSignedPdf() {
-  if (!contractId.value || downloadingPdf.value) return
-
-  downloadingPdf.value = true
-
-  try {
-    const response = await downloadSignedContractPdf(contractId.value, { timeoutMs: 30000 })
-    const blobUrl = URL.createObjectURL(response.blob)
-    const link = document.createElement('a')
-    link.href = blobUrl
-    link.download = response.fileName || `contrato-firmado-${contractId.value}.pdf`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(blobUrl)
-  } catch (error) {
-    error.value = error?.message || 'No pudimos descargar el contrato firmado.'
-  } finally {
-    downloadingPdf.value = false
-  }
-}
-
 onMounted(loadContractStatus)
-onBeforeUnmount(clearAutoContinueTimer)
+onBeforeUnmount(() => {
+  clearAutoContinueTimer()
+  clearContractStatusPollTimer()
+})
 </script>
 
 <template>
@@ -182,7 +295,7 @@ onBeforeUnmount(clearAutoContinueTimer)
           Contrato firmado correctamente.
         </p>
         <p v-if="docusignCompleted" class="status-note">
-          Regresando al flujo de pago...
+          Regresando a tu historial...
         </p>
         <p v-else-if="normalizedStatus === 'sent'" class="status-copy status-copy--pending">
           Firma pendiente de completar.
@@ -194,19 +307,9 @@ onBeforeUnmount(clearAutoContinueTimer)
 
         <p v-if="statusMessage" class="status-note">{{ statusMessage }}</p>
         <p v-if="!docusignCompleted" class="status-note">
-          Esperando confirmacion de firma de DocuSign...
+          Esperando confirmacion real del backend para continuar a pago...
         </p>
         <p v-if="error" class="status-copy status-copy--error">{{ error }}</p>
-
-        <div class="actions">
-          <button type="button" @click="loadContractStatus">Actualizar estado</button>
-          <button v-if="canDownloadSignedPdf" type="button" class="secondary" @click="handleDownloadSignedPdf">
-            {{ downloadingPdf ? 'Descargando PDF...' : 'Descargar contrato firmado' }}
-          </button>
-          <button type="button" class="secondary" :disabled="!docusignCompleted" @click="continuarPago">
-            Continuar a pago
-          </button>
-        </div>
       </template>
     </section>
   </main>
@@ -267,27 +370,5 @@ h1 {
 
 .status-copy--error {
   color: #b42318;
-}
-
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 0.75rem;
-}
-
-button {
-  border: none;
-  border-radius: 999px;
-  padding: 0.9rem 1.25rem;
-  background: #15202a;
-  color: #ffffff;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.secondary {
-  background: rgba(21, 32, 42, 0.08);
-  color: #15202a;
 }
 </style>

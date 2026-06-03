@@ -22,6 +22,7 @@ import {
   getClientDestinations,
   getClientFlightPackages,
   markClientTripPaymentConfirmed,
+  markClientTripReadyForPayment,
   getClientTrips,
   searchClientFlights,
 } from '../clientBookingApi'
@@ -71,6 +72,7 @@ const technicalAircraft = ref(null)
 let removeWorkflowSyncSubscription = null
 let workflowSyncRefreshTimer = null
 let reservationsRequestPromise = null
+let signedContractSyncTimer = null
 const appliedSignedContractReturnKey = ref('')
 const CLIENT_TRIPS_TIMEOUT_MS = Number(import.meta.env.VITE_CLIENT_TRIPS_TIMEOUT_MS || 45000)
 const CLIENT_QUOTES_TIMEOUT_MS = Number(import.meta.env.VITE_CLIENT_QUOTES_TIMEOUT_MS || 45000)
@@ -2158,7 +2160,7 @@ function findReservationRecordById(reservationId = '') {
   )
 }
 
-function applySignedContractReturnState() {
+async function applySignedContractReturnState() {
   if (!isTruthyQueryFlag(route.query.contract_signed)) return
 
   const reservationId =
@@ -2177,10 +2179,81 @@ function applySignedContractReturnState() {
 
   if (!currentReservation) return
 
+  let contractStatusPayload = null
+
+  if (contractId || pendingContext.contractId || pendingContext.contract_id) {
+    const effectiveContractId = String(
+      contractId || pendingContext.contractId || pendingContext.contract_id || '',
+    ).trim()
+
+    if (effectiveContractId) {
+      try {
+        contractStatusPayload = await contractApi.getContractStatus(effectiveContractId, {
+          timeoutMs: 30000,
+        })
+      } catch (error) {
+        console.warn('[contract-status-sync-warning]', {
+          reservationId,
+          contractId: effectiveContractId,
+          message: error?.message || 'No se pudo validar el estado del contrato.',
+        })
+      }
+    }
+  }
+
+  const syncedFrontendState = normalizeContractFrontendState(contractStatusPayload || {})
+  const readyForPayment =
+    syncedFrontendState.ready_for_payment === true ||
+    ['go_to_payment', 'go_to_history'].includes(
+      String(syncedFrontendState.next_action || '').trim(),
+    ) ||
+    String(syncedFrontendState.docusign_status || '').trim().toLowerCase() === 'completed'
+
+  if (!readyForPayment) {
+    appliedSignedContractReturnKey.value = ''
+    clearSignedContractSyncTimer()
+    signedContractSyncTimer = window.setTimeout(() => {
+      signedContractSyncTimer = null
+      void refreshReservations({ silent: true })
+    }, 4000)
+    return
+  }
+
+  clearSignedContractSyncTimer()
   appliedSignedContractReturnKey.value = appliedKey
+
+  let persistedReadyForPaymentReservation = null
+
+  try {
+    persistedReadyForPaymentReservation = await markClientTripReadyForPayment(
+      reservationId,
+      {
+        reservation_id: reservationId,
+        flight_request_id:
+          currentReservation.flight_request_id ||
+          pendingContext.flightRequestId ||
+          pendingContext.flight_request_id ||
+          '',
+        contract_snapshot:
+          pendingContext.contractPayload?.contract_snapshot ||
+          pendingContext.contract_payload?.contract_snapshot ||
+          null,
+      },
+      { timeoutMs: 30000 },
+    )
+  } catch (error) {
+    console.warn('[contract-ready-for-payment-persist-warning]', {
+      reservationId,
+      contractId,
+      message: error?.message || 'No se pudo persistir payment_pending en backend.',
+    })
+  }
 
   mergeReservationUpdate({
     ...currentReservation,
+    ...(persistedReadyForPaymentReservation && typeof persistedReadyForPaymentReservation === 'object'
+      ? persistedReadyForPaymentReservation
+      : {}),
     id: String(currentReservation.id || reservationId).trim(),
     is_reservation: true,
     status: 'payment_pending',
@@ -2193,23 +2266,43 @@ function applySignedContractReturnState() {
       currentReservation.contract || contractId
         ? {
             ...(currentReservation.contract || {}),
-            id: contractId || currentReservation.contract?.id || pendingContext.contractId || '',
-            docusign_status: 'completed',
+            ...(contractStatusPayload?.contract && typeof contractStatusPayload.contract === 'object'
+              ? contractStatusPayload.contract
+              : {}),
+            id:
+              contractId ||
+              currentReservation.contract?.id ||
+              pendingContext.contractId ||
+              contractStatusPayload?.contract?.id ||
+              '',
+            status: contractStatusPayload?.contract?.status || 'signed',
+            docusign_status:
+              contractStatusPayload?.contract?.docusign_status ||
+              contractStatusPayload?.docusign_status ||
+              'completed',
             docusign_envelope_id:
               currentReservation.contract?.docusign_envelope_id ||
+              contractStatusPayload?.contract?.docusign_envelope_id ||
+              contractStatusPayload?.docusign_envelope_id ||
               pendingContext.docusign_envelope_id ||
               '',
           }
         : currentReservation.contract,
-    docusign_status: 'completed',
+    docusign_status:
+      contractStatusPayload?.docusign_status ||
+      contractStatusPayload?.contract?.docusign_status ||
+      'completed',
     frontend_state: {
       ...(currentReservation.frontend_state || {}),
-      ui_status: 'completed',
+      ...syncedFrontendState,
+      ui_status: syncedFrontendState.ui_status || 'completed',
       ready_for_payment: true,
-      next_action: 'go_to_payment',
-      status_message: 'El contrato ya quedo listo para continuar a pago.',
-      docusign_status: 'completed',
+      next_action: syncedFrontendState.next_action || 'go_to_payment',
+      status_message:
+        syncedFrontendState.status_message || 'El contrato ya quedo listo para continuar a pago.',
+      docusign_status: syncedFrontendState.docusign_status || 'completed',
       docusign_envelope_id:
+        syncedFrontendState.docusign_envelope_id ||
         currentReservation.frontend_state?.docusign_envelope_id ||
         pendingContext.docusign_envelope_id ||
         '',
@@ -2222,6 +2315,24 @@ function applySignedContractReturnState() {
   })
   void refreshReservations({ silent: true })
 }
+
+const signedContractReservationSignature = computed(() =>
+  reservations.value
+    .map((reservation) =>
+      [
+        resolveEntityIdentifier(reservation?.id),
+        resolveEntityIdentifier(reservation?.flight_request_id),
+        String(reservation?.status || '').trim(),
+        String(reservation?.workflow_status || '').trim(),
+        String(reservation?.contract_status || '').trim(),
+        String(reservation?.payment_status || '').trim(),
+        String(reservation?.contract?.status || '').trim(),
+        String(reservation?.contract?.docusign_status || reservation?.docusign_status || '').trim(),
+        String(reservation?.frontend_state?.ready_for_payment ?? '').trim(),
+      ].join(':'),
+    )
+    .join('|'),
+)
 
 function applyExternalWorkflowSync(payload = {}) {
   const synchronizedId = String(payload.reservationId || payload.requestId || '').trim()
@@ -2306,7 +2417,7 @@ async function handleContractConfirm(contractPayload = {}) {
     let contractId = existingContractId
 
     if (contractId && dedicatedDocusignSendPath && !contractPayload?.full_contract_html) {
-      contractResponse = await contractApi.sendToDocuSign(contractId, { timeoutMs: 30000 })
+      contractResponse = await contractApi.sendToDocuSign(contractId, { timeoutMs: 120000 })
     } else {
       const callbackUrl = buildContractResultUrl({
         reservationId,
@@ -2356,7 +2467,7 @@ async function handleContractConfirm(contractPayload = {}) {
 
       console.log('[docusign-request-payload]', docusignPayload)
 
-      contractResponse = await generateAndSendContract(docusignPayload, { timeoutMs: 30000 })
+      contractResponse = await generateAndSendContract(docusignPayload, { timeoutMs: 120000 })
       contractId = resolveContractRecordId(contractResponse)
     }
 
@@ -3361,6 +3472,12 @@ function clearWorkflowSyncRefreshTimer() {
   workflowSyncRefreshTimer = null
 }
 
+function clearSignedContractSyncTimer() {
+  if (!signedContractSyncTimer) return
+  window.clearTimeout(signedContractSyncTimer)
+  signedContractSyncTimer = null
+}
+
 function scheduleWorkflowSyncRefresh(payload = {}) {
   applyExternalWorkflowSync(payload)
   clearWorkflowSyncRefreshTimer()
@@ -3419,10 +3536,10 @@ watch(
     route.query.contract_id,
     route.query.reservation_id,
     reservationContextId.value,
-    reservations.value.length,
+    signedContractReservationSignature.value,
   ],
   () => {
-    applySignedContractReturnState()
+    void applySignedContractReturnState()
   },
   { immediate: true },
 )
@@ -3441,6 +3558,7 @@ watch(
 onBeforeUnmount(() => {
   clearReservationsPolling()
   clearWorkflowSyncRefreshTimer()
+  clearSignedContractSyncTimer()
   destroyStripePaymentElement()
 
   if (removeWorkflowSyncSubscription) {

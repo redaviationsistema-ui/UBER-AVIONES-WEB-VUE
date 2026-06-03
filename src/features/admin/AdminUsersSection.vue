@@ -396,17 +396,40 @@ function userDetailRows(detail = {}) {
 
 function identityDetailRows(detail = {}) {
   return buildDetailRows(detail, [
-    { label: 'Tipo de documento', paths: ['user.profile.document_type'] },
-    { label: 'Numero de documento', paths: ['user.profile.document_number'] },
-    { label: 'Vigencia', paths: ['user.profile.document_expiration'] },
-    { label: 'Nacionalidad', paths: ['user.profile.nationality'] },
-    { label: 'CURP', paths: ['user.profile.ine_curp'] },
-    { label: 'CIC', paths: ['user.profile.ine_cic'] },
-    { label: 'OCR', paths: ['user.profile.ine_ocr'] },
-    { label: 'Estado de escaneo', paths: ['user.profile.ine_scan_status'] },
-    { label: 'Validacion requerida', paths: ['user.profile.identity_validation_required'] },
-    { label: 'INE frente', paths: ['user.profile.ine_front_path'] },
-    { label: 'INE reverso', paths: ['user.profile.ine_back_path'] },
+    { label: 'Tipo de documento', paths: ['user.profile.document_type', 'user.raw.document_type', 'user.raw.documentType'] },
+    { label: 'Numero de documento', paths: ['user.profile.document_number', 'user.raw.document_number', 'user.raw.documentNumber'] },
+    { label: 'Fecha de emision', paths: ['user.profile.document_issue_date', 'user.raw.document_issue_date', 'user.raw.documentIssueDate'] },
+    { label: 'Vigencia', paths: ['user.profile.document_expiration', 'user.raw.document_expiration', 'user.raw.documentExpiration'] },
+    { label: 'Estado del documento', paths: ['user.profile.document_status', 'user.raw.document_status', 'user.raw.documentStatus'] },
+    { label: 'Nacionalidad', paths: ['user.profile.nationality', 'user.raw.nationality'] },
+    { label: 'Fecha de nacimiento', paths: ['user.profile.birth_date', 'user.raw.birth_date', 'user.raw.birthDate'] },
+    { label: 'CURP', paths: ['user.profile.ine_curp', 'user.raw.ine_curp', 'user.raw.ineCurp'] },
+    { label: 'CIC', paths: ['user.profile.ine_cic', 'user.raw.ine_cic', 'user.raw.ineCic'] },
+    { label: 'OCR', paths: ['user.profile.ine_ocr', 'user.raw.ine_ocr', 'user.raw.ineOcr'] },
+    { label: 'Estado de escaneo', paths: ['user.profile.ine_scan_status', 'user.raw.ine_scan_status', 'user.raw.ineScanStatus'] },
+    {
+      label: 'Validacion requerida',
+      paths: [
+        'user.profile.identity_validation_required',
+        'user.raw.identity_validation_required',
+        'user.raw.identityValidationRequired',
+      ],
+    },
+    { label: 'Tipo de licencia', paths: ['user.profile.license_type', 'user.raw.license_type', 'user.raw.licenseType'] },
+    {
+      label: 'Categoria de licencia',
+      paths: ['user.profile.license_category', 'user.raw.license_category', 'user.raw.licenseCategory'],
+    },
+    {
+      label: 'Pais emisor',
+      paths: ['user.profile.license_issuing_country', 'user.raw.license_issuing_country', 'user.raw.licenseIssuingCountry'],
+    },
+    { label: 'INE frente', paths: ['user.profile.ine_front_path', 'user.raw.ine_front_path', 'user.raw.ineFrontPath'] },
+    { label: 'INE reverso', paths: ['user.profile.ine_back_path', 'user.raw.ine_back_path', 'user.raw.ineBackPath'] },
+    {
+      label: 'Archivo de licencia',
+      paths: ['user.profile.license_file_path', 'user.raw.license_file_path', 'user.raw.licenseFilePath'],
+    },
   ])
 }
 

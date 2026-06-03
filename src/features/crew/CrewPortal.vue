@@ -26,9 +26,11 @@ const metrics = ref({
   asignaciones: 0,
   servicios_activos: 0,
 })
+const profileRating = ref('')
+const backendDocumentsSummary = ref('')
 
-const storedOperationalStatus = ref('Disponible')
-const currentStatus = ref('Disponible')
+const storedOperationalStatus = ref('')
+const currentStatus = ref('')
 const statusError = ref('')
 
 const assignmentStatusOptions = [
@@ -40,23 +42,23 @@ const assignmentStatusOptions = [
   'Incidencia',
   'Cancelado',
 ]
-const crewStatusOptions = ['Disponible', 'No disponible', 'Asignado', 'En vuelo', 'Suspendido']
+const crewStatusOptions = ['Disponible', 'Descanso', 'No disponible']
 const responseOptions = ['Confirmado', 'Rechazado', 'Solicitar revision']
 const rejectReasons = ['No disponible', 'Empalme de agenda', 'Base distinta', 'Certificacion pendiente', 'Otro']
 const incidentTypes = ['Catering', 'Cabina', 'Cliente', 'Seguridad', 'Horario', 'Proveedor', 'Otro']
 const incidentPriorities = ['Baja', 'Media', 'Alta', 'Critica']
-const incidentStates = ['Nueva', 'En revision', 'Escalada', 'Resuelta por operador', 'Cerrada']
-const availabilityStates = ['Disponible', 'No disponible', 'Asignado', 'En vuelo', 'Suspendido']
+const incidentStates = ['Nueva', 'En revision', 'Escalada', 'Resuelta por admin', 'Cerrada']
+const availabilityStates = ['Disponible', 'Descanso', 'No disponible']
 const blockTypes = ['Descanso', 'Capacitacion', 'Medico', 'Personal', 'Restriccion operativa']
-const bases = ['Toluca', 'CDMX', 'Monterrey', 'Cancun', 'Guadalajara', 'Internacional']
-const languages = ['Espanol', 'Ingles', 'Frances', 'Portugues', 'Aleman']
+const bases = []
+const languages = []
 const profileStates = ['Pendiente', 'En revision', 'Aprobado', 'Rechazado', 'Suspendido']
 
 const providerContext = reactive({
-  providerName: 'Proveedor asignado',
-  operatorLabel: 'Operacion central',
-  managedBy: 'Operador',
-  approvalState: 'Pendiente',
+  providerName: '',
+  operatorLabel: '',
+  managedBy: '',
+  approvalState: '',
 })
 
 const assignments = ref([])
@@ -66,6 +68,7 @@ const availabilityBlocks = ref([])
 const documentItems = ref([])
 
 const incidents = ref([])
+const incidentApiErrors = ref({})
 
 const historyEntries = ref([])
 
@@ -85,8 +88,8 @@ const availabilityForm = reactive({
   from: '',
   to: '',
   state: 'Disponible',
-  base: 'Toluca',
-  coverage: 'Centro / Bajio',
+  base: '',
+  coverage: '',
   restriction: '',
 })
 
@@ -109,26 +112,25 @@ const documentForm = reactive({
 })
 
 const profileForm = reactive({
-  name: 'Ana Lira',
-  phone: '5551001001',
-  email: 'ana@redaviation.mx',
-  base: 'Toluca',
-  languages: 'Espanol, Ingles',
-  certifications: 'Cabina ejecutiva, VIP, primeros auxilios',
-  experience: '6 anos en operaciones premium',
-  photo: 'ana-lira.jpg',
-  bankData: 'Cuenta terminacion 9921',
-  weeklyAvailability: 'Lun-Vie 06:00-20:00',
-  documents: '2 aprobados / 1 pendiente',
-  profileState: 'En revision',
+  name: '',
+  phone: '',
+  email: '',
+  base: '',
+  languages: '',
+  certifications: '',
+  experience: '',
+  photo: '',
+  weeklyAvailability: '',
+  documents: '',
+  profileState: '',
 })
 
 const configForm = reactive({
   notifyAssignments: true,
   notifyIncidents: true,
   notifyScheduleChanges: true,
-  personalCoverage: 'Centro / Bajio',
-  escalationMode: 'Operador primero',
+  personalCoverage: '',
+  escalationMode: 'Admin primero',
 })
 
 const resolvedSection = computed(() => {
@@ -143,13 +145,14 @@ const resolvedSection = computed(() => {
 
 const providerName = computed(
   () =>
+    providerContext.providerName ||
     auth.user?.provider?.commercial_name ||
     auth.user?.provider?.company_name ||
     auth.user?.company_name ||
-    providerContext.providerName,
+    '',
 )
 
-const crewMemberName = computed(() => auth.user?.name || profileForm.name)
+const crewMemberName = computed(() => auth.user?.name || profileForm.name || '')
 const sortedAssignments = computed(() =>
   [...assignments.value].sort((left, right) => {
     const priority = {
@@ -195,7 +198,7 @@ const availabilitySummary = computed(() => {
   if (availabilityBlocks.value.some((item) => item.state === 'No disponible')) {
     return 'No disponible'
   }
-  return 'Disponible'
+  return storedOperationalStatus.value || ''
 })
 
 function formatPortalDate(value, options = {}) {
@@ -221,12 +224,12 @@ const checklistProgress = computed(() => {
     Cancelado: 0,
   }
 
-  return currentAssignment.value ? statusMap[currentAssignment.value.missionStatus] || 42 : 64
+  return currentAssignment.value ? statusMap[currentAssignment.value.missionStatus] || 0 : 0
 })
 
 const validDocumentsCount = computed(() => approvedDocuments.value.length)
 const documentsValidity = computed(() => {
-  if (!documentItems.value.length) return 100
+  if (!documentItems.value.length) return 0
   return Math.round((approvedDocuments.value.length / documentItems.value.length) * 100)
 })
 const activeLanguages = computed(() =>
@@ -238,9 +241,10 @@ const activeLanguages = computed(() =>
 const experienceHours = computed(() => {
   const numeric = Number(String(profileForm.experience || '').replace(/[^\d]/g, ''))
   if (numeric > 100) return numeric
-  return monthlyFlightHours.value * 12
+  return 0
 })
 const crewLevel = computed(() => {
+  if (!documentItems.value.length && !experienceHours.value) return ''
   if (documentsValidity.value >= 95 && experienceHours.value >= 1000) return 'Elite Internacional'
   if (documentsValidity.value >= 80 && experienceHours.value >= 500) return 'Ejecutivo'
   return 'Basico'
@@ -249,26 +253,29 @@ const readinessScore = computed(() => {
   const documentWeight = documentsValidity.value * 0.45
   const checklistWeight = checklistProgress.value * 0.25
   const availabilityWeight =
-    currentStatus.value === 'Disponible' ? 20 : currentStatus.value === 'Asignado' ? 14 : 8
-  const profileWeight = String(profileForm.profileState || '').toLowerCase().includes('aprobado')
-    ? 10
-    : String(profileForm.profileState || '').toLowerCase().includes('revision')
-      ? 6
-      : 4
+    currentStatus.value === 'Disponible' ? 20 : currentStatus.value === 'Asignado' ? 14 : currentStatus.value ? 8 : 0
+  const profileWeight = !profileForm.profileState
+    ? 0
+    : String(profileForm.profileState || '').toLowerCase().includes('aprobado')
+      ? 10
+      : String(profileForm.profileState || '').toLowerCase().includes('revision')
+        ? 6
+        : 4
 
   return Math.max(0, Math.min(100, Math.round(documentWeight + checklistWeight + availabilityWeight + profileWeight)))
 })
 const readinessLabel = computed(() => {
+  if (!readinessScore.value) return 'Sin datos'
   if (readinessScore.value >= 90) return 'Listo para volar'
   if (readinessScore.value >= 75) return 'Listo con seguimiento'
   return 'Requiere atencion'
 })
 const identitySummary = computed(() => ({
   level: crewLevel.value,
-  base: profileForm.base || 'Base por confirmar',
-  languages: activeLanguages.value.length ? activeLanguages.value.join(' / ') : 'ES',
-  hours: `${experienceHours.value.toLocaleString('es-MX')} hrs`,
-  certifications: profileForm.certifications || 'Certificaciones por validar',
+  base: profileForm.base || '',
+  languages: activeLanguages.value.length ? activeLanguages.value.join(' / ') : '',
+  hours: experienceHours.value ? `${experienceHours.value.toLocaleString('es-MX')} hrs` : '',
+  certifications: profileForm.certifications || '',
 }))
 const expiringDocuments = computed(() => {
   const now = new Date()
@@ -321,8 +328,10 @@ const premiumAlerts = computed(() => {
 const servicesCompletedThisMonth = computed(
   () => historyEntries.value.filter((item) => item.status === 'Finalizado').length,
 )
-const monthlyFlightHours = computed(() => Math.max(18, servicesCompletedThisMonth.value * 9 + nextAssignments.value.length * 4))
-const punctualityRate = computed(() => `${Math.max(94, 99 - openIncidents.value.length)}%`)
+const monthlyFlightHours = computed(() => servicesCompletedThisMonth.value * 9 + nextAssignments.value.length * 4)
+const punctualityRate = computed(() =>
+  historyEntries.value.length ? `${Math.max(0, 100 - openIncidents.value.length)}%` : '',
+)
 const dashboardSummary = computed(() => [
   {
     label: 'Servicios completados',
@@ -332,7 +341,7 @@ const dashboardSummary = computed(() => [
   {
     label: 'Puntualidad',
     value: punctualityRate.value,
-    detail: 'Consistencia de servicio premium.',
+    detail: punctualityRate.value ? 'Calculado con la actividad registrada.' : 'Sin actividad suficiente para calcularla.',
   },
   {
     label: 'Checklist promedio',
@@ -350,26 +359,48 @@ const dayOfFlightDetails = computed(() => {
   if (!currentAssignment.value) return []
 
   return [
-    { label: 'Hora reporte', value: currentAssignment.value.briefingTime || currentAssignment.value.time || 'Por confirmar' },
-    { label: 'FBO', value: `FBO ${currentAssignment.value.origin || profileForm.base}` },
-    { label: 'Catering', value: currentAssignment.value.catering || 'Segun briefing' },
-    { label: 'Pasajeros especiales', value: `${currentAssignment.value.passengers || 0} pasajeros autorizados` },
-    { label: 'Amenidades', value: currentAssignment.value.amenities || 'Kit premium' },
+    { label: 'Hora reporte', value: currentAssignment.value.briefingTime || currentAssignment.value.time || '' },
+    { label: 'FBO', value: currentAssignment.value.origin || profileForm.base || '' },
+    { label: 'Catering', value: currentAssignment.value.catering || '' },
+    { label: 'Pasajeros especiales', value: currentAssignment.value.passengers ? `${currentAssignment.value.passengers} pasajeros autorizados` : '' },
+    { label: 'Amenidades', value: currentAssignment.value.amenities || '' },
     { label: 'Incidencias', value: openIncidents.value.length ? `${openIncidents.value.length} abiertas` : 'Sin alertas criticas' },
-  ]
+  ].filter((item) => item.value)
 })
 
 const historySummary = computed(() => ({
   completedFlights: historyEntries.value.filter((item) => item.status === 'Finalizado').length,
-  hoursWorked: `${monthlyFlightHours.value} h`,
-  rating: '4.9/5',
+  hoursWorked: monthlyFlightHours.value ? `${monthlyFlightHours.value} h` : '',
+  rating: '',
   incidents: incidents.value.length,
   reportsSent: historyEntries.value.filter((item) => item.action.toLowerCase().includes('servicio')).length,
-  generatedPayments: assignments.value.filter((item) => item.missionStatus === 'Finalizado').length,
 }))
 
+const crewProfileAlerts = computed(() => {
+  const alerts = []
+
+  if (!providerName.value) alerts.push('Proveedor sin ligar')
+  if (!profileForm.base) alerts.push('Base pendiente')
+
+  const normalizedProfileState = String(profileForm.profileState || '').toLowerCase()
+  if (normalizedProfileState.includes('pend') || normalizedProfileState.includes('revision')) {
+    alerts.push('Requiere validacion administrativa')
+  }
+  if (normalizedProfileState.includes('rech')) {
+    alerts.push('Perfil rechazado')
+  }
+  if (pendingDocuments.value.length) {
+    alerts.push('Expediente incompleto')
+  }
+  if (expiringDocuments.value.some((item) => item.daysRemaining != null && item.daysRemaining <= 15)) {
+    alerts.push('Documento proximo a vencer')
+  }
+
+  return [...new Set(alerts)]
+})
+
 const sectionLabelMap = {
-  dashboard: 'Centro operativo',
+  dashboard: 'Mi operacion',
   asignaciones: 'Asignaciones activas',
   calendario: 'Operacion del dia',
   disponibilidad: 'Disponibilidad personal',
@@ -417,7 +448,7 @@ const incidentFlightOptions = computed(() =>
 const assignmentErrors = computed(() => {
   const errors = {}
   if (currentAssignment.value?.responseDeadlinePassed) {
-    errors.deadline = 'La ventana de respuesta ya vencio y requiere seguimiento del operador.'
+    errors.deadline = 'La ventana de respuesta ya vencio y requiere seguimiento de Admin / Red Sky.'
   }
   if (assignmentResponseForm.response === 'Rechazado' && !assignmentResponseForm.rejectReason) {
     errors.rejectReason = 'Selecciona un motivo para rechazar la asignacion.'
@@ -428,10 +459,10 @@ const assignmentErrors = computed(() => {
 const agendaErrors = computed(() => {
   const errors = {}
   if (agendaBlockForm.state === 'No disponible' && !agendaBlockForm.reason.trim()) {
-    errors.reason = 'Describe el motivo del bloqueo para que el proveedor lo audite.'
+    errors.reason = 'Describe el motivo del bloqueo para que Admin / Red Sky lo audite.'
   }
   if (nextAssignments.value.some((item) => item.assignmentConfirmed) && agendaBlockForm.state === 'No disponible') {
-    errors.conflict = 'Ya tienes una mision confirmada; el bloqueo debe revisarlo el operador.'
+    errors.conflict = 'Ya tienes una mision confirmada; el bloqueo debe revisarlo Admin / Red Sky.'
   }
   return errors
 })
@@ -444,7 +475,10 @@ const incidentErrors = computed(() => {
   if (['Alta', 'Critica'].includes(incidentForm.priority) && !incidentForm.evidence.trim()) {
     errors.evidence = 'Adjunta evidencia para prioridades altas o criticas.'
   }
-  return errors
+  return {
+    ...incidentApiErrors.value,
+    ...errors,
+  }
 })
 
 const profileErrors = computed(() => {
@@ -452,12 +486,10 @@ const profileErrors = computed(() => {
   if (!profileForm.phone.trim()) errors.phone = 'Telefono obligatorio.'
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(profileForm.email || '')) errors.email = 'Correo invalido.'
   if (!profileForm.certifications.trim()) errors.certifications = 'Certificaciones obligatorias.'
-  if (!profileForm.bankData.trim()) errors.bankData = 'Datos bancarios obligatorios.'
-  if (!String(profileForm.documents || '').trim()) errors.documents = 'El estado documental no puede quedar vacio.'
   return errors
 })
 
-function pushHistory(action, status, comment, flight = currentAssignment.value?.flight || 'Mision') {
+function pushHistory(action, status, comment, flight = currentAssignment.value?.flight || '') {
   historyEntries.value.unshift({
     id: Date.now() + Math.random(),
     flight,
@@ -539,7 +571,7 @@ function humanizeCrewLifecycleStatus(value = '') {
   if (normalized === 'crew_active') return 'En servicio'
   if (normalized === 'crew_completed') return 'Finalizado'
   if (normalized === 'crew_incident_reported') return 'Con incidencia'
-  return value || 'Pendiente'
+  return value || ''
 }
 
 function deriveCrewStatusFromAssignments() {
@@ -547,7 +579,7 @@ function deriveCrewStatusFromAssignments() {
   if (assignments.value.some((item) => ['Confirmado', 'Preparacion'].includes(item.missionStatus))) return 'Asignado'
   if (availabilityBlocks.value.some((item) => item.state === 'Suspendido')) return 'Suspendido'
   if (availabilityBlocks.value.some((item) => item.state === 'No disponible')) return 'No disponible'
-  return storedOperationalStatus.value || 'Disponible'
+  return storedOperationalStatus.value || ''
 }
 
 function normalizeAssignment(raw = {}, detail = {}, index = 0) {
@@ -558,23 +590,25 @@ function normalizeAssignment(raw = {}, detail = {}, index = 0) {
   const missionStatus =
     normalizeCrewLifecycleStatus(crewLifecycleStatus) || normalizeMissionStatus(detail.status || raw.status)
   const responseStatus = normalizeAssignmentResponseStatus(raw, missionStatus)
-  const route = `${briefing.origen || raw.origin || 'N/D'} -> ${briefing.destino || raw.destination || 'N/D'}`
+  const origin = briefing.origen || raw.origin || ''
+  const destination = briefing.destino || raw.destination || ''
+  const route = origin && destination ? `${origin} -> ${destination}` : origin || destination || ''
 
   return {
     id: raw.id || index + 1,
-    flight: `OPS-${raw.id || index + 1}`,
+    flight: raw.flight || raw.code || raw.reference || (raw.id != null ? String(raw.id) : ''),
     route,
-    date: departure ? String(departure).slice(0, 10) : 'Pendiente',
-    time: departure && String(departure).includes('T') ? String(departure).slice(11, 16) : 'Por definir',
-    aircraft: raw.aircraft || raw.aircraft_model || 'Aeronave asignada',
-    briefing: departure ? String(departure).slice(11, 16) : 'Por confirmar',
-    briefingTime: departure ? String(departure).slice(11, 16) : 'Por confirmar',
-    serviceLevel: raw.service_level || 'Premium',
-    vipRequirements: raw.notes || 'Ver requerimientos del servicio y briefing del operador.',
-    client: 'Cliente Red Aviation protegido',
+    date: departure ? String(departure).slice(0, 10) : '',
+    time: departure && String(departure).includes('T') ? String(departure).slice(11, 16) : '',
+    aircraft: raw.aircraft || raw.aircraft_model || '',
+    briefing: departure ? String(departure).slice(11, 16) : '',
+    briefingTime: departure ? String(departure).slice(11, 16) : '',
+    serviceLevel: raw.service_level || '',
+    vipRequirements: raw.notes || detail.notes || '',
+    client: raw.client || raw.client_name || detail.client || '',
     passengers: Number(briefing.pasajeros_autorizados || raw.passengers || 0),
-    specialRequirements: 'Mision asignada por proveedor y administrada por operador.',
-    internalContact: `${providerName.value} / Centro operativo`,
+    specialRequirements: raw.special_requirements || detail.special_requirements || '',
+    internalContact: raw.internal_contact || detail.internal_contact || '',
     responseStatus,
     crewStatus: raw.crew_status || detail.crew_status || '',
     crewStatusLabel: raw.crew_status_label || humanizeCrewLifecycleStatus(crewLifecycleStatus),
@@ -587,10 +621,10 @@ function normalizeAssignment(raw = {}, detail = {}, index = 0) {
     assignmentConfirmed: ['Confirmado', 'Recibida'].includes(responseStatus) || missionStatus !== 'Pendiente',
     operationActive: ['Preparacion', 'En servicio', 'Incidencia'].includes(missionStatus),
     responseDeadlinePassed: false,
-    origin: briefing.origen || 'N/D',
-    destination: briefing.destino || 'N/D',
-    catering: 'Segun briefing',
-    amenities: 'Segun mision',
+    origin,
+    destination,
+    catering: raw.catering || detail.catering || '',
+    amenities: raw.amenities || detail.amenities || '',
     missionStatus,
     providerName: providerName.value,
     timeline: Array.isArray(detail.timeline) ? detail.timeline : [],
@@ -637,41 +671,45 @@ function normalizeCrewAvailabilityRecord(raw = {}, index = 0) {
     from: raw.from || raw.starts_at || raw.start_datetime || '',
     to: raw.to || raw.ends_at || raw.end_datetime || '',
     state: raw.state || raw.status || raw.availability_status || 'Disponible',
-    base: raw.base || raw.city || profileForm.base,
-    coverage: raw.coverage || raw.zone || configForm.personalCoverage,
-    restriction: raw.restriction || raw.reason || raw.notes || 'Sin restriccion adicional',
+    base: raw.base || raw.city || profileForm.base || '',
+    coverage: raw.coverage || raw.zone || configForm.personalCoverage || '',
+    restriction: raw.restriction || raw.reason || raw.notes || '',
   }
 }
 
 function normalizeCrewDocumentRecord(raw = {}, index = 0) {
   return {
     id: raw.id || index + 1,
-    name: raw.document_name || raw.name || raw.file_name || `Documento ${index + 1}`,
-    category: raw.category || raw.type || 'Certificacion',
-    state: raw.state || raw.status || 'Pendiente',
-    expiresAt: raw.expires_at || raw.expiration_date || 'Sin vencimiento',
-    note: raw.note || raw.admin_notes || raw.observations || 'Pendiente de validacion admin',
+    name: raw.document_name || raw.name || raw.file_name || '',
+    category: raw.category || raw.type || '',
+    state: raw.state || raw.status || '',
+    expiresAt: raw.expires_at || raw.expiration_date || '',
+    note: raw.note || raw.admin_notes || raw.observations || '',
   }
 }
 
 function normalizeCrewIncidentRecord(raw = {}, index = 0) {
   return {
     id: raw.id || index + 1,
-    flight: raw.flight || `OPS-${raw.operation_id || index + 1}`,
-    type: raw.type || raw.title || 'Incidencia operativa',
-    priority: raw.priority || 'Media',
-    description: raw.description || raw.comment || 'Sin detalle adicional',
+    flight: raw.flight || raw.reference || (raw.operation_id != null ? String(raw.operation_id) : ''),
+    type: raw.type || raw.title || '',
+    priority: raw.priority || '',
+    description: raw.description || raw.comment || '',
     evidence: raw.evidence || '',
-    time: raw.created_at || currentMissionTime(),
-    state: raw.status || raw.state || 'Nueva',
-    phase: raw.phase || 'Pre-vuelo',
-    actionTaken: raw.action_taken || raw.actionTaken || 'Reportado',
+    time: raw.created_at || '',
+    state: raw.status || raw.state || '',
+    phase: raw.phase || '',
+    actionTaken: raw.action_taken || raw.actionTaken || '',
     timeline: Array.isArray(raw.timeline) ? raw.timeline : [],
     operationId: raw.operation_id || null,
   }
 }
 
 function syncDocumentSummary() {
+  if (backendDocumentsSummary.value) {
+    profileForm.documents = backendDocumentsSummary.value
+    return
+  }
   const approved = approvedDocuments.value.length
   const pending = pendingDocuments.value.length
   profileForm.documents = `${approved} aprobados / ${pending} pendientes`
@@ -700,23 +738,29 @@ function rebuildHistoryFromBackend() {
 }
 
 function hydrateProfile(raw = {}) {
-  profileForm.name = raw.name || raw.full_name || profileForm.name
-  profileForm.phone = raw.phone || raw.phone_number || profileForm.phone
-  profileForm.email = raw.email || profileForm.email
-  profileForm.base = raw.base || raw.city || profileForm.base
-  profileForm.languages = Array.isArray(raw.languages) ? raw.languages.join(', ') : raw.languages || profileForm.languages
+  providerContext.providerName =
+    raw.provider?.commercial_name ||
+    raw.provider?.company_name ||
+    raw.provider_name ||
+    providerContext.providerName ||
+    ''
+  profileForm.name = raw.name || raw.full_name || ''
+  profileForm.phone = raw.phone || raw.phone_number || ''
+  profileForm.email = raw.email || ''
+  profileForm.base = raw.base || raw.city || ''
+  profileForm.languages = Array.isArray(raw.languages) ? raw.languages.join(', ') : raw.languages || ''
   profileForm.certifications = Array.isArray(raw.certifications)
     ? raw.certifications.join(', ')
-    : raw.certifications || raw.licenses || profileForm.certifications
-  profileForm.experience = raw.experience || raw.bio || profileForm.experience
-  profileForm.photo = raw.photo || raw.avatar || profileForm.photo
-  profileForm.bankData = raw.bank_data || raw.bank_account || profileForm.bankData
-  profileForm.weeklyAvailability = raw.weekly_availability || raw.schedule || profileForm.weeklyAvailability
-  profileForm.documents = raw.documents_summary || raw.documents_status || profileForm.documents
-  profileForm.profileState =
-    raw.profile_state || raw.validation_status || raw.review_status || profileForm.profileState
-  storedOperationalStatus.value = raw.current_status || storedOperationalStatus.value
-  currentStatus.value = raw.current_status || currentStatus.value
+    : raw.certifications || raw.licenses || ''
+  profileForm.experience = raw.experience || raw.bio || ''
+  profileForm.photo = raw.photo || raw.avatar || ''
+  profileForm.weeklyAvailability = raw.weekly_availability || raw.schedule || ''
+  backendDocumentsSummary.value = raw.documents_summary || raw.documents_status || ''
+  profileForm.documents = backendDocumentsSummary.value
+  profileForm.profileState = raw.profile_state || raw.validation_status || raw.review_status || ''
+  profileRating.value = raw.rating || raw.score || ''
+  storedOperationalStatus.value = raw.current_status || ''
+  currentStatus.value = raw.current_status || ''
   configForm.notifyAssignments = raw.preferences?.notify_assignments ?? configForm.notifyAssignments
   configForm.notifyIncidents = raw.preferences?.notify_incidents ?? configForm.notifyIncidents
   configForm.notifyScheduleChanges = raw.preferences?.notify_schedule_changes ?? configForm.notifyScheduleChanges
@@ -736,16 +780,70 @@ function updateField({ form, field, value }) {
   }
 
   forms[form][field] = value
+
+  if (form === 'incident') {
+    incidentApiErrors.value = Object.fromEntries(
+      Object.entries(incidentApiErrors.value).filter(([key]) => key !== field && key !== '_form'),
+    )
+  }
+}
+
+function buildApiErrorMessage(error, fallbackMessage) {
+  const validationErrors = error?.payload?.errors
+  if (validationErrors && typeof validationErrors === 'object') {
+    const firstIssue = Object.entries(validationErrors).find(
+      ([, value]) => Array.isArray(value) && value.length,
+    )
+    if (firstIssue) {
+      const [field, messages] = firstIssue
+      return `${messages[0]} (${field})`
+    }
+  }
+
+  return error?.message || fallbackMessage
+}
+
+function applyIncidentBackendErrors(error, fallbackMessage = '') {
+  const validationErrors = error?.payload?.errors
+  if (validationErrors && typeof validationErrors === 'object') {
+    const fieldMap = {
+      operation_id: 'flight',
+      request_id: 'flight',
+      flight: 'flight',
+      type: 'type',
+      title: 'type',
+      priority: 'priority',
+      phase: 'phase',
+      status: 'state',
+      evidence: 'evidence',
+      action_taken: 'actionTaken',
+      comment: 'description',
+      description: 'description',
+    }
+    const nextErrors = {}
+
+    Object.entries(validationErrors).forEach(([field, messages]) => {
+      if (!Array.isArray(messages) || !messages.length) return
+      nextErrors[fieldMap[field] || field] = messages[0]
+    })
+
+    if (Object.keys(nextErrors).length) {
+      incidentApiErrors.value = nextErrors
+      return buildApiErrorMessage(error, fallbackMessage)
+    }
+  }
+
+  incidentApiErrors.value = {
+    _form: error?.message || fallbackMessage,
+  }
+  return error?.message || fallbackMessage
 }
 
 async function updateStatus(next) {
+  const backendStatus = next === 'Descanso' ? 'No disponible' : next
   const computedStatus = deriveCrewStatusFromAssignments()
-  if (next === 'Disponible' && computedStatus === 'En vuelo') {
+  if (backendStatus === 'Disponible' && computedStatus === 'En vuelo') {
     statusError.value = 'No puedes ponerte disponible mientras exista una operacion activa.'
-    return
-  }
-  if (next === 'En vuelo' && !assignments.value.some((item) => item.missionStatus === 'En servicio')) {
-    statusError.value = 'El estado En vuelo lo marca la operacion asignada, no manualmente.'
     return
   }
 
@@ -755,11 +853,11 @@ async function updateStatus(next) {
         method: 'put',
         path: '/sobrecargo/profile',
         body: {
-          current_status: next,
+          current_status: backendStatus,
         },
       },
     ])
-    storedOperationalStatus.value = next
+    storedOperationalStatus.value = backendStatus
     statusError.value = ''
     await loadPortal()
     ui.pushToast({
@@ -799,7 +897,8 @@ function updateAgendaState(id, next) {
       : item,
   )
   currentStatus.value = deriveCrewStatusFromAssignments()
-  pushHistory('Calendario actualizado', next, `La mision ${id} cambio a ${next}.`, `OPS-${id}`)
+  const assignment = assignments.value.find((item) => item.id === id)
+  pushHistory('Calendario actualizado', next, `La mision ${id} cambio a ${next}.`, assignment?.flight || String(id))
 }
 
 async function requestBlock() {
@@ -1037,6 +1136,8 @@ async function finalizeAssignedService(id) {
 }
 
 async function createIncident(options = {}) {
+  incidentApiErrors.value = {}
+
   if (Object.keys(incidentErrors.value).length) {
     return ui.pushToast({
       tone: 'error',
@@ -1057,34 +1158,34 @@ async function createIncident(options = {}) {
     })
   }
 
+  const resolvedStatus = shouldEscalate ? 'Escalada' : incidentForm.state || 'Nueva'
+  const resolvedActionTaken = shouldEscalate ? 'Escalado' : incidentForm.actionTaken || 'Reportado'
+  const payload = {
+    operation_id: linkedAssignment.operationId,
+    type: incidentForm.type || 'Incidencia operativa',
+    title: incidentForm.type || 'Incidencia operativa',
+    flight: incidentForm.flight,
+    reference: incidentForm.flight,
+    priority: incidentForm.priority,
+    phase: incidentForm.phase,
+    status: resolvedStatus,
+    evidence: incidentForm.evidence || undefined,
+    comment: incidentForm.description,
+    description: incidentForm.description,
+    action_taken: resolvedActionTaken,
+  }
+
   try {
     await requestWithCandidates([
       {
         method: 'post',
         path: `/sobrecargo/operations/${linkedAssignment.operationId}/incident`,
-        body: {
-          title: incidentForm.type || 'Incidencia operativa',
-          description: incidentForm.description,
-          priority: incidentForm.priority,
-          phase: incidentForm.phase,
-          status: shouldEscalate ? 'Escalada' : incidentForm.state || 'Nueva',
-          evidence: incidentForm.evidence || undefined,
-          action_taken: shouldEscalate ? 'Escalado' : incidentForm.actionTaken || 'Reportado',
-        },
+        body: payload,
       },
       {
         method: 'post',
         path: '/sobrecargo/incidents',
-        body: {
-          operation_id: linkedAssignment.operationId,
-          title: incidentForm.type || 'Incidencia operativa',
-          description: incidentForm.description,
-          priority: incidentForm.priority,
-          phase: incidentForm.phase,
-          status: shouldEscalate ? 'Escalada' : incidentForm.state || 'Nueva',
-          evidence: incidentForm.evidence || undefined,
-          action_taken: shouldEscalate ? 'Escalado' : incidentForm.actionTaken || 'Reportado',
-        },
+        body: payload,
       },
     ])
     await loadPortal()
@@ -1092,7 +1193,7 @@ async function createIncident(options = {}) {
       tone: 'success',
       title: 'Incidencia creada',
       message: shouldEscalate
-        ? 'La incidencia ya quedo vinculada a tu operacion y fue escalada al operador.'
+        ? 'La incidencia ya quedo vinculada a tu operacion y fue escalada a Admin / Red Sky.'
         : 'La incidencia ya quedo vinculada a tu operacion.',
     })
     incidentForm.flight = ''
@@ -1103,11 +1204,13 @@ async function createIncident(options = {}) {
     incidentForm.state = 'Nueva'
     incidentForm.actionTaken = ''
     incidentForm.phase = 'Pre-vuelo'
+    goToSection('dashboard')
   } catch (error) {
+    const message = applyIncidentBackendErrors(error, 'El backend no acepto la incidencia.')
     ui.pushToast({
       tone: 'error',
       title: 'No se pudo crear',
-      message: error.message || 'El backend no acepto la incidencia.',
+      message,
     })
   }
 }
@@ -1202,7 +1305,7 @@ async function escalateIncident(id) {
         body: {
           status: 'Escalada',
           action_taken: 'Escalado',
-          comment: 'Operador notificado desde el portal de sobrecargo.',
+          comment: 'Admin / Red Sky notificado desde el portal de sobrecargo.',
         },
       },
     ])
@@ -1210,7 +1313,7 @@ async function escalateIncident(id) {
     ui.pushToast({
       tone: 'success',
       title: 'Incidencia escalada',
-      message: 'La incidencia ya fue marcada para seguimiento del operador.',
+      message: 'La incidencia ya fue marcada para seguimiento de Admin / Red Sky.',
     })
   } catch (error) {
     ui.pushToast({
@@ -1234,7 +1337,7 @@ async function addDocument() {
     document_name: documentForm.name,
     category: documentForm.category,
     expires_at: documentForm.expiresAt || undefined,
-    note: documentForm.note || 'Pendiente de validacion admin',
+    note: documentForm.note || '',
   }
 
   try {
@@ -1308,9 +1411,7 @@ async function saveProfile() {
           languages: profileForm.languages.split(',').map((item) => item.trim()).filter(Boolean),
           certifications: profileForm.certifications.split(',').map((item) => item.trim()).filter(Boolean),
           experience: profileForm.experience,
-          bank_data: profileForm.bankData,
           weekly_availability: profileForm.weeklyAvailability,
-          profile_state: profileForm.profileState,
         },
       },
     ])
@@ -1402,8 +1503,10 @@ async function loadPortal() {
   }
 
   providerContext.providerName = providerName.value
-  providerContext.operatorLabel = auth.user?.provider?.commercial_name ? 'Proveedor / operador validado' : 'Operacion central'
-  providerContext.managedBy = providerName.value
+  providerContext.operatorLabel = auth.user?.provider?.commercial_name
+    ? 'Proveedor validado · coordinacion Admin / Red Sky'
+    : 'Operacion coordinada por Admin / Red Sky'
+  providerContext.managedBy = 'Admin / Red Sky'
   providerContext.approvalState = profileForm.profileState
   currentStatus.value = deriveCrewStatusFromAssignments()
   rebuildHistoryFromBackend()
@@ -1418,7 +1521,7 @@ onMounted(loadPortal)
       <div class="ribbon-copy">
         <p class="eyebrow">Operacion premium sincronizada</p>
         <strong>{{ activeSectionLabel }}</strong>
-        <p>Tu perfil de vuelo define prioridad de matching, preparacion operativa y visibilidad ante el operador.</p>
+        <p>Tu perfil de vuelo define prioridad de matching, preparacion operativa y visibilidad ante Admin / Red Sky.</p>
       </div>
       <div class="ribbon-metrics">
         <span class="ribbon-pill">{{ providerName }}</span>
@@ -1519,9 +1622,7 @@ onMounted(loadPortal)
             </label>
             <label>
               <span>Base</span>
-              <select v-model="availabilityForm.base">
-                <option v-for="item in bases" :key="item" :value="item">{{ item }}</option>
-              </select>
+              <input v-model="availabilityForm.base" type="text" />
             </label>
             <label>
               <span>Cobertura</span>
@@ -1557,6 +1658,11 @@ onMounted(loadPortal)
       v-else-if="resolvedSection === 'perfil'"
       :profile-form="profileForm"
       :profile-errors="profileErrors"
+      :provider-name="providerName"
+      :current-status="currentStatus"
+      :documents-validity="documentsValidity"
+      :profile-alerts="crewProfileAlerts"
+      :profile-rating="profileRating"
       :bases="bases"
       :languages="languages"
       :profile-states="profileStates"
@@ -1671,14 +1777,14 @@ onMounted(loadPortal)
           <label class="toggle-row">
             <div>
               <strong>Notificar nuevas asignaciones</strong>
-              <small>Recepcion inmediata de nuevas misiones del proveedor.</small>
+              <small>Recepcion inmediata de nuevas misiones coordinadas por Admin / Red Sky.</small>
             </div>
             <input v-model="configForm.notifyAssignments" type="checkbox" />
           </label>
           <label class="toggle-row">
             <div>
               <strong>Notificar incidencias</strong>
-              <small>Alertas cuando operador o admin respondan incidencias.</small>
+              <small>Alertas cuando Admin actualice incidencias o coordinacion operativa.</small>
             </div>
             <input v-model="configForm.notifyIncidents" type="checkbox" />
           </label>
@@ -1698,7 +1804,7 @@ onMounted(loadPortal)
           <label>
             <span>Modo de escalamiento</span>
             <select v-model="configForm.escalationMode">
-              <option>Operador primero</option>
+              <option>Admin primero</option>
               <option>Admin y operador</option>
               <option>Solo admin en criticas</option>
             </select>

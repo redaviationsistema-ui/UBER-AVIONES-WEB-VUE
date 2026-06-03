@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import { canvasToFile, captureVideoFrame } from './identityVerification'
-import { scanIneFiles } from './ineScanner'
+import { normalizeText, scanIneFiles } from './ineScanner'
 import { api } from '../../lib/api'
 
 const props = defineProps({
@@ -23,6 +23,20 @@ const scanMessage = ref('')
 const BIOMETRIC_DETECT_FACE_PATH = String(
   import.meta.env.VITE_BIOMETRIC_DETECT_FACE_PATH || '/public/biometric/detect-face',
 ).trim()
+const isCrewRole = computed(() => props.form.role === 'sobrecargo')
+const activeDocumentLabel = computed(() => (isCrewRole.value ? 'licencia' : 'INE'))
+const activeDocumentLabelUpper = computed(() =>
+  isCrewRole.value ? 'LICENCIA' : 'INE',
+)
+const activeDocumentFrontLabel = computed(() =>
+  isCrewRole.value ? 'Licencia' : `${props.form.documentType} frente`,
+)
+const activeScanButtonLabel = computed(() =>
+  isCrewRole.value ? 'Escanear licencia' : 'Escanear datos de la INE',
+)
+const activeScanningLabel = computed(() =>
+  isCrewRole.value ? 'Escaneando licencia...' : 'Escaneando INE...',
+)
 
 function revokePreviewUrl(url) {
   if (typeof url === 'string' && url.startsWith('blob:')) {
@@ -105,8 +119,20 @@ function handleIneFileSelected(field, event) {
     ineCic: '',
     ineOcr: '',
     documentNumber: '',
+    documentIssueDate: '',
     documentExpiration: '',
+    documentStatus: '',
+    licenseType: isCrewRole.value ? 'Licencia de sobrecargo' : '',
+    licenseCategory: '',
+    issuingCountry: '',
   })
+
+  if (isCrewRole.value && field === 'ineFront') {
+    emit('merge-fields', {
+      ineBack: null,
+      ineBackName: '',
+    })
+  }
 }
 
 function mergeIneData(form, detectedData) {
@@ -142,6 +168,19 @@ function detectedFieldsLabel(data) {
 }
 
 function hasDetectedEditableData(form) {
+  if (isCrewRole.value) {
+    return Boolean(
+      form.name ||
+        form.birthDate ||
+        form.nationality ||
+        form.documentNumber ||
+        form.documentIssueDate ||
+        form.documentExpiration ||
+        form.licenseCategory ||
+        form.issuingCountry,
+    )
+  }
+
   return Boolean(
     form.name ||
       form.birthDate ||
@@ -154,19 +193,205 @@ function hasDetectedEditableData(form) {
   )
 }
 
+function parseDateCandidate(value = '') {
+  const normalized = String(value || '').trim()
+  if (!normalized) return ''
+
+  const isoMatch = normalized.match(/^(\d{4})[-/.](\d{2})[-/.](\d{2})$/)
+  if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`
+
+  const latinMatch = normalized.match(/^(\d{2})[-/.](\d{2})[-/.](\d{4})$/)
+  if (latinMatch) return `${latinMatch[3]}-${latinMatch[2]}-${latinMatch[1]}`
+
+  const monthNames = {
+    ENE: '01',
+    ENERO: '01',
+    FEB: '02',
+    FEBRERO: '02',
+    MAR: '03',
+    MARZO: '03',
+    ABR: '04',
+    ABRIL: '04',
+    APR: '04',
+    MAY: '05',
+    MAYO: '05',
+    JUN: '06',
+    JUNIO: '06',
+    JUL: '07',
+    JULIO: '07',
+    AGO: '08',
+    AGOSTO: '08',
+    AUG: '08',
+    SEP: '09',
+    SEPT: '09',
+    SEPTIEMBRE: '09',
+    OCT: '10',
+    OCTUBRE: '10',
+    NOV: '11',
+    NOVIEMBRE: '11',
+    DIC: '12',
+    DICIEMBRE: '12',
+    DEC: '12',
+  }
+
+  const textualMonthMatch = normalized
+    .toUpperCase()
+    .match(/^(\d{1,2})[-/. ]([A-Z]{3,10})[-/. ](\d{4})$/)
+
+  if (textualMonthMatch) {
+    const month = monthNames[textualMonthMatch[2]]
+    if (!month) return ''
+
+    return `${textualMonthMatch[3]}-${month}-${textualMonthMatch[1].padStart(2, '0')}`
+  }
+
+  return ''
+}
+
+function extractLabeledValue(rawText = '', labels = []) {
+  const pattern = labels.join('|')
+  const match = rawText.match(new RegExp(`(?:${pattern})\\s*[:\\-]\\s*([^\\n\\r]+)`, 'i'))
+  return normalizeText(match?.[1] || '')
+}
+
+function calculateDocumentStatus(expirationDate = '') {
+  if (!expirationDate) return ''
+
+  const now = new Date()
+  now.setHours(0, 0, 0, 0)
+  const expiration = new Date(`${expirationDate}T00:00:00`)
+  if (Number.isNaN(expiration.getTime())) return ''
+
+  const diffDays = Math.ceil((expiration.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+  if (diffDays < 0) return 'Vencida'
+  if (diffDays <= 30) return 'Por vencer'
+  return 'Vigente'
+}
+
+function extractCrewLicenseData(rawText = '') {
+  const text = normalizeText(rawText).toUpperCase()
+  const lines = rawText
+    .split(/\r?\n/)
+    .map((line) => normalizeText(line))
+    .filter(Boolean)
+
+  const dateMatches = [
+    ...text.matchAll(
+      /\b(\d{2}[-/. ](?:\d{2}|[A-Z]{3,10})[-/. ]\d{4}|\d{4}[-/.]\d{2}[-/.]\d{2})\b/g,
+    ),
+  ]
+    .map((match) => parseDateCandidate(match[1]))
+    .filter(Boolean)
+
+  const nameCandidate =
+    extractLabeledValue(rawText, ['NOMBRE COMPLETO', 'NOMBRE']) ||
+    lines.find(
+      (line) =>
+        /^[A-ZÁÉÍÓÚÑ ]{8,}$/i.test(line) &&
+        !/(LICENCIA|LICENSE|CATEGORIA|CARGO|NACIONALIDAD|VIGENCIA|EMISION|EMISOR|PAIS|ESTATUS|SEXO)/i.test(line),
+    ) ||
+    ''
+
+  const numberCandidate =
+    extractLabeledValue(rawText, ['NUMERO DE LICENCIA', 'NÚMERO DE LICENCIA', 'NO\\.\\s*LICENCIA']) ||
+    text.match(/(?:NO\.?\s*LICENCIA|NUMERO(?: DE)? LICENCIA|LICENCIA(?: NO\.?)?|LICENSE(?: NO\.?)?)[:\s#-]*([A-Z0-9-]{4,})/)?.[1] ||
+    text.match(/\b[A-Z0-9-]{6,20}\b/)?.[0] ||
+    ''
+
+  const categoryCandidate =
+    extractLabeledValue(rawText, ['TIPO DE LICENCIA', 'FUNCION AUTORIZADA', 'FUNCIÓN AUTORIZADA']) ||
+    rawText.match(/(?:CATEGORIA|CARGO|CLASE|CATEGORY)[:\s-]*([A-Z0-9ÁÉÍÓÚÑ /.-]{3,})/i)?.[1]?.trim() ||
+    ''
+
+  const nationalityCandidate =
+    extractLabeledValue(rawText, ['NACIONALIDAD', 'NATIONALITY']) ||
+    rawText.match(/(?:NACIONALIDAD|NATIONALITY)[:\s-]*([A-ZÁÉÍÓÚÑ ]{3,})/i)?.[1]?.trim() ||
+    ''
+
+  const issuingCountryCandidate =
+    extractLabeledValue(rawText, ['PAIS(?: EMISOR)?', 'AUTORIDAD EMISORA', 'COUNTRY(?: OF ISSUE)?']) ||
+    rawText.match(/(?:PAIS(?: EMISOR)?|COUNTRY(?: OF ISSUE)?)[:\s-]*([A-ZÁÉÍÓÚÑ ]{3,})/i)?.[1]?.trim() ||
+    ''
+
+  const birthDate =
+    parseDateCandidate(extractLabeledValue(rawText, ['FECHA DE NACIMIENTO', 'NACIMIENTO'])) ||
+    dateMatches[0] ||
+    ''
+  const issueDate =
+    parseDateCandidate(extractLabeledValue(rawText, ['FECHA DE EXPEDICION', 'FECHA DE EXPEDICIÓN', 'FECHA DE EMISION', 'FECHA DE EMISIÓN'])) ||
+    dateMatches[1] ||
+    ''
+  const expirationDate =
+    parseDateCandidate(extractLabeledValue(rawText, ['FECHA DE VENCIMIENTO', 'VENCIMIENTO', 'VIGENCIA'])) ||
+    dateMatches[2] ||
+    dateMatches[1] ||
+    ''
+  const explicitStatus = extractLabeledValue(rawText, ['ESTATUS', 'STATUS'])
+  const normalizedStatus = /VIGENTE/i.test(explicitStatus)
+    ? 'Vigente'
+    : /VENCID/i.test(explicitStatus)
+      ? 'Vencida'
+      : calculateDocumentStatus(expirationDate)
+
+  return {
+    name: nameCandidate,
+    licenseType: 'Licencia de sobrecargo',
+    documentNumber: numberCandidate,
+    licenseCategory: categoryCandidate,
+    birthDate,
+    nationality: nationalityCandidate,
+    documentIssueDate: issueDate,
+    documentExpiration: expirationDate,
+    issuingCountry: issuingCountryCandidate,
+    documentStatus: normalizedStatus,
+    raw: rawText,
+  }
+}
+
 async function scanIne(form) {
   scanMessage.value = ''
 
-  if (!form.ineFront || !form.ineBack) {
-    scanMessage.value = 'Sube la imagen de frente y reverso para escanear la INE.'
+  if (!form.ineFront || (!isCrewRole.value && !form.ineBack)) {
+    scanMessage.value = isCrewRole.value
+      ? `Sube la imagen de la ${activeDocumentLabel.value} para escanearla.`
+      : `Sube la imagen de frente y reverso para escanear la ${activeDocumentLabel.value}.`
     return
   }
 
   scanning.value = true
-  scanMessage.value = 'Escaneando codigos y texto de la INE...'
+  scanMessage.value = isCrewRole.value
+    ? 'Escaneando texto de la licencia...'
+    : 'Escaneando codigos y texto de la INE...'
 
   try {
-    const scanResult = await scanIneFiles([form.ineFront, form.ineBack])
+    const scanResult = await scanIneFiles(
+      [form.ineFront, !isCrewRole.value ? form.ineBack : null].filter(Boolean),
+    )
+
+    if (isCrewRole.value) {
+      const licenseData = extractCrewLicenseData(scanResult.rawText || '')
+      emit('merge-fields', {
+        ineScanRaw: licenseData.raw || form.ineScanRaw,
+        ineScanStatus: scanResult.rawText ? 'scanned' : 'partial',
+        name: form.name || licenseData.name || '',
+        licenseType: form.licenseType || licenseData.licenseType,
+        documentNumber: form.documentNumber || licenseData.documentNumber || '',
+        licenseCategory: form.licenseCategory || licenseData.licenseCategory || '',
+        birthDate: form.birthDate || licenseData.birthDate || '',
+        nationality: form.nationality || licenseData.nationality || '',
+        documentIssueDate: form.documentIssueDate || licenseData.documentIssueDate || '',
+        documentExpiration: form.documentExpiration || licenseData.documentExpiration || '',
+        issuingCountry: form.issuingCountry || licenseData.issuingCountry || '',
+        documentStatus:
+          calculateDocumentStatus(form.documentExpiration || licenseData.documentExpiration || '') || '',
+      })
+
+      scanMessage.value = scanResult.rawText
+        ? 'Escaneo completado. Revisa y corrige los datos detectados de la licencia antes de continuar.'
+        : 'No se detecto texto suficiente. Captura manualmente los datos de la licencia.'
+      return
+    }
+
     const hasUsefulData = hasUsefulScanData(scanResult.data)
 
     if (!scanResult.rawText) {
@@ -197,7 +422,7 @@ async function scanIne(form) {
   } catch {
     emit('merge-fields', { ineScanStatus: 'pending' })
     scanMessage.value =
-      'No fue posible leer la INE. Intenta con una imagen mas nitida o captura los datos manualmente.'
+      `No fue posible leer la ${activeDocumentLabel.value}. Intenta con una imagen mas nitida o captura los datos manualmente.`
   } finally {
     scanning.value = false
   }
@@ -438,7 +663,7 @@ onBeforeUnmount(() => {
         <div class="ine-loading-card">
           <span class="ine-loading-orb" aria-hidden="true"></span>
           <p class="eyebrow">Escaneo en proceso</p>
-          <h3 id="ine-loading-title">Leyendo tu INE</h3>
+          <h3 id="ine-loading-title">Leyendo tu {{ activeDocumentLabelUpper }}</h3>
           <p class="muted">
             Estamos analizando frente y reverso para detectar datos del documento.
           </p>
@@ -451,13 +676,13 @@ onBeforeUnmount(() => {
 
     <div class="file-grid">
       <label class="file-card">
-        <span>{{ props.form.documentType }} frente</span>
+        <span>{{ activeDocumentFrontLabel }}</span>
         <strong>{{ props.form.ineFrontName || 'Subir archivo' }}</strong>
         <input type="file" accept="image/*" @change="handleIneFileSelected('ineFront', $event)" />
       </label>
 
-      <label class="file-card">
-        <span>{{ props.form.documentType }} reverso</span>
+      <label v-if="!isCrewRole" class="file-card">
+        <span>{{ activeDocumentBackLabel }}</span>
         <strong>{{ props.form.ineBackName || 'Subir archivo' }}</strong>
         <input type="file" accept="image/*" @change="handleIneFileSelected('ineBack', $event)" />
       </label>
@@ -466,16 +691,20 @@ onBeforeUnmount(() => {
     <button
       type="button"
       class="scan-button"
-      :disabled="scanning || props.form.documentType !== 'INE'"
+      :disabled="scanning || (!isCrewRole && props.form.documentType !== 'INE')"
       @click="scanIne(props.form)"
     >
-      {{ scanning ? 'Escaneando INE...' : 'Escanear datos de la INE' }}
+      {{ scanning ? activeScanningLabel : activeScanButtonLabel }}
     </button>
 
     <div class="form-grid">
       <label>
         Identificacion
+        <template v-if="isCrewRole">
+          <input :value="props.form.documentType" type="text" readonly />
+        </template>
         <select
+          v-else
           :value="props.form.documentType"
           @change="updateField('documentType', $event.target.value)"
         >
@@ -485,7 +714,7 @@ onBeforeUnmount(() => {
       </label>
 
       <label>
-        Numero de documento
+        {{ isCrewRole ? 'Numero de licencia' : 'Numero de documento' }}
         <input
           :value="props.form.documentNumber"
           type="text"
@@ -494,14 +723,58 @@ onBeforeUnmount(() => {
         />
       </label>
 
+      <label v-if="isCrewRole">
+        Tipo de licencia
+        <input
+          :value="props.form.licenseType"
+          type="text"
+          placeholder="Licencia de sobrecargo"
+          @input="updateField('licenseType', $event.target.value)"
+        />
+      </label>
+
+      <label v-if="isCrewRole">
+        Categoria / cargo
+        <input
+          :value="props.form.licenseCategory"
+          type="text"
+          placeholder="Sobrecargo ejecutivo"
+          @input="updateField('licenseCategory', $event.target.value)"
+        />
+      </label>
+
+      <label v-if="isCrewRole">
+        Fecha de emision
+        <input
+          :value="props.form.documentIssueDate"
+          type="date"
+          @input="updateField('documentIssueDate', $event.target.value)"
+        />
+      </label>
+
       <label>
-        Vigencia
+        {{ isCrewRole ? 'Fecha de vencimiento / vigencia' : 'Vigencia' }}
         <input
           :value="props.form.documentExpiration"
           type="date"
           @input="updateField('documentExpiration', $event.target.value)"
         />
         <small>Si no se detecta al escanear, puedes capturarla manualmente.</small>
+      </label>
+
+      <label v-if="isCrewRole">
+        Pais emisor
+        <input
+          :value="props.form.issuingCountry"
+          type="text"
+          placeholder="Mexico"
+          @input="updateField('issuingCountry', $event.target.value)"
+        />
+      </label>
+
+      <label v-if="isCrewRole">
+        Estado del documento
+        <input :value="props.form.documentStatus" type="text" readonly />
       </label>
 
       <label class="checkbox-field">
@@ -543,7 +816,7 @@ onBeforeUnmount(() => {
             @input="updateField('nationality', $event.target.value)"
           />
         </label>
-        <label>
+        <label v-if="!isCrewRole">
           CURP
           <input
             :value="props.form.ineCurp"
@@ -559,7 +832,7 @@ onBeforeUnmount(() => {
       <p v-if="scanMessage" class="scan-message">{{ scanMessage }}</p>
     </section>
 
-    <section class="verification-panel">
+    <section v-if="!isCrewRole" class="verification-panel">
       <div class="verification-head">
         <div>
           <p class="eyebrow">Registro biometrico</p>

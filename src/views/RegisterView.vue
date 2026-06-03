@@ -40,13 +40,18 @@ const form = reactive({
       : 'client',
   documentType: 'INE',
   documentNumber: '',
+  documentIssueDate: '',
   documentExpiration: '',
+  documentStatus: '',
   identityValidationRequired: true,
   ineCurp: '',
   ineCic: '',
   ineOcr: '',
   ineScanRaw: '',
   ineScanStatus: '',
+  licenseType: '',
+  licenseCategory: '',
+  issuingCountry: '',
   ineFront: null,
   ineFrontName: '',
   ineBack: null,
@@ -84,6 +89,11 @@ const wizardSteps = computed(() => buildRegistrationSteps(form.role))
 const selectedStep = computed(() => wizardSteps.value[currentStep.value] || wizardSteps.value[0])
 const selectedRoleLabel = computed(() => roleLabels[form.role] || 'Cliente')
 const isLastStep = computed(() => currentStep.value === wizardSteps.value.length - 1)
+const registerIntroCopy = computed(() =>
+  form.role === 'sobrecargo'
+    ? 'Define primero el rol de acceso, completa los datos del usuario, registra la licencia de sobrecargo y al final crea el correo y la contrasena.'
+    : 'Define primero el rol de acceso, completa los datos del usuario, registra la selfie biometrica y al final crea el correo y la contrasena. Si el rol es cliente, entrara primero a una cotizacion gratis y despues podra activar la membresia mensual de USD $115.',
+)
 const loginRoute = computed(() =>
   form.role === 'client'
     ? { name: 'login-cliente' }
@@ -91,6 +101,25 @@ const loginRoute = computed(() =>
 )
 
 const currentStepId = computed(() => selectedStep.value?.id || wizardSteps.value[0]?.id || '')
+const isCrewRole = computed(() => form.role === 'sobrecargo')
+
+function documentTypeForRole(role) {
+  return role === 'sobrecargo' ? 'Licencia de sobrecargo' : 'INE'
+}
+
+function calculateDocumentStatus(expirationDate) {
+  if (!expirationDate) return ''
+
+  const now = new Date()
+  now.setHours(0, 0, 0, 0)
+  const expiration = new Date(`${expirationDate}T00:00:00`)
+  if (Number.isNaN(expiration.getTime())) return ''
+
+  const diffDays = Math.ceil((expiration.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+  if (diffDays < 0) return 'Vencida'
+  if (diffDays <= 30) return 'Por vencer'
+  return 'Vigente'
+}
 
 watch(
   wizardSteps,
@@ -98,6 +127,23 @@ watch(
     if (currentStep.value > steps.length - 1) {
       currentStep.value = Math.max(steps.length - 1, 0)
     }
+  },
+  { immediate: true },
+)
+
+watch(
+  () => form.role,
+  (role) => {
+    form.documentType = documentTypeForRole(role)
+    if (role !== 'sobrecargo') {
+      form.licenseType = ''
+      form.licenseCategory = ''
+      form.documentIssueDate = ''
+      form.issuingCountry = ''
+    } else {
+      form.licenseType = form.licenseType || 'Licencia de sobrecargo'
+    }
+    form.documentStatus = calculateDocumentStatus(form.documentExpiration)
   },
   { immediate: true },
 )
@@ -184,6 +230,10 @@ function setFormField(field, value) {
   }
 
   form[field] = value
+
+  if (field === 'documentExpiration') {
+    form.documentStatus = calculateDocumentStatus(value)
+  }
 }
 
 function mergeFormFields(patch = {}) {
@@ -214,27 +264,45 @@ function validateCurrentStep() {
     }
 
     if (form.identityValidationRequired) {
-      if (form.documentType === 'INE' && (!form.ineFront || !form.ineBack)) {
-        errorMessage.value = 'Sube la imagen de frente y reverso de la INE para escanearla.'
+      if (!form.ineFront || (!isCrewRole.value && !form.ineBack)) {
+        errorMessage.value =
+          form.role === 'sobrecargo'
+            ? 'Sube la imagen de la licencia para escanearla.'
+            : 'Sube la imagen de frente y reverso de la INE para escanearla.'
         return false
       }
 
-      if (!form.documentNumber.trim() || !form.documentExpiration) {
+      if (form.role === 'sobrecargo') {
+        if (
+          !form.licenseType.trim() ||
+          !form.documentNumber.trim() ||
+          !form.licenseCategory.trim() ||
+          !form.documentIssueDate ||
+          !form.documentExpiration ||
+          !form.issuingCountry.trim()
+        ) {
+          errorMessage.value =
+            'Completa tipo, numero, categoria, emision, vigencia y pais emisor de la licencia.'
+          return false
+        }
+      } else if (!form.documentNumber.trim() || !form.documentExpiration) {
         errorMessage.value = 'Completa numero de documento y vigencia antes de continuar.'
         return false
       }
     }
 
-    const biometricCaptureReady =
-      Boolean(form.selfieFile) &&
-      Boolean(form.selfiePreviewUrl) &&
-      String(form.identityVerificationStatus || '').trim() === 'approved' &&
-      Boolean(form.identityVerified)
+    if (!isCrewRole.value) {
+      const biometricCaptureReady =
+        Boolean(form.selfieFile) &&
+        Boolean(form.selfiePreviewUrl) &&
+        String(form.identityVerificationStatus || '').trim() === 'approved' &&
+        Boolean(form.identityVerified)
 
-    if (form.identityValidationRequired && !biometricCaptureReady) {
-      errorMessage.value =
-        form.identityVerificationMessage || 'Valida la selfie biometrica antes de continuar.'
-      return false
+      if (form.identityValidationRequired && !biometricCaptureReady) {
+        errorMessage.value =
+          form.identityVerificationMessage || 'Valida la selfie biometrica antes de continuar.'
+        return false
+      }
     }
   }
 
@@ -330,40 +398,64 @@ function buildRegistrationPayload() {
     role: form.role,
     document_type: form.documentType,
     document_number: form.documentNumber,
+    document_issue_date: form.documentIssueDate,
     document_expiration: form.documentExpiration,
+    document_status: form.documentStatus,
     identity_validation_required: form.identityValidationRequired,
     ine_curp: form.ineCurp,
     ine_cic: form.ineCic,
     ine_ocr: form.ineOcr,
     ine_scan_raw: form.ineScanRaw,
     ine_scan_status: form.ineScanStatus,
-    identity_verification_status: form.identityVerificationStatus,
-    identity_verification_message: form.identityVerificationMessage,
-    identity_verified: form.identityVerified,
-    face_detected: form.faceDetected,
-    face_match_score: form.faceMatchScore,
-    liveness_score: form.livenessScore,
-    image_storage_score: form.imageStorageScore,
-    biometric_image_saved: form.biometricImageSaved,
-    biometric_captured_at: form.biometricCapturedAt,
-    biometric_provider: form.biometricProvider || 'camera_capture',
-    biometric_template_type: form.biometricTemplateType || 'selfie-photo',
-    biometric_version: 'v1',
-    faces_count: form.facesCount,
-    face_confidence: form.faceConfidence,
-    quality_brightness: form.qualityBrightness,
-    quality_sharpness: form.qualitySharpness,
-    pose_yaw: form.poseYaw,
-    pose_pitch: form.posePitch,
-    pose_roll: form.poseRoll,
-    face_occluded: form.faceOccluded,
+    license_type: form.licenseType,
+    license_number: form.documentNumber,
+    license_category: form.licenseCategory,
+    license_birth_date: form.birthDate,
+    license_nationality: form.nationality,
+    license_issue_date: form.documentIssueDate,
+    license_expiration_date: form.documentExpiration,
+    license_issuing_country: form.issuingCountry,
+    license_document_status: form.documentStatus,
+  }
+
+  if (!isCrewRole.value) {
+    Object.assign(baseFields, {
+      identity_verification_status: form.identityVerificationStatus,
+      identity_verification_message: form.identityVerificationMessage,
+      identity_verified: form.identityVerified,
+      face_detected: form.faceDetected,
+      face_match_score: form.faceMatchScore,
+      liveness_score: form.livenessScore,
+      image_storage_score: form.imageStorageScore,
+      biometric_image_saved: form.biometricImageSaved,
+      biometric_captured_at: form.biometricCapturedAt,
+      biometric_provider: form.biometricProvider || 'camera_capture',
+      biometric_template_type: form.biometricTemplateType || 'selfie-photo',
+      biometric_version: 'v1',
+      faces_count: form.facesCount,
+      face_confidence: form.faceConfidence,
+      quality_brightness: form.qualityBrightness,
+      quality_sharpness: form.qualitySharpness,
+      pose_yaw: form.poseYaw,
+      pose_pitch: form.posePitch,
+      pose_roll: form.poseRoll,
+      face_occluded: form.faceOccluded,
+    })
   }
 
   Object.entries(baseFields).forEach(([key, value]) => appendFormValue(formData, key, value))
 
   appendFormValue(formData, 'ine_front', form.ineFront)
-  appendFormValue(formData, 'ine_back', form.ineBack)
-  appendFormValue(formData, 'selfie_biometric', form.selfieFile)
+  if (!isCrewRole.value) {
+    appendFormValue(formData, 'ine_back', form.ineBack)
+  }
+  if (form.role === 'sobrecargo') {
+    appendFormValue(formData, 'license_file', form.ineFront)
+    appendFormValue(formData, 'license_front', form.ineFront)
+  }
+  if (!isCrewRole.value) {
+    appendFormValue(formData, 'selfie_biometric', form.selfieFile)
+  }
 
   return formData
 }
@@ -452,12 +544,7 @@ async function submit() {
         <div class="aside-copy">
           <p class="eyebrow">Nuevo usuario</p>
           <h1>Crea una cuenta por pasos.</h1>
-          <p>
-            Define primero el rol de acceso, completa los datos del usuario, registra la selfie
-            biometrica y al final crea el correo y la contrasena. Si el rol es cliente, entrara
-            primero a una cotizacion gratis y despues podra activar la membresia mensual de
-            USD $115.
-          </p>
+          <p>{{ registerIntroCopy }}</p>
         </div>
 
         <RegisterProgress :steps="wizardSteps" :current-step="currentStep" />

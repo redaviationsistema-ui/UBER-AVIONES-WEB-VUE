@@ -17,6 +17,7 @@ const FALLBACK_BACKEND_ORIGIN = String(import.meta.env.VITE_FALLBACK_BACKEND_ORI
   '',
 )
 const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS || 15000)
+const DOCUSIGN_TIMEOUT_MS = Number(import.meta.env.VITE_DOCUSIGN_TIMEOUT_MS || 120000)
 const API_CREDENTIALS_MODE = String(import.meta.env.VITE_API_CREDENTIALS_MODE || 'same-origin')
   .trim()
   .toLowerCase()
@@ -154,6 +155,10 @@ function shouldLogAircraftRequest(path = '') {
 
 function shouldTraceOperationalRequest(path = '', debugTag = '') {
   return false
+}
+
+function isDocuSignRequestPath(path = '') {
+  return String(path || '').toLowerCase().includes('docusign')
 }
 
 function logAircraftRequest(label, details = {}) {
@@ -341,6 +346,8 @@ export function clearStoredToken() {
 export async function apiRequest(path, options = {}) {
   const timeoutMs = Number.isFinite(Number(options.timeoutMs))
     ? Number(options.timeoutMs)
+    : isDocuSignRequestPath(path)
+      ? DOCUSIGN_TIMEOUT_MS
     : API_TIMEOUT_MS
   const debugTag = String(options.debugTag || '').trim()
   const config = {

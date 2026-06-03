@@ -21,20 +21,19 @@ defineProps({
     </div>
 
     <div class="summary-grid">
-      <article class="metric-card"><span class="mini-icon"><CrewUiIcon name="flight" :size="16" /></span><span>Vuelos completados</span><strong>{{ historySummary.completedFlights }}</strong></article>
-      <article class="metric-card"><span class="mini-icon"><CrewUiIcon name="time" :size="16" /></span><span>Horas trabajadas</span><strong>{{ historySummary.hoursWorked }}</strong></article>
-      <article class="metric-card"><span class="mini-icon"><CrewUiIcon name="service" :size="16" /></span><span>Rating</span><strong>{{ historySummary.rating }}</strong></article>
-      <article class="metric-card"><span class="mini-icon"><CrewUiIcon name="incident" :size="16" /></span><span>Incidencias</span><strong>{{ historySummary.incidents }}</strong></article>
-      <article class="metric-card"><span class="mini-icon"><CrewUiIcon name="report" :size="16" /></span><span>Reportes enviados</span><strong>{{ historySummary.reportsSent }}</strong></article>
-      <article class="metric-card"><span class="mini-icon"><CrewUiIcon name="payment" :size="16" /></span><span>Pagos generados</span><strong>{{ historySummary.generatedPayments }}</strong></article>
+      <article class="metric-card"><span class="mini-icon"><CrewUiIcon name="flight" :size="16" /></span><span>Vuelos completados</span><strong>{{ historySummary.completedFlights || 0 }}</strong></article>
+      <article class="metric-card"><span class="mini-icon"><CrewUiIcon name="time" :size="16" /></span><span>Horas trabajadas</span><strong>{{ historySummary.hoursWorked || 'Sin dato' }}</strong></article>
+      <article class="metric-card"><span class="mini-icon"><CrewUiIcon name="service" :size="16" /></span><span>Rating</span><strong>{{ historySummary.rating || 'Sin dato' }}</strong></article>
+      <article class="metric-card"><span class="mini-icon"><CrewUiIcon name="incident" :size="16" /></span><span>Incidencias</span><strong>{{ historySummary.incidents || 0 }}</strong></article>
+      <article class="metric-card"><span class="mini-icon"><CrewUiIcon name="report" :size="16" /></span><span>Reportes enviados</span><strong>{{ historySummary.reportsSent || 0 }}</strong></article>
     </div>
 
     <div class="history-list">
       <article v-for="item in historyEntries" :key="item.id" class="history-row">
-        <strong>{{ item.flight }}</strong>
-        <span>{{ item.action }}</span>
-        <span>{{ item.status }}</span>
-        <small>{{ item.date }} - {{ item.comment }}</small>
+        <strong>{{ item.flight || 'Sin referencia' }}</strong>
+        <span>{{ item.action || 'Sin accion registrada' }}</span>
+        <span>{{ item.status || 'Sin estado' }}</span>
+        <small>{{ [item.date, item.comment].filter(Boolean).join(' - ') || 'Sin detalle adicional' }}</small>
       </article>
     </div>
   </section>

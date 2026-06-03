@@ -64,9 +64,6 @@ function statusTone(value = '') {
 
 function submitIncident(escalate = false) {
   emit('create', { escalate })
-  if (!Object.keys(props.incidentErrors || {}).length) {
-    closeComposer()
-  }
 }
 </script>
 
@@ -168,6 +165,7 @@ function submitIncident(escalate = false) {
                     {{ item.flight }} · {{ item.route }} · {{ item.phase }}
                   </option>
                 </select>
+                <small v-if="incidentErrors.flight" class="field-error">{{ incidentErrors.flight }}</small>
               </label>
 
               <label>
@@ -220,6 +218,7 @@ function submitIncident(escalate = false) {
                   <option>Atendido en cabina</option>
                   <option>Requiere operador</option>
                 </select>
+                <small v-if="incidentErrors.actionTaken" class="field-error">{{ incidentErrors.actionTaken }}</small>
               </label>
             </div>
           </div>
@@ -247,6 +246,7 @@ function submitIncident(escalate = false) {
           </div>
 
           <div class="composer-actions">
+            <small v-if="incidentErrors._form" class="field-error form-error">{{ incidentErrors._form }}</small>
             <button type="button" class="ghost-button" :disabled="currentStep === 1" @click="previousStep">
               Anterior
             </button>

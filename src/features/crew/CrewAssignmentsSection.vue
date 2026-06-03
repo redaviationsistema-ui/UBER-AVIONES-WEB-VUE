@@ -24,7 +24,7 @@ defineEmits(['update-field', 'confirm', 'reject', 'request-change', 'confirm-bri
           </div>
         </div>
         <p class="muted">
-          El sobrecargo solo ve vuelos asignados, cliente, briefing y requerimientos VIP. No ve precios, margenes ni datos del proveedor.
+          La sobrecargo solo ve vuelos asignados, cliente, briefing y requerimientos VIP. La coordinacion directa la hace Admin / Red Sky; no hay contacto directo con proveedor ni cliente.
         </p>
       </div>
       <span class="badge">{{ assignments.length }} activas</span>
@@ -34,7 +34,7 @@ defineEmits(['update-field', 'confirm', 'reject', 'request-change', 'confirm-bri
       <section class="surface response-card">
         <div class="section-head">
           <span class="mini-icon"><CrewUiIcon name="briefing" :size="17" /></span>
-          <h4>Respuesta de asignacion</h4>
+          <h4>Respuesta al Admin</h4>
         </div>
         <div class="form-grid">
           <label>
@@ -61,7 +61,7 @@ defineEmits(['update-field', 'confirm', 'reject', 'request-change', 'confirm-bri
           </label>
 
           <label class="full-width">
-            <span>Comentario</span>
+            <span>Comentario para Admin</span>
             <textarea
               :value="assignmentResponseForm.comment"
               rows="3"
@@ -80,26 +80,26 @@ defineEmits(['update-field', 'confirm', 'reject', 'request-change', 'confirm-bri
         <div class="assignment-list">
           <article v-for="item in assignments" :key="item.id" class="assignment-row">
             <div>
-              <strong>{{ item.flight }} - {{ item.route }}</strong>
-              <p>{{ item.date }} - {{ item.time }} - {{ item.aircraft }}</p>
-              <small>{{ item.client }} - {{ item.passengers }} pax - {{ item.serviceLevel }}</small>
-              <small>{{ item.vipRequirements }} - Briefing {{ item.briefingTime }}</small>
-              <small>{{ item.internalContact }}</small>
+              <strong>{{ [item.flight, item.route].filter(Boolean).join(' - ') || 'Asignacion sin referencia completa' }}</strong>
+              <p>{{ [item.date, item.time, item.aircraft].filter(Boolean).join(' - ') || 'Sin horario o aeronave confirmada' }}</p>
+              <small>{{ [item.client, item.passengers ? `${item.passengers} pax` : '', item.serviceLevel].filter(Boolean).join(' - ') || 'Sin datos comerciales visibles' }}</small>
+              <small>{{ [item.vipRequirements, item.briefingTime ? `Briefing ${item.briefingTime}` : ''].filter(Boolean).join(' - ') || 'Sin briefing o requerimientos cargados' }}</small>
+              <small v-if="item.internalContact">{{ item.internalContact }}</small>
             </div>
             <div class="action-stack">
               <span class="badge">{{ item.responseStatus }}</span>
               <span class="badge">{{ item.crewStatusLabel || item.missionStatus }}</span>
               <button class="ghost-button action-button" type="button" @click="$emit('confirm', item.id)">
                 <CrewUiIcon name="checklist" :size="15" />
-                Confirmar asignacion
+                Confirmar al Admin
               </button>
               <button class="ghost-button action-button" type="button" @click="$emit('reject', item.id)">
                 <CrewUiIcon name="incident" :size="15" />
-                Rechazar asignacion
+                Rechazar al Admin
               </button>
               <button class="ghost-button action-button" type="button" @click="$emit('request-change', item.id)">
                 <CrewUiIcon name="route" :size="15" />
-                Solicitar cambio
+                Solicitar cambio al Admin
               </button>
               <button class="ghost-button action-button" type="button" @click="$emit('confirm-briefing', item.id)">
                 <CrewUiIcon name="briefing" :size="15" />

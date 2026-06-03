@@ -6,6 +6,7 @@ import ContractResultView from '../views/ContractResultView.vue'
 
 const {
   pushMock,
+  replaceMock,
   getContractStatusMock,
   clearPendingContractContextMock,
   downloadSignedContractPdfMock,
@@ -13,6 +14,7 @@ const {
   emitWorkflowSyncMock,
 } = vi.hoisted(() => ({
   pushMock: vi.fn(),
+  replaceMock: vi.fn(),
   getContractStatusMock: vi.fn(),
   clearPendingContractContextMock: vi.fn(),
   downloadSignedContractPdfMock: vi.fn(),
@@ -23,12 +25,13 @@ const {
 vi.mock('vue-router', () => ({
   useRoute: () => ({
     query: {
-      contract_id: 'contract-55',
       reservation_id: 'reservation-9',
+      event: 'signing_complete',
     },
   }),
   useRouter: () => ({
     push: pushMock,
+    replace: replaceMock,
   }),
 }))
 
@@ -94,7 +97,65 @@ describe('ContractResultView', () => {
     expect(pushMock).toHaveBeenCalledWith({
       name: 'cliente-detalle',
       params: {
-        section: 'pago',
+        section: 'historial',
+        id: 'reservation-9',
+      },
+      query: {
+        contract_signed: '1',
+        contract_id: 'contract-55',
+        reservation_id: 'reservation-9',
+      },
+    })
+  })
+
+  it('allows payment continuation when docusign returns signing_complete before backend status refreshes', async () => {
+    getContractStatusMock.mockResolvedValue({
+      contract: {
+        id: 'contract-55',
+        docusign_status: 'generated',
+      },
+    })
+
+    const wrapper = mount(ContractResultView)
+
+    await flushPromises()
+    await vi.runAllTimersAsync()
+
+    expect(getContractStatusMock).toHaveBeenCalledWith('contract-55', { timeoutMs: 30000 })
+    expect(wrapper.text()).toContain('Contrato firmado correctamente.')
+    expect(pushMock).toHaveBeenCalledWith({
+      name: 'cliente-detalle',
+      params: {
+        section: 'historial',
+        id: 'reservation-9',
+      },
+      query: {
+        contract_signed: '1',
+        contract_id: 'contract-55',
+        reservation_id: 'reservation-9',
+      },
+    })
+  })
+
+  it('treats a contract with signed pdf available as completed even if docusign_status lags behind', async () => {
+    getContractStatusMock.mockResolvedValue({
+      contract: {
+        id: 'contract-55',
+        docusign_status: 'sent',
+        signed_pdf_url: 'https://example.com/contracts/contract-55-signed.pdf',
+      },
+    })
+
+    const wrapper = mount(ContractResultView)
+
+    await flushPromises()
+    await vi.runAllTimersAsync()
+
+    expect(wrapper.text()).toContain('Contrato firmado correctamente.')
+    expect(pushMock).toHaveBeenCalledWith({
+      name: 'cliente-detalle',
+      params: {
+        section: 'historial',
         id: 'reservation-9',
       },
       query: {

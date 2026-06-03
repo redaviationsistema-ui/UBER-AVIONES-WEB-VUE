@@ -57,23 +57,58 @@ function stringifyDetail(value, fallback = '') {
 
 const visibleStatusOptions = computed(() => [
   { value: 'Disponible', label: 'Disponible', tone: 'green' },
-  { value: 'Asignado', label: 'En mision', tone: 'gold' },
-  { value: 'En vuelo', label: 'En vuelo', tone: 'green' },
-  { value: 'No disponible', label: 'Descanso', tone: 'slate' },
+  { value: 'Descanso', label: 'Descanso', tone: 'slate' },
+  { value: 'No disponible', label: 'No disponible', tone: 'red' },
 ])
 
 const missionTitle = computed(() =>
-  props.nextFlight ? props.nextFlight.route : 'Disponible para proxima asignacion premium',
+  props.nextFlight?.route || 'Sin asignacion',
 )
 
 const missionMeta = computed(() => {
-  if (!props.nextFlight) return 'Sin mision activa'
-  return `${props.nextFlight.date || 'Fecha por confirmar'} · Reporte ${props.nextFlight.briefingTime || props.nextFlight.time || 'Por definir'}`
+  if (!props.nextFlight) return 'Sin servicio activo'
+  const fragments = [props.nextFlight.date, props.nextFlight.briefingTime || props.nextFlight.time].filter(Boolean)
+  return fragments.length ? fragments.join(' · Reporte ') : 'Sin horario confirmado'
 })
 
 const missionSupport = computed(() => {
-  if (!props.nextFlight) return props.providerName
-  return `${props.nextFlight.aircraft} · ${props.nextFlight.serviceLevel} · ${props.nextFlight.client}`
+  if (!props.nextFlight) return 'Sin servicio activo. Red Sky te contactara si existe una asignacion compatible.'
+  return [props.nextFlight.aircraft, props.nextFlight.serviceLevel, 'Coordinacion Admin / Red Sky'].filter(Boolean).join(' · ')
+})
+
+const nextAction = computed(() => {
+  if (!props.nextFlight) {
+    return {
+      title: 'Proxima accion',
+      detail: 'Manten tu disponibilidad activa. Red Sky te contactara cuando exista una asignacion.',
+    }
+  }
+
+  if (props.nextFlight.missionStatus === 'Pendiente') {
+    return {
+      title: 'Proxima accion',
+      detail: 'Confirma disponibilidad con Admin / Red Sky para asegurar tu asignacion.',
+    }
+  }
+
+  if (['Confirmado', 'Preparacion'].includes(props.nextFlight.missionStatus)) {
+    return {
+      title: 'Proxima accion',
+      detail: 'Revisa briefing operativo y documentacion del servicio antes del reporte.',
+    }
+  }
+
+  if (props.nextFlight.missionStatus === 'En servicio') {
+    return {
+      title: 'Proxima accion',
+      detail: 'Mantente en coordinacion con Admin / Red Sky y reporta cualquier incidencia.',
+    }
+  }
+
+  return {
+    title: 'Proxima accion',
+    detail: 'Confirma cierre operativo y deja evidencia o comentarios si aplica.',
+  }
 })
 
 const checklistItems = computed(() => [
@@ -90,7 +125,7 @@ const checklistItems = computed(() => [
     state: props.checklistProgress >= 70 ? 'ok' : 'warn',
   },
   {
-    label: 'Cobertura premium',
+    label: 'Coordinacion administrativa',
     state: props.identitySummary.level === 'Elite Internacional' ? 'ok' : 'warn',
   },
 ])
@@ -99,20 +134,20 @@ const summaryMap = computed(() => Object.fromEntries(props.summary.map((item) =>
 
 const kpiCards = computed(() => [
   {
-    title: 'Misiones',
-    value: stringifyMetric(summaryMap.value['Servicios completados']?.value, '0'),
+    title: 'Disponibilidad',
+    value: props.currentStatus === 'Asignado' ? 'Confirmada' : props.currentStatus,
   },
   {
-    title: 'Puntualidad',
-    value: stringifyMetric(summaryMap.value['Puntualidad']?.value, '98%'),
+    title: 'Servicios asignados',
+    value: props.nextFlight ? '1 activa' : 'Sin asignacion',
   },
   {
-    title: 'Flight Ready',
-    value: `${props.readinessScore}%`,
+    title: 'Documentos',
+    value: props.documentsValidity ? `${props.documentsValidity}%` : 'Sin dato',
   },
   {
-    title: 'Compliance',
-    value: `${props.documentsValidity}%`,
+    title: 'Alertas',
+    value: stringifyMetric(summaryMap.value['Alertas activas']?.value, '0'),
   },
 ])
 
@@ -123,12 +158,12 @@ const quickActions = computed(() => [
     event: 'open-availability',
   },
   {
-    label: 'Centro operativo',
+    label: 'Centro admin',
     icon: 'report',
     event: 'open-documents',
   },
   {
-    label: props.nextFlight ? 'Mi proxima mision' : 'Mis vuelos',
+    label: props.nextFlight ? 'Proxima asignacion' : 'Servicios asignados',
     icon: 'route',
     event: props.nextFlight ? 'view-flight' : 'start-checklist',
   },
@@ -144,35 +179,35 @@ const operationsStrip = computed(() => [
     label: 'Estado operativo',
     value:
       props.currentStatus === 'Disponible'
-        ? 'Disponible para asignacion'
+        ? 'Disponible'
         : props.currentStatus === 'Asignado'
-          ? 'Preparacion activa'
-          : props.currentStatus,
+          ? 'Confirmada'
+          : props.currentStatus || 'Sin dato',
   },
-  { label: 'Proveedor', value: props.providerName },
-  { label: 'Base', value: props.identitySummary.base || 'Base por confirmar' },
+  { label: 'Canal operativo', value: 'Admin / Red Sky' },
+  { label: 'Base', value: props.identitySummary.base || 'Sin dato' },
   {
-    label: 'Proxima mision',
-    value: props.nextFlight ? `${props.nextFlight.flight} · ${props.nextFlight.time || 'Por definir'}` : 'Sin asignacion',
+    label: 'Proxima asignacion',
+    value: props.nextFlight ? [props.nextFlight.flight, props.nextFlight.time].filter(Boolean).join(' · ') || 'Sin dato' : 'Sin asignacion',
   },
-  { label: 'Nivel documental', value: `${props.documentsValidity}% validado` },
+  { label: 'Documentos', value: props.documentsValidity ? `${props.documentsValidity}% validado` : 'Sin dato' },
 ])
 
 const readinessBreakdown = computed(() => [
   { label: 'Documentos', value: `${props.documentsValidity}%`, tone: props.documentsValidity >= 90 ? 'green' : 'amber' },
   {
     label: 'Disponibilidad',
-    value: props.currentStatus === 'Disponible' ? 'Activa' : props.currentStatus,
-    tone: props.currentStatus === 'Disponible' ? 'green' : 'slate',
+    value: props.currentStatus === 'Disponible' ? 'Activa' : props.currentStatus || 'Sin dato',
+    tone: ['Disponible', 'Asignado', 'En vuelo'].includes(props.currentStatus) ? 'green' : 'slate',
   },
   {
     label: 'Nivel',
-    value: props.identitySummary.level || props.profileState,
+    value: props.identitySummary.level || props.profileState || 'Sin dato',
     tone: String(props.profileState || '').toLowerCase().includes('aprobado') ? 'green' : 'amber',
   },
   {
     label: 'Checklist',
-    value: `${props.checklistProgress}%`,
+    value: props.checklistProgress ? `${props.checklistProgress}%` : 'Sin dato',
     tone: props.checklistProgress >= 80 ? 'green' : 'amber',
   },
 ])
@@ -210,7 +245,7 @@ const controlCards = computed(() => [
   {
     title: 'Operacion',
     value: props.nextFlight ? 'Operativo' : 'Stand by',
-    detail: props.nextFlight ? 'Ruta, briefing y servicio visibles.' : 'Lista para nuevo matching premium.',
+    detail: props.nextFlight ? 'Ruta, briefing y servicio visibles.' : 'Sin servicio activo. Esperando coordinacion de Red Sky.',
     tone: props.nextFlight ? 'green' : 'slate',
     icon: 'flight',
   },
@@ -222,9 +257,14 @@ const controlCards = computed(() => [
     icon: 'incident',
   },
   {
-    title: 'Centro operativo',
+    title: 'Coordinacion',
     value: props.documentsValidity >= 100 ? 'Validado' : 'Seguimiento',
-    detail: props.documentsValidity >= 100 ? 'Documentacion premium lista.' : 'Requiere accion antes de priorizar vuelos.',
+    detail:
+      props.documentsValidity >= 100
+        ? 'Documentacion lista y coordinacion centralizada con Admin / Red Sky.'
+        : props.documentsValidity
+          ? 'Requiere accion antes de que Admin priorice nuevos servicios.'
+          : 'Sin informacion documental disponible.',
     tone: props.documentsValidity >= 100 ? 'green' : 'red',
     icon: 'report',
   },
@@ -255,26 +295,27 @@ function checklistTone(state) {
 
       <div class="header-main">
         <div class="identity-block">
-          <p class="eyebrow">Centro operativo de sobrecargo</p>
-          <h2>{{ crewName || 'Sobrecargo Ejecutivo' }}</h2>
+          <p class="eyebrow">Mi operacion</p>
+          <h2>{{ crewName || 'Sobrecargo' }}</h2>
           <p class="identity-copy">
-            {{ identitySummary.level || 'Ejecutivo' }} · {{ identitySummary.hours || '0 hrs' }} · {{ identitySummary.languages || 'ES' }}
+            {{ [identitySummary.level, identitySummary.hours, identitySummary.languages].filter(Boolean).join(' · ') || 'Sin datos de perfil cargados' }}
           </p>
+          <p class="identity-rule">Consulta tu estado, disponibilidad, asignaciones y reportes. Toda coordinacion es unicamente con Admin / Red Sky.</p>
         </div>
 
         <div class="header-priority-grid">
           <article class="priority-panel">
-            <span class="mini-label">Mision prioritaria</span>
+            <span class="mini-label">Servicio activo</span>
             <strong>{{ missionTitle }}</strong>
             <p>{{ missionMeta }}</p>
             <small>{{ missionSupport }}</small>
           </article>
 
           <article class="priority-panel priority-panel-compact">
-            <span class="mini-label">Perfil de vuelo</span>
-            <strong>{{ identitySummary.base || 'Base por confirmar' }}</strong>
-            <p>{{ identitySummary.certifications || 'Certificaciones por validar' }}</p>
-            <small>{{ providerName }}</small>
+            <span class="mini-label">{{ nextAction.title }}</span>
+            <strong>{{ props.currentStatus === 'Disponible' ? 'Lista para asignacion' : props.currentStatus || 'Sin estado operativo' }}</strong>
+            <p>{{ nextAction.detail }}</p>
+            <small>Canal unico: Admin / Red Sky</small>
           </article>
 
           <article class="priority-panel priority-panel-cta">
@@ -360,8 +401,8 @@ function checklistTone(state) {
       <article class="dashboard-shell timeline-card">
         <div class="section-head">
           <div>
-            <p class="eyebrow">Timeline premium</p>
-            <h3>Proximos vencimientos y mision</h3>
+            <p class="eyebrow">Seguimiento operativo</p>
+            <h3>Proximos vencimientos y servicio</h3>
           </div>
         </div>
 
@@ -400,7 +441,7 @@ function checklistTone(state) {
       <div class="section-head">
         <div>
           <p class="eyebrow">Centro de control</p>
-          <h3>Operacion, alertas y centro operativo</h3>
+          <h3>Operacion, alertas y coordinacion con Admin / Red Sky</h3>
         </div>
       </div>
 
@@ -550,10 +591,17 @@ function checklistTone(state) {
 }
 
 .identity-copy,
+.identity-rule,
 .priority-panel p,
 .priority-panel small {
   margin: 0;
   color: rgba(241, 245, 249, 0.78);
+}
+
+.identity-rule {
+  max-width: 46rem;
+  font-size: 0.95rem;
+  line-height: 1.55;
 }
 
 .header-priority-grid {
@@ -600,7 +648,7 @@ function checklistTone(state) {
 
 .status-selector {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.7rem;
   margin-top: 0.85rem;
 }
@@ -627,6 +675,11 @@ function checklistTone(state) {
 .status-chip[data-active='true'][data-tone='slate'] {
   background: rgba(148, 163, 184, 0.16);
   color: #e2e8f0;
+}
+
+.status-chip[data-active='true'][data-tone='red'] {
+  background: rgba(202, 87, 70, 0.18);
+  color: #fee2e2;
 }
 
 .status-error {

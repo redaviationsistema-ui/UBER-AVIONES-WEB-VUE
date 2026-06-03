@@ -29,9 +29,25 @@ export function buildRegistrationSteps(role = 'client') {
   const stepOrder = normalizedRole ? ['rol', 'perfil', 'acceso'] : ['rol', 'perfil', 'acceso']
 
   return stepOrder.map((stepId, index) => ({
-    ...baseSteps[stepId],
+    ...resolveStepCopy(stepId, normalizedRole),
     eyebrow: `Paso ${index + 1}`,
   }))
+}
+
+function resolveStepCopy(stepId, role) {
+  if (stepId !== 'perfil') {
+    return baseSteps[stepId]
+  }
+
+  if (role === 'sobrecargo') {
+    return {
+      ...baseSteps.perfil,
+      title: 'Datos del usuario / Licencia',
+      description: 'Captura tus datos y registra la informacion de la licencia de sobrecargo.',
+    }
+  }
+
+  return baseSteps.perfil
 }
 
 export const registrationSteps = buildRegistrationSteps('client')

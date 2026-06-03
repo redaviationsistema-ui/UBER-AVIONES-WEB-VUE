@@ -11,8 +11,11 @@ function handleUppercaseInput(event, form, field) {
 <template>
   <div class="step-fields">
     <p class="form-note">
-      Primero llena los datos base. Despues toma una selfie desde la camara para validarla de una
-      vez contra el backend antes de continuar.
+      {{
+        form.role === 'sobrecargo'
+          ? 'Primero llena los datos base y revisa la informacion detectada de la licencia antes de continuar.'
+          : 'Primero llena los datos base. Despues toma una selfie desde la camara para validarla de una vez contra el backend antes de continuar.'
+      }}
     </p>
 
     <label>
