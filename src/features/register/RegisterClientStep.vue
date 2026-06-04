@@ -10,12 +10,12 @@ function handleUppercaseInput(event, form, field) {
 
 <template>
   <div class="step-fields">
-    <p class="form-note">
-      {{
-        form.role === 'sobrecargo'
-          ? 'Primero llena los datos base y revisa la informacion detectada de la licencia antes de continuar.'
-          : 'Primero llena los datos base. Despues toma una selfie desde la camara para validarla de una vez contra el backend antes de continuar.'
-      }}
+    <div v-if="form.role === 'sobrecargo'" class="block-head">
+      <p class="eyebrow">Datos del usuario</p>
+    </div>
+
+    <p v-if="form.role !== 'sobrecargo'" class="form-note">
+      Primero llena los datos base. Despues toma una selfie desde la camara para validarla de una vez contra el backend antes de continuar.
     </p>
 
     <label>
@@ -35,7 +35,7 @@ function handleUppercaseInput(event, form, field) {
         <input v-model="form.phone" type="tel" placeholder="+52 55 0000 0000" autocomplete="tel" />
       </label>
 
-      <label>
+      <label v-if="form.role !== 'sobrecargo'">
         Fecha de nacimiento
         <input v-model="form.birthDate" type="date" />
       </label>

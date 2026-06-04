@@ -6,6 +6,9 @@ const props = defineProps({
   title: { type: String, required: true },
   description: { type: String, required: true },
   highlights: { type: Array, default: () => [] },
+  frontendFields: { type: Array, default: () => [] },
+  backendFields: { type: Array, default: () => [] },
+  databaseFields: { type: Array, default: () => [] },
   actions: { type: Array, default: () => [] },
   fields: { type: Array, default: () => [] },
   details: { type: Array, default: () => [] },
@@ -23,6 +26,14 @@ const workstreams = computed(() => [
   { title: 'Acciones clave', items: props.actions },
   { title: 'Desactivar / cerrar', items: props.deactivation },
 ])
+
+const synchronizedFields = computed(() =>
+  [
+    { title: 'Frontend', items: props.frontendFields },
+    { title: 'Backend / API', items: props.backendFields },
+    { title: 'BD / relaciones', items: props.databaseFields },
+  ].filter((group) => group.items.length),
+)
 </script>
 
 <template>
@@ -41,6 +52,25 @@ const workstreams = computed(() => [
         <strong>{{ item.value }}</strong>
         <p>{{ item.detail }}</p>
       </article>
+    </section>
+
+    <section v-if="synchronizedFields.length" class="editorial-section compact-section">
+      <div class="section-heading">
+        <h2>Campos sincronizados</h2>
+        <p>
+          Estos campos salen de los registros reales ya cargados en el portal. No son una lista
+          estatica: cambian segun el payload disponible en frontend, backend y relaciones.
+        </p>
+      </div>
+
+      <div class="workstreams-grid">
+        <article v-for="group in synchronizedFields" :key="group.title" class="workstream-card">
+          <span class="workstream-label">{{ group.title }}</span>
+          <ul>
+            <li v-for="item in group.items" :key="item">{{ item }}</li>
+          </ul>
+        </article>
+      </div>
     </section>
 
     <section class="editorial-section">

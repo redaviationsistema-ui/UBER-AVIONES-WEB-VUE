@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { api } from '../../lib/api'
 import { pickCollection, requestWithCandidates } from '../../lib/backendCrud'
 import { fallbackAdminFlags, fallbackAdminKpis } from '../../data/platform'
@@ -40,6 +40,17 @@ const crewMembers = ref([])
 const operations = ref([])
 const auditEntries = ref([])
 const reservationAuditEntries = ref([])
+const rawSectionRecords = reactive({
+  usuarios: [],
+  alertas: [],
+  proveedores: [],
+  aeronaves: [],
+  suscripciones: [],
+  contratos: [],
+  sobrecargos: [],
+  reservas: [],
+  liberaciones: [],
+})
 const reservationFlowLoading = ref(false)
 const reservationFlowLoadingLabel = ref('')
 const reservationContentRefreshing = ref(false)
@@ -50,11 +61,14 @@ let releasesRequestPromise = null
 const adminPortalInstanceId = `admin-${Math.random().toString(16).slice(2, 10)}`
 let lastReservationsRefreshAt = 0
 let lastReleasesRefreshAt = 0
+let lastCrewRefreshAt = 0
 const ADMIN_RESERVATIONS_POLL_INTERVAL_MS = 10000
 const ADMIN_RESERVATIONS_TIMEOUT_MS = Number(import.meta.env.VITE_ADMIN_RESERVATIONS_TIMEOUT_MS || 20000)
 const ADMIN_FLOW_UPDATE_TIMEOUT_MS = Number(import.meta.env.VITE_ADMIN_FLOW_UPDATE_TIMEOUT_MS || 12000)
 const ADMIN_USERS_TIMEOUT_MS = Number(import.meta.env.VITE_ADMIN_USERS_TIMEOUT_MS || 45000)
+const ADMIN_CREW_TIMEOUT_MS = Number(import.meta.env.VITE_ADMIN_CREW_TIMEOUT_MS || 12000)
 const ADMIN_RESERVATIONS_REFRESH_COOLDOWN_MS = 4000
+const ADMIN_CREW_REFRESH_COOLDOWN_MS = 30000
 const adminReservationsLoadWarningShown = ref(false)
 
 function getReservationRefreshTimestamp(section = props.section) {
@@ -74,16 +88,13 @@ function isReservationRefreshCoolingDown(section = props.section) {
   return Date.now() - getReservationRefreshTimestamp(section) < ADMIN_RESERVATIONS_REFRESH_COOLDOWN_MS
 }
 
-const displayKpis = [
-  { label: 'Ventas del dia', value: '$286,000 MXN', detail: 'Ingresos confirmados durante la jornada.' },
-  { label: 'Margen bruto', value: '31%', detail: 'Resultado consolidado sobre operaciones activas.' },
-  { label: 'Vuelos activos', value: '12', detail: 'Servicios actualmente en ejecucion o pre-vuelo.' },
-  { label: 'Reservas pendientes', value: '9', detail: 'Solicitudes aun en revision o asignacion.' },
-  { label: 'Pagos pendientes', value: '6', detail: 'Cobros, cortes o conciliaciones por resolver.' },
-  { label: 'Incidencias criticas', value: '3', detail: 'Eventos con impacto alto y seguimiento inmediato.' },
-  { label: 'Proveedores activos', value: '18', detail: 'Partners habilitados con SLA vigente.' },
-  { label: 'Sobrecargos disponibles', value: '14', detail: 'Talento listo para recibir una nueva asignacion.' },
-]
+function markCrewRefresh() {
+  lastCrewRefreshAt = Date.now()
+}
+
+function isCrewRefreshCoolingDown() {
+  return Date.now() - lastCrewRefreshAt < ADMIN_CREW_REFRESH_COOLDOWN_MS
+}
 
 const quickActions = [
   'Crear reserva',
@@ -124,15 +135,6 @@ const controlAreas = [
     description: 'Escala eventos criticos, evidencia, responsables y cierre operativo.',
     meta: 'Historial, impacto y resolucion',
   },
-]
-
-const analyticsSummary = [
-  { label: 'Conversion rate', value: '38%', score: 38 },
-  { label: 'Ticket promedio', value: '$94k MXN', score: 74 },
-  { label: 'Vuelos por mes', value: '146', score: 68 },
-  { label: 'Margen por vuelo', value: '29%', score: 29 },
-  { label: 'Utilizacion de flota', value: '84%', score: 84 },
-  { label: 'Tiempo de asignacion', value: '11 min', score: 61 },
 ]
 
 const flowSteps = SHARED_WORKFLOW_STEPS.map((step) => step.title)
@@ -392,11 +394,7 @@ const adminSections = {
     eyebrow: 'Analytics',
     title: 'Analitica del negocio',
     description: 'Mide conversion, CAC, LTV, margen, volumen y eficiencia operativa.',
-    highlights: analyticsSummary.map((item) => ({
-      label: item.label,
-      value: item.value,
-      detail: 'Indicador estrategico del negocio.',
-    })),
+    highlights: [],
     actions: ['Comparar periodos', 'Filtrar por segmento', 'Exportar reporte', 'Revisar margen por vuelo'],
     fields: ['Conversion Rate', 'Ticket promedio', 'Vuelos por mes', 'Margen por vuelo', 'CAC', 'LTV'],
     details: ['Utilizacion de flota', 'Tiempo de asignacion', 'Incidencias por operacion'],
@@ -421,6 +419,307 @@ const adminSections = {
   },
 }
 
+function normalizeToken(value = '') {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+}
+
+function toFiniteNumber(value) {
+  const parsed = Number.parseFloat(String(value ?? '').replace(/[^\d.]+/g, ''))
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function formatCount(value) {
+  return new Intl.NumberFormat('es-MX').format(Number(value || 0))
+}
+
+function formatPercent(value, digits = 0) {
+  const safe = Number.isFinite(value) ? value : 0
+  return `${safe.toFixed(digits)}%`
+}
+
+function formatCurrency(value) {
+  return new Intl.NumberFormat('es-MX', {
+    style: 'currency',
+    currency: 'MXN',
+    maximumFractionDigits: 0,
+  }).format(Number(value || 0))
+}
+
+function average(values = []) {
+  const numeric = values.map(toFiniteNumber).filter((value) => value > 0)
+  if (!numeric.length) return 0
+  return numeric.reduce((sum, value) => sum + value, 0) / numeric.length
+}
+
+function sampleRecordKeys(records = [], limit = 10) {
+  const keys = []
+  const seen = new Set()
+
+  records.forEach((record) => {
+    if (!record || typeof record !== 'object' || Array.isArray(record)) return
+    Object.keys(record).forEach((key) => {
+      if (seen.has(key)) return
+      const value = record[key]
+      if (value != null && typeof value !== 'object') {
+        seen.add(key)
+        keys.push(key)
+      }
+    })
+  })
+
+  return keys.slice(0, limit)
+}
+
+function sampleDatabaseKeys(records = [], limit = 10) {
+  const prioritized = sampleRecordKeys(records, 24).filter((key) => {
+    const normalized = normalizeToken(key)
+    return (
+      normalized === 'id' ||
+      normalized.endsWith(' id') ||
+      normalized.includes('status') ||
+      normalized.includes('state') ||
+      normalized.includes('date') ||
+      normalized.includes('time') ||
+      normalized.includes('created') ||
+      normalized.includes('updated') ||
+      normalized.includes('provider') ||
+      normalized.includes('user') ||
+      normalized.includes('request') ||
+      normalized.includes('reservation') ||
+      normalized.includes('contract') ||
+      normalized.includes('payment')
+    )
+  })
+
+  return (prioritized.length ? prioritized : sampleRecordKeys(records, limit)).slice(0, limit)
+}
+
+function countByStates(records = [], states = []) {
+  return records.filter((record) => {
+    const normalized = normalizeToken(
+      record?.state ||
+      record?.status ||
+      record?.workflowStatus ||
+      record?.profileState ||
+      record?.operationalState ||
+      '',
+    )
+    return states.some((state) => normalized.includes(normalizeToken(state)))
+  }).length
+}
+
+const activeProvidersCount = computed(() =>
+  providers.value.filter((item) => {
+    const normalized = normalizeToken(item.status || item.state || item.approval_status || '')
+    return ['active', 'activo', 'aprobado', 'approved'].some((token) => normalized.includes(token))
+  }).length,
+)
+
+const activeAircraftCount = computed(() =>
+  aircraft.value.filter((item) => normalizeToken(item.status || item.state || '').includes('active')).length,
+)
+
+const availableCrewCount = computed(() =>
+  crewMembers.value.filter((item) => normalizeToken(item.state || item.operationalState || '') === 'disponible').length,
+)
+
+const crewInServiceCount = computed(() =>
+  crewMembers.value.filter((item) => {
+    const normalized = normalizeToken(item.state || item.operationalState || '')
+    return normalized === 'en vuelo' || normalized === 'asignado'
+  }).length,
+)
+
+const approvedCrewCount = computed(() =>
+  crewMembers.value.filter((item) => normalizeToken(item.profileState || item.validationState || '').includes('aprob')).length,
+)
+
+const crewAlertsCount = computed(() =>
+  crewMembers.value.filter((item) => {
+    const state = normalizeToken(item.state || item.operationalState || '')
+    const profile = normalizeToken(item.profileState || item.validationState || '')
+    return ['no disponible', 'descanso', 'suspendido'].includes(state) || profile.includes('pend') || profile.includes('rech')
+  }).length,
+)
+
+const activeReservationsCount = computed(() =>
+  operations.value.filter((item) => {
+    const normalized = normalizeToken(item.workflowStatus || item.status || '')
+    return normalized && !['cancelada', 'finalizada', 'closed', 'cerrada'].some((token) => normalized.includes(token))
+  }).length,
+)
+
+const pendingReservationsCount = computed(() =>
+  operations.value.filter((item) => {
+    const normalized = normalizeToken(item.workflowStatus || item.status || '')
+    return ['pend', 'valid', 'cotiz', 'asign'].some((token) => normalized.includes(token))
+  }).length,
+)
+
+const paymentsPendingCount = computed(() =>
+  operations.value.filter((item) => normalizeToken(item.paymentStatus || '').includes('pend')).length,
+)
+
+const criticalIncidentsCount = computed(() =>
+  operations.value.filter((item) => {
+    const normalized = normalizeToken(item.incidentStatus || item.alertStatus || item.statusLabel || '')
+    return ['crit', 'alta', 'escal'].some((token) => normalized.includes(token))
+  }).length,
+)
+
+const executiveKpis = computed(() => [
+  {
+    label: 'Ventas del dia',
+    value: kpis.value.mrr || fallbackAdminKpis.mrr,
+    detail: 'Ingresos reportados por el dashboard administrativo.',
+  },
+  {
+    label: 'Conversion a pago',
+    value: kpis.value.conversion_a_pago || fallbackAdminKpis.conversion_a_pago,
+    detail: 'Tasa de avance comercial tomada del dashboard administrativo.',
+  },
+  {
+    label: 'Vuelos activos',
+    value: formatCount(activeReservationsCount.value),
+    detail: 'Reservas y operaciones que siguen en flujo activo.',
+  },
+  {
+    label: 'Reservas pendientes',
+    value: formatCount(pendingReservationsCount.value),
+    detail: 'Solicitudes que todavia requieren avance operativo.',
+  },
+  {
+    label: 'Pagos pendientes',
+    value: formatCount(paymentsPendingCount.value),
+    detail: 'Operaciones con estatus de pago pendiente en la data cargada.',
+  },
+  {
+    label: 'Incidencias criticas',
+    value: formatCount(criticalIncidentsCount.value),
+    detail: 'Casos escalados o con impacto alto detectados en la operacion.',
+  },
+  {
+    label: 'Proveedores activos',
+    value: formatCount(activeProvidersCount.value || providers.value.length),
+    detail: 'Partners sincronizados desde backend con acceso operativo.',
+  },
+  {
+    label: 'Sobrecargos disponibles',
+    value: formatCount(availableCrewCount.value),
+    detail: 'Tripulacion lista para recibir una nueva asignacion.',
+  },
+])
+
+const executiveAnalytics = computed(() => {
+  const contractsSigned = countByStates(contracts.value, ['firmado', 'signed'])
+  const conversionBase = operations.value.length || 1
+  const conversion = Math.round((contractsSigned / conversionBase) * 100)
+  const avgTicket = average(operations.value.map((item) => item.totalAmount || item.amount || item.price))
+  const avgMargin = average(operations.value.map((item) => item.margin || item.marginPercent))
+  const utilizationBase = aircraft.value.length || 1
+  const utilization = Math.round((activeReservationsCount.value / utilizationBase) * 100)
+  const assignmentTime = auditEntries.value.length ? Math.max(5, Math.round(auditEntries.value.length / 2)) : 0
+
+  return [
+    { label: 'Conversion rate', value: formatPercent(conversion), score: conversion },
+    { label: 'Ticket promedio', value: avgTicket ? formatCurrency(avgTicket) : 'Sin dato', score: Math.min(100, Math.round(avgTicket / 1000)) },
+    { label: 'Vuelos por mes', value: formatCount(operations.value.length), score: Math.min(100, operations.value.length * 5) },
+    { label: 'Margen por vuelo', value: avgMargin ? formatPercent(avgMargin) : 'Sin dato', score: Math.min(100, Math.round(avgMargin)) },
+    { label: 'Utilizacion de flota', value: formatPercent(utilization), score: Math.max(0, Math.min(100, utilization)) },
+    { label: 'Tiempo de asignacion', value: assignmentTime ? `${assignmentTime} min` : 'Sin dato', score: Math.max(0, 100 - assignmentTime) },
+  ]
+})
+
+const normalizedSectionSources = computed(() => ({
+  usuarios: users.value,
+  alertas: flags.value,
+  proveedores: providers.value,
+  aeronaves: aircraft.value,
+  suscripciones: subscriptions.value,
+  contratos: contracts.value,
+  sobrecargos: crewMembers.value,
+  'sobrecargo-operaciones': crewMembers.value,
+  reservas: operations.value,
+  liberaciones: operations.value,
+}))
+
+const dynamicSectionHighlights = computed(() => ({
+  proveedores: [
+    { label: 'Activos', value: formatCount(activeProvidersCount.value || providers.value.length), detail: 'Proveedores con presencia operativa en el backend.' },
+    { label: 'En pausa', value: formatCount(Math.max(providers.value.length - activeProvidersCount.value, 0)), detail: 'Partners fuera de disponibilidad o pendientes de activacion.' },
+    { label: 'Aeronaves ligadas', value: formatCount(aircraft.value.length), detail: 'Flota asociada a la red de proveedores cargada en sistema.' },
+    { label: 'Suscripciones', value: formatCount(subscriptions.value.length), detail: 'Registros activos de suscripcion vinculados a aeronaves.' },
+  ],
+  aeronaves: [
+    { label: 'Aeronaves activas', value: formatCount(activeAircraftCount.value || aircraft.value.length), detail: 'Flota con estatus operativo activo en backend.' },
+    { label: 'Bloqueadas / pausa', value: formatCount(Math.max(aircraft.value.length - activeAircraftCount.value, 0)), detail: 'Unidades fuera de linea o sin liberar para operacion.' },
+    { label: 'Documentos trazados', value: formatCount(aircraft.value.filter((item) => item.documents_valid).length), detail: 'Aeronaves que ya reportan evidencia documental en el payload.' },
+    { label: 'Suscripciones', value: formatCount(subscriptions.value.length), detail: 'Registros comerciales asociados a la flota.' },
+  ],
+  sobrecargos: [
+    { label: 'Disponibles', value: formatCount(availableCrewCount.value), detail: 'Tripulacion con estado operativo disponible.' },
+    { label: 'En servicio', value: formatCount(crewInServiceCount.value), detail: 'Sobrecargos asignados o con operacion en curso.' },
+    { label: 'Aprobados', value: formatCount(approvedCrewCount.value), detail: 'Perfiles con validacion administrativa aprobada.' },
+    { label: 'Con alerta', value: formatCount(crewAlertsCount.value), detail: 'Expedientes que requieren seguimiento operativo o documental.' },
+  ],
+  reservas: [
+    { label: 'Activas', value: formatCount(activeReservationsCount.value), detail: 'Reservas y vuelos que siguen en flujo operativo.' },
+    { label: 'Pendientes', value: formatCount(pendingReservationsCount.value), detail: 'Solicitudes aun sin cierre de proceso.' },
+    { label: 'Pagos pendientes', value: formatCount(paymentsPendingCount.value), detail: 'Operaciones donde la cobranza sigue abierta.' },
+    { label: 'Con contrato', value: formatCount(contracts.value.length), detail: 'Contratos ya cargados dentro del contexto administrativo.' },
+  ],
+  contratos: [
+    { label: 'Total contratos', value: formatCount(contracts.value.length), detail: 'Registros contractuales sincronizados con backend.' },
+    { label: 'Firmados', value: formatCount(countByStates(contracts.value, ['firmado', 'signed'])), detail: 'Contratos ya confirmados por su estatus.' },
+    { label: 'Pendientes', value: formatCount(countByStates(contracts.value, ['pend', 'draft', 'firma'])), detail: 'Contratos que siguen en revision o firma.' },
+    { label: 'Anulados', value: formatCount(countByStates(contracts.value, ['cancel', 'anul'])), detail: 'Documentos cancelados o reemplazados.' },
+  ],
+  usuarios: [
+    { label: 'Usuarios', value: formatCount(users.value.length), detail: 'Registros de usuario visibles desde admin.' },
+    { label: 'Sobrecargos', value: formatCount(crewMembers.value.length), detail: 'Usuarios que ya pertenecen al flujo de cabina.' },
+    { label: 'Proveedores', value: formatCount(providers.value.length), detail: 'Red operativa asociada al catalogo de usuarios.' },
+    { label: 'Alertas', value: formatCount(flags.value.length), detail: 'Flags activos detectados por el sistema.' },
+  ],
+  alertas: [
+    { label: 'Alertas activas', value: formatCount(flags.value.length), detail: 'Banderas de riesgo e incidencias visibles para administracion.' },
+    { label: 'Criticas', value: formatCount(criticalIncidentsCount.value), detail: 'Eventos con seguimiento urgente detectados por la operacion.' },
+    { label: 'Reservas activas', value: formatCount(activeReservationsCount.value), detail: 'Contexto vivo para correlacionar alertas operativas.' },
+    { label: 'Sobrecargos con alerta', value: formatCount(crewAlertsCount.value), detail: 'Expedientes de cabina que hoy requieren atencion.' },
+  ],
+  analytics: executiveAnalytics.value.map((item) => ({
+    label: item.label,
+    value: item.value,
+    detail: 'Indicador estrategico calculado con la data actual del portal.',
+  })),
+}))
+
+const resolvedAdminSectionConfig = computed(() => {
+  const base = adminSections[props.section] || {}
+  const frontendRecords = normalizedSectionSources.value[props.section] || []
+  const backendRecords = rawSectionRecords[props.section] || []
+
+  return {
+    eyebrow: base.eyebrow || 'Admin',
+    title: base.title || 'Control administrativo',
+    description: base.description || 'Vista general de configuracion administrativa.',
+    highlights: dynamicSectionHighlights.value[props.section]?.length
+      ? dynamicSectionHighlights.value[props.section]
+      : base.highlights || [],
+    actions: base.actions || [],
+    fields: base.fields || [],
+    details: base.details || [],
+    edits: base.edits || [],
+    deactivation: base.deactivation || [],
+    states: base.states || [],
+    frontendFields: sampleRecordKeys(frontendRecords, 12),
+    backendFields: sampleRecordKeys(backendRecords, 12),
+    databaseFields: sampleDatabaseKeys(backendRecords, 12),
+  }
+})
+
 function normalizeAdminAircraft(item = {}) {
   const docs = Array.isArray(item.documents) ? item.documents : []
   return {
@@ -433,6 +732,11 @@ function normalizeAdminAircraft(item = {}) {
 }
 
 function normalizeAdminCrewMember(item = {}) {
+  const profile = item.profile && typeof item.profile === 'object' ? item.profile : {}
+  const taxData = profile.tax_data && typeof profile.tax_data === 'object' ? profile.tax_data : {}
+  const provider =
+    (item.provider && typeof item.provider === 'object' ? item.provider : null) ||
+    (item.owned_provider && typeof item.owned_provider === 'object' ? item.owned_provider : null)
   const roleValue =
     item.effective_role ||
     item.role?.code ||
@@ -454,31 +758,65 @@ function normalizeAdminCrewMember(item = {}) {
     name: item.name || item.full_name || 'Sobrecargo',
     email: item.email || '',
     phone: item.phone || item.phone_number || '',
-    base: item.base || item.city || 'N/D',
-    providerId: item.provider_id || item.proveedor_id || item.provider?.id || null,
+    base: item.base || item.base_airport || item.city || profile.base_airport || profile.city || '',
+    providerId: item.provider_id || item.proveedor_id || provider?.id || null,
     providerName:
-      item.provider?.commercial_name ||
-      item.provider?.company_name ||
+      provider?.commercial_name ||
+      provider?.company_name ||
       item.provider_name ||
-      'Proveedor sin ligar',
-    state: item.state || item.status || item.account_status || 'Disponible',
+      '',
+    state:
+      item.current_status ||
+      profile.current_status ||
+      taxData.current_status ||
+      item.state ||
+      item.status ||
+      item.account_status ||
+      '',
     profileState:
+      profile.profile_state ||
+      profile.validation_status ||
+      taxData.profile_state ||
+      taxData.validation_status ||
       item.profile_state ||
       item.validation_status ||
       item.review_status ||
       item.approval_status ||
-      'Pendiente',
+      provider?.approval_status ||
+      '',
     certifications:
-      Array.isArray(item.certifications) ? item.certifications.join(', ') : item.certifications || item.licenses || '',
+      Array.isArray(item.certifications)
+        ? item.certifications.join(', ')
+        : item.certifications ||
+          item.licenses ||
+          profile.document_type ||
+          '',
     documentsSummary:
+      profile.documents_summary ||
+      profile.documents_status ||
       item.documents_summary ||
       item.documents_status ||
       item.documents ||
       item.document_status ||
-      'Expediente pendiente',
-    rating: String(item.rating || item.score || '4.9/5'),
+      profile.document_status ||
+      '',
+    rating: item.rating || item.score || '',
     adminNotes: item.admin_notes || item.observations || '',
-    lastAudit: item.lastAudit || item.updated_at || 'Sin auditoria',
+    lastAudit: item.lastAudit || item.updated_at || profile.updated_at || '',
+    birthDate: profile.birth_date || '',
+    nationality: profile.nationality || '',
+    documentType: profile.document_type || '',
+    documentNumber: profile.document_number || '',
+    documentExpiration: profile.document_expiration || '',
+    documentStatus:
+      profile.document_status ||
+      profile.documents_status ||
+      item.document_status ||
+      item.documents_status ||
+      profile.ine_scan_status ||
+      '',
+    identityValidationRequired: profile.identity_validation_required ?? null,
+    baseAirport: profile.base_airport || item.base_airport || '',
   }
 }
 
@@ -529,8 +867,11 @@ async function loadUsers() {
     const response = await requestWithCandidates([
       { method: 'get', path: '/admin/users', timeoutMs: ADMIN_USERS_TIMEOUT_MS },
     ])
-    users.value = pickCollection(response, ['users', 'usuarios'])
+    const collection = pickCollection(response, ['users', 'usuarios'])
+    rawSectionRecords.usuarios = collection
+    users.value = collection
   } catch {
+    rawSectionRecords.usuarios = []
     users.value = []
   }
 }
@@ -538,8 +879,11 @@ async function loadUsers() {
 async function loadFlags() {
   try {
     const response = await api.get('/admin/anti-broker-flags')
-    flags.value = response.flags?.data || response.flags || fallbackAdminFlags
+    const collection = response.flags?.data || response.flags || fallbackAdminFlags
+    rawSectionRecords.alertas = Array.isArray(collection) ? collection : []
+    flags.value = collection
   } catch {
+    rawSectionRecords.alertas = fallbackAdminFlags
     flags.value = fallbackAdminFlags
   }
 }
@@ -547,8 +891,11 @@ async function loadFlags() {
 async function loadAircraft() {
   try {
     const response = await requestWithCandidates([{ method: 'get', path: '/admin/fleet/aircraft' }])
-    aircraft.value = pickCollection(response, ['aircraft']).map(normalizeAdminAircraft)
+    const collection = pickCollection(response, ['aircraft'])
+    rawSectionRecords.aeronaves = collection
+    aircraft.value = collection.map(normalizeAdminAircraft)
   } catch {
+    rawSectionRecords.aeronaves = []
     aircraft.value = []
   }
 }
@@ -556,8 +903,11 @@ async function loadAircraft() {
 async function loadSubscriptions() {
   try {
     const response = await requestWithCandidates([{ method: 'get', path: '/admin/fleet/aircraft-subscriptions' }])
-    subscriptions.value = pickCollection(response, ['aircraft_subscriptions'])
+    const collection = pickCollection(response, ['aircraft_subscriptions'])
+    rawSectionRecords.suscripciones = collection
+    subscriptions.value = collection
   } catch {
+    rawSectionRecords.suscripciones = []
     subscriptions.value = []
   }
 }
@@ -565,8 +915,11 @@ async function loadSubscriptions() {
 async function loadProviders() {
   try {
     const response = await requestWithCandidates([{ method: 'get', path: '/admin/operators' }])
-    providers.value = pickCollection(response, ['operators', 'proveedores'])
+    const collection = pickCollection(response, ['operators', 'proveedores'])
+    rawSectionRecords.proveedores = collection
+    providers.value = collection
   } catch {
+    rawSectionRecords.proveedores = []
     providers.value = []
   }
 }
@@ -574,23 +927,30 @@ async function loadProviders() {
 async function loadContracts() {
   try {
     const response = await requestWithCandidates([{ method: 'get', path: '/admin/contracts' }])
-    contracts.value = pickCollection(response, ['contracts'])
+    const collection = pickCollection(response, ['contracts'])
+    rawSectionRecords.contratos = collection
+    contracts.value = collection
   } catch {
+    rawSectionRecords.contratos = []
     contracts.value = []
   }
 }
 
-async function loadCrewMembers() {
+async function loadCrewMembers(options = {}) {
+  const timeoutMs = options.timeoutMs || ADMIN_CREW_TIMEOUT_MS
+  const allowUsersFallback = options.allowUsersFallback !== false
   const [crewResult, usersResult] = await Promise.allSettled([
     requestWithCandidates([
-      { method: 'get', path: '/admin/sobrecargos' },
-      { method: 'get', path: '/admin/crew' },
-      { method: 'get', path: '/admin/users', timeoutMs: ADMIN_USERS_TIMEOUT_MS },
+      { method: 'get', path: '/admin/sobrecargos', timeoutMs },
+      { method: 'get', path: '/admin/crew', timeoutMs },
+      { method: 'get', path: '/admin/users', timeoutMs },
     ]),
-    users.value.length
+    !allowUsersFallback
+      ? Promise.resolve({ users: users.value })
+      : users.value.length
       ? Promise.resolve({ users: users.value })
       : requestWithCandidates([
-          { method: 'get', path: '/admin/users', timeoutMs: ADMIN_USERS_TIMEOUT_MS },
+          { method: 'get', path: '/admin/users', timeoutMs },
         ]),
   ])
 
@@ -608,9 +968,12 @@ async function loadCrewMembers() {
       ? pickCollection(crewResult.value, ['sobrecargos', 'crew', 'users', 'data'])
       : []
 
+  rawSectionRecords.sobrecargos = directCrewCollection.length ? directCrewCollection : usersCollection
+
   crewMembers.value = (directCrewCollection.length ? directCrewCollection : usersCollection)
     .map(normalizeAdminCrewMember)
     .filter(Boolean)
+  markCrewRefresh()
 }
 
 function isTimeoutLikeError(error) {
@@ -643,10 +1006,12 @@ async function loadOperations(options = {}) {
       }
 
       operations.value = nextOperations
+      rawSectionRecords.reservas = nextOperations
       markReservationRefresh('reservas')
       adminReservationsLoadWarningShown.value = false
     } catch (error) {
       if (!preserveExistingOnEmpty) {
+        rawSectionRecords.reservas = []
         operations.value = []
       }
 
@@ -689,10 +1054,12 @@ async function loadReleases(options = {}) {
       }
 
       operations.value = nextOperations
+      rawSectionRecords.liberaciones = nextOperations
       markReservationRefresh('liberaciones')
       adminReservationsLoadWarningShown.value = false
     } catch (error) {
       if (!preserveExistingOnEmpty) {
+        rawSectionRecords.liberaciones = []
         operations.value = []
       }
 
@@ -712,6 +1079,26 @@ async function loadReleases(options = {}) {
   })()
 
   return releasesRequestPromise
+}
+
+function hasCrewSectionCache() {
+  return crewMembers.value.length > 0 || operations.value.length > 0
+}
+
+function loadCrewSectionBackground(options = {}) {
+  if (isCrewRefreshCoolingDown() && hasCrewSectionCache()) return
+
+  void Promise.all([
+    loadCrewMembers({
+      timeoutMs: options.timeoutMs || ADMIN_CREW_TIMEOUT_MS,
+      allowUsersFallback: options.allowUsersFallback !== false,
+    }),
+    loadOperations({ silent: true }),
+  ]).then(() => {
+    if (!auditEntries.value.length) {
+      pushAuditEntry('Admin listo para auditar sobrecargos', 'Se inicializo la bitacora de validacion y asignacion.')
+    }
+  })
 }
 
 async function loadPortalSection(section) {
@@ -740,11 +1127,13 @@ async function loadPortalSection(section) {
     return
   }
 
-  if (section === 'sobrecargos') {
-    await Promise.all([loadCrewMembers(), loadOperations({ silent: false })])
-    if (!auditEntries.value.length) {
-      pushAuditEntry('Admin listo para auditar sobrecargos', 'Se inicializo la bitacora de validacion y asignacion.')
+  if (section === 'sobrecargos' || section === 'sobrecargo-operaciones') {
+    if (hasCrewSectionCache()) {
+      loadCrewSectionBackground({ allowUsersFallback: false })
+      return
     }
+
+    loadCrewSectionBackground({ allowUsersFallback: true })
     return
   }
 
@@ -764,6 +1153,15 @@ async function loadPortalSection(section) {
   }
 
   if (section === 'ejecutivo') {
+    await Promise.all([
+      loadFlags(),
+      loadProviders(),
+      loadAircraft(),
+      loadSubscriptions(),
+      loadContracts(),
+      loadCrewMembers(),
+      loadOperations({ silent: false }),
+    ])
     await loadDashboardKpis()
   }
 }
@@ -819,11 +1217,12 @@ function auditUser(user) {
   })
 }
 
-async function updateCrewValidation(member, nextProfileState, note = '') {
+async function updateCrewValidation(member, nextProfileState, note = '', nextOperationalState = member.state, backendStatus = nextOperationalState) {
   const payload = {
     profile_state: nextProfileState,
     validation_status: nextProfileState,
-    status: nextProfileState === 'Suspendido' ? 'Suspendido' : member.state,
+    status: backendStatus,
+    current_status: nextOperationalState,
     admin_notes: note || member.adminNotes || '',
   }
 
@@ -840,14 +1239,21 @@ async function updateCrewValidation(member, nextProfileState, note = '') {
   upsertCrewMember({
     ...member,
     profileState: nextProfileState,
-    state: nextProfileState === 'Suspendido' ? 'Suspendido' : member.state,
+    state: nextOperationalState,
     adminNotes: note || member.adminNotes,
     lastAudit: new Date().toISOString().slice(0, 16).replace('T', ' '),
   })
 }
 
 async function approveCrew({ member, note }) {
-  await updateCrewValidation(member, 'Aprobado', note)
+  await updateCrewValidation(member, 'Aprobado', note, 'Activo', 'active')
+  emitWorkflowSync({
+    scope: 'crew-status',
+    crewUserId: member.id,
+    nextProfileState: 'Aprobado',
+    nextOperationalState: 'Activo',
+    source: adminPortalInstanceId,
+  })
   pushAuditEntry(
     `Sobrecargo aprobado: ${member.name}`,
     note || 'Expediente validado por administracion y listo para asignacion.',
@@ -861,6 +1267,13 @@ async function approveCrew({ member, note }) {
 
 async function rejectCrew({ member, note }) {
   await updateCrewValidation(member, 'Rechazado', note)
+  emitWorkflowSync({
+    scope: 'crew-status',
+    crewUserId: member.id,
+    nextProfileState: 'Rechazado',
+    nextOperationalState: member.state,
+    source: adminPortalInstanceId,
+  })
   pushAuditEntry(
     `Sobrecargo rechazado: ${member.name}`,
     note || 'El expediente requiere correcciones antes de liberar operacion.',
@@ -873,7 +1286,14 @@ async function rejectCrew({ member, note }) {
 }
 
 async function suspendCrew({ member, note }) {
-  await updateCrewValidation({ ...member, state: 'Suspendido' }, 'Suspendido', note)
+  await updateCrewValidation({ ...member, state: 'Suspendido' }, 'Suspendido', note, 'Suspendido', 'suspended')
+  emitWorkflowSync({
+    scope: 'crew-status',
+    crewUserId: member.id,
+    nextProfileState: 'Suspendido',
+    nextOperationalState: 'Suspendido',
+    source: adminPortalInstanceId,
+  })
   pushAuditEntry(
     `Sobrecargo suspendido: ${member.name}`,
     note || 'Se suspendio la elegibilidad operativa por control admin.',
@@ -915,6 +1335,82 @@ async function assignCrewToOperation({ operationId, crewId, note }) {
     return
   }
 
+  const normalizedOperationStatus = normalizeToken(operation.workflowStatus || operation.status || '')
+  if (
+    normalizedOperationStatus.includes('cancel') ||
+    normalizedOperationStatus.includes('finaliz') ||
+    normalizedOperationStatus.includes('cerrad')
+  ) {
+    ui.pushToast({
+      tone: 'warning',
+      title: 'Operacion no asignable',
+      message: 'La operacion ya esta cerrada, cancelada o finalizada.',
+    })
+    return
+  }
+
+  const currentWorkflowId = resolveWorkflowState(operation.workflowStatus || operation.status || '').id
+  if (currentWorkflowId !== 'tracking_live') {
+    ui.pushToast({
+      tone: 'warning',
+      title: 'Asignacion bloqueada',
+      message: 'La seccion de asignar sobrecargo se habilita cuando la operacion entra a tracking en vivo.',
+    })
+    return
+  }
+
+  const normalizedCrewStatus = normalizeToken(member.state || member.operationalState || '')
+  const normalizedCrewProfileStatus = normalizeToken(member.profileState || member.validationState || '')
+  const memberAssignedToCurrentOperation = operations.value.some(
+    (item) =>
+      Number(item.id || 0) === Number(operationId) &&
+      Number(item.crewId || 0) === Number(member.id || 0),
+  )
+
+  const crewHasBlockedValidationState =
+    normalizedCrewProfileStatus.includes('rech') ||
+    normalizedCrewProfileStatus.includes('pend') ||
+    normalizedCrewProfileStatus.includes('suspend')
+
+  if (crewHasBlockedValidationState) {
+    ui.pushToast({
+      tone: 'warning',
+      title: 'Sobrecargo no elegible',
+      message: `${member.name} todavia no cuenta con validacion operativa para asignarse.`,
+    })
+    return
+  }
+
+  if (
+    !['disponible', 'active', 'activo', 'assigned', 'asignado'].includes(normalizedCrewStatus) &&
+    !memberAssignedToCurrentOperation
+  ) {
+    ui.pushToast({
+      tone: 'warning',
+      title: 'Sobrecargo no disponible',
+      message: `${member.name} no esta disponible para una nueva asignacion.`,
+    })
+    return
+  }
+
+  const duplicateAssignment = operations.value.find(
+    (item) =>
+      Number(item.id || 0) !== Number(operationId) &&
+      Number(item.crewId || 0) === Number(member.id || 0) &&
+      !['cancelada', 'finalizada', 'cerrada'].some((token) =>
+        normalizeToken(item.workflowStatus || item.status || '').includes(token),
+      ),
+  )
+
+  if (duplicateAssignment) {
+    ui.pushToast({
+      tone: 'error',
+      title: 'Asignacion duplicada',
+      message: `${member.name} ya tiene una operacion activa ligada al folio ${duplicateAssignment.folio || `RA-${duplicateAssignment.id}`}.`,
+    })
+    return
+  }
+
   const payload = {
     provider_id: operation.providerId || undefined,
     aircraft_id: operation.aircraftId || undefined,
@@ -923,6 +1419,8 @@ async function assignCrewToOperation({ operationId, crewId, note }) {
     sobrecargo_id: member.id,
     crew_name: member.name,
     note: note || '',
+    briefing_time: operation.briefingTime || undefined,
+    presentation_place: operation.presentationPlace || operation.origin || undefined,
   }
 
   try {
@@ -933,14 +1431,8 @@ async function assignCrewToOperation({ operationId, crewId, note }) {
     // Fall back to local synchronization until every backend route is available.
   }
 
-  let promotedWorkflowStage = ''
-  const currentWorkflowId = resolveWorkflowState(operation.workflowStatus || operation.status || '').id
-  if (['flight_confirmed', 'tracking_live'].includes(currentWorkflowId) === false) {
-    // Cuando admin asigna sobrecargo, el flujo compartido ya puede entrar a tracking.
-    promotedWorkflowStage = 'tracking_live'
-  } else if (currentWorkflowId === 'flight_confirmed') {
-    promotedWorkflowStage = 'tracking_live'
-  }
+  const promotedWorkflowStage = ''
+  const visibleWorkflowStage = currentWorkflowId === 'tracking_live' ? 'tracking_live' : promotedWorkflowStage
 
   if (promotedWorkflowStage) {
     try {
@@ -974,8 +1466,8 @@ async function assignCrewToOperation({ operationId, crewId, note }) {
           ...item,
           crew: member.name,
           crewId: member.id,
-          status: promotedWorkflowStage || item.status,
-          workflowStatus: promotedWorkflowStage || item.workflowStatus,
+          status: visibleWorkflowStage || item.status,
+          workflowStatus: visibleWorkflowStage || item.workflowStatus,
           notes: note ? `${item.notes} · ${note}` : item.notes,
         }
       : item,
@@ -1239,6 +1731,9 @@ async function handleSuspendAircraft(aircraftId) {
 
 onMounted(() => {
   loadPortalSection(props.section)
+  if (!['sobrecargos', 'sobrecargo-operaciones'].includes(props.section)) {
+    loadCrewSectionBackground({ allowUsersFallback: false })
+  }
   if (typeof window !== 'undefined') {
     window.addEventListener('focus', handleReservationsVisibilityRefresh)
   }
@@ -1274,6 +1769,9 @@ watch(
   () => props.section,
   (section) => {
     loadPortalSection(section)
+    if (!['sobrecargos', 'sobrecargo-operaciones'].includes(section)) {
+      loadCrewSectionBackground({ allowUsersFallback: false })
+    }
     startReservationsPolling()
   },
 )
@@ -1282,10 +1780,10 @@ watch(
 <template>
   <AdminExecutiveSection
     v-if="section === 'ejecutivo'"
-    :kpis="displayKpis"
+    :kpis="executiveKpis"
     :quick-actions="quickActions"
     :control-areas="controlAreas"
-    :analytics="analyticsSummary"
+    :analytics="executiveAnalytics"
     :flow-steps="flowSteps"
     :policies="policies"
     :reservation-states="reservationStates"
@@ -1316,10 +1814,11 @@ watch(
     mode="subscriptions"
   />
   <AdminCrewOperationsSection
-    v-else-if="section === 'sobrecargos'"
+    v-else-if="section === 'sobrecargos' || section === 'sobrecargo-operaciones'"
     :crew-members="crewMembers"
     :operations="operations"
     :audit-entries="auditEntries"
+    :view-mode="section === 'sobrecargo-operaciones' ? 'operations' : 'review'"
     @approve-crew="approveCrew"
     @reject-crew="rejectCrew"
     @suspend-crew="suspendCrew"
@@ -1357,15 +1856,18 @@ watch(
   />
   <AdminCrudSection
     v-else
-    :eyebrow="adminSections[props.section]?.eyebrow || 'Admin'"
-    :title="adminSections[props.section]?.title || 'Control administrativo'"
-    :description="adminSections[props.section]?.description || 'Vista general de configuracion administrativa.'"
-    :highlights="adminSections[props.section]?.highlights || []"
-    :actions="adminSections[props.section]?.actions || []"
-    :fields="adminSections[props.section]?.fields || []"
-    :details="adminSections[props.section]?.details || []"
-    :edits="adminSections[props.section]?.edits || []"
-    :deactivation="adminSections[props.section]?.deactivation || []"
-    :states="adminSections[props.section]?.states || []"
+    :eyebrow="resolvedAdminSectionConfig.eyebrow"
+    :title="resolvedAdminSectionConfig.title"
+    :description="resolvedAdminSectionConfig.description"
+    :highlights="resolvedAdminSectionConfig.highlights"
+    :actions="resolvedAdminSectionConfig.actions"
+    :fields="resolvedAdminSectionConfig.fields"
+    :details="resolvedAdminSectionConfig.details"
+    :edits="resolvedAdminSectionConfig.edits"
+    :deactivation="resolvedAdminSectionConfig.deactivation"
+    :states="resolvedAdminSectionConfig.states"
+    :frontend-fields="resolvedAdminSectionConfig.frontendFields"
+    :backend-fields="resolvedAdminSectionConfig.backendFields"
+    :database-fields="resolvedAdminSectionConfig.databaseFields"
   />
 </template>

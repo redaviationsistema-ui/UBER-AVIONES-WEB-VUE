@@ -71,6 +71,10 @@ async function submit() {
         <BrandLogo variant="dark" :width="158" />
       </RouterLink>
 
+      <RouterLink to="/renta/" class="back-link">
+        Regresar
+      </RouterLink>
+
       <div class="login-card">
         <div class="login-copy">
           <h1 v-if="currentStep === 1">¿Cuál es tu número de teléfono o tu correo electrónico?</h1>
@@ -280,6 +284,22 @@ async function submit() {
   font-size: 1.3rem;
   font-weight: 800;
   text-decoration: none;
+}
+
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0 auto 1.1rem;
+  color: #111111;
+  font-size: 0.95rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.back-link::before {
+  content: '←';
+  font-size: 1rem;
 }
 
 .login-card {

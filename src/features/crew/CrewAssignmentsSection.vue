@@ -1,7 +1,8 @@
 <script setup>
+import { computed, ref, watch } from 'vue'
 import CrewUiIcon from './CrewUiIcon.vue'
 
-defineProps({
+const props = defineProps({
   assignments: { type: Array, required: true },
   assignmentResponseForm: { type: Object, required: true },
   assignmentErrors: { type: Object, required: true },
@@ -10,6 +11,41 @@ defineProps({
 })
 
 defineEmits(['update-field', 'confirm', 'reject', 'request-change', 'confirm-briefing'])
+
+const selectedAssignmentId = ref(null)
+
+const selectedAssignment = computed(
+  () => props.assignments.find((item) => item.id === selectedAssignmentId.value) || props.assignments[0] || null,
+)
+
+watch(
+  () => props.assignments,
+  (items) => {
+    if (!items.length) {
+      selectedAssignmentId.value = null
+      return
+    }
+    if (!items.some((item) => item.id === selectedAssignmentId.value)) {
+      selectedAssignmentId.value = items[0].id
+    }
+  },
+  { immediate: true },
+)
+
+function formatDateTime(date = '', time = '') {
+  const source = [date, time].filter(Boolean).join('T')
+  if (!source) return 'Por definir'
+  const normalized = source.includes('T') ? source : `${source}T08:00`
+  const parsed = new Date(normalized)
+  if (Number.isNaN(parsed.getTime())) return [date, time].filter(Boolean).join(' · ') || 'Por definir'
+  return new Intl.DateTimeFormat('es-MX', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(parsed)
+}
 </script>
 
 <template>
@@ -69,6 +105,16 @@ defineEmits(['update-field', 'confirm', 'reject', 'request-change', 'confirm-bri
             ></textarea>
             <small v-if="assignmentErrors.deadline">{{ assignmentErrors.deadline }}</small>
           </label>
+
+          <label>
+            <span>Hora estimada de llegada</span>
+            <input
+              :value="assignmentResponseForm.eta"
+              type="text"
+              placeholder="08:20 / 15 min antes"
+              @input="$emit('update-field', { form: 'assignmentResponse', field: 'eta', value: $event.target.value })"
+            />
+          </label>
         </div>
       </section>
 
@@ -78,7 +124,13 @@ defineEmits(['update-field', 'confirm', 'reject', 'request-change', 'confirm-bri
           <h4>Vuelos asignados</h4>
         </div>
         <div class="assignment-list">
-          <article v-for="item in assignments" :key="item.id" class="assignment-row">
+          <article
+            v-for="item in assignments"
+            :key="item.id"
+            class="assignment-row"
+            :class="{ 'assignment-row--selected': item.id === selectedAssignment?.id }"
+            @click="selectedAssignmentId = item.id"
+          >
             <div>
               <strong>{{ [item.flight, item.route].filter(Boolean).join(' - ') || 'Asignacion sin referencia completa' }}</strong>
               <p>{{ [item.date, item.time, item.aircraft].filter(Boolean).join(' - ') || 'Sin horario o aeronave confirmada' }}</p>
@@ -108,6 +160,64 @@ defineEmits(['update-field', 'confirm', 'reject', 'request-change', 'confirm-bri
             </div>
           </article>
         </div>
+
+        <article v-if="selectedAssignment" class="assignment-detail-card">
+          <div class="section-head">
+            <span class="mini-icon"><CrewUiIcon name="briefing" :size="17" /></span>
+            <h4>Detalle de operacion</h4>
+          </div>
+
+          <div class="detail-grid">
+            <div class="detail-item">
+              <span>Folio</span>
+              <strong>{{ selectedAssignment.flight || `OP-${selectedAssignment.id}` }}</strong>
+            </div>
+            <div class="detail-item">
+              <span>Fecha / hora</span>
+              <strong>{{ formatDateTime(selectedAssignment.date, selectedAssignment.time || selectedAssignment.briefingTime) }}</strong>
+            </div>
+            <div class="detail-item">
+              <span>Ruta</span>
+              <strong>{{ selectedAssignment.route || 'Por definir' }}</strong>
+            </div>
+            <div class="detail-item">
+              <span>Aeronave</span>
+              <strong>{{ selectedAssignment.aircraft || 'Por definir' }}</strong>
+            </div>
+            <div class="detail-item">
+              <span>Hora de presentacion</span>
+              <strong>{{ selectedAssignment.briefingTime || selectedAssignment.time || 'Por definir' }}</strong>
+            </div>
+            <div class="detail-item">
+              <span>Lugar de presentacion</span>
+              <strong>{{ selectedAssignment.origin || 'Base / aeropuerto por definir' }}</strong>
+            </div>
+            <div class="detail-item">
+              <span>Cliente</span>
+              <strong>{{ selectedAssignment.client || 'Cliente por confirmar' }}</strong>
+            </div>
+            <div class="detail-item">
+              <span>Pasajeros</span>
+              <strong>{{ selectedAssignment.passengers ? `${selectedAssignment.passengers} pax` : 'Sin dato' }}</strong>
+            </div>
+            <div class="detail-item">
+              <span>Catering</span>
+              <strong>{{ selectedAssignment.catering || 'Sin dato' }}</strong>
+            </div>
+            <div class="detail-item">
+              <span>Servicio</span>
+              <strong>{{ selectedAssignment.serviceLevel || 'Sin dato' }}</strong>
+            </div>
+            <div class="detail-item detail-item--wide">
+              <span>Requerimientos especiales</span>
+              <strong>{{ selectedAssignment.specialRequirements || selectedAssignment.vipRequirements || 'Sin requerimientos especiales cargados' }}</strong>
+            </div>
+            <div class="detail-item detail-item--wide">
+              <span>Contacto interno</span>
+              <strong>{{ selectedAssignment.internalContact || 'Admin / Red Sky' }}</strong>
+            </div>
+          </div>
+        </article>
       </section>
     </div>
   </section>
@@ -230,6 +340,11 @@ defineEmits(['update-field', 'confirm', 'reject', 'request-change', 'confirm-bri
   box-shadow: 0 18px 42px rgba(10, 31, 21, 0.06);
 }
 
+.assignment-row--selected {
+  border-color: rgba(10, 143, 91, 0.2);
+  box-shadow: 0 0 0 2px rgba(10, 143, 91, 0.08);
+}
+
 .assignment-row strong {
   color: #111111;
   line-height: 1.2;
@@ -253,9 +368,48 @@ defineEmits(['update-field', 'confirm', 'reject', 'request-change', 'confirm-bri
   gap: 0.45rem;
 }
 
+.assignment-detail-card {
+  display: grid;
+  gap: 1rem;
+  padding: 1.15rem;
+  border: 1px solid rgba(10, 143, 91, 0.08);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(244, 250, 247, 0.96));
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.detail-item {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.85rem 0.9rem;
+  border-radius: 14px;
+  border: 1px solid rgba(10, 143, 91, 0.08);
+  background: #fff;
+}
+
+.detail-item span {
+  color: #596761;
+  font-size: 0.78rem;
+}
+
+.detail-item strong {
+  color: #111111;
+  line-height: 1.35;
+}
+
+.detail-item--wide {
+  grid-column: 1 / -1;
+}
+
 @media (max-width: 1080px) {
   .content-grid,
-  .form-grid {
+  .form-grid,
+  .detail-grid {
     grid-template-columns: 1fr;
   }
 }

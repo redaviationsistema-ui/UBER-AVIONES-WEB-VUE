@@ -161,6 +161,27 @@
   line-height: 1.45;
 }
 
+.register-page .block-head {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.register-page .block-copy {
+  margin: 0;
+  color: #5d5347;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.register-page .register-block {
+  display: grid;
+  gap: 1rem;
+  border: 1px solid rgba(16, 17, 20, 0.08);
+  border-radius: 24px;
+  padding: 1.15rem;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 251, 245, 0.98));
+}
+
 .register-page .field-action-row {
   display: flex;
   flex-wrap: wrap;
@@ -462,6 +483,13 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.register-page .license-upload-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.85rem;
+  align-items: stretch;
+}
+
 .register-page .role-option,
 .register-page .file-card {
   display: grid;
@@ -507,6 +535,7 @@
 
 .register-page .scan-button {
   min-height: 3.45rem;
+  padding: 0 1.25rem;
   border: 1px solid #111111;
   border-radius: 14px;
   background: #111111;
@@ -540,6 +569,57 @@
   color: #6b5a3b;
   font-weight: 800;
   line-height: 1.45;
+}
+
+.register-page .detected-table {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.register-page .detected-table-head,
+.register-page .detected-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) auto;
+  gap: 0.85rem;
+  align-items: center;
+}
+
+.register-page .detected-table-head {
+  color: #8c6a1f;
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.register-page .detected-row {
+  border: 1px solid rgba(16, 17, 20, 0.08);
+  border-radius: 18px;
+  padding: 0.9rem 1rem;
+  background: #ffffff;
+}
+
+.register-page .detected-row strong {
+  font-size: 0.92rem;
+}
+
+.register-page .detected-row span {
+  color: #4f473c;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.register-page .detected-action {
+  min-height: 2.5rem;
+  padding: 0 0.95rem;
+  border: 1px solid rgba(194, 138, 18, 0.24);
+  border-radius: 999px;
+  background: rgba(240, 199, 92, 0.14);
+  color: #8c6a1f;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 900;
+  cursor: pointer;
 }
 
 .register-page .verification-panel {
@@ -1029,6 +1109,12 @@
   .register-page .scan-result-grid,
   .register-page .camera-grid,
   .register-page .score-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .register-page .license-upload-row,
+  .register-page .detected-table-head,
+  .register-page .detected-row {
     grid-template-columns: 1fr;
   }
 

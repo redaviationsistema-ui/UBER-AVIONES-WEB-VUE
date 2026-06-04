@@ -16,6 +16,7 @@ const props = defineProps({
   section: { type: String, required: true },
 })
 
+
 const router = useRouter()
 const auth = useAuthStore()
 const ui = useUiStore()
@@ -39,6 +40,9 @@ const usesWorkspaceMenu = computed(
   () => !isClientWorkspace.value && !isClientDashboard.value && groupedMenu.value.length > 0,
 )
 const isSessionReady = computed(() => auth.initialized && auth.isAuthenticated)
+const showPortalHeader = computed(
+  () => !(props.activeRole === 'crew' && props.section === 'perfil'),
+)
 
 const roleInsights = {
   client: {
@@ -276,7 +280,7 @@ watch(
           'portal-workspace': usesWorkspaceMenu,
         }"
       >
-        <header v-if="usesWorkspaceMenu" class="portal-header">
+        <header v-if="usesWorkspaceMenu && showPortalHeader" class="portal-header">
           <div>
             <p class="eyebrow">Espacio de trabajo</p>
             <h2>{{ currentSectionLabel }}</h2>

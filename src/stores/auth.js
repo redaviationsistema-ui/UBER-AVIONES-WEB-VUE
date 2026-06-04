@@ -77,7 +77,7 @@ function normalizeRoles(payload = {}) {
 
   return [
     ...new Set(
-      (explicitRoles.length > 0 ? explicitRoles : fallbackRoles)
+      [...explicitRoles, ...fallbackRoles]
         .map((role) => normalizeAuthRole(role))
         .filter(Boolean),
     ),
@@ -98,9 +98,36 @@ function mapDashboardPath(payload) {
   return resolveDashboardPathByRole(resolveEffectiveRole(payload))
 }
 
-function resolveAuthPayload(payload = {}) {
+function resolveAuthPayload(payload = {}, options = {}) {
   const data = payload.data && typeof payload.data === 'object' ? payload.data : {}
-  const user = payload.user || data.user || data.account || null
+  const intendedRole = String(options.intendedRole || '').trim().toLowerCase()
+  const currentSnapshot = options.currentSnapshot || {}
+  const currentEffectiveRole = normalizeAuthRole(
+    currentSnapshot.login_context?.effective_role || currentSnapshot.user?.operational_role || null,
+  )
+  const rawUser = payload.user || data.user || data.account || null
+  const rawLoginContext = payload.login_context || data.login_context || data.loginContext || null
+  const rawAccess = payload.access || data.access || null
+  const resolvedEffectiveRole = resolveEffectiveRole({
+    user: rawUser,
+    access: rawAccess,
+    login_context: rawLoginContext,
+  })
+  const shouldPreserveCrewContext =
+    currentEffectiveRole === 'crew' && resolvedEffectiveRole && resolvedEffectiveRole !== 'crew'
+  const shouldForceCrewContext = intendedRole === 'sobrecargo' || shouldPreserveCrewContext
+  const user =
+    rawUser && shouldForceCrewContext && !rawUser.operational_role
+      ? { ...rawUser, operational_role: 'sobrecargo' }
+      : rawUser
+  const loginContext =
+    shouldForceCrewContext && (!rawLoginContext || !rawLoginContext.effective_role)
+      ? {
+          ...(rawLoginContext || {}),
+          effective_role: 'sobrecargo',
+          roles: [...new Set([...(Array.isArray(rawLoginContext?.roles) ? rawLoginContext.roles : []), 'sobrecargo'])],
+        }
+      : rawLoginContext
 
   return {
     token:
@@ -113,8 +140,8 @@ function resolveAuthPayload(payload = {}) {
       getStoredToken() ||
       null,
     user,
-    access: payload.access || data.access || null,
-    login_context: payload.login_context || data.login_context || data.loginContext || null,
+    access: rawAccess,
+    login_context: loginContext,
   }
 }
 
@@ -160,8 +187,8 @@ export const useAuthStore = defineStore('auth', () => {
   })
   const providerId = computed(() => resolveProviderIdForUser(user.value))
 
-  function applyAuth(payload) {
-    const resolvedPayload = resolveAuthPayload(payload)
+  function applyAuth(payload, options = {}) {
+    const resolvedPayload = resolveAuthPayload(payload, options)
     token.value = resolvedPayload.token
     user.value = resolvedPayload.user
     access.value = resolvedPayload.access
@@ -200,9 +227,56 @@ export const useAuthStore = defineStore('auth', () => {
     writeStoredAuthSnapshot(null)
   }
 
+  function syncUserContext({ userPatch = null, profilePatch = null, accessPatch = null, loginContextPatch = null } = {}) {
+    if (user.value) {
+      user.value = {
+        ...user.value,
+        ...(userPatch || {}),
+        profile: profilePatch
+          ? {
+              ...(user.value.profile || {}),
+              ...profilePatch,
+            }
+          : user.value.profile,
+      }
+    }
+
+    if (accessPatch) {
+      access.value = {
+        ...(access.value || {}),
+        ...accessPatch,
+      }
+    }
+
+    if (loginContextPatch) {
+      loginContext.value = {
+        ...(loginContext.value || {}),
+        ...loginContextPatch,
+      }
+    }
+
+    roles.value = normalizeRoles({
+      user: user.value,
+      access: access.value,
+      login_context: loginContext.value,
+    })
+
+    writeStoredAuthSnapshot({
+      user: user.value,
+      access: access.value,
+      login_context: loginContext.value,
+    })
+  }
+
   async function fetchMe() {
     const response = await api.get('/auth/me', { timeoutMs: AUTH_REQUEST_TIMEOUT_MS })
-    applyAuth(response)
+    applyAuth(response, {
+      currentSnapshot: {
+        user: user.value,
+        access: access.value,
+        login_context: loginContext.value,
+      },
+    })
     return response
   }
 
@@ -261,7 +335,7 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  async function register(payload) {
+  async function register(payload, options = {}) {
     loading.value = true
 
     try {
@@ -273,7 +347,7 @@ export const useAuthStore = defineStore('auth', () => {
           : await api.post('/auth/register', payload, {
               timeoutMs: AUTH_REQUEST_TIMEOUT_MS,
             })
-      applyAuth(response)
+      applyAuth(response, options)
       return response
     } finally {
       loading.value = false
@@ -336,6 +410,7 @@ export const useAuthStore = defineStore('auth', () => {
     register,
     logout,
     refreshSession,
+    syncUserContext,
     clearAuth,
   }
 })

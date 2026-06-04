@@ -91,6 +91,7 @@ const workspaceMenuOpen = ref(false)
 const workspaceMenuGroups = computed(() => buildMenuGroups(activeRole.value, currentRoleMenu.value))
 const workspaceDesktopMenu = ref('')
 const workspaceDrawerMenu = ref('')
+let crewStatusRefreshTimer = null
 
 function findActiveGroupLabel(groups, matcher, fallback = '') {
   return groups.find((group) => group.items.some(matcher))?.label || fallback
@@ -128,6 +129,27 @@ function handleDocumentKeydown(event) {
   if (event.key === 'Escape') {
     closeAllMenus()
   }
+}
+
+function clearCrewStatusRefresh() {
+  if (crewStatusRefreshTimer) {
+    clearInterval(crewStatusRefreshTimer)
+    crewStatusRefreshTimer = null
+  }
+}
+
+async function refreshCrewStatusCard() {
+  if (activeRole.value !== 'crew' || !auth.isAuthenticated) return
+  if (typeof document !== 'undefined' && document.hidden) return
+  await auth.refreshSession()
+}
+
+function startCrewStatusRefresh() {
+  clearCrewStatusRefresh()
+  if (activeRole.value !== 'crew' || !auth.isAuthenticated) return
+  crewStatusRefreshTimer = setInterval(() => {
+    void refreshCrewStatusCard()
+  }, 15000)
 }
 
 const iconPaths = {
@@ -172,6 +194,10 @@ watch(
   },
 )
 
+watch([activeRole, () => auth.isAuthenticated], () => {
+  startCrewStatusRefresh()
+}, { immediate: true })
+
 const workspaceHome = computed(() => {
   if (!activeRole.value || !currentRoleMenu.value.length) return '/'
   return `${roleBasePaths[activeRole.value]}/${currentRoleMenu.value[0].id}`
@@ -189,12 +215,52 @@ const roleBadgeLabel = computed(() => {
 
 const mobileQuickActions = computed(() => currentRoleMenu.value.slice(0, 4))
 
+const crewProfileState = computed(() => {
+  const profile = auth.user?.profile || {}
+  const taxData = profile.tax_data || {}
+  return (
+    profile.profile_state ||
+    profile.validation_status ||
+    profile.review_status ||
+    taxData.profile_state ||
+    taxData.validation_status ||
+    ''
+  )
+})
+
+const crewOperationalStatus = computed(() => {
+  const profile = auth.user?.profile || {}
+  const rawStatus = auth.user?.current_status || profile.current_status || auth.user?.status || ''
+  const normalized = String(rawStatus || '').trim().toLowerCase()
+
+  if (['active', 'activo', 'activa'].includes(normalized)) return 'Activo'
+  if (['available', 'disponible'].includes(normalized)) return 'Disponible'
+  if (['assigned', 'asignado', 'asignada'].includes(normalized)) return 'Asignado'
+  if (['rest', 'descanso'].includes(normalized)) return 'Descanso'
+  if (['unavailable', 'no disponible'].includes(normalized)) return 'No disponible'
+  if (['suspended', 'suspendido', 'suspendida'].includes(normalized)) return 'Suspendido'
+
+  return rawStatus
+})
+
+const crewBaseLabel = computed(() => {
+  const profile = auth.user?.profile || {}
+  return profile.base_airport || profile.base || profile.city || ''
+})
+
 const mobileStatusItems = computed(() => {
   const statusMap = {
     client: ['Reservas activas', 'Atencion disponible', 'Panel estable'],
     operator: ['3 vuelos activos', '2 pendientes', 'Sistema estable'],
-    crew: ['Cabina lista', 'Agenda al dia', 'Sistema estable'],
     admin: ['Panel ejecutivo', 'Alertas al dia', 'Sistema estable'],
+  }
+
+  if (activeRole.value === 'crew') {
+    return [
+      crewProfileState.value ? `Validacion: ${crewProfileState.value}` : 'Validacion pendiente',
+      crewOperationalStatus.value ? `Operacion: ${crewOperationalStatus.value}` : 'Sin estado operativo',
+      crewBaseLabel.value ? `Base: ${crewBaseLabel.value}` : 'Base por asignar',
+    ]
   }
 
   return statusMap[activeRole.value] || ['Operacion activa', 'Sistema estable']
@@ -231,11 +297,13 @@ async function handleLogout() {
 onMounted(() => {
   document.addEventListener('click', handleDocumentClick)
   document.addEventListener('keydown', handleDocumentKeydown)
+  startCrewStatusRefresh()
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('click', handleDocumentClick)
   document.removeEventListener('keydown', handleDocumentKeydown)
+  clearCrewStatusRefresh()
 })
 </script>
 

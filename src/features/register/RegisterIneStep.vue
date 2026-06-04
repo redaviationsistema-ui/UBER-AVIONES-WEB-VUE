@@ -3,6 +3,8 @@ import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import { canvasToFile, captureVideoFrame } from './identityVerification'
 import { normalizeText, scanIneFiles } from './ineScanner'
 import { api } from '../../lib/api'
+import { searchAirports } from '../../lib/airportSearch'
+import { formatAirportOption } from '../../utils/airports'
 
 const props = defineProps({
   form: { type: Object, required: true },
@@ -14,6 +16,10 @@ const cameraLoading = ref(false)
 const capturing = ref(false)
 const validating = ref(false)
 const scanning = ref(false)
+const airportSuggestions = ref([])
+const airportLoading = ref(false)
+const airportOptionsOpen = ref(false)
+let airportSearchTimer = null
 const cameraActive = ref(false)
 const videoRef = ref(null)
 const activeStream = ref(null)
@@ -31,13 +37,13 @@ const activeDocumentLabelUpper = computed(() =>
 const activeDocumentFrontLabel = computed(() =>
   isCrewRole.value ? 'Licencia' : `${props.form.documentType} frente`,
 )
+const activeDocumentBackLabel = computed(() => `${props.form.documentType} reverso`)
 const activeScanButtonLabel = computed(() =>
   isCrewRole.value ? 'Escanear licencia' : 'Escanear datos de la INE',
 )
 const activeScanningLabel = computed(() =>
   isCrewRole.value ? 'Escaneando licencia...' : 'Escaneando INE...',
 )
-
 function revokePreviewUrl(url) {
   if (typeof url === 'string' && url.startsWith('blob:')) {
     URL.revokeObjectURL(url)
@@ -109,6 +115,67 @@ function updateField(field, value) {
   emit('update-field', field, value)
 }
 
+function clearAirportTimer() {
+  if (airportSearchTimer) {
+    window.clearTimeout(airportSearchTimer)
+    airportSearchTimer = null
+  }
+}
+
+function closeAirportOptions() {
+  airportOptionsOpen.value = false
+}
+
+function scheduleAirportSearch(query) {
+  clearAirportTimer()
+
+  const trimmedQuery = String(query || '').trim()
+  if (!trimmedQuery) {
+    airportSuggestions.value = []
+    airportLoading.value = false
+    airportOptionsOpen.value = false
+    return
+  }
+
+  airportLoading.value = true
+  airportOptionsOpen.value = true
+
+  airportSearchTimer = window.setTimeout(async () => {
+    try {
+      const result = await searchAirports(trimmedQuery, 6)
+      airportSuggestions.value = Array.isArray(result?.items) ? result.items : []
+      airportOptionsOpen.value = airportSuggestions.value.length > 0
+    } catch {
+      airportSuggestions.value = []
+      airportOptionsOpen.value = false
+    } finally {
+      airportLoading.value = false
+      airportSearchTimer = null
+    }
+  }, 220)
+}
+
+function handleBaseInput(event) {
+  const value = event?.target?.value || ''
+  updateField('base', value)
+  scheduleAirportSearch(value)
+}
+
+function selectBaseAirport(airport) {
+  updateField('base', airport?.code || airport?.iata || formatAirportOption(airport))
+  airportSuggestions.value = []
+  airportOptionsOpen.value = false
+}
+
+function formatDisplayDate(value = '') {
+  const normalized = String(value || '').trim()
+  if (!normalized) return ''
+
+  const isoMatch = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (isoMatch) return `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}`
+
+  return normalized
+}
 function handleIneFileSelected(field, event) {
   emit('file-selected', field, event)
   scanMessage.value = ''
@@ -248,6 +315,39 @@ function parseDateCandidate(value = '') {
   return ''
 }
 
+function formatTitleCase(value = '') {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/\b([a-záéíóúñ])/g, (match) => match.toUpperCase())
+}
+
+function sanitizeNationality(value = '') {
+  const normalized = normalizeText(value)
+  if (!normalized) return ''
+
+  const uppercased = normalized.toUpperCase()
+  const mexicanMatch = uppercased.match(/\bMEXICAN([AO])\b|\bMEXICAN[AO]?\b/)
+
+  if (mexicanMatch) {
+    return mexicanMatch[1] === 'O' ? 'Mexicano' : 'Mexicana'
+  }
+
+  const cleaned = normalized
+    .replace(/[^A-Za-zÁÉÍÓÚáéíóúÑñ\s/-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (!cleaned) return ''
+
+  const significantTokens = cleaned
+    .split(' ')
+    .filter((token) => token.length > 2)
+
+  if (!significantTokens.length) return ''
+
+  return formatTitleCase(significantTokens.slice(0, 3).join(' '))
+}
+
 function extractLabeledValue(rawText = '', labels = []) {
   const pattern = labels.join('|')
   const match = rawText.match(new RegExp(`(?:${pattern})\\s*[:\\-]\\s*([^\\n\\r]+)`, 'i'))
@@ -339,7 +439,7 @@ function extractCrewLicenseData(rawText = '') {
     documentNumber: numberCandidate,
     licenseCategory: categoryCandidate,
     birthDate,
-    nationality: nationalityCandidate,
+    nationality: sanitizeNationality(nationalityCandidate),
     documentIssueDate: issueDate,
     documentExpiration: expirationDate,
     issuingCountry: issuingCountryCandidate,
@@ -646,6 +746,7 @@ async function captureBiometricSelfie() {
 onBeforeUnmount(() => {
   stopCamera()
   revokePreviewUrl(props.form.selfiePreviewUrl)
+  clearAirportTimer()
 })
 </script>
 
@@ -665,7 +766,11 @@ onBeforeUnmount(() => {
           <p class="eyebrow">Escaneo en proceso</p>
           <h3 id="ine-loading-title">Leyendo tu {{ activeDocumentLabelUpper }}</h3>
           <p class="muted">
-            Estamos analizando frente y reverso para detectar datos del documento.
+            {{
+              isCrewRole
+                ? 'Estamos analizando la licencia para detectar datos del documento.'
+                : 'Estamos analizando frente y reverso para detectar datos del documento.'
+            }}
           </p>
           <div class="ine-loading-progress" aria-hidden="true">
             <span></span>
@@ -674,163 +779,237 @@ onBeforeUnmount(() => {
       </div>
     </transition>
 
-    <div class="file-grid">
-      <label class="file-card">
-        <span>{{ activeDocumentFrontLabel }}</span>
-        <strong>{{ props.form.ineFrontName || 'Subir archivo' }}</strong>
-        <input type="file" accept="image/*" @change="handleIneFileSelected('ineFront', $event)" />
-      </label>
+    <template v-if="isCrewRole">
+      <section class="register-block">
+        <div class="block-head">
+          <p class="eyebrow">Licencia de sobrecargo</p>
+          <p class="block-copy">Sube la licencia y escaneala para completar automaticamente los datos del documento.</p>
+        </div>
 
-      <label v-if="!isCrewRole" class="file-card">
-        <span>{{ activeDocumentBackLabel }}</span>
-        <strong>{{ props.form.ineBackName || 'Subir archivo' }}</strong>
-        <input type="file" accept="image/*" @change="handleIneFileSelected('ineBack', $event)" />
-      </label>
-    </div>
+        <div class="license-upload-row">
+          <label class="file-card">
+            <span>{{ activeDocumentFrontLabel }}</span>
+            <strong>{{ props.form.ineFrontName || 'Seleccionar archivo' }}</strong>
+            <input type="file" accept="image/*" @change="handleIneFileSelected('ineFront', $event)" />
+          </label>
 
-    <button
-      type="button"
-      class="scan-button"
-      :disabled="scanning || (!isCrewRole && props.form.documentType !== 'INE')"
-      @click="scanIne(props.form)"
-    >
-      {{ scanning ? activeScanningLabel : activeScanButtonLabel }}
-    </button>
+          <button
+            type="button"
+            class="scan-button"
+            :disabled="scanning"
+            @click="scanIne(props.form)"
+          >
+            {{ scanning ? activeScanningLabel : activeScanButtonLabel }}
+          </button>
+        </div>
 
-    <div class="form-grid">
-      <label>
-        Identificacion
-        <template v-if="isCrewRole">
-          <input :value="props.form.documentType" type="text" readonly />
-        </template>
-        <select
-          v-else
-          :value="props.form.documentType"
-          @change="updateField('documentType', $event.target.value)"
-        >
-          <option value="INE">INE</option>
-          <option value="Pasaporte">Pasaporte</option>
-        </select>
-      </label>
+        <div class="form-grid">
+          <label>
+            Numero de licencia
+            <input :value="props.form.documentNumber" type="text" placeholder="Se llena al escanear" readonly />
+          </label>
 
-      <label>
-        {{ isCrewRole ? 'Numero de licencia' : 'Numero de documento' }}
-        <input
-          :value="props.form.documentNumber"
-          type="text"
-          placeholder="Se llena al escanear"
-          @input="updateField('documentNumber', $event.target.value)"
-        />
-      </label>
+          <label>
+            Tipo de documento
+            <input :value="props.form.licenseType || props.form.documentType" type="text" readonly />
+          </label>
 
-      <label v-if="isCrewRole">
-        Tipo de licencia
-        <input
-          :value="props.form.licenseType"
-          type="text"
-          placeholder="Licencia de sobrecargo"
-          @input="updateField('licenseType', $event.target.value)"
-        />
-      </label>
+          <label>
+            Categoria / cargo
+            <input :value="props.form.licenseCategory" type="text" placeholder="Pendiente por detectar" readonly />
+          </label>
 
-      <label v-if="isCrewRole">
-        Categoria / cargo
-        <input
-          :value="props.form.licenseCategory"
-          type="text"
-          placeholder="Sobrecargo ejecutivo"
-          @input="updateField('licenseCategory', $event.target.value)"
-        />
-      </label>
+          <label>
+            Fecha de emision
+            <input :value="formatDisplayDate(props.form.documentIssueDate)" type="text" readonly />
+          </label>
 
-      <label v-if="isCrewRole">
-        Fecha de emision
-        <input
-          :value="props.form.documentIssueDate"
-          type="date"
-          @input="updateField('documentIssueDate', $event.target.value)"
-        />
-      </label>
+          <label>
+            Fecha de vencimiento / vigencia
+            <input :value="formatDisplayDate(props.form.documentExpiration)" type="text" readonly />
+          </label>
 
-      <label>
-        {{ isCrewRole ? 'Fecha de vencimiento / vigencia' : 'Vigencia' }}
-        <input
-          :value="props.form.documentExpiration"
-          type="date"
-          @input="updateField('documentExpiration', $event.target.value)"
-        />
-        <small>Si no se detecta al escanear, puedes capturarla manualmente.</small>
-      </label>
+          <label>
+            Pais emisor del documento
+            <input :value="props.form.issuingCountry" type="text" placeholder="Pendiente por detectar" readonly />
+          </label>
 
-      <label v-if="isCrewRole">
-        Pais emisor
-        <input
-          :value="props.form.issuingCountry"
-          type="text"
-          placeholder="Mexico"
-          @input="updateField('issuingCountry', $event.target.value)"
-        />
-      </label>
+          <label>
+            Fecha de nacimiento
+            <input
+              :value="props.form.birthDate"
+              type="date"
+              @input="updateField('birthDate', $event.target.value)"
+            />
+          </label>
 
-      <label v-if="isCrewRole">
-        Estado del documento
-        <input :value="props.form.documentStatus" type="text" readonly />
-      </label>
+          <label>
+            Nacionalidad del titular
+            <input
+              :value="props.form.nationality"
+              type="text"
+              placeholder="Pendiente por detectar"
+              @input="updateField('nationality', $event.target.value)"
+            />
+          </label>
 
-      <label class="checkbox-field">
-        <input
-          :checked="props.form.identityValidationRequired"
-          type="checkbox"
-          @change="updateField('identityValidationRequired', $event.target.checked)"
-        />
-        <span>Requiere validar identidad con foto del documento</span>
-      </label>
-    </div>
+          <label>
+            Estado del documento
+            <input :value="props.form.documentStatus" type="text" readonly />
+          </label>
 
-    <section class="scan-results">
-      <p class="eyebrow">Datos detectados y editables</p>
-      <div class="scan-result-grid">
-        <label>
-          Nombre completo
+          <label class="airport-field">
+            Base del sobrecargo
+            <input
+              :value="props.form.base"
+              type="text"
+              placeholder="Selecciona aeropuerto base"
+              autocomplete="off"
+              @focus="scheduleAirportSearch(props.form.base)"
+              @blur="window.setTimeout(closeAirportOptions, 120)"
+              @input="handleBaseInput"
+            />
+            <div
+              v-if="airportLoading || (airportOptionsOpen && airportSuggestions.length)"
+              class="airport-options"
+            >
+              <span v-if="airportLoading">Buscando aeropuertos...</span>
+              <button
+                v-for="airport in airportSuggestions"
+                v-else
+                :key="`${airport.code}-${airport.iata}-${airport.name}`"
+                type="button"
+                @mousedown.prevent="selectBaseAirport(airport)"
+              >
+                {{ formatAirportOption(airport) }}
+              </button>
+            </div>
+          </label>
+        </div>
+
+        <label class="checkbox-field">
           <input
-            :value="props.form.name"
-            type="text"
-            placeholder="Se completa al detectar nombre"
-            @input="updateField('name', $event.target.value)"
+            :checked="props.form.identityValidationRequired"
+            type="checkbox"
+            @change="updateField('identityValidationRequired', $event.target.checked)"
           />
+          <span>Requiere validar identidad con foto del documento</span>
         </label>
-        <label>
-          Fecha de nacimiento
-          <input
-            :value="props.form.birthDate"
-            type="date"
-            @input="updateField('birthDate', $event.target.value)"
-          />
+      </section>
+
+    </template>
+
+    <template v-else>
+      <div class="file-grid">
+        <label class="file-card">
+          <span>{{ activeDocumentFrontLabel }}</span>
+          <strong>{{ props.form.ineFrontName || 'Subir archivo' }}</strong>
+          <input type="file" accept="image/*" @change="handleIneFileSelected('ineFront', $event)" />
         </label>
-        <label>
-          Nacionalidad
-          <input
-            :value="props.form.nationality"
-            type="text"
-            placeholder="Mexicana"
-            @input="updateField('nationality', $event.target.value)"
-          />
-        </label>
-        <label v-if="!isCrewRole">
-          CURP
-          <input
-            :value="props.form.ineCurp"
-            type="text"
-            placeholder="Captura CURP si no se detecto"
-            @input="updateField('ineCurp', $event.target.value)"
-          />
+
+        <label class="file-card">
+          <span>{{ activeDocumentBackLabel }}</span>
+          <strong>{{ props.form.ineBackName || 'Subir archivo' }}</strong>
+          <input type="file" accept="image/*" @change="handleIneFileSelected('ineBack', $event)" />
         </label>
       </div>
-      <p v-if="!hasDetectedEditableData(props.form) && !scanMessage" class="scan-message">
-        Aun no hay datos detectados. Sube frente y reverso, despues presiona escanear.
-      </p>
-      <p v-if="scanMessage" class="scan-message">{{ scanMessage }}</p>
-    </section>
+
+      <button
+        type="button"
+        class="scan-button"
+        :disabled="scanning || props.form.documentType !== 'INE'"
+        @click="scanIne(props.form)"
+      >
+        {{ scanning ? activeScanningLabel : activeScanButtonLabel }}
+      </button>
+
+      <div class="form-grid">
+        <label>
+          Identificacion
+          <select
+            :value="props.form.documentType"
+            @change="updateField('documentType', $event.target.value)"
+          >
+            <option value="INE">INE</option>
+            <option value="Pasaporte">Pasaporte</option>
+          </select>
+        </label>
+
+        <label>
+          Numero de documento
+          <input
+            :value="props.form.documentNumber"
+            type="text"
+            placeholder="Se llena al escanear"
+            @input="updateField('documentNumber', $event.target.value)"
+          />
+        </label>
+
+        <label>
+          Vigencia
+          <input
+            :value="props.form.documentExpiration"
+            type="date"
+            @input="updateField('documentExpiration', $event.target.value)"
+          />
+          <small>Si no se detecta al escanear, puedes capturarla manualmente.</small>
+        </label>
+
+        <label class="checkbox-field">
+          <input
+            :checked="props.form.identityValidationRequired"
+            type="checkbox"
+            @change="updateField('identityValidationRequired', $event.target.checked)"
+          />
+          <span>Requiere validar identidad con foto del documento</span>
+        </label>
+      </div>
+
+      <section class="scan-results">
+        <p class="eyebrow">Datos detectados y editables</p>
+        <div class="scan-result-grid">
+          <label>
+            Nombre completo
+            <input
+              :value="props.form.name"
+              type="text"
+              placeholder="Se completa al detectar nombre"
+              @input="updateField('name', $event.target.value)"
+            />
+          </label>
+          <label>
+            Fecha de nacimiento
+            <input
+              :value="props.form.birthDate"
+              type="date"
+              @input="updateField('birthDate', $event.target.value)"
+            />
+          </label>
+          <label>
+            Nacionalidad
+            <input
+              :value="props.form.nationality"
+              type="text"
+              placeholder="Mexicana"
+              @input="updateField('nationality', $event.target.value)"
+            />
+          </label>
+          <label>
+            CURP
+            <input
+              :value="props.form.ineCurp"
+              type="text"
+              placeholder="Captura CURP si no se detecto"
+              @input="updateField('ineCurp', $event.target.value)"
+            />
+          </label>
+        </div>
+        <p v-if="!hasDetectedEditableData(props.form) && !scanMessage" class="scan-message">
+          Aun no hay datos detectados. Sube frente y reverso, despues presiona escanear.
+        </p>
+        <p v-if="scanMessage" class="scan-message">{{ scanMessage }}</p>
+      </section>
+    </template>
 
     <section v-if="!isCrewRole" class="verification-panel">
       <div class="verification-head">
@@ -979,3 +1158,45 @@ onBeforeUnmount(() => {
     </section>
   </div>
 </template>
+
+<style scoped>
+.airport-field {
+  position: relative;
+}
+
+.airport-options {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.45rem;
+  border: 1px solid rgba(16, 22, 28, 0.08);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 18px 42px rgba(16, 22, 28, 0.12);
+}
+
+.airport-options span {
+  padding: 0.8rem 0.95rem;
+  color: #75685d;
+  font-size: 0.94rem;
+}
+
+.airport-options button {
+  border: 0;
+  background: transparent;
+  border-radius: 14px;
+  padding: 0.8rem 0.95rem;
+  text-align: left;
+  font: inherit;
+  color: #181312;
+  cursor: pointer;
+}
+
+.airport-options button:hover {
+  background: rgba(191, 150, 56, 0.08);
+}
+</style>

@@ -1,10 +1,12 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
+import { resolveWorkflowState } from '../../utils/flightWorkflow'
 
 const props = defineProps({
   crewMembers: { type: Array, required: true },
   operations: { type: Array, required: true },
   auditEntries: { type: Array, required: true },
+  viewMode: { type: String, default: 'review' },
 })
 
 const emit = defineEmits([
@@ -19,7 +21,7 @@ const activeTab = ref('validation')
 const selectedCrewId = ref(null)
 const selectedOperationId = ref(null)
 const selectedAuditId = ref(null)
-const actionMode = ref('')
+const detailModalOpen = ref(false)
 const searchTerm = ref('')
 const statusFilter = ref('all')
 const baseFilter = ref('all')
@@ -28,6 +30,7 @@ const certificationFilter = ref('all')
 const availabilityFilter = ref('all')
 const validationNotes = reactive({})
 const assignmentDrafts = reactive({})
+let hasInitializedViewMode = false
 
 const pendingValidationTokens = ['pend', 'revision', 'cambio', 'valid']
 
@@ -43,8 +46,44 @@ function includesAny(value = '', tokens = []) {
   return tokens.some((token) => normalized.includes(token))
 }
 
-function toneClass(value = '') {
+function normalizeOperationalState(value = '') {
   const normalized = normalizeToken(value)
+  if (!normalized) return ''
+  if (['available', 'active', 'activo', 'disponible'].includes(normalized)) return 'Disponible'
+  if (['rest', 'descanso'].includes(normalized)) return 'Descanso'
+  if (['en vuelo', 'in flight', 'vuelo'].includes(normalized)) return 'En vuelo'
+  if (['assigned', 'asignado'].includes(normalized)) return 'Asignado'
+  if (normalized.includes('suspend') || normalized.includes('bloq') || normalized.includes('block')) return 'Suspendido'
+  if (['inactive', 'inactivo', 'unavailable', 'no disponible'].includes(normalized)) return 'No disponible'
+  return value
+}
+
+function toneClass(value = '') {
+  const normalized = normalizeToken(normalizeOperationalState(value) || value)
+
+  if (
+    normalized.includes('no disponible') ||
+    normalized.includes('rech') ||
+    normalized.includes('suspend') ||
+    normalized.includes('bloq') ||
+    normalized.includes('block') ||
+    normalized.includes('alert')
+  ) {
+    return 'chip-danger'
+  }
+
+  if (normalized.includes('descanso') || normalized.includes('rest')) {
+    return 'chip-warning'
+  }
+
+  if (
+    normalized.includes('asignad') ||
+    normalized.includes('operacion') ||
+    normalized.includes('vuelo') ||
+    normalized.includes('tracking')
+  ) {
+    return 'chip-info'
+  }
 
   if (
     normalized.includes('pend') ||
@@ -59,27 +98,10 @@ function toneClass(value = '') {
     normalized.includes('aprob') ||
     normalized.includes('confirm') ||
     normalized.includes('completa') ||
-    normalized.includes('disponible')
+    normalized.includes('disponible') ||
+    normalized.includes('activo')
   ) {
     return 'chip-success'
-  }
-
-  if (
-    normalized.includes('rech') ||
-    normalized.includes('suspend') ||
-    normalized.includes('bloq') ||
-    normalized.includes('alert')
-  ) {
-    return 'chip-danger'
-  }
-
-  if (
-    normalized.includes('asignad') ||
-    normalized.includes('operacion') ||
-    normalized.includes('vuelo') ||
-    normalized.includes('tracking')
-  ) {
-    return 'chip-info'
   }
 
   return 'chip-neutral'
@@ -105,10 +127,32 @@ function formatDate(value) {
   }).format(date)
 }
 
+function formatShortDate(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 10)
+  return new Intl.DateTimeFormat('es-MX', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(date)
+}
+
 function ratingNumber(value = '') {
   const parsed = Number.parseFloat(String(value || '').replace(/[^\d.]/g, ''))
   return Number.isFinite(parsed) ? parsed : 0
 }
+
+const normalizedCrewLookup = computed(() => {
+  const map = new Map()
+  props.crewMembers.forEach((member) => {
+    const id = String(member.id || '').trim()
+    const name = normalizeToken(member.name || '')
+    if (id) map.set(`id:${id}`, member)
+    if (name) map.set(`name:${name}`, member)
+  })
+  return map
+})
 
 const operationAssignments = computed(() => {
   const map = new Map()
@@ -127,19 +171,25 @@ function crewOperation(member = {}) {
   return operationAssignments.value.get(`name:${normalizeToken(member.name || '')}`) || null
 }
 
+function operationCrewMember(operation = {}) {
+  const byId = normalizedCrewLookup.value.get(`id:${String(operation.crewId || '').trim()}`)
+  if (byId) return byId
+  return normalizedCrewLookup.value.get(`name:${normalizeToken(operation.crew || '')}`) || null
+}
+
 function crewValidationState(member = {}) {
-  return member.profileState || member.validationStatus || 'Pendiente'
+  return member.profileState || member.validationStatus || ''
 }
 
 function crewOperationalState(member = {}) {
-  return member.state || 'Disponible'
+  return normalizeOperationalState(member.state || member.operationalState || '')
 }
 
 function certificationLabel(member = {}) {
   const raw = member.certifications || member.documentsSummary || ''
   const normalized = normalizeToken(raw)
 
-  if (!normalized) return 'Sin expediente'
+  if (!normalized) return ''
   if (normalized.includes('venc')) return 'Certificaciones vencidas'
   if (normalized.includes('complet') || normalized.includes('vigent')) return 'Expediente completo'
   if (normalized.includes('pend')) return 'Expediente incompleto'
@@ -156,15 +206,21 @@ function isCrewPendingValidation(member = {}) {
 }
 
 function isCrewSuspended(member = {}) {
-  return includesAny(crewOperationalState(member), ['suspend', 'bloq'])
+  return normalizeOperationalState(crewOperationalState(member)) === 'Suspendido'
 }
 
 function isCrewAssigned(member = {}) {
-  return Boolean(crewOperation(member))
+  const operationalState = normalizeOperationalState(crewOperationalState(member))
+  return Boolean(crewOperation(member)) || operationalState === 'Asignado' || operationalState === 'En vuelo'
 }
 
 function isCrewAvailableToday(member = {}) {
-  return isCrewApproved(member) && !isCrewSuspended(member) && !isCrewAssigned(member)
+  return (
+    isCrewApproved(member) &&
+    !isCrewSuspended(member) &&
+    !isCrewAssigned(member) &&
+    normalizeOperationalState(crewOperationalState(member)) === 'Disponible'
+  )
 }
 
 function buildCrewAlerts(member = {}) {
@@ -178,7 +234,11 @@ function buildCrewAlerts(member = {}) {
   }
   if (!String(member.base || '').trim()) alerts.push('Sin base asignada')
   if (isCrewSuspended(member)) alerts.push('Sobrecargo suspendido')
-  if (!isCrewAvailableToday(member) && !isCrewAssigned(member) && isCrewApproved(member)) {
+  if (
+    ['No disponible', 'Descanso'].includes(normalizeOperationalState(crewOperationalState(member))) &&
+    !isCrewAssigned(member) &&
+    isCrewApproved(member)
+  ) {
     alerts.push('No disponible hoy')
   }
 
@@ -304,8 +364,46 @@ const availableQueue = computed(() =>
 )
 
 const approvedCrew = computed(() =>
-  filteredCrewMembers.value.filter((member) => member.isApproved && !member.isSuspended),
+  filteredCrewMembers.value.filter((member) => member.isAvailableToday),
 )
+
+function isCrewAssignableToOperation(member = {}, operation = {}) {
+  const validationState = normalizeToken(crewValidationState(member))
+  const hasExplicitValidationState = Boolean(validationState)
+  const hasBlockedValidationState =
+    validationState.includes('rech') ||
+    validationState.includes('pend') ||
+    validationState.includes('suspend')
+
+  if (hasBlockedValidationState || isCrewSuspended(member)) return false
+  if (hasExplicitValidationState && !isCrewApproved(member)) return false
+
+  const assignedOperationId = Number(member.assignedOperation?.id || 0)
+  const targetOperationId = Number(operation.id || 0)
+
+  if (assignedOperationId && assignedOperationId !== targetOperationId) {
+    return false
+  }
+
+  return member.isAvailableToday || assignedOperationId === targetOperationId
+}
+
+function assignableCrewMembers(operation = {}) {
+  const strictMatches = normalizedCrewMembers.value.filter((member) => isCrewAssignableToOperation(member, operation))
+
+  if (strictMatches.length) {
+    return strictMatches
+  }
+
+  return normalizedCrewMembers.value.filter((member) => {
+    if (isCrewSuspended(member)) return false
+
+    const assignedOperationId = Number(member.assignedOperation?.id || 0)
+    const targetOperationId = Number(operation.id || 0)
+
+    return !assignedOperationId || assignedOperationId === targetOperationId
+  })
+}
 
 const assignedOperations = computed(() =>
   [...props.operations]
@@ -330,16 +428,25 @@ const summaryCards = computed(() => [
   { label: 'Disponibles hoy', value: availableQueue.value.length, tone: 'neutral' },
 ])
 
-const tabs = computed(() => [
-  { id: 'validation', label: 'Validacion', count: validationQueue.value.length },
-  { id: 'available', label: 'Disponibles', count: availableQueue.value.length },
-  { id: 'assigned', label: 'Asignados', count: assignedOperations.value.length },
-  { id: 'audit', label: 'Auditoria', count: auditQueue.value.length },
-])
+const isOperationsView = computed(() => props.viewMode === 'operations')
+const tabs = computed(() =>
+  isOperationsView.value
+    ? [
+        { id: 'validation', label: 'Sobrecargos', count: filteredCrewMembers.value.length },
+        { id: 'assigned', label: 'Vuelos', count: assignedOperations.value.length },
+        { id: 'audit', label: 'Bitacora', count: auditQueue.value.length },
+      ]
+    : [
+        { id: 'validation', label: 'Sobrecargos', count: filteredCrewMembers.value.length },
+        { id: 'available', label: 'Disponibles', count: availableQueue.value.length },
+        { id: 'assigned', label: 'Asignados', count: assignedOperations.value.length },
+        { id: 'audit', label: 'Auditoria', count: auditQueue.value.length },
+      ],
+)
 
 const activeCrewQueue = computed(() => {
   if (activeTab.value === 'available') return availableQueue.value
-  if (activeTab.value === 'validation') return validationQueue.value
+  if (activeTab.value === 'validation') return filteredCrewMembers.value
   return []
 })
 
@@ -366,6 +473,8 @@ watch(
         assignmentDrafts[operation.id] = {
           crewId: operation.crewId || '',
           note: '',
+          presentationTime: operation.briefingTime || '',
+          presentationPlace: operation.presentationPlace || '',
         }
       }
     })
@@ -416,12 +525,35 @@ watch(
 )
 
 watch(activeTab, () => {
-  actionMode.value = ''
+  detailModalOpen.value = false
 })
+
+watch(
+  () => props.viewMode,
+  (mode) => {
+    if (!hasInitializedViewMode) {
+      activeTab.value = mode === 'operations' ? 'assigned' : 'validation'
+      hasInitializedViewMode = true
+      return
+    }
+
+    if (mode === 'operations') {
+      if (!['validation', 'assigned', 'audit'].includes(activeTab.value)) {
+        activeTab.value = 'assigned'
+      }
+      return
+    }
+
+    if (!['validation', 'available', 'assigned', 'audit'].includes(activeTab.value)) {
+      activeTab.value = 'validation'
+    }
+  },
+  { immediate: true },
+)
 
 function getDraft(operationId) {
   if (!assignmentDrafts[operationId]) {
-    assignmentDrafts[operationId] = { crewId: '', note: '' }
+    assignmentDrafts[operationId] = { crewId: '', note: '', presentationTime: '', presentationPlace: '' }
   }
   return assignmentDrafts[operationId]
 }
@@ -438,8 +570,29 @@ function selectAudit(entryId) {
   selectedAuditId.value = entryId
 }
 
-function setActionMode(mode = '') {
-  actionMode.value = actionMode.value === mode ? '' : mode
+function openCrewDetail(memberId) {
+  selectCrew(memberId)
+  detailModalOpen.value = true
+}
+
+function openOperationDetail(operationId) {
+  selectOperation(operationId)
+  detailModalOpen.value = true
+}
+
+function openAuditDetail(entryId) {
+  selectAudit(entryId)
+  detailModalOpen.value = true
+}
+
+function closeDetailModal() {
+  detailModalOpen.value = false
+}
+
+function handlePrimaryAction(mode) {
+  if (!selectedCrew.value) return
+  submitCrewAction(mode)
+  closeDetailModal()
 }
 
 function submitCrewAction(mode) {
@@ -472,49 +625,164 @@ function submitCrewAction(mode) {
 
 function submitAssignment(operationId) {
   const draft = getDraft(operationId)
+  const operation = props.operations.find((item) => item.id === operationId)
+  const selectedCrewMember = normalizedCrewMembers.value.find((item) => Number(item.id) === Number(draft.crewId || 0))
+
+  if (!operation || isOperationClosed(operation) || !canAssignCrew(operation) || !draft.crewId || !selectedCrewMember) return
+  if (!isCrewAssignableToOperation(selectedCrewMember, operation)) return
+
   emit('assign-crew', {
     operationId,
     crewId: Number(draft.crewId || 0),
-    note: draft.note || '',
+    note: [
+      draft.presentationTime ? `Presentacion ${draft.presentationTime}` : '',
+      draft.presentationPlace ? `Lugar ${draft.presentationPlace}` : '',
+      draft.note || '',
+    ].filter(Boolean).join(' · '),
   })
 }
 
 function assignmentUrgency(operation = {}) {
   return String(operation.crew || operation.crewId || '').trim() ? 'Confirmado' : 'Urgente'
 }
+
+function formatDisplayDate(value) {
+  if (!value) return ''
+  const normalized = String(value).includes('T') ? String(value) : `${value}T08:00`
+  const date = new Date(normalized)
+  if (Number.isNaN(date.getTime())) return String(value)
+
+  return new Intl.DateTimeFormat('es-MX', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(date)
+}
+
+function formatDateTime(value) {
+  if (!value) return 'Por definir'
+  const normalized = String(value).includes('T') ? String(value) : `${value}T08:00`
+  const date = new Date(normalized)
+  if (Number.isNaN(date.getTime())) return String(value)
+
+  return new Intl.DateTimeFormat('es-MX', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
+}
+
+function operationStatusLabel(operation = {}) {
+  return operation.workflowStatus || operation.status || 'Pendiente'
+}
+
+function operationCrewStateLabel(operation = {}) {
+  const linkedCrew = operationCrewMember(operation)
+  if (linkedCrew) return humanizeStatus(linkedCrew.state || linkedCrew.operationalState || '')
+  if (operation.crewOperationalState) return humanizeStatus(operation.crewOperationalState)
+  return String(operation.crew || operation.crewId || '').trim() ? 'Asignada' : 'Pendiente'
+}
+
+function operationIncidentLabel(operation = {}) {
+  return operation.incidentsLabel || (operation.incidentsCount ? `${operation.incidentsCount} incidencia(s)` : 'Sin incidencias')
+}
+
+function canAssignCrew(operation = {}) {
+  return resolveWorkflowState(operation.workflowStatus || operation.status || '').id === 'tracking_live'
+}
+
+function isOperationClosed(operation = {}) {
+  const normalized = normalizeToken(operation.workflowStatus || operation.status || '')
+  return normalized.includes('cancel') || normalized.includes('finaliz') || normalized.includes('cerrad') || normalized.includes('closed')
+}
+
+const operationFlowLabels = [
+  'Asignada',
+  'Confirmada por sobrecargo',
+  'En aeropuerto/base',
+  'Cabina revisada',
+  'Pasajeros recibidos',
+  'En vuelo',
+  'Escala / siguiente tramo',
+  'Reporte enviado',
+  'Cierre admin',
+]
+
+function operationFlowIndex(operation = {}) {
+  const normalized = normalizeToken(operation.workflowStatus || operation.status || operationCrewStateLabel(operation))
+  if (normalized.includes('cancel')) return 0
+  if (normalized.includes('finaliz') || normalized.includes('cerrad')) return 8
+  if (normalized.includes('reporte')) return 7
+  if (normalized.includes('escala')) return 6
+  if (normalized.includes('vuelo') || normalized.includes('service')) return 5
+  if (normalized.includes('pasaj')) return 4
+  if (normalized.includes('cabina') || normalized.includes('catering')) return 3
+  if (normalized.includes('aeropuerto') || normalized.includes('base') || normalized.includes('briefing') || normalized.includes('prepar')) return 2
+  if (normalizeToken(operationCrewStateLabel(operation)).includes('confirm')) return 1
+  return String(operation.crew || operation.crewId || '').trim() ? 0 : 0
+}
+
+function operationFlowSteps(operation = {}) {
+  const activeIndex = operationFlowIndex(operation)
+  return operationFlowLabels.map((label, index) => ({
+    label,
+    done: index <= activeIndex,
+    active: index === activeIndex,
+  }))
+}
+
+function humanizeStatus(value = '') {
+  const normalizedState = normalizeOperationalState(value)
+  if (normalizedState) return normalizedState
+  const normalized = normalizeToken(value)
+  if (!normalized) return ''
+  if (normalized === 'active') return 'Activo'
+  if (normalized === 'activo') return 'Activo'
+  if (normalized === 'blocked') return 'Bloqueado'
+  if (normalized === 'pending') return 'Pendiente'
+  if (normalized === 'approved') return 'Aprobado'
+  if (normalized === 'rejected') return 'Rechazado'
+  if (normalized === 'suspended') return 'Suspendido'
+  if (normalized === 'available') return 'Disponible'
+  if (normalized === 'inactive') return 'Inactivo'
+  if (normalized === 'no disponible') return 'No disponible'
+  return value
+}
+
+function fallbackLabel(value = '', emptyLabel = 'Sin asignar') {
+  return String(value || '').trim() || emptyLabel
+}
+
+function hasOperationalGap(member = {}) {
+  return !String(member.base || '').trim() || !String(member.providerName || '').trim()
+}
+
+function isOperationallyBlocked(member = {}) {
+  const normalized = normalizeToken(member.operationalState || '')
+  return normalized.includes('bloq') || normalized.includes('suspend') || normalized.includes('block')
+}
+
+function showApprovalBlockedNote(member = {}) {
+  return includesAny(member.validationState, ['aprob']) && isOperationallyBlocked(member)
+}
 </script>
 
 <template>
   <section class="crew-admin-page">
-    <article class="surface hero-card">
-      <div class="hero-copy">
-        <p class="eyebrow">Sobrecargos</p>
-        <h2>Mesa operativa de validacion y asignacion</h2>
-        <p class="muted">
-          Admin centraliza validacion, disponibilidad, asignacion por vuelo y auditoria en una
-          sola mesa de control compacta.
-        </p>
-      </div>
-
-      <div class="hero-metrics">
-        <article
-          v-for="card in summaryCards"
-          :key="card.label"
-          class="metric-card"
-          :class="`metric-card--${card.tone}`"
-        >
-          <span>{{ card.label }}</span>
-          <strong>{{ card.value }}</strong>
-        </article>
-      </div>
-    </article>
-
     <article class="surface section-card workspace-card">
       <div class="section-head workspace-head">
         <div>
           <p class="eyebrow">Centro de despacho</p>
-          <h3>Sobrecargos operativos</h3>
-          <p class="muted">Lista compacta, filtros rapidos y panel de detalle para operar con velocidad.</p>
+          <h3>{{ isOperationsView ? 'Operaciones con sobrecargo' : 'Sobrecargos operativos' }}</h3>
+          <p class="muted">
+            {{
+              isOperationsView
+                ? 'Vista separada para seleccionar vuelo, asignar sobrecargo y seguir la trazabilidad operativa.'
+                : 'Lista compacta, filtros rapidos y panel de detalle para operar con velocidad.'
+            }}
+          </p>
         </div>
 
         <div class="tabs-strip" role="tablist" aria-label="Procesos de sobrecargos">
@@ -592,11 +860,11 @@ function assignmentUrgency(operation = {}) {
           <div v-if="activeTab === 'validation' || activeTab === 'available'" class="table-shell">
             <div class="table-head">
               <div>
-                <p class="eyebrow">{{ activeTab === 'validation' ? 'Validacion' : 'Disponibles' }}</p>
+                <p class="eyebrow">{{ activeTab === 'validation' ? 'Sobrecargos' : 'Disponibles' }}</p>
                 <h4>
                   {{
                     activeTab === 'validation'
-                      ? 'Cola de sobrecargos por revisar'
+                      ? 'Lista completa de sobrecargos'
                       : 'Sobrecargos listos para asignarse'
                   }}
                 </h4>
@@ -627,31 +895,31 @@ function assignmentUrgency(operation = {}) {
                     <td>
                       <div class="table-primary">
                         <strong>{{ member.name }}</strong>
-                        <small>{{ member.base || 'Sin base' }}</small>
+                        <small v-if="member.base">{{ member.base }}</small>
                       </div>
                     </td>
-                    <td>{{ member.providerName || 'Sin ligar' }}</td>
+                    <td>{{ member.providerName || '' }}</td>
                     <td>
                       <div class="status-stack-inline">
-                        <span class="status-chip" :class="toneClass(member.validationState)">
+                        <span v-if="member.validationState" class="status-chip" :class="toneClass(member.validationState)">
                           {{ member.validationState }}
                         </span>
-                        <span class="status-chip" :class="toneClass(member.operationalState)">
+                        <span v-if="member.operationalState" class="status-chip" :class="toneClass(member.operationalState)">
                           {{ member.operationalState }}
                         </span>
                       </div>
                     </td>
                     <td>
-                      <span class="status-chip" :class="certificationTone(member.certificationStatus)">
+                      <span v-if="member.certificationStatus" class="status-chip" :class="certificationTone(member.certificationStatus)">
                         {{ member.certificationStatus }}
                       </span>
                     </td>
-                    <td>{{ member.rating || 'N/D' }}</td>
-                    <td>{{ member.lastAudit || 'Sin auditoria' }}</td>
+                    <td>{{ member.rating || '' }}</td>
+                    <td>{{ formatShortDate(member.lastAudit) || '' }}</td>
                     <td>
                       <div class="row-action-pack">
                         <span v-if="member.alertsCount" class="mini-alert">{{ member.alertsCount }} alerta(s)</span>
-                        <button type="button" class="ghost-button ghost-button--sm" @click.stop="selectCrew(member.id)">
+                        <button type="button" class="ghost-button ghost-button--sm" @click.stop="openCrewDetail(member.id)">
                           Revisar
                         </button>
                       </div>
@@ -679,12 +947,17 @@ function assignmentUrgency(operation = {}) {
               <table class="queue-table queue-table--ops">
                 <thead>
                   <tr>
-                    <th>Vuelo</th>
+                    <th>Folio</th>
                     <th>Ruta</th>
                     <th>Fecha</th>
+                    <th>Aeronave</th>
                     <th>Cliente</th>
-                    <th>Sobrecargo asignado</th>
-                    <th>Estado</th>
+                    <th>Sobrecargo</th>
+                    <th>Estado crew</th>
+                    <th>Estado operacion</th>
+                    <th>Presentacion</th>
+                    <th>Catering</th>
+                    <th>Incidencias</th>
                     <th>Asignar</th>
                     <th>Accion</th>
                   </tr>
@@ -698,31 +971,54 @@ function assignmentUrgency(operation = {}) {
                   >
                     <td>
                       <div class="table-primary">
-                        <strong>RA-{{ operation.id }}</strong>
-                        <small>{{ operation.aircraft || 'Aeronave por definir' }}</small>
+                        <strong>{{ operation.folio || `RA-${operation.id}` }}</strong>
+                        <small>{{ operation.requestId ? `Reserva / solicitud #${operation.requestId}` : 'Sin referencia' }}</small>
                       </div>
                     </td>
                     <td>{{ operation.route }}</td>
-                    <td>{{ formatDate(operation.departure) }}</td>
+                    <td>{{ formatDateTime(operation.departure) }}</td>
+                    <td>{{ operation.aircraft || 'Aeronave por definir' }}</td>
                     <td>{{ operation.clientName || 'Cliente por confirmar' }}</td>
                     <td>{{ operation.crew || 'Pendiente asignar' }}</td>
                     <td>
-                      <span class="status-chip" :class="toneClass(assignmentUrgency(operation))">
-                        {{ assignmentUrgency(operation) }}
+                      <span class="status-chip" :class="toneClass(operationCrewStateLabel(operation))">
+                        {{ operationCrewStateLabel(operation) }}
                       </span>
                     </td>
+                    <td>
+                      <span class="status-chip" :class="toneClass(operationStatusLabel(operation))">
+                        {{ operationStatusLabel(operation) }}
+                      </span>
+                    </td>
+                    <td>{{ operation.briefingTime || operation.presentationPlace || 'Por definir' }}</td>
+                    <td>{{ operation.catering || 'Sin dato' }}</td>
+                    <td>{{ operationIncidentLabel(operation) }}</td>
                     <td @click.stop>
-                      <select v-model="getDraft(operation.id).crewId" class="compact-field">
+                      <select
+                        v-model="getDraft(operation.id).crewId"
+                        class="compact-field"
+                        :disabled="isOperationClosed(operation) || !canAssignCrew(operation)"
+                      >
                         <option value="">Selecciona</option>
-                        <option v-for="member in approvedCrew" :key="member.id" :value="member.id">
+                        <option v-for="member in assignableCrewMembers(operation)" :key="member.id" :value="member.id">
                           {{ member.name }} · {{ member.base || 'Sin base' }}
                         </option>
                       </select>
                     </td>
                     <td @click.stop>
-                      <button type="button" class="primary-action primary-action--sm" @click="submitAssignment(operation.id)">
-                        Asignar
-                      </button>
+                      <div class="row-action-pack">
+                        <button type="button" class="ghost-button ghost-button--sm" @click="openOperationDetail(operation.id)">
+                          Ver
+                        </button>
+                        <button
+                          type="button"
+                          class="primary-action primary-action--sm"
+                          :disabled="isOperationClosed(operation) || !canAssignCrew(operation)"
+                          @click="submitAssignment(operation.id)"
+                        >
+                          Asignar
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 </tbody>
@@ -764,7 +1060,7 @@ function assignmentUrgency(operation = {}) {
                     <td><strong>{{ entry.title }}</strong></td>
                     <td class="detail-cell">{{ entry.detail }}</td>
                     <td>
-                      <button type="button" class="ghost-button ghost-button--sm" @click.stop="selectAudit(entry.id)">
+                      <button type="button" class="ghost-button ghost-button--sm" @click.stop="openAuditDetail(entry.id)">
                         Ver
                       </button>
                     </td>
@@ -778,51 +1074,181 @@ function assignmentUrgency(operation = {}) {
             </p>
           </div>
         </div>
+      </div>
 
-        <aside class="surface detail-panel">
+      <div v-if="detailModalOpen" class="detail-modal-backdrop" @click.self="closeDetailModal">
+        <section class="surface detail-modal" role="dialog" aria-modal="true" aria-label="Detalle de sobrecargo">
+          <button type="button" class="detail-modal-close button-reset" aria-label="Cerrar detalle" @click="closeDetailModal">
+            <span></span>
+            <span></span>
+          </button>
+
           <template v-if="(activeTab === 'validation' || activeTab === 'available') && selectedCrew">
-            <div class="section-head detail-head">
+            <div class="section-head detail-head detail-head--modal">
               <div>
-                <p class="eyebrow">Panel de detalle</p>
+                <p class="eyebrow">Expediente administrativo</p>
                 <h3>{{ selectedCrew.name }}</h3>
+                <p class="muted">Revisa el expediente y decide sin salir de la mesa de validación.</p>
               </div>
               <div class="status-stack">
                 <span class="status-chip" :class="toneClass(selectedCrew.validationState)">
-                  {{ selectedCrew.validationState }}
+                  {{ humanizeStatus(selectedCrew.validationState) || 'Pendiente' }}
                 </span>
                 <span class="status-chip" :class="toneClass(selectedCrew.operationalState)">
-                  {{ selectedCrew.operationalState }}
+                  {{ humanizeStatus(selectedCrew.operationalState || (selectedCrew.isAssigned ? 'Asignado' : 'No disponible')) }}
+                </span>
+                <span
+                  class="status-chip"
+                  :class="hasOperationalGap(selectedCrew) ? 'chip-warning' : 'chip-success'"
+                >
+                  {{ String(selectedCrew.base || '').trim() ? `Base ${selectedCrew.base}` : 'Sin base asignada' }}
                 </span>
               </div>
             </div>
 
-            <div class="info-grid">
-              <article class="info-card">
-                <span>Proveedor</span>
-                <strong>{{ selectedCrew.providerName || 'Sin ligar' }}</strong>
+            <article v-if="hasOperationalGap(selectedCrew)" class="detail-callout detail-callout--warning">
+              <strong>Acción requerida</strong>
+              <p>
+                {{
+                  !String(selectedCrew.base || '').trim()
+                    ? 'Este sobrecargo no tiene base asignada. Asigna una base antes de aprobar operaciones.'
+                    : 'Este sobrecargo aún no tiene proveedor ligado. Revisa su relación operativa antes de liberarlo.'
+                }}
+              </p>
+            </article>
+
+            <article v-else-if="showApprovalBlockedNote(selectedCrew)" class="detail-callout detail-callout--info">
+              <strong>Estado combinado</strong>
+              <p>El expediente está aprobado, pero el sobrecargo sigue bloqueado operativamente. Aún no está listo para operar.</p>
+            </article>
+
+            <div class="summary-strip">
+              <span class="summary-chip" :class="toneClass(selectedCrew.validationState)">
+                {{ humanizeStatus(selectedCrew.validationState) || 'Pendiente' }}
+              </span>
+              <span class="summary-chip" :class="toneClass(selectedCrew.operationalState)">
+                {{ humanizeStatus(selectedCrew.operationalState) || 'Sin estado' }}
+              </span>
+              <span class="summary-chip" :class="selectedCrew.identityValidationRequired ? 'chip-warning' : 'chip-neutral'">
+                {{ selectedCrew.identityValidationRequired ? 'ID requerida' : 'ID no requerida' }}
+              </span>
+              <span class="summary-chip" :class="String(selectedCrew.base || '').trim() ? 'chip-success' : 'chip-warning'">
+                {{ String(selectedCrew.base || '').trim() ? `Base ${selectedCrew.base}` : 'Sin base' }}
+              </span>
+            </div>
+
+            <div class="record-sections">
+              <article class="detail-block detail-block--compact">
+                <div class="section-mini-head">
+                  <h4>Contacto</h4>
+                </div>
+                <div class="record-grid">
+                  <div class="record-row record-row--wide">
+                    <span>Correo</span>
+                    <strong>{{ fallbackLabel(selectedCrew.email, 'Sin correo registrado') }}</strong>
+                  </div>
+                  <div class="record-row">
+                    <span>Teléfono</span>
+                    <strong>{{ fallbackLabel(selectedCrew.phone, 'Sin teléfono registrado') }}</strong>
+                  </div>
+                </div>
               </article>
-              <article class="info-card">
-                <span>Base</span>
-                <strong>{{ selectedCrew.base || 'Sin base' }}</strong>
+
+              <article class="detail-block detail-block--compact">
+                <div class="section-mini-head">
+                  <h4>Información operativa</h4>
+                </div>
+                <div class="record-grid">
+                  <div class="record-row">
+                    <span>Proveedor</span>
+                    <strong>{{ fallbackLabel(selectedCrew.providerName, 'Sin asignar') }}</strong>
+                    <small v-if="!selectedCrew.providerName" class="inline-hint inline-hint--warning">Requiere asignación</small>
+                  </div>
+                  <div class="record-row">
+                    <span>Base</span>
+                    <strong>{{ fallbackLabel(selectedCrew.base, 'Sin asignar') }}</strong>
+                    <small v-if="!selectedCrew.base" class="inline-hint inline-hint--warning">Requiere asignación</small>
+                  </div>
+                  <div class="record-row">
+                    <span>Validación administrativa</span>
+                    <strong>{{ humanizeStatus(selectedCrew.validationState) || 'Sin dato' }}</strong>
+                  </div>
+                  <div class="record-row">
+                    <span>Estado operativo</span>
+                    <strong>{{ humanizeStatus(selectedCrew.operationalState) || 'Sin dato' }}</strong>
+                  </div>
+                  <div class="record-row">
+                    <span>Identidad requerida</span>
+                    <strong>{{ selectedCrew.identityValidationRequired ? 'Sí' : 'No' }}</strong>
+                  </div>
+                  <div v-if="selectedCrew.lastAudit" class="record-row">
+                    <span>Última revisión</span>
+                    <strong>{{ formatDisplayDate(selectedCrew.lastAudit) }}</strong>
+                  </div>
+                </div>
               </article>
-              <article class="info-card">
-                <span>Rating</span>
-                <strong>{{ selectedCrew.rating || 'N/D' }}</strong>
+
+              <article v-if="selectedCrew.documentType || selectedCrew.documentNumber || selectedCrew.documentExpiration || selectedCrew.documentStatus || selectedCrew.nationality || selectedCrew.birthDate" class="detail-block detail-block--compact">
+                <div class="section-mini-head">
+                  <h4>Documento y perfil</h4>
+                </div>
+                <div class="record-grid">
+                  <div v-if="selectedCrew.documentType" class="record-row">
+                    <span>Tipo de documento</span>
+                    <strong>{{ selectedCrew.documentType }}</strong>
+                  </div>
+                  <div v-if="selectedCrew.documentStatus" class="record-row">
+                    <span>Estado documental</span>
+                    <strong>{{ humanizeStatus(selectedCrew.documentStatus) }}</strong>
+                  </div>
+                  <div v-if="selectedCrew.documentNumber" class="record-row record-row--wide">
+                    <span>Número de documento</span>
+                    <strong>{{ selectedCrew.documentNumber }}</strong>
+                  </div>
+                  <div v-if="selectedCrew.documentExpiration" class="record-row">
+                    <span>Vigencia</span>
+                    <strong>{{ formatDisplayDate(selectedCrew.documentExpiration) }}</strong>
+                  </div>
+                  <div v-if="selectedCrew.nationality" class="record-row">
+                    <span>Nacionalidad</span>
+                    <strong>{{ selectedCrew.nationality }}</strong>
+                  </div>
+                  <div v-if="selectedCrew.birthDate" class="record-row">
+                    <span>Fecha de nacimiento</span>
+                    <strong>{{ formatDisplayDate(selectedCrew.birthDate) }}</strong>
+                  </div>
+                  <div v-if="selectedCrew.certifications || selectedCrew.documentsSummary" class="record-row record-row--wide">
+                    <span>Certificaciones</span>
+                    <strong>{{ selectedCrew.certifications || selectedCrew.documentsSummary }}</strong>
+                  </div>
+                </div>
               </article>
-              <article class="info-card">
-                <span>Disponibilidad</span>
-                <strong>{{ selectedCrew.isAssigned ? 'Asignada a vuelo' : selectedCrew.isAvailableToday ? 'Disponible hoy' : 'No disponible' }}</strong>
-              </article>
-              <article class="info-card info-card--wide">
-                <span>Certificaciones</span>
-                <strong>{{ selectedCrew.certifications || selectedCrew.documentsSummary || 'Sin expediente visible' }}</strong>
+
+              <article class="detail-block detail-block--compact">
+                <div class="section-mini-head">
+                  <h4>Historial y auditoría</h4>
+                </div>
+                <div class="record-grid">
+                  <div class="record-row">
+                    <span>Última acción</span>
+                    <strong>{{ selectedCrew.lastAudit ? 'Expediente revisado' : 'Sin registro' }}</strong>
+                  </div>
+                  <div class="record-row">
+                    <span>Última revisión</span>
+                    <strong>{{ selectedCrew.lastAudit ? formatDisplayDate(selectedCrew.lastAudit) : 'Pendiente' }}</strong>
+                  </div>
+                  <div class="record-row record-row--wide">
+                    <span>Observaciones</span>
+                    <strong>{{ fallbackLabel(selectedCrew.adminNotes || validationNotes[selectedCrew.id], 'Sin observaciones administrativas') }}</strong>
+                  </div>
+                </div>
               </article>
             </div>
 
-            <article class="detail-block">
+            <article class="detail-block detail-block--compact">
               <div class="section-mini-head">
                 <h4>Alertas</h4>
-                <p>Hallazgos que requieren atencion inmediata para no frenar la operacion.</p>
+                <p>Hallazgos visibles para tomar una decisión rápida.</p>
               </div>
               <div v-if="selectedCrew.alerts.length" class="alerts-stack">
                 <span v-for="alert in selectedCrew.alerts" :key="alert" class="alert-pill">{{ alert }}</span>
@@ -830,40 +1256,24 @@ function assignmentUrgency(operation = {}) {
               <p v-else class="muted">Sin alertas activas. El expediente luce operativo.</p>
             </article>
 
-            <article class="detail-block">
+            <article class="detail-block detail-block--compact">
               <div class="section-mini-head">
-                <h4>Acciones administrativas</h4>
-                <p>Activa observaciones solo cuando audites, rechaces o suspendas.</p>
+                <h4>Observaciones administrativas</h4>
+                <p>Opcional. Se guardan junto con la acción que elijas.</p>
               </div>
-
-              <div class="action-mode-strip">
-                <button type="button" class="ghost-button ghost-button--sm" :class="{ 'ghost-button--active': actionMode === 'audit' }" @click="setActionMode('audit')">
-                  Auditar
-                </button>
-                <button type="button" class="ghost-button ghost-button--sm" :class="{ 'ghost-button--active': actionMode === 'reject' }" @click="setActionMode('reject')">
-                  Rechazar
-                </button>
-                <button type="button" class="ghost-button ghost-button--sm" :class="{ 'ghost-button--active': actionMode === 'suspend' }" @click="setActionMode('suspend')">
-                  Suspender
-                </button>
-                <button type="button" class="primary-action primary-action--sm" @click="submitCrewAction('approve')">
-                  Aprobar
-                </button>
-              </div>
-
-              <label v-if="actionMode" class="field">
+              <label class="field">
                 <span>Observaciones</span>
                 <textarea
                   v-model="validationNotes[selectedCrew.id]"
-                  rows="5"
-                  placeholder="Motivo, hallazgo, instruccion o criterio para documentar la accion"
+                  rows="4"
+                  placeholder="Motivo, hallazgo, instrucción o criterio para documentar la acción"
                 ></textarea>
               </label>
             </article>
 
-            <article v-if="selectedCrew.assignedOperation" class="detail-block">
+            <article v-if="selectedCrew.assignedOperation" class="detail-block detail-block--compact">
               <div class="section-mini-head">
-                <h4>Operacion ligada</h4>
+                <h4>Operación ligada</h4>
                 <p>{{ selectedCrew.assignedOperation.route }}</p>
               </div>
               <p class="muted">
@@ -871,30 +1281,21 @@ function assignmentUrgency(operation = {}) {
               </p>
             </article>
 
-            <div class="detail-actions">
-              <button
-                v-if="actionMode === 'audit'"
-                type="button"
-                class="ghost-button"
-                @click="submitCrewAction('audit')"
-              >
-                Guardar auditoria
+            <div class="detail-actions detail-actions--review">
+              <button type="button" class="ghost-button ghost-button--soft" @click="closeDetailModal">
+                Cerrar
               </button>
-              <button
-                v-if="actionMode === 'reject'"
-                type="button"
-                class="ghost-button"
-                @click="submitCrewAction('reject')"
-              >
-                Confirmar rechazo
+              <button type="button" class="ghost-button ghost-button--neutral" @click="handlePrimaryAction('audit')">
+                Auditar
               </button>
-              <button
-                v-if="actionMode === 'suspend'"
-                type="button"
-                class="ghost-button"
-                @click="submitCrewAction('suspend')"
-              >
-                Confirmar suspension
+              <button type="button" class="ghost-button ghost-button--danger" @click="handlePrimaryAction('reject')">
+                Rechazar
+              </button>
+              <button type="button" class="ghost-button ghost-button--warning" @click="handlePrimaryAction('suspend')">
+                Suspender
+              </button>
+              <button type="button" class="primary-action primary-action--approve" @click="handlePrimaryAction('approve')">
+                Aprobar
               </button>
             </div>
           </template>
@@ -903,11 +1304,16 @@ function assignmentUrgency(operation = {}) {
             <div class="section-head detail-head">
               <div>
                 <p class="eyebrow">Detalle por vuelo</p>
-                <h3>RA-{{ selectedOperation.id }}</h3>
+                <h3>{{ selectedOperation.folio || `RA-${selectedOperation.id}` }}</h3>
               </div>
-              <span class="status-chip" :class="toneClass(assignmentUrgency(selectedOperation))">
-                {{ assignmentUrgency(selectedOperation) }}
-              </span>
+              <div class="status-stack">
+                <span class="status-chip" :class="toneClass(operationStatusLabel(selectedOperation))">
+                  {{ operationStatusLabel(selectedOperation) }}
+                </span>
+                <span class="status-chip" :class="toneClass(operationCrewStateLabel(selectedOperation))">
+                  {{ operationCrewStateLabel(selectedOperation) }}
+                </span>
+              </div>
             </div>
 
             <div class="info-grid">
@@ -916,8 +1322,8 @@ function assignmentUrgency(operation = {}) {
                 <strong>{{ selectedOperation.route }}</strong>
               </article>
               <article class="info-card">
-                <span>Fecha</span>
-                <strong>{{ formatDate(selectedOperation.departure) }}</strong>
+                <span>Fecha y hora</span>
+                <strong>{{ formatDateTime(selectedOperation.departure) }}</strong>
               </article>
               <article class="info-card">
                 <span>Cliente</span>
@@ -927,45 +1333,121 @@ function assignmentUrgency(operation = {}) {
                 <span>Sobrecargo actual</span>
                 <strong>{{ selectedOperation.crew || 'Pendiente asignar' }}</strong>
               </article>
+              <article class="info-card">
+                <span>Aeronave</span>
+                <strong>{{ selectedOperation.aircraft || 'Por definir' }}</strong>
+              </article>
+              <article class="info-card">
+                <span>Hora de presentacion</span>
+                <strong>{{ selectedOperation.briefingTime || 'Por definir' }}</strong>
+              </article>
+              <article class="info-card">
+                <span>Lugar de presentacion</span>
+                <strong>{{ selectedOperation.presentationPlace || selectedOperation.origin || 'Por definir' }}</strong>
+              </article>
+              <article class="info-card">
+                <span>Pasajeros</span>
+                <strong>{{ selectedOperation.passengers ? `${selectedOperation.passengers} pax` : 'Sin dato' }}</strong>
+              </article>
+              <article class="info-card">
+                <span>Catering</span>
+                <strong>{{ selectedOperation.catering || 'Sin dato' }}</strong>
+              </article>
+              <article class="info-card">
+                <span>Incidencias</span>
+                <strong>{{ operationIncidentLabel(selectedOperation) }}</strong>
+              </article>
+              <article class="info-card info-card--wide">
+                <span>Requerimientos especiales</span>
+                <strong>{{ selectedOperation.specialRequirements || 'Sin requerimientos especiales cargados' }}</strong>
+              </article>
+              <article class="info-card info-card--wide">
+                <span>Contacto interno</span>
+                <strong>{{ selectedOperation.internalContact || 'Admin / Red Sky' }}</strong>
+              </article>
             </div>
 
             <article class="detail-block">
               <div class="section-mini-head">
                 <h4>Asignacion operativa</h4>
-                <p>Selecciona talento aprobado y deja nota de briefing solo en el panel lateral.</p>
+                <p>La asignacion de sobrecargo se habilita cuando el vuelo entra a tracking en vivo.</p>
               </div>
 
               <label class="field">
                 <span>Sobrecargo</span>
-                <select v-model="getDraft(selectedOperation.id).crewId">
+                <select
+                  v-model="getDraft(selectedOperation.id).crewId"
+                  :disabled="isOperationClosed(selectedOperation) || !canAssignCrew(selectedOperation)"
+                >
                   <option value="">Selecciona</option>
-                  <option v-for="member in approvedCrew" :key="member.id" :value="member.id">
+                  <option v-for="member in assignableCrewMembers(selectedOperation)" :key="member.id" :value="member.id">
                     {{ member.name }} · {{ member.base || 'Sin base' }}
                   </option>
                 </select>
               </label>
+
+              <div class="record-grid">
+                <label class="field">
+                  <span>Hora de presentacion</span>
+                  <input
+                    v-model="getDraft(selectedOperation.id).presentationTime"
+                    type="text"
+                    :disabled="!canAssignCrew(selectedOperation)"
+                    placeholder="08:30"
+                  />
+                </label>
+                <label class="field">
+                  <span>Lugar de presentacion</span>
+                  <input
+                    v-model="getDraft(selectedOperation.id).presentationPlace"
+                    type="text"
+                    :disabled="!canAssignCrew(selectedOperation)"
+                    placeholder="FBO / Base / Aeropuerto"
+                  />
+                </label>
+              </div>
 
               <label class="field">
                 <span>Nota operativa</span>
                 <textarea
                   v-model="getDraft(selectedOperation.id).note"
                   rows="5"
+                  :disabled="!canAssignCrew(selectedOperation)"
                   placeholder="VIP, briefing, horarios, alerta de cabina o seguimiento"
                 ></textarea>
               </label>
+
+              <p v-if="!canAssignCrew(selectedOperation)" class="muted">
+                Esta seccion se habilita en cuanto el estado de la operacion cambie a tracking en vivo.
+              </p>
             </article>
 
             <article class="detail-block">
               <div class="section-mini-head">
                 <h4>Trazabilidad</h4>
-                <p>Ultima nota registrada para el vuelo.</p>
+                <p>Lectura operativa del avance actual y ultima nota registrada para el vuelo.</p>
+              </div>
+              <div class="alerts-stack">
+                <span
+                  v-for="step in operationFlowSteps(selectedOperation)"
+                  :key="step.label"
+                  class="status-chip"
+                  :class="step.active ? 'chip-info' : step.done ? 'chip-success' : 'chip-neutral'"
+                >
+                  {{ step.label }}
+                </span>
               </div>
               <p class="muted">{{ selectedOperation.notes || 'Sin observaciones operativas.' }}</p>
             </article>
 
             <div class="detail-actions">
-              <button type="button" class="ghost-button" @click="activeTab = 'audit'">Ver historial</button>
-              <button type="button" class="primary-action" @click="submitAssignment(selectedOperation.id)">
+              <button type="button" class="ghost-button" @click="activeTab = 'audit'; closeDetailModal()">Ver historial</button>
+              <button
+                type="button"
+                class="primary-action"
+                :disabled="isOperationClosed(selectedOperation) || !canAssignCrew(selectedOperation)"
+                @click="submitAssignment(selectedOperation.id); closeDetailModal()"
+              >
                 Asignar sobrecargo
               </button>
             </div>
@@ -1000,7 +1482,7 @@ function assignmentUrgency(operation = {}) {
             <h3>No hay datos para mostrar</h3>
             <p class="muted">Selecciona un registro de la mesa para ver el detalle operativo.</p>
           </div>
-        </aside>
+        </section>
       </div>
     </article>
   </section>
@@ -1228,21 +1710,161 @@ function assignmentUrgency(operation = {}) {
 }
 
 .workspace-grid {
-  grid-template-columns: minmax(0, 1.55fr) minmax(360px, 0.9fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
 }
 
 .queue-panel,
 .table-shell,
-.detail-panel {
+.detail-modal {
   display: grid;
   gap: 1rem;
 }
 
-.detail-panel {
-  position: sticky;
+.detail-modal {
+  width: min(960px, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
+  overflow: auto;
+  padding: 1.4rem;
+  position: relative;
+  border-radius: 30px;
+}
+
+.detail-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(20, 20, 20, 0.35);
+  backdrop-filter: blur(8px);
+}
+
+.detail-modal-close {
+  position: absolute;
   top: 1rem;
-  padding: 1.1rem;
+  right: 1rem;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 999px;
+  border: 1px solid #dccfb9;
+  background: #fffdfa;
+  cursor: pointer;
+}
+
+.detail-modal-close span {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 1rem;
+  height: 2px;
+  background: #2e2a22;
+}
+
+.detail-modal-close span:first-child {
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.detail-modal-close span:last-child {
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+.detail-head--modal {
+  align-items: start;
+  padding-right: 3.25rem;
+}
+
+.summary-strip,
+.record-sections {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.summary-strip {
+  grid-template-columns: repeat(4, minmax(0, max-content));
+  align-items: start;
+}
+
+.summary-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2rem;
+  padding: 0 0.85rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.detail-callout {
+  display: grid;
+  gap: 0.3rem;
+  padding: 1rem 1.05rem;
+  border-radius: 18px;
+  border: 1px solid #eadfc9;
+}
+
+.detail-callout strong {
+  font-size: 0.95rem;
+}
+
+.detail-callout--warning {
+  background: linear-gradient(180deg, #fff7eb 0%, #fffdf8 100%);
+  border-color: rgba(232, 180, 63, 0.28);
+}
+
+.detail-callout--info {
+  background: linear-gradient(180deg, #f5f8ff 0%, #fffdf8 100%);
+  border-color: rgba(54, 115, 215, 0.2);
+}
+
+.record-grid {
+  display: grid;
+  gap: 0.9rem 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.record-row {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.85rem 0.95rem;
+  border-radius: 18px;
+  border: 1px solid #eee2cc;
+  background: #fffefb;
+}
+
+.record-row--wide {
+  grid-column: 1 / -1;
+}
+
+.record-row span {
+  color: #78684e;
+  font-size: 0.8rem;
+}
+
+.record-row strong {
+  font-size: 0.98rem;
+  line-height: 1.35;
+}
+
+.inline-hint {
+  display: inline-flex;
+  align-items: center;
+  width: max-content;
+  min-height: 1.7rem;
+  margin-top: 0.35rem;
+  padding: 0 0.65rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.inline-hint--warning {
+  background: rgba(232, 180, 63, 0.14);
+  color: #99640a;
 }
 
 .table-wrap {
@@ -1389,6 +2011,11 @@ function assignmentUrgency(operation = {}) {
   gap: 0.85rem;
 }
 
+.detail-block--compact {
+  gap: 0.7rem;
+  padding: 1rem 1.05rem;
+}
+
 .section-mini-head {
   display: grid;
   gap: 0.3rem;
@@ -1439,6 +2066,26 @@ textarea {
   color: #2e2a22;
 }
 
+.ghost-button--soft {
+  background: #fffdfa;
+}
+
+.ghost-button--neutral {
+  background: #f8f4eb;
+}
+
+.ghost-button--warning {
+  border-color: rgba(232, 180, 63, 0.3);
+  background: rgba(255, 242, 214, 0.8);
+  color: #99640a;
+}
+
+.ghost-button--danger {
+  border-color: rgba(201, 73, 73, 0.28);
+  background: rgba(255, 236, 236, 0.86);
+  color: #9a2e2e;
+}
+
 .ghost-button--active {
   border-color: #c28a12;
   background: #fff1cf;
@@ -1453,6 +2100,20 @@ textarea {
 
 .detail-actions {
   flex-wrap: wrap;
+  position: sticky;
+  bottom: 0;
+  padding-top: 0.85rem;
+  background: linear-gradient(180deg, rgba(255, 253, 250, 0) 0%, #fffdfa 22%);
+}
+
+.detail-actions .ghost-button,
+.detail-actions .primary-action {
+  flex: 1 1 180px;
+}
+
+.detail-actions--review .primary-action--approve {
+  background: linear-gradient(180deg, #1a1a1a 0%, #111 100%);
+  border-color: #111;
 }
 
 .empty-state,
@@ -1471,10 +2132,6 @@ textarea {
   .workspace-grid,
   .hero-metrics {
     grid-template-columns: 1fr;
-  }
-
-  .detail-panel {
-    position: static;
   }
 }
 
@@ -1502,6 +2159,11 @@ textarea {
   }
 
   .info-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .summary-strip,
+  .record-grid {
     grid-template-columns: 1fr;
   }
 }

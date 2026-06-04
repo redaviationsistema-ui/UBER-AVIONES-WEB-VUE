@@ -58,6 +58,7 @@ function stringifyDetail(value, fallback = '') {
 const visibleStatusOptions = computed(() => [
   { value: 'Disponible', label: 'Disponible', tone: 'green' },
   { value: 'Descanso', label: 'Descanso', tone: 'slate' },
+  { value: 'En vuelo', label: 'En vuelo', tone: 'green' },
   { value: 'No disponible', label: 'No disponible', tone: 'red' },
 ])
 
@@ -176,6 +177,10 @@ const quickActions = computed(() => [
 
 const operationsStrip = computed(() => [
   {
+    label: 'Validacion',
+    value: props.identitySummary.validationState || props.profileState || 'Pendiente',
+  },
+  {
     label: 'Estado operativo',
     value:
       props.currentStatus === 'Disponible'
@@ -201,8 +206,8 @@ const readinessBreakdown = computed(() => [
     tone: ['Disponible', 'Asignado', 'En vuelo'].includes(props.currentStatus) ? 'green' : 'slate',
   },
   {
-    label: 'Nivel',
-    value: props.identitySummary.level || props.profileState || 'Sin dato',
+    label: 'Validacion',
+    value: props.identitySummary.validationState || props.profileState || 'Sin dato',
     tone: String(props.profileState || '').toLowerCase().includes('aprobado') ? 'green' : 'amber',
   },
   {
@@ -648,7 +653,7 @@ function checklistTone(state) {
 
 .status-selector {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.7rem;
   margin-top: 0.85rem;
 }

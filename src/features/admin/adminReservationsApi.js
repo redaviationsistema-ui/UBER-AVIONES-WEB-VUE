@@ -114,6 +114,18 @@ function buildAdminReservationRecord(record = {}) {
   const adminFlow = record.visibility_payload?.admin_flow && typeof record.visibility_payload.admin_flow === 'object'
     ? record.visibility_payload.admin_flow
     : {}
+  const briefing = record.briefing && typeof record.briefing === 'object' ? record.briefing : {}
+  const visibilityPayload =
+    record.visibility_payload && typeof record.visibility_payload === 'object'
+      ? record.visibility_payload
+      : {}
+  const departureValue =
+    normalizedTrip.departure_datetime ||
+    record.departure_datetime ||
+    record.departure_date ||
+    record.departure ||
+    briefing.salida ||
+    'Pendiente'
   const sharedWorkflowValue =
     resolveSharedWorkflowStatus(enrichedRecord) ||
     deriveClientWorkflowStatus(enrichedRecord) ||
@@ -130,6 +142,12 @@ function buildAdminReservationRecord(record = {}) {
     id: identifiers.reservationId || identifiers.requestId || normalizedTrip.id,
     requestId: identifiers.requestId || identifiers.reservationId || normalizedTrip.flight_request_id || normalizedTrip.id,
     reservationId: identifiers.reservationId || identifiers.requestId || normalizedTrip.id,
+    folio:
+      record.folio ||
+      record.code ||
+      record.reference ||
+      record.flight_code ||
+      `RA-${identifiers.reservationId || identifiers.requestId || normalizedTrip.id}`,
     clientName:
       record.client_name ||
       record.customer_name ||
@@ -147,6 +165,18 @@ function buildAdminReservationRecord(record = {}) {
       record.user?.company ||
       '',
     route: normalizedTrip.route || [record.origin, record.destination].filter(Boolean).join(' - '),
+    origin:
+      record.origin ||
+      record.departure_airport ||
+      briefing.origen ||
+      normalizedTrip.origin ||
+      '',
+    destination:
+      record.destination ||
+      record.arrival_airport ||
+      briefing.destino ||
+      normalizedTrip.destination ||
+      '',
     providerId:
       record.provider_id ||
       record.proveedor_id ||
@@ -172,11 +202,23 @@ function buildAdminReservationRecord(record = {}) {
       record.crew_member_id ||
       record.sobrecargo?.id ||
       '',
-    departure:
-      normalizedTrip.departure_datetime ||
-      record.departure_datetime ||
-      record.departure_date ||
-      'Pendiente',
+    departure: departureValue,
+    departureDate: String(departureValue).includes('T') ? String(departureValue).slice(0, 10) : String(departureValue).slice(0, 10),
+    departureTime: String(departureValue).includes('T') ? String(departureValue).slice(11, 16) : '',
+    briefingTime:
+      record.briefing_time ||
+      record.presentation_time ||
+      adminFlow.presentation_time ||
+      briefing.hora_presentacion ||
+      (String(departureValue).includes('T') ? String(departureValue).slice(11, 16) : ''),
+    presentationPlace:
+      record.presentation_place ||
+      record.presentation_location ||
+      adminFlow.presentation_place ||
+      briefing.lugar_presentacion ||
+      record.departure_airport ||
+      briefing.origen ||
+      '',
     arrival: record.arrival_datetime || record.return_date || 'Pendiente',
     status: resolvedWorkflowValue || record.status || '',
     workflowStatus: resolvedWorkflowValue || record.status || '',
@@ -194,6 +236,43 @@ function buildAdminReservationRecord(record = {}) {
     adminDelayReason:
       record.admin_delay_reason || record.hold_reason || record.delay_reason || adminFlow.reason || '',
     adminDelayEta: record.admin_delay_eta || record.hold_eta || record.delay_eta || adminFlow.eta || '',
+    passengers:
+      Number(
+        normalizedTrip.passengers ||
+        record.passengers ||
+        record.authorized_passengers ||
+        briefing.pasajeros_autorizados ||
+        0,
+      ) || 0,
+    catering:
+      record.catering ||
+      visibilityPayload.catering ||
+      briefing.catering ||
+      '',
+    specialRequirements:
+      record.special_requirements ||
+      record.vip_requirements ||
+      visibilityPayload.special_requirements ||
+      visibilityPayload.vip_requirements ||
+      '',
+    internalContact:
+      record.internal_contact ||
+      record.admin_contact ||
+      adminFlow.internal_contact ||
+      visibilityPayload.internal_contact ||
+      '',
+    crewOperationalState:
+      record.crew_status_label ||
+      record.crew_status ||
+      record.crew_overall_status ||
+      '',
+    incidentsLabel:
+      record.incident_status ||
+      record.incidents_label ||
+      (Number(record.incidents_count || visibilityPayload.incidents_count || 0) > 0
+        ? `${Number(record.incidents_count || visibilityPayload.incidents_count || 0)} incidencia(s)`
+        : 'Sin incidencias'),
+    incidentsCount: Number(record.incidents_count || visibilityPayload.incidents_count || 0) || 0,
     notes: normalizedTrip.notes || record.notes || record.comment || 'Sin comentarios',
     raw: record,
   }

@@ -32,6 +32,7 @@ const form = reactive({
   phone: '',
   birthDate: '',
   nationality: '',
+  base: '',
   password: '',
   passwordConfirmation: '',
   role:
@@ -102,6 +103,7 @@ const loginRoute = computed(() =>
 
 const currentStepId = computed(() => selectedStep.value?.id || wizardSteps.value[0]?.id || '')
 const isCrewRole = computed(() => form.role === 'sobrecargo')
+const CREW_COMPANY_NAME = 'Red Aviation'
 
 function documentTypeForRole(role) {
   return role === 'sobrecargo' ? 'Licencia de sobrecargo' : 'INE'
@@ -384,8 +386,32 @@ function appendFormValue(formData, key, value) {
   formData.append(key, String(value))
 }
 
+function limitTextPayload(value, maxLength = 4000) {
+  const normalized = String(value || '').trim()
+  if (!normalized) return ''
+  return normalized.length > maxLength ? normalized.slice(0, maxLength) : normalized
+}
+
+function resolveRegistrationRoleFields(role) {
+  if (role === 'sobrecargo') {
+    return {
+      role: 'provider',
+      operationalRole: 'sobrecargo',
+      companyName: CREW_COMPANY_NAME,
+    }
+  }
+
+  return {
+    role,
+    operationalRole: '',
+    companyName: '',
+  }
+}
+
 function buildRegistrationPayload() {
   const formData = new FormData()
+  const limitedScanRaw = limitTextPayload(form.ineScanRaw, isCrewRole.value ? 4000 : 12000)
+  const registrationRole = resolveRegistrationRoleFields(form.role)
 
   const baseFields = {
     name: form.name,
@@ -393,9 +419,14 @@ function buildRegistrationPayload() {
     phone: form.phone,
     birth_date: form.birthDate,
     nationality: form.nationality,
+    base: form.base,
+    city: form.base,
+    base_airport: form.base,
     password: form.password,
     password_confirmation: form.passwordConfirmation,
-    role: form.role,
+    role: registrationRole.role,
+    operational_role: registrationRole.operationalRole,
+    company_name: registrationRole.companyName,
     document_type: form.documentType,
     document_number: form.documentNumber,
     document_issue_date: form.documentIssueDate,
@@ -405,7 +436,7 @@ function buildRegistrationPayload() {
     ine_curp: form.ineCurp,
     ine_cic: form.ineCic,
     ine_ocr: form.ineOcr,
-    ine_scan_raw: form.ineScanRaw,
+    ine_scan_raw: limitedScanRaw,
     ine_scan_status: form.ineScanStatus,
     license_type: form.licenseType,
     license_number: form.documentNumber,
@@ -445,15 +476,11 @@ function buildRegistrationPayload() {
 
   Object.entries(baseFields).forEach(([key, value]) => appendFormValue(formData, key, value))
 
-  appendFormValue(formData, 'ine_front', form.ineFront)
-  if (!isCrewRole.value) {
-    appendFormValue(formData, 'ine_back', form.ineBack)
-  }
-  if (form.role === 'sobrecargo') {
+  if (isCrewRole.value) {
     appendFormValue(formData, 'license_file', form.ineFront)
-    appendFormValue(formData, 'license_front', form.ineFront)
-  }
-  if (!isCrewRole.value) {
+  } else {
+    appendFormValue(formData, 'ine_front', form.ineFront)
+    appendFormValue(formData, 'ine_back', form.ineBack)
     appendFormValue(formData, 'selfie_biometric', form.selfieFile)
   }
 
@@ -488,7 +515,8 @@ async function submit() {
   try {
     const payload = buildRegistrationPayload()
     logRegistrationPayload(payload)
-    await auth.register(payload)
+    await auth.register(payload, { intendedRole: form.role })
+    await auth.refreshSession()
     const targetDashboard = resolveDashboardPathByRole(form.role)
 
     successMessage.value =

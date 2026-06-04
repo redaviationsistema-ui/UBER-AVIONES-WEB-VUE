@@ -42,8 +42,8 @@ function resolveStepCopy(stepId, role) {
   if (role === 'sobrecargo') {
     return {
       ...baseSteps.perfil,
-      title: 'Datos del usuario / Licencia',
-      description: 'Captura tus datos y registra la informacion de la licencia de sobrecargo.',
+      title: 'Datos del usuario',
+      description: 'Captura tus datos, registra la licencia.',
     }
   }
 

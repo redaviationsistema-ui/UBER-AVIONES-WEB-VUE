@@ -1,7 +1,8 @@
 <script setup>
+import { computed } from 'vue'
 import CrewUiIcon from './CrewUiIcon.vue'
 
-defineProps({
+const props = defineProps({
   agendaItems: { type: Array, required: true },
   agendaBlockForm: { type: Object, required: true },
   agendaErrors: { type: Object, required: true },
@@ -9,7 +10,61 @@ defineProps({
   blockTypes: { type: Array, required: true },
 })
 
-defineEmits(['update-field', 'confirm-flight', 'mark-en-camino', 'mark-briefing', 'mark-service', 'mark-finalizado', 'request-block'])
+defineEmits([
+  'update-field',
+  'confirm-flight',
+  'mark-en-camino',
+  'mark-briefing',
+  'mark-cabin-ready',
+  'mark-passengers-ready',
+  'mark-service',
+  'mark-next-leg',
+  'mark-finalizado',
+  'request-block',
+])
+
+const flowLabels = [
+  'Asignada',
+  'Confirmada por sobrecargo',
+  'En aeropuerto/base',
+  'Cabina revisada',
+  'Pasajeros recibidos',
+  'En vuelo',
+  'En escala / siguiente tramo',
+  'Reporte enviado',
+  'Cierre operativo',
+]
+
+const flowStatusMap = {
+  Pendiente: 0,
+  Confirmado: 1,
+  Preparacion: 2,
+  'En aeropuerto/base': 2,
+  'Cabina revisada': 3,
+  'Pasajeros recibidos': 4,
+  'En servicio': 5,
+  'En escala / siguiente tramo': 6,
+  'Reporte enviado': 7,
+  Finalizado: 8,
+}
+
+const flowSummary = computed(() => {
+  if (!props.agendaItems.length) return { current: 'Sin mision activa', progress: 0 }
+  const currentIndex = Math.max(...props.agendaItems.map((item) => flowStatusMap[item.state] ?? 0))
+  return {
+    current: flowLabels[currentIndex] || 'Sin avance',
+    progress: Math.round((currentIndex / (flowLabels.length - 1)) * 100),
+  }
+})
+
+function itemFlowSteps(item = {}) {
+  const currentIndex = flowStatusMap[item.state] ?? 0
+  return flowLabels.map((label, index) => ({
+    label,
+    done: index <= currentIndex,
+    active: index === currentIndex,
+  }))
+}
 </script>
 
 <template>
@@ -27,6 +82,7 @@ defineEmits(['update-field', 'confirm-flight', 'mark-en-camino', 'mark-briefing'
           Puedes confirmar asistencia, marcar en camino, llegar a briefing o pedir bloqueo de disponibilidad propia, pero no eliminar vuelos asignados.
         </p>
       </div>
+      <span class="badge">{{ flowSummary.current }} · {{ flowSummary.progress }}%</span>
       <button class="primary-action action-button" type="button" @click="$emit('request-block')">
         <CrewUiIcon name="block" :size="16" />
         Solicitar bloqueo
@@ -85,6 +141,17 @@ defineEmits(['update-field', 'confirm-flight', 'mark-en-camino', 'mark-briefing'
               <strong>{{ item.flight }} - {{ item.route }}</strong>
               <p>{{ item.date }} - {{ item.time }} - {{ item.aircraft }}</p>
               <small>{{ item.briefing }} - {{ item.serviceLevel }} - {{ item.vipRequirements }}</small>
+
+              <div class="flow-strip">
+                <article
+                  v-for="step in itemFlowSteps(item)"
+                  :key="step.label"
+                  class="flow-pill"
+                  :class="{ 'flow-pill--done': step.done, 'flow-pill--active': step.active }"
+                >
+                  {{ step.label }}
+                </article>
+              </div>
             </div>
             <div class="action-stack">
               <span class="badge">{{ item.state }}</span>
@@ -94,19 +161,31 @@ defineEmits(['update-field', 'confirm-flight', 'mark-en-camino', 'mark-briefing'
               </button>
               <button class="ghost-button action-button" type="button" @click="$emit('mark-en-camino', item.id)">
                 <CrewUiIcon name="route" :size="15" />
-                Marcar en camino
+                En aeropuerto/base
               </button>
               <button class="ghost-button action-button" type="button" @click="$emit('mark-briefing', item.id)">
                 <CrewUiIcon name="briefing" :size="15" />
                 Llegada a briefing
               </button>
+              <button class="ghost-button action-button" type="button" @click="$emit('mark-cabin-ready', item.id)">
+                <CrewUiIcon name="service" :size="15" />
+                Cabina / catering listos
+              </button>
+              <button class="ghost-button action-button" type="button" @click="$emit('mark-passengers-ready', item.id)">
+                <CrewUiIcon name="assignment" :size="15" />
+                Pasajeros recibidos
+              </button>
               <button class="ghost-button action-button" type="button" @click="$emit('mark-service', item.id)">
                 <CrewUiIcon name="service" :size="15" />
-                Servicio iniciado
+                Servicio en vuelo
+              </button>
+              <button class="ghost-button action-button" type="button" @click="$emit('mark-next-leg', item.id)">
+                <CrewUiIcon name="route" :size="15" />
+                Escala / siguiente tramo
               </button>
               <button class="ghost-button action-button" type="button" @click="$emit('mark-finalizado', item.id)">
                 <CrewUiIcon name="checklist" :size="15" />
-                Servicio finalizado
+                Reporte y cierre
               </button>
             </div>
           </article>
@@ -241,6 +320,38 @@ defineEmits(['update-field', 'confirm-flight', 'mark-en-camino', 'mark-briefing'
   margin: 0.3rem 0 0;
   color: #596761;
   line-height: 1.55;
+}
+
+.flow-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.8rem;
+}
+
+.flow-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.8rem;
+  padding: 0 0.7rem;
+  border-radius: 999px;
+  border: 1px solid rgba(10, 143, 91, 0.08);
+  background: rgba(255, 255, 255, 0.86);
+  color: #6a776f;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.flow-pill--done {
+  background: rgba(10, 143, 91, 0.1);
+  border-color: rgba(10, 143, 91, 0.18);
+  color: #0a6d46;
+}
+
+.flow-pill--active {
+  background: #111111;
+  border-color: #111111;
+  color: #ffffff;
 }
 
 .action-stack {

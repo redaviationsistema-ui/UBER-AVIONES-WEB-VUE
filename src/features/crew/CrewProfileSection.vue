@@ -1,7 +1,10 @@
 <script setup>
+import { computed, onBeforeUnmount, ref } from 'vue'
 import CrewUiIcon from './CrewUiIcon.vue'
+import { searchAirports } from '../../lib/airportSearch'
+import { formatAirportOption } from '../../utils/airports'
 
-defineProps({
+const props = defineProps({
   profileForm: { type: Object, required: true },
   profileErrors: { type: Object, required: true },
   providerName: { type: String, default: '' },
@@ -14,69 +17,142 @@ defineProps({
   profileStates: { type: Array, required: true },
 })
 
-defineEmits(['update-field', 'save'])
+const emit = defineEmits(['update-field', 'save'])
+const airportSuggestions = ref([])
+const airportLoading = ref(false)
+const airportOptionsOpen = ref(false)
+let airportSearchTimer = null
+
+const editableFields = computed(() =>
+  [
+    { key: 'name', label: 'Nombre', type: 'text', value: props.profileForm.name, always: true },
+    { key: 'phone', label: 'Telefono', type: 'text', value: props.profileForm.phone, always: true, error: props.profileErrors.phone },
+    { key: 'email', label: 'Correo', type: 'email', value: props.profileForm.email, always: true, error: props.profileErrors.email },
+    { key: 'languages', label: 'Idiomas', type: 'text', value: props.profileForm.languages },
+    { key: 'certifications', label: 'Certificaciones', type: 'text', value: props.profileForm.certifications, error: props.profileErrors.certifications },
+    { key: 'experience', label: 'Experiencia', type: 'text', value: props.profileForm.experience },
+    { key: 'photo', label: 'Foto', type: 'text', value: props.profileForm.photo },
+    { key: 'weeklyAvailability', label: 'Disponibilidad semanal', type: 'text', value: props.profileForm.weeklyAvailability },
+  ].filter((field) => field.always || String(field.value || '').trim()),
+)
+
+const readonlyFields = computed(() =>
+  [
+    props.profileForm.birthDate
+      ? { label: 'Fecha de nacimiento', value: props.profileForm.birthDate }
+      : null,
+    props.profileForm.nationality
+      ? { label: 'Nacionalidad', value: props.profileForm.nationality }
+      : null,
+    props.profileForm.documentType
+      ? { label: 'Tipo de documento', value: props.profileForm.documentType }
+      : null,
+    props.profileForm.documentNumber
+      ? { label: 'Numero de documento', value: props.profileForm.documentNumber }
+      : null,
+    props.profileForm.documentExpiration
+      ? { label: 'Vigencia del documento', value: props.profileForm.documentExpiration }
+      : null,
+    props.profileForm.identityValidationRequired
+      ? {
+          label: 'Validacion de identidad requerida',
+          value: props.profileForm.identityValidationRequired,
+        }
+      : null,
+    props.profileForm.documents
+      ? { label: 'Documentos', value: props.profileForm.documents }
+      : null,
+    props.profileForm.profileState
+      ? { label: 'Estado perfil', value: props.profileForm.profileState }
+      : null,
+  ].filter(Boolean),
+)
+
+const statusChips = computed(() =>
+  [
+    props.profileForm.profileState
+      ? { value: props.profileForm.profileState, tone: 'status-chip-warning' }
+      : null,
+    props.currentStatus
+      ? { value: props.currentStatus, tone: 'status-chip-neutral' }
+      : null,
+  ].filter(Boolean),
+)
+
+const administrativeSummary = computed(() =>
+  [
+    props.documentsValidity
+      ? { label: `Documentos ${props.documentsValidity}% validados` }
+      : null,
+    props.profileForm.profileState
+      ? { label: `Perfil ${props.profileForm.profileState}` }
+      : null,
+  ].filter(Boolean),
+)
+
+function updateProfileField(field, value) {
+  emit('update-field', { form: 'profile', field, value })
+}
+
+function clearAirportTimer() {
+  if (airportSearchTimer) {
+    window.clearTimeout(airportSearchTimer)
+    airportSearchTimer = null
+  }
+}
+
+function closeAirportOptions() {
+  airportOptionsOpen.value = false
+}
+
+function scheduleAirportSearch(query) {
+  clearAirportTimer()
+
+  const trimmedQuery = String(query || '').trim()
+  if (!trimmedQuery) {
+    airportSuggestions.value = []
+    airportLoading.value = false
+    airportOptionsOpen.value = false
+    return
+  }
+
+  airportLoading.value = true
+  airportOptionsOpen.value = true
+
+  airportSearchTimer = window.setTimeout(async () => {
+    try {
+      const result = await searchAirports(trimmedQuery, 6)
+      airportSuggestions.value = Array.isArray(result?.items) ? result.items : []
+      airportOptionsOpen.value = airportSuggestions.value.length > 0
+    } catch {
+      airportSuggestions.value = []
+      airportOptionsOpen.value = false
+    } finally {
+      airportLoading.value = false
+      airportSearchTimer = null
+    }
+  }, 220)
+}
+
+function handleBaseInput(event) {
+  const value = event?.target?.value || ''
+  updateProfileField('base', value)
+  scheduleAirportSearch(value)
+}
+
+function selectBaseAirport(airport) {
+  updateProfileField('base', airport?.code || airport?.iata || formatAirportOption(airport))
+  airportSuggestions.value = []
+  airportOptionsOpen.value = false
+}
+
+onBeforeUnmount(() => {
+  clearAirportTimer()
+})
 </script>
 
 <template>
   <section class="profile-page">
-    <section class="surface detail-panel">
-      <div class="detail-head">
-        <div>
-          <p class="eyebrow">Panel de detalle</p>
-          <h3>{{ profileForm.name || 'Mi expediente' }}</h3>
-        </div>
-        <div class="status-stack">
-          <span class="status-chip status-chip-warning">{{ profileForm.profileState || 'Sin estado' }}</span>
-          <span class="status-chip status-chip-neutral">{{ currentStatus || 'Sin estado operativo' }}</span>
-        </div>
-      </div>
-
-      <div class="info-grid">
-        <article class="info-card">
-          <span>Proveedor</span>
-          <strong>{{ providerName || 'Sin ligar' }}</strong>
-        </article>
-        <article class="info-card">
-          <span>Base</span>
-          <strong>{{ profileForm.base || 'N/D' }}</strong>
-        </article>
-        <article class="info-card">
-          <span>Rating</span>
-          <strong>{{ profileRating || 'Sin dato' }}</strong>
-        </article>
-        <article class="info-card">
-          <span>Disponibilidad</span>
-          <strong>{{ currentStatus || 'Sin dato' }}</strong>
-        </article>
-        <article class="info-card info-card-wide">
-          <span>Certificaciones</span>
-          <strong>{{ profileForm.certifications || profileForm.documents || 'Expediente pendiente' }}</strong>
-        </article>
-      </div>
-
-      <article class="detail-block">
-        <div class="section-mini-head">
-          <h4>Alertas</h4>
-          <p>Hallazgos visibles para que revises tu expediente antes de que Admin / Red Sky lo audite.</p>
-        </div>
-        <div v-if="profileAlerts.length" class="alerts-stack">
-          <span v-for="alert in profileAlerts" :key="alert" class="alert-pill">{{ alert }}</span>
-        </div>
-        <p v-else class="muted">Sin alertas activas. Tu expediente no muestra observaciones pendientes.</p>
-      </article>
-
-      <article class="detail-block">
-        <div class="section-mini-head">
-          <h4>Seguimiento administrativo</h4>
-          <p>Las acciones de aprobar, rechazar o suspender se gestionan desde Admin / Red Sky.</p>
-        </div>
-        <div class="detail-summary-row">
-          <span class="summary-pill">Documentos {{ documentsValidity ? `${documentsValidity}% validados` : 'sin validar' }}</span>
-          <span class="summary-pill">Perfil {{ profileForm.profileState || 'sin estado' }}</span>
-        </div>
-      </article>
-    </section>
-
     <div class="page-head surface">
       <div class="hero-copy">
         <div class="title-row">
@@ -98,62 +174,50 @@ defineEmits(['update-field', 'save'])
 
     <section class="surface form-card">
       <div class="form-grid">
-        <label>
-          <span>Nombre</span>
-          <input :value="profileForm.name" type="text" @input="$emit('update-field', { form: 'profile', field: 'name', value: $event.target.value })" />
-        </label>
-
-        <label>
-          <span>Telefono</span>
-          <input :value="profileForm.phone" type="text" @input="$emit('update-field', { form: 'profile', field: 'phone', value: $event.target.value })" />
-          <small v-if="profileErrors.phone">{{ profileErrors.phone }}</small>
-        </label>
-
-        <label>
-          <span>Correo</span>
-          <input :value="profileForm.email" type="email" @input="$emit('update-field', { form: 'profile', field: 'email', value: $event.target.value })" />
-          <small v-if="profileErrors.email">{{ profileErrors.email }}</small>
-        </label>
-
-        <label>
+        <label class="airport-field">
           <span>Base</span>
-          <input :value="profileForm.base" type="text" @input="$emit('update-field', { form: 'profile', field: 'base', value: $event.target.value })" />
+          <input
+            :value="profileForm.base"
+            type="text"
+            autocomplete="off"
+            @focus="scheduleAirportSearch(profileForm.base)"
+            @blur="window.setTimeout(closeAirportOptions, 120)"
+            @input="handleBaseInput"
+          />
+          <div
+            v-if="airportLoading || (airportOptionsOpen && airportSuggestions.length)"
+            class="airport-options"
+          >
+            <span v-if="airportLoading">Buscando aeropuertos...</span>
+            <button
+              v-for="airport in airportSuggestions"
+              v-else
+              :key="`${airport.code}-${airport.iata}-${airport.name}`"
+              type="button"
+              @mousedown.prevent="selectBaseAirport(airport)"
+            >
+              {{ formatAirportOption(airport) }}
+            </button>
+          </div>
         </label>
 
-        <label>
-          <span>Idiomas</span>
-          <input :value="profileForm.languages" type="text" @input="$emit('update-field', { form: 'profile', field: 'languages', value: $event.target.value })" />
+        <label v-for="field in editableFields" :key="field.key">
+          <span>{{ field.label }}</span>
+          <input
+            :value="field.value"
+            :type="field.type"
+            @input="updateProfileField(field.key, $event.target.value)"
+          />
+          <small v-if="field.error">{{ field.error }}</small>
         </label>
 
-        <label>
-          <span>Certificaciones</span>
-          <input :value="profileForm.certifications" type="text" @input="$emit('update-field', { form: 'profile', field: 'certifications', value: $event.target.value })" />
-          <small v-if="profileErrors.certifications">{{ profileErrors.certifications }}</small>
-        </label>
-
-        <label>
-          <span>Experiencia</span>
-          <input :value="profileForm.experience" type="text" @input="$emit('update-field', { form: 'profile', field: 'experience', value: $event.target.value })" />
-        </label>
-
-        <label>
-          <span>Foto</span>
-          <input :value="profileForm.photo" type="text" @input="$emit('update-field', { form: 'profile', field: 'photo', value: $event.target.value })" />
-        </label>
-
-        <label>
-          <span>Disponibilidad semanal</span>
-          <input :value="profileForm.weeklyAvailability" type="text" @input="$emit('update-field', { form: 'profile', field: 'weeklyAvailability', value: $event.target.value })" />
-        </label>
-
-        <label class="readonly-field">
-          <span>Documentos</span>
-          <div class="readonly-value">{{ profileForm.documents || 'Sin resumen documental' }}</div>
-        </label>
-
-        <label class="readonly-field">
-          <span>Estado perfil</span>
-          <div class="readonly-value">{{ profileForm.profileState || 'Sin estado' }}</div>
+        <label
+          v-for="field in readonlyFields"
+          :key="field.label"
+          class="readonly-field"
+        >
+          <span>{{ field.label }}</span>
+          <div class="readonly-value">{{ field.value }}</div>
         </label>
       </div>
     </section>
@@ -163,7 +227,6 @@ defineEmits(['update-field', 'save'])
 <style scoped>
 .profile-page,
 .form-grid,
-.info-grid,
 .alerts-stack,
 .detail-summary-row {
   display: grid;
@@ -171,7 +234,6 @@ defineEmits(['update-field', 'save'])
 }
 
 .page-head,
-.detail-panel,
 .form-card {
   padding: 1.4rem;
 }
@@ -213,8 +275,6 @@ defineEmits(['update-field', 'save'])
   font-size: clamp(1.8rem, 4vw, 2.5rem);
 }
 
-.detail-head,
-.status-stack,
 .section-mini-head {
   display: flex;
   align-items: flex-start;
@@ -222,20 +282,10 @@ defineEmits(['update-field', 'save'])
   gap: 1rem;
 }
 
-.detail-head h3,
 .section-mini-head h4 {
   margin: 0;
   font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif;
   letter-spacing: -0.04em;
-}
-
-.detail-head h3 {
-  font-size: clamp(1.8rem, 4vw, 2.7rem);
-}
-
-.status-stack {
-  justify-content: flex-end;
-  flex-wrap: wrap;
 }
 
 .status-chip,
@@ -343,6 +393,7 @@ defineEmits(['update-field', 'save'])
 .form-grid label {
   display: grid;
   gap: 0.35rem;
+  position: relative;
 }
 
 .readonly-field {
@@ -367,6 +418,46 @@ defineEmits(['update-field', 'save'])
 
 .action-button {
   gap: 0.45rem;
+}
+
+.airport-field {
+  position: relative;
+}
+
+.airport-options {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.45rem;
+  border: 1px solid rgba(16, 22, 28, 0.08);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 18px 42px rgba(16, 22, 28, 0.12);
+}
+
+.airport-options span {
+  padding: 0.85rem 1rem;
+  color: #75685d;
+  font-size: 0.94rem;
+}
+
+.airport-options button {
+  border: 0;
+  background: transparent;
+  border-radius: 14px;
+  padding: 0.85rem 1rem;
+  text-align: left;
+  font: inherit;
+  color: #181312;
+  cursor: pointer;
+}
+
+.airport-options button:hover {
+  background: rgba(191, 150, 56, 0.08);
 }
 
 @media (max-width: 1080px) {
