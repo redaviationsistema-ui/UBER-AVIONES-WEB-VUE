@@ -74,6 +74,25 @@ const REQUESTS_ROUTE_CANDIDATES = [
   '/operator/requests',
 ]
 
+const AIRCRAFT_LIST_ROUTE_CANDIDATES = [
+  '/operator/aircraft',
+  '/operator/my-aircraft',
+  '/proveedor/mis-aeronaves',
+  '/proveedor/aeronaves',
+]
+
+const AIRCRAFT_DETAIL_ROUTE_TEMPLATES = [
+  '/proveedor/aeronaves/:id',
+  '/operator/aircraft/:id',
+]
+
+const CREW_ROUTE_CANDIDATES = [
+  '/proveedor/tripulacion',
+  '/proveedor/sobrecargos',
+  '/operator/crew',
+  '/operator/tripulation',
+]
+
 const REQUEST_MUTATION_ROUTE_FAMILIES = {
   proveedor: {
     basePath: '/proveedor/solicitudes/:id',
@@ -96,6 +115,8 @@ let requestsPollTimer = null
 let removeWorkflowSyncSubscription = null
 
 let providerOperationalReleaseAutosaveTimer = null
+
+const aircraftDetailHydrationInFlight = new Set()
 
 const OPERATOR_FLOW_STEPS = SHARED_WORKFLOW_STEPS
 
@@ -2390,9 +2411,97 @@ function applyDashboardResponse(dashboard) {
 
 function applyAircraftResponse(payload) {
   const collection = pickCollection(payload, ['aircraft', 'data', 'items'])
-  aircraft.value = collection.map(normalizeAircraft)
+  aircraft.value = mergeAircraftCollection(collection)
   syncAircraftScopedForms()
   sectionLoadState.aeronaves = true
+}
+
+function mergeAircraftCollection(collection = []) {
+  return collection.map((item) => {
+    const normalizedRecord = normalizeAircraft(item)
+    const existingRecord = aircraft.value.find((current) => current.id === normalizedRecord.id)
+
+    if (!existingRecord) {
+      return normalizedRecord
+    }
+
+    return {
+      ...existingRecord,
+      ...normalizedRecord,
+      images:
+        normalizedRecord.images.length > 1
+          ? normalizedRecord.images
+          : existingRecord.images?.length > normalizedRecord.images.length
+            ? existingRecord.images
+            : normalizedRecord.images,
+      documents:
+        normalizedRecord.documents.length > 0
+          ? normalizedRecord.documents
+          : existingRecord.documents || [],
+      documentsCount:
+        normalizedRecord.documentsCount || existingRecord.documentsCount || normalizedRecord.documents.length,
+    }
+  })
+}
+
+async function fetchAircraftListPayload(timeoutMs = OPERATOR_SECTION_TIMEOUT_MS) {
+  return requestWithCandidates(
+    AIRCRAFT_LIST_ROUTE_CANDIDATES.map((path) => ({
+      method: 'get',
+      path,
+      timeoutMs,
+      query: { per_page: 24 },
+    })),
+  )
+}
+
+async function fetchCrewPayload(timeoutMs = OPERATOR_SECTION_TIMEOUT_MS) {
+  return requestWithCandidates(
+    CREW_ROUTE_CANDIDATES.map((path) => ({
+      method: 'get',
+      path,
+      timeoutMs,
+      query: { per_page: 20 },
+    })),
+  )
+}
+
+async function hydrateAircraftDetail(aircraftId, options = {}) {
+  const normalizedId = Number(aircraftId)
+  if (!normalizedId || aircraftDetailHydrationInFlight.has(normalizedId)) {
+    return null
+  }
+
+  const existingRecord = aircraft.value.find((item) => item.id === normalizedId)
+  if (
+    existingRecord &&
+    Array.isArray(existingRecord.documents) &&
+    existingRecord.documents.some((document) => document.fileUrl || document.fileType) &&
+    Array.isArray(existingRecord.images) &&
+    existingRecord.images.length > 1
+  ) {
+    return existingRecord
+  }
+
+  aircraftDetailHydrationInFlight.add(normalizedId)
+
+  try {
+    const payload = await requestWithCandidates(
+      AIRCRAFT_DETAIL_ROUTE_TEMPLATES.map((path) => ({
+        method: 'get',
+        path: path.replace(':id', String(normalizedId)),
+        timeoutMs: options.timeoutMs || OPERATOR_SECTION_TIMEOUT_MS,
+      })),
+    )
+    const aircraftRecord = pickRecord(payload, ['aircraft', 'data', 'item'])
+    if (!aircraftRecord || !Object.keys(aircraftRecord).length) {
+      return null
+    }
+
+    return upsertAircraftRecord(aircraftRecord)
+  } finally {
+    aircraftDetailHydrationInFlight.delete(normalizedId)
+  }
 }
 
 function pickRequestsCollectionState(payload) {
@@ -3996,12 +4105,7 @@ function upsertCrewRecord(record) {
 }
 
 async function reloadCrewList() {
-  const response = await requestWithCandidates([
-    { method: 'get', path: '/proveedor/tripulacion' },
-    { method: 'get', path: '/proveedor/sobrecargos' },
-    { method: 'get', path: '/operator/crew' },
-    { method: 'get', path: '/operator/tripulation' },
-  ])
+  const response = await fetchCrewPayload()
   const collection = pickCollection(response, [
     'crew',
     'tripulation',
@@ -4010,6 +4114,7 @@ async function reloadCrewList() {
     'data',
   ])
   crew.value = collection.map(normalizeCrew)
+  sectionLoadState.tripulacion = true
 }
 
 function upsertAircraftRecord(record) {
@@ -4028,15 +4133,11 @@ function upsertAircraftRecord(record) {
 }
 
 async function reloadAircraftList() {
-  const response = await requestWithCandidates([
-    { method: 'get', path: '/proveedor/mis-aeronaves' },
-    { method: 'get', path: '/proveedor/aeronaves' },
-    { method: 'get', path: '/operator/my-aircraft' },
-    { method: 'get', path: '/operator/aircraft' },
-  ])
+  const response = await fetchAircraftListPayload()
   const collection = pickCollection(response, ['aircraft', 'data', 'items'])
-  aircraft.value = collection.map(normalizeAircraft)
+  aircraft.value = mergeAircraftCollection(collection)
   syncAircraftScopedForms()
+  sectionLoadState.aeronaves = true
 }
 
 function formatDateTimeRange(value = '') {
@@ -4957,20 +5058,20 @@ async function loadPortal() {
         ]),
         apply: applyDashboardResponse,
       },
-      {
-        request: requestWithCandidates([
-          { method: 'get', path: '/proveedor/mis-aeronaves', timeoutMs: OPERATOR_BOOT_TIMEOUT_MS },
-          { method: 'get', path: '/proveedor/aeronaves', timeoutMs: OPERATOR_BOOT_TIMEOUT_MS },
-          { method: 'get', path: '/operator/my-aircraft', timeoutMs: OPERATOR_BOOT_TIMEOUT_MS },
-          { method: 'get', path: '/operator/aircraft', timeoutMs: OPERATOR_BOOT_TIMEOUT_MS },
-        ]),
-        apply: applyAircraftResponse,
-      },
-      {
-        request: fetchRequestsPayload(OPERATOR_BOOT_TIMEOUT_MS),
-        apply: applyRequestsResponse,
-      },
     ]
+
+    if (props.section === 'dashboard') {
+      requestJobs.push(
+        {
+          request: fetchAircraftListPayload(OPERATOR_BOOT_TIMEOUT_MS),
+          apply: applyAircraftResponse,
+        },
+        {
+          request: fetchRequestsPayload(OPERATOR_BOOT_TIMEOUT_MS),
+          apply: applyRequestsResponse,
+        },
+      )
+    }
 
     const settledResults = await Promise.all(
       requestJobs.map(({ request, apply }) =>
@@ -5047,12 +5148,7 @@ async function ensureSectionDataLoaded(section = props.section, options = {}) {
     ])
     apply = applyDashboardResponse
   } else if (normalizedSection === 'aeronaves') {
-    request = requestWithCandidates([
-      { method: 'get', path: '/proveedor/mis-aeronaves', timeoutMs },
-      { method: 'get', path: '/proveedor/aeronaves', timeoutMs },
-      { method: 'get', path: '/operator/my-aircraft', timeoutMs },
-      { method: 'get', path: '/operator/aircraft', timeoutMs },
-    ])
+    request = fetchAircraftListPayload(timeoutMs)
     apply = applyAircraftResponse
   } else if (normalizedSection === 'solicitudes') {
     request = fetchRequestsPayload(timeoutMs)
@@ -5061,7 +5157,7 @@ async function ensureSectionDataLoaded(section = props.section, options = {}) {
     request = requestWithCandidates([{ method: 'get', path: '/proveedor/operaciones', timeoutMs }])
     apply = applyOperationsResponse
   } else if (normalizedSection === 'tripulacion') {
-    request = requestWithCandidates([{ method: 'get', path: '/proveedor/tripulacion', timeoutMs }])
+    request = fetchCrewPayload(timeoutMs)
     apply = applyCrewResponse
   } else if (normalizedSection === 'incidencias') {
     request = requestWithCandidates([{ method: 'get', path: '/proveedor/incidencias', timeoutMs }])
@@ -5076,25 +5172,36 @@ async function ensureSectionDataLoaded(section = props.section, options = {}) {
     request = requestWithCandidates([{ method: 'get', path: '/proveedor/disponibilidad', timeoutMs }])
     apply = applyAvailabilityResponse
   } else if (normalizedSection === 'release-provider') {
-    const [requestsPayload, aircraftPayload, crewPayload] = await Promise.all([
-      fetchRequestsPayload(timeoutMs),
-      requestWithCandidates([
-        { method: 'get', path: '/proveedor/mis-aeronaves', timeoutMs },
-        { method: 'get', path: '/proveedor/aeronaves', timeoutMs },
-        { method: 'get', path: '/operator/my-aircraft', timeoutMs },
-        { method: 'get', path: '/operator/aircraft', timeoutMs },
-      ]),
-      requestWithCandidates([
-        { method: 'get', path: '/proveedor/tripulacion', timeoutMs },
-        { method: 'get', path: '/proveedor/sobrecargos', timeoutMs },
-        { method: 'get', path: '/operator/crew', timeoutMs },
-        { method: 'get', path: '/operator/tripulation', timeoutMs },
-      ]),
-    ])
+    const jobs = []
 
-    applyRequestsResponse(requestsPayload)
-    applyAircraftResponse(aircraftPayload)
-    applyCrewResponse(crewPayload)
+    if (force || !sectionLoadState.solicitudes) {
+      jobs.push(
+        fetchRequestsPayload(timeoutMs).then((payload) => {
+          applyRequestsResponse(payload)
+        }),
+      )
+    }
+
+    if (force || !sectionLoadState.aeronaves) {
+      jobs.push(
+        fetchAircraftListPayload(timeoutMs).then((payload) => {
+          applyAircraftResponse(payload)
+        }),
+      )
+    }
+
+    if (force || !sectionLoadState.tripulacion) {
+      jobs.push(
+        fetchCrewPayload(timeoutMs).then((payload) => {
+          applyCrewResponse(payload)
+        }),
+      )
+    }
+
+    if (jobs.length) {
+      await Promise.all(jobs)
+    }
+
     sectionLoadState['release-provider'] = true
     return
   }
@@ -6778,6 +6885,17 @@ watch(
     if (nextProviderId !== previousProviderId) {
       schedulePortalLoad()
     }
+  },
+  { immediate: true },
+)
+
+watch(
+  () => [imageForm.aircraftId, documentForm.aircraftId],
+  ([nextImageAircraftId, nextDocumentAircraftId]) => {
+    const hydratedIds = [...new Set([nextImageAircraftId, nextDocumentAircraftId].filter(Boolean))]
+    hydratedIds.forEach((aircraftId) => {
+      void hydrateAircraftDetail(aircraftId)
+    })
   },
   { immediate: true },
 )

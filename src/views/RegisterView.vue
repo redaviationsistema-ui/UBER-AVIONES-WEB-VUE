@@ -251,6 +251,10 @@ function mergeFormFields(patch = {}) {
   Object.entries(patch || {}).forEach(([field, value]) => {
     form[field] = value
   })
+
+  if (Object.prototype.hasOwnProperty.call(patch, 'documentExpiration')) {
+    form.documentStatus = calculateDocumentStatus(form.documentExpiration)
+  }
 }
 
 function validateCurrentStep() {

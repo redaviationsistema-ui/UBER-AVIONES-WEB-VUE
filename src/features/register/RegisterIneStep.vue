@@ -1,8 +1,9 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import { canvasToFile, captureVideoFrame } from './identityVerification'
-import { normalizeText, scanIneFiles } from './ineScanner'
+import { normalizeText, scanDocumentFiles } from './ineScanner'
 import { api } from '../../lib/api'
+import { requestWithCandidates } from '../../lib/backendCrud'
 import { searchAirports } from '../../lib/airportSearch'
 import { formatAirportOption } from '../../utils/airports'
 
@@ -40,6 +41,9 @@ const activeDocumentFrontLabel = computed(() =>
 const activeDocumentBackLabel = computed(() => `${props.form.documentType} reverso`)
 const activeScanButtonLabel = computed(() =>
   isCrewRole.value ? 'Escanear licencia' : 'Escanear datos de la INE',
+)
+const activeRescanButtonLabel = computed(() =>
+  isCrewRole.value ? 'Reescanear y corregir datos' : 'Reescanear y corregir',
 )
 const activeScanningLabel = computed(() =>
   isCrewRole.value ? 'Escaneando licencia...' : 'Escaneando INE...',
@@ -115,11 +119,22 @@ function updateField(field, value) {
   emit('update-field', field, value)
 }
 
-function clearAirportTimer() {
-  if (airportSearchTimer) {
-    window.clearTimeout(airportSearchTimer)
-    airportSearchTimer = null
+function sanitizeBackendName(value = '') {
+  return String(value || '')
+    .replace(/^(?:iw|i\s*w|jw|ivv)\s+/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function clearTimer(timerId) {
+  if (timerId) {
+    clearTimeout(timerId)
   }
+}
+
+function clearAirportTimer() {
+  clearTimer(airportSearchTimer)
+  airportSearchTimer = null
 }
 
 function closeAirportOptions() {
@@ -140,7 +155,7 @@ function scheduleAirportSearch(query) {
   airportLoading.value = true
   airportOptionsOpen.value = true
 
-  airportSearchTimer = window.setTimeout(async () => {
+  airportSearchTimer = setTimeout(async () => {
     try {
       const result = await searchAirports(trimmedQuery, 6)
       airportSuggestions.value = Array.isArray(result?.items) ? result.items : []
@@ -167,15 +182,6 @@ function selectBaseAirport(airport) {
   airportOptionsOpen.value = false
 }
 
-function formatDisplayDate(value = '') {
-  const normalized = String(value || '').trim()
-  if (!normalized) return ''
-
-  const isoMatch = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/)
-  if (isoMatch) return `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}`
-
-  return normalized
-}
 function handleIneFileSelected(field, event) {
   emit('file-selected', field, event)
   scanMessage.value = ''
@@ -192,6 +198,13 @@ function handleIneFileSelected(field, event) {
     licenseType: isCrewRole.value ? 'Licencia de sobrecargo' : '',
     licenseCategory: '',
     issuingCountry: '',
+    ...(isCrewRole.value
+      ? {
+          name: '',
+          birthDate: '',
+          nationality: '',
+        }
+      : {}),
   })
 
   if (isCrewRole.value && field === 'ineFront') {
@@ -312,6 +325,17 @@ function parseDateCandidate(value = '') {
     return `${textualMonthMatch[3]}-${month}-${textualMonthMatch[1].padStart(2, '0')}`
   }
 
+  const spanishTextualMonthMatch = normalized
+    .toUpperCase()
+    .match(/^(\d{1,2})\s+DE\s+([A-Z]{3,10})\s+DE\s+(\d{4})$/)
+
+  if (spanishTextualMonthMatch) {
+    const month = monthNames[spanishTextualMonthMatch[2]]
+    if (!month) return ''
+
+    return `${spanishTextualMonthMatch[3]}-${month}-${spanishTextualMonthMatch[1].padStart(2, '0')}`
+  }
+
   return ''
 }
 
@@ -368,63 +392,160 @@ function calculateDocumentStatus(expirationDate = '') {
   return 'Vigente'
 }
 
+function isEmptyValue(value) {
+  return value === null || value === undefined || String(value).trim() === ''
+}
+
+function isIsoDate(value = '') {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || '').trim())
+}
+
+function getMergeModeLabel(mode = 'safe_overwrite') {
+  return mode === 'force_overwrite' ? 'force_overwrite' : 'safe_overwrite'
+}
+
+function shouldReplaceDetectedField(field, currentValue, nextValue) {
+  if (isEmptyValue(nextValue)) return false
+
+  const current = String(currentValue || '').trim()
+  const next = String(nextValue || '').trim()
+
+  if (!current) return true
+  if (current === next) return false
+
+  if (field === 'documentNumber') {
+    if (/^\d{8,}-\d{2,}$/.test(next)) return true
+    return next.replace(/[^A-Z0-9]/gi, '').length > current.replace(/[^A-Z0-9]/gi, '').length
+  }
+
+  if (['birthDate', 'documentIssueDate', 'documentExpiration'].includes(field)) {
+    return isIsoDate(next)
+  }
+
+  if (field === 'name') {
+    const currentScore = current.split(/\s+/).filter((token) => token.length > 1).length
+    const nextScore = next.split(/\s+/).filter((token) => token.length > 1).length
+    return nextScore >= Math.max(2, currentScore)
+  }
+
+  if (field === 'nationality') {
+    return /mexican|mexican[ao]|mexicana|mexicano/i.test(next) || next.length > current.length
+  }
+
+  if (field === 'licenseCategory') {
+    return /sobrecargo|cabin crew/i.test(next) || next.length > current.length
+  }
+
+  if (field === 'issuingCountry') {
+    return /mexico/i.test(next) || next.length > current.length
+  }
+
+  return next.length >= current.length
+}
+
+function mergeDetectedFields(currentData, detectedData, mode = 'safe_overwrite') {
+  const normalizedMode = getMergeModeLabel(mode)
+  const merged = { ...detectedData }
+
+  Object.entries(detectedData || {}).forEach(([field, nextValue]) => {
+    const currentValue = currentData?.[field]
+
+    if (field === 'ineScanRaw' || field === 'ineScanStatus' || field === 'documentStatus') {
+      merged[field] = nextValue
+      return
+    }
+
+    if (isEmptyValue(nextValue)) {
+      merged[field] = currentValue || nextValue
+      return
+    }
+
+    if (normalizedMode === 'force_overwrite') {
+      merged[field] = nextValue
+      return
+    }
+
+    if (isEmptyValue(currentValue)) {
+      merged[field] = nextValue
+      return
+    }
+
+    merged[field] = shouldReplaceDetectedField(field, currentValue, nextValue) ? nextValue : currentValue
+  })
+
+  return merged
+}
+
 function extractCrewLicenseData(rawText = '') {
   const text = normalizeText(rawText).toUpperCase()
   const lines = rawText
     .split(/\r?\n/)
     .map((line) => normalizeText(line))
     .filter(Boolean)
+  const normalizedLines = lines.map((line) => line.toUpperCase())
 
-  const dateMatches = [
-    ...text.matchAll(
-      /\b(\d{2}[-/. ](?:\d{2}|[A-Z]{3,10})[-/. ]\d{4}|\d{4}[-/.]\d{2}[-/.]\d{2})\b/g,
-    ),
-  ]
-    .map((match) => parseDateCandidate(match[1]))
-    .filter(Boolean)
+  const findLineValue = (matcher, extractor = null) => {
+    const index = normalizedLines.findIndex((line) => matcher.test(line))
+    if (index < 0) return ''
+    if (extractor) return normalizeText(extractor(lines[index], normalizedLines[index]) || '')
+    return lines[index] || ''
+  }
 
-  const nameCandidate =
+  const extractFromLine = (matcher, inlinePattern) =>
+    findLineValue(matcher, (line) => line.match(inlinePattern)?.[1] || '')
+
+  const rawNameCandidate =
     extractLabeledValue(rawText, ['NOMBRE COMPLETO', 'NOMBRE']) ||
-    lines.find(
-      (line) =>
-        /^[A-ZÁÉÍÓÚÑ ]{8,}$/i.test(line) &&
-        !/(LICENCIA|LICENSE|CATEGORIA|CARGO|NACIONALIDAD|VIGENCIA|EMISION|EMISOR|PAIS|ESTATUS|SEXO)/i.test(line),
-    ) ||
+    extractFromLine(/^(?:IV|\|\s*V)\b(?!A\b)(?!X\b)/, /^(?:IV|\|\s*V)\s+(.+)$/i) ||
     ''
+
+  const nameCandidate = rawNameCandidate
+    .replace(/\b(?:PARQUE|VALLE|ESCONDIDO|PARQUES|NACIONALES|TOLUCA|EDOMEX|MEXICAN[AO]?|MEXICO)\b.*$/i, '')
+    .replace(/[^A-ZÁÉÍÓÚÑ\s]/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 
   const numberCandidate =
     extractLabeledValue(rawText, ['NUMERO DE LICENCIA', 'NÚMERO DE LICENCIA', 'NO\\.\\s*LICENCIA']) ||
-    text.match(/(?:NO\.?\s*LICENCIA|NUMERO(?: DE)? LICENCIA|LICENCIA(?: NO\.?)?|LICENSE(?: NO\.?)?)[:\s#-]*([A-Z0-9-]{4,})/)?.[1] ||
-    text.match(/\b[A-Z0-9-]{6,20}\b/)?.[0] ||
+    extractFromLine(/^III\b/, /^III\s+([A-Z0-9-]{6,})$/i) ||
+    text.match(/\b\d{8,}-\d{2,}\b/)?.[0] ||
     ''
 
   const categoryCandidate =
     extractLabeledValue(rawText, ['TIPO DE LICENCIA', 'FUNCION AUTORIZADA', 'FUNCIÓN AUTORIZADA']) ||
+    (text.includes('CABIN CREW MEMBER') ? 'Sobrecargo / Cabin Crew Member' : '') ||
     rawText.match(/(?:CATEGORIA|CARGO|CLASE|CATEGORY)[:\s-]*([A-Z0-9ÁÉÍÓÚÑ /.-]{3,})/i)?.[1]?.trim() ||
     ''
 
   const nationalityCandidate =
     extractLabeledValue(rawText, ['NACIONALIDAD', 'NATIONALITY']) ||
+    normalizeText(text.match(/\bMEXICAN[AO]?\s*\/\s*MEXICAN\b/)?.[0] || '') ||
     rawText.match(/(?:NACIONALIDAD|NATIONALITY)[:\s-]*([A-ZÁÉÍÓÚÑ ]{3,})/i)?.[1]?.trim() ||
     ''
 
   const issuingCountryCandidate =
     extractLabeledValue(rawText, ['PAIS(?: EMISOR)?', 'AUTORIDAD EMISORA', 'COUNTRY(?: OF ISSUE)?']) ||
+    (text.includes('ESTADOS UNIDOS MEXICANOS') || text.includes('MEXICO') ? 'Mexico' : '') ||
     rawText.match(/(?:PAIS(?: EMISOR)?|COUNTRY(?: OF ISSUE)?)[:\s-]*([A-ZÁÉÍÓÚÑ ]{3,})/i)?.[1]?.trim() ||
     ''
 
   const birthDate =
     parseDateCandidate(extractLabeledValue(rawText, ['FECHA DE NACIMIENTO', 'NACIMIENTO'])) ||
-    dateMatches[0] ||
+    parseDateCandidate(extractFromLine(/^(?:IVA|IVA\.)\b/, /^(?:IVA|IVA\.)\s+(\d{2}[\/.-]\d{2}[\/.-]\d{4})$/i)) ||
     ''
   const issueDate =
     parseDateCandidate(extractLabeledValue(rawText, ['FECHA DE EXPEDICION', 'FECHA DE EXPEDICIÓN', 'FECHA DE EMISION', 'FECHA DE EMISIÓN'])) ||
-    dateMatches[1] ||
+    parseDateCandidate(
+      normalizeText(
+        rawText.match(/CIUDAD DE [A-ZÁÉÍÓÚÑ ]+,\s*A\s+(\d{1,2}\s+DE\s+[A-ZÁÉÍÓÚÑ]{3,10}\s+DE\s+\d{4})/i)?.[1] || '',
+      ),
+    ) ||
     ''
   const expirationDate =
     parseDateCandidate(extractLabeledValue(rawText, ['FECHA DE VENCIMIENTO', 'VENCIMIENTO', 'VIGENCIA'])) ||
-    dateMatches[2] ||
-    dateMatches[1] ||
+    parseDateCandidate(
+      extractFromLine(/^XIV\b/, /^XIV\s+(?:VIGENCIA\s*\/\s*EXPIRATION\s+)?(\d{2}[\/.-]\d{2}[\/.-]\d{4})$/i),
+    ) ||
     ''
   const explicitStatus = extractLabeledValue(rawText, ['ESTATUS', 'STATUS'])
   const normalizedStatus = /VIGENTE/i.test(explicitStatus)
@@ -434,21 +555,209 @@ function extractCrewLicenseData(rawText = '') {
       : calculateDocumentStatus(expirationDate)
 
   return {
-    name: nameCandidate,
+    name: formatTitleCase(nameCandidate),
     licenseType: 'Licencia de sobrecargo',
     documentNumber: numberCandidate,
-    licenseCategory: categoryCandidate,
+    licenseCategory: formatTitleCase(categoryCandidate),
     birthDate,
     nationality: sanitizeNationality(nationalityCandidate),
     documentIssueDate: issueDate,
     documentExpiration: expirationDate,
-    issuingCountry: issuingCountryCandidate,
+    issuingCountry: formatTitleCase(issuingCountryCandidate),
     documentStatus: normalizedStatus,
     raw: rawText,
   }
 }
 
-async function scanIne(form) {
+function scoreLicenseField(field, value) {
+  const normalized = String(value || '').trim()
+  if (!normalized) return 0
+
+  if (field === 'documentNumber') {
+    if (/^\d{9}-\d{2}$/.test(normalized)) return 100
+    if (/^\d{8,}-\d{2,}$/.test(normalized)) return 85
+    return /\d/.test(normalized) ? 40 : 0
+  }
+
+  if (['birthDate', 'documentIssueDate', 'documentExpiration'].includes(field)) {
+    if (!isIsoDate(normalized)) return 0
+    const year = Number(normalized.slice(0, 4))
+    if (field === 'birthDate') return year >= 1940 && year <= new Date().getFullYear() ? 90 : 35
+    if (field === 'documentIssueDate') return year >= 2000 && year <= new Date().getFullYear() + 1 ? 90 : 35
+    return year >= new Date().getFullYear() ? 90 : 60
+  }
+
+  if (field === 'name') {
+    if (/\d/.test(normalized)) return 0
+    const words = normalized.split(/\s+/).filter((token) => token.length > 1)
+    return words.length >= 3 ? 90 : words.length === 2 ? 70 : 30
+  }
+
+  if (field === 'licenseCategory') {
+    if (/sobrecargo|cabin crew member/i.test(normalized)) return 95
+    return normalized.length >= 8 ? 55 : 0
+  }
+
+  if (field === 'nationality') {
+    if (/mexican|mexicana|mexicano/i.test(normalized)) return 90
+    return normalized.length >= 5 ? 40 : 0
+  }
+
+  if (field === 'issuingCountry') {
+    if (/mexico/i.test(normalized)) return 95
+    return normalized.length >= 4 ? 45 : 0
+  }
+
+  return normalized.length
+}
+
+function pickBestFieldCandidate(field, candidates = []) {
+  const ranked = candidates
+    .map((candidate) => ({
+      ...candidate,
+      score: scoreLicenseField(field, candidate?.value),
+    }))
+    .filter((candidate) => candidate.score > 0)
+    .sort((left, right) => right.score - left.score)
+
+  return ranked[0]?.value || ''
+}
+
+function buildBestLicenseData(scanResult = {}) {
+  const passTexts = Array.isArray(scanResult.passes)
+    ? scanResult.passes.map((pass) => ({ source: pass.source || 'ocr', text: pass.text || '' }))
+    : []
+  const sources = [...passTexts, { source: 'combined', text: scanResult.rawText || '' }].filter(
+    (entry) => String(entry.text || '').trim(),
+  )
+  const parsedEntries = sources.map((entry) => ({
+    source: entry.source,
+    parsed: extractCrewLicenseData(entry.text),
+  }))
+  const fieldNames = [
+    'name',
+    'documentNumber',
+    'licenseCategory',
+    'birthDate',
+    'nationality',
+    'documentIssueDate',
+    'documentExpiration',
+    'issuingCountry',
+  ]
+
+  const result = {
+    licenseType: 'Licencia de sobrecargo',
+    raw: scanResult.rawText || '',
+  }
+
+  fieldNames.forEach((field) => {
+    result[field] = pickBestFieldCandidate(
+      field,
+      parsedEntries.map((entry) => ({
+        source: entry.source,
+        value: entry.parsed?.[field] || '',
+      })),
+    )
+  })
+
+  result.documentStatus = calculateDocumentStatus(result.documentExpiration)
+  return result
+}
+
+function pickFirstValue(source = {}, paths = []) {
+  for (const path of paths) {
+    const value = path.split('.').reduce((current, key) => current?.[key], source)
+    if (!isEmptyValue(value)) return value
+  }
+
+  return ''
+}
+
+function mapBackendLicenseData(payload = {}) {
+  if (typeof console !== 'undefined') {
+   // console.log('RESPUESTA OCR COMPLETA:', payload)
+    //console.log('DATA OCR:', payload?.data)
+  }
+
+  const data =
+    payload?.data && typeof payload.data === 'object'
+      ? payload.data
+      : payload && typeof payload === 'object'
+        ? payload
+        : {}
+
+  const rawText = pickFirstValue(data, ['ocr_raw_text']) || pickFirstValue(payload, ['ocr_raw_text']) || ''
+  const ocrDebug = pickFirstValue(data, ['ocr_debug']) || pickFirstValue(payload, ['ocr_debug']) || {}
+  const birthDebug =
+    pickFirstValue(data, ['ocr_birth_debug']) || pickFirstValue(payload, ['ocr_birth_debug']) || []
+
+  const mapped = {
+    ineScanRaw: JSON.stringify(
+      {
+        rawText,
+        variants: ocrDebug,
+        birthDebug,
+      },
+      null,
+      2,
+    ),
+    ineScanStatus:
+      pickFirstValue(data, ['numero_licencia', 'license_number', 'numeroLicencia']) ||
+      pickFirstValue(data, ['nombre_completo', 'holder_name', 'name']) ||
+      pickFirstValue(data, ['fecha_nacimiento', 'birth_date']) ||
+      pickFirstValue(data, ['fecha_vencimiento', 'expiration_date', 'expiration'])
+        ? 'scanned'
+        : 'partial',
+    name: sanitizeBackendName(pickFirstValue(data, ['nombre_completo', 'holder_name', 'name'])),
+    licenseType: pickFirstValue(data, ['tipo_documento', 'document_type']) || 'Licencia de sobrecargo',
+    documentNumber: pickFirstValue(data, ['numero_licencia', 'license_number', 'numeroLicencia']),
+    licenseCategory:
+      pickFirstValue(data, ['categoria_cargo', 'category', 'cargo']) || 'Pendiente por detectar',
+    birthDate: parseDateCandidate(pickFirstValue(data, ['fecha_nacimiento', 'birth_date'])) || '',
+    nationality:
+      pickFirstValue(data, ['nacionalidad', 'nationality']) || 'Pendiente por detectar',
+    documentIssueDate: parseDateCandidate(pickFirstValue(data, ['fecha_emision', 'issue_date'])) || '',
+    documentExpiration:
+      parseDateCandidate(pickFirstValue(data, ['fecha_vencimiento', 'expiration_date', 'expiration'])) || '',
+    issuingCountry: pickFirstValue(data, ['pais_emisor', 'issuing_country', 'country']) || 'Mexico',
+    documentStatus:
+      pickFirstValue(data, ['estado_documento', 'document_status', 'status']) || '',
+  }
+
+  mapped.documentStatus = mapped.documentStatus.includes('Vigente')
+    ? 'Vigente'
+    : mapped.documentStatus.includes('Vencida')
+      ? 'Vencida'
+      : calculateDocumentStatus(mapped.documentExpiration || '')
+
+  if (typeof console !== 'undefined') {
+  //  console.log('Llenando formulario con:', data)
+   // console.log('MAPEO OCR LICENCIA:', mapped)
+  }
+
+  return mapped
+}
+
+async function scanLicenseWithBackend(mode = 'safe_overwrite') {
+  const formData = new FormData()
+  formData.append('documento', props.form.ineFront)
+  formData.append('document_type', 'auto')
+  formData.append('merge_mode', mode)
+
+  const response = await requestWithCandidates([
+    {
+      method: 'postform',
+      path: '/auth/ocr/scan-document',
+      formData,
+      timeoutMs: 90000,
+      headers: { Accept: 'application/json' },
+    },
+  ])
+
+  return mapBackendLicenseData(response)
+}
+
+async function scanIne(form, mode = 'safe_overwrite') {
   scanMessage.value = ''
 
   if (!form.ineFront || (!isCrewRole.value && !form.ineBack)) {
@@ -464,33 +773,33 @@ async function scanIne(form) {
     : 'Escaneando codigos y texto de la INE...'
 
   try {
-    const scanResult = await scanIneFiles(
-      [form.ineFront, !isCrewRole.value ? form.ineBack : null].filter(Boolean),
-    )
-
     if (isCrewRole.value) {
-      const licenseData = extractCrewLicenseData(scanResult.rawText || '')
-      emit('merge-fields', {
-        ineScanRaw: licenseData.raw || form.ineScanRaw,
-        ineScanStatus: scanResult.rawText ? 'scanned' : 'partial',
-        name: form.name || licenseData.name || '',
-        licenseType: form.licenseType || licenseData.licenseType,
-        documentNumber: form.documentNumber || licenseData.documentNumber || '',
-        licenseCategory: form.licenseCategory || licenseData.licenseCategory || '',
-        birthDate: form.birthDate || licenseData.birthDate || '',
-        nationality: form.nationality || licenseData.nationality || '',
-        documentIssueDate: form.documentIssueDate || licenseData.documentIssueDate || '',
-        documentExpiration: form.documentExpiration || licenseData.documentExpiration || '',
-        issuingCountry: form.issuingCountry || licenseData.issuingCountry || '',
-        documentStatus:
-          calculateDocumentStatus(form.documentExpiration || licenseData.documentExpiration || '') || '',
-      })
-
-      scanMessage.value = scanResult.rawText
-        ? 'Escaneo completado. Revisa y corrige los datos detectados de la licencia antes de continuar.'
-        : 'No se detecto texto suficiente. Captura manualmente los datos de la licencia.'
+      const backendData = await scanLicenseWithBackend(mode)
+      emit('merge-fields', mergeDetectedFields(form, backendData, mode))
+      if (typeof console !== 'undefined') {
+        console.log('FORM DESPUES DE OCR:', {
+          name: backendData.name,
+          documentNumber: backendData.documentNumber,
+          licenseType: backendData.licenseType,
+          licenseCategory: backendData.licenseCategory,
+          documentIssueDate: backendData.documentIssueDate,
+          documentExpiration: backendData.documentExpiration,
+          issuingCountry: backendData.issuingCountry,
+          birthDate: backendData.birthDate,
+          nationality: backendData.nationality,
+          documentStatus: backendData.documentStatus,
+        })
+      }
+      scanMessage.value =
+        mode === 'force_overwrite'
+          ? 'Reescaneo backend completado. Revisa los datos corregidos de la licencia.'
+          : 'Escaneo backend completado. Revisa los datos detectados de la licencia.'
       return
     }
+
+    const scanResult = await scanDocumentFiles([form.ineFront, !isCrewRole.value ? form.ineBack : null].filter(Boolean), {
+      kind: isCrewRole.value ? 'license' : 'ine',
+    })
 
     const hasUsefulData = hasUsefulScanData(scanResult.data)
 
@@ -519,10 +828,15 @@ async function scanIne(form) {
             : fieldsLabel
               ? `Datos obtenidos por OCR: ${fieldsLabel}. Puedes corregirlos antes de continuar.`
               : 'OCR completado. Captura manualmente los datos que no se hayan detectado.'
-  } catch {
+  } catch (error) {
     emit('merge-fields', { ineScanStatus: 'pending' })
-    scanMessage.value =
-      `No fue posible leer la ${activeDocumentLabel.value}. Intenta con una imagen mas nitida o captura los datos manualmente.`
+    if (typeof console !== 'undefined') {
+      console.error('ERROR OCR:', error)
+      console.error('ERROR BACKEND:', error?.payload || error)
+    }
+    scanMessage.value = isCrewRole.value
+      ? error?.message || 'No fue posible leer la licencia desde backend.'
+      : `No fue posible leer la ${activeDocumentLabel.value}. Intenta con una imagen mas nitida o captura los datos manualmente.`
   } finally {
     scanning.value = false
   }
@@ -793,14 +1107,25 @@ onBeforeUnmount(() => {
             <input type="file" accept="image/*" @change="handleIneFileSelected('ineFront', $event)" />
           </label>
 
-          <button
-            type="button"
-            class="scan-button"
-            :disabled="scanning"
-            @click="scanIne(props.form)"
-          >
-            {{ scanning ? activeScanningLabel : activeScanButtonLabel }}
-          </button>
+          <div class="license-scan-actions">
+            <button
+              type="button"
+              class="scan-button"
+              :disabled="scanning"
+              @click="scanIne(props.form, 'safe_overwrite')"
+            >
+              {{ scanning ? activeScanningLabel : activeScanButtonLabel }}
+            </button>
+
+            <button
+              type="button"
+              class="scan-button scan-button-secondary"
+              :disabled="scanning"
+              @click="scanIne(props.form, 'force_overwrite')"
+            >
+              {{ activeRescanButtonLabel }}
+            </button>
+          </div>
         </div>
 
         <div class="form-grid">
@@ -821,12 +1146,20 @@ onBeforeUnmount(() => {
 
           <label>
             Fecha de emision
-            <input :value="formatDisplayDate(props.form.documentIssueDate)" type="text" readonly />
+            <input
+              :value="props.form.documentIssueDate"
+              type="date"
+              readonly
+            />
           </label>
 
           <label>
             Fecha de vencimiento / vigencia
-            <input :value="formatDisplayDate(props.form.documentExpiration)" type="text" readonly />
+            <input
+              :value="props.form.documentExpiration"
+              type="date"
+              readonly
+            />
           </label>
 
           <label>
@@ -849,7 +1182,7 @@ onBeforeUnmount(() => {
               :value="props.form.nationality"
               type="text"
               placeholder="Pendiente por detectar"
-              @input="updateField('nationality', $event.target.value)"
+              readonly
             />
           </label>
 
@@ -866,7 +1199,7 @@ onBeforeUnmount(() => {
               placeholder="Selecciona aeropuerto base"
               autocomplete="off"
               @focus="scheduleAirportSearch(props.form.base)"
-              @blur="window.setTimeout(closeAirportOptions, 120)"
+              @blur="closeAirportOptions"
               @input="handleBaseInput"
             />
             <div

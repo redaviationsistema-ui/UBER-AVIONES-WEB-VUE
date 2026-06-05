@@ -382,6 +382,15 @@ export async function apiRequest(path, options = {}) {
 
   let response
   let lastError = null
+  const externalSignal = options.signal
+
+  if (externalSignal?.aborted) {
+    const abortedError = typeof DOMException === 'function'
+      ? new DOMException('The operation was aborted.', 'AbortError')
+      : new Error('The operation was aborted.')
+    abortedError.name = 'AbortError'
+    throw abortedError
+  }
 
   for (const candidate of orderedCandidates) {
     const url = buildUrl(path, options.query, candidate)
@@ -399,6 +408,11 @@ export async function apiRequest(path, options = {}) {
             timeoutMs,
           )
         : null
+    const abortWithExternalSignal = () => {
+      if (controller) {
+        controller.abort()
+      }
+    }
 
     try {
       if (isAircraftRequest) {
@@ -410,8 +424,13 @@ export async function apiRequest(path, options = {}) {
         })
       }
 
-      if (controller) {
+      if (controller && externalSignal) {
+        externalSignal.addEventListener('abort', abortWithExternalSignal, { once: true })
         config.signal = controller.signal
+      } else if (controller) {
+        config.signal = controller.signal
+      } else if (externalSignal) {
+        config.signal = externalSignal
       }
       response = await fetch(url, config)
       const finishedAt =
@@ -487,6 +506,9 @@ export async function apiRequest(path, options = {}) {
       const nextIndex = matchedIndex >= 0 ? matchedIndex + 1 : 0
       activeBackendIndex = nextIndex < candidates.length ? nextIndex : 0
     } finally {
+      if (externalSignal) {
+        externalSignal.removeEventListener('abort', abortWithExternalSignal)
+      }
       if (timeoutId !== null) {
         window.clearTimeout(timeoutId)
       }
@@ -494,6 +516,9 @@ export async function apiRequest(path, options = {}) {
   }
 
   if (!response) {
+    if (lastError?.name === 'AbortError' || externalSignal?.aborted) {
+      throw lastError
+    }
     const networkError = new Error(
       buildNetworkErrorMessage(lastError, orderedCandidates, timeoutMs),
     )

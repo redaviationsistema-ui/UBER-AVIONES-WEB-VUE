@@ -1,6 +1,7 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
 import { resolveWorkflowState } from '../../utils/flightWorkflow'
+import { fetchAvailableCrewByRange } from '../../services/disponibilidadService'
 
 const props = defineProps({
   crewMembers: { type: Array, required: true },
@@ -30,6 +31,8 @@ const certificationFilter = ref('all')
 const availabilityFilter = ref('all')
 const validationNotes = reactive({})
 const assignmentDrafts = reactive({})
+const availableCrewCache = reactive({})
+const loadingAvailableCrew = reactive({})
 let hasInitializedViewMode = false
 
 const pendingValidationTokens = ['pend', 'revision', 'cambio', 'valid']
@@ -398,7 +401,60 @@ function isCrewAssignableToOperation(member = {}, operation = {}) {
 }
 
 function assignableCrewMembers(operation = {}) {
+  const cacheKey = availabilityQueryKey(operation)
+  const cached = availableCrewCache[cacheKey]
+
+  if (Array.isArray(cached) && cached.length) {
+    const allowedIds = new Set(cached.map((member) => Number(member.id || 0)).filter(Boolean))
+    return normalizedCrewMembers.value.filter(
+      (member) => allowedIds.has(Number(member.id || 0)) && isCrewAssignableToOperation(member, operation),
+    )
+  }
+
   return normalizedCrewMembers.value.filter((member) => isCrewAssignableToOperation(member, operation))
+}
+
+function operationDateRange(operation = {}) {
+  const from =
+    String(operation.departureDate || '').slice(0, 10) ||
+    String(operation.departure || '').slice(0, 10) ||
+    String(operation.raw?.operation?.departure_datetime || '').slice(0, 10) ||
+    String(operation.raw?.departure_datetime || '').slice(0, 10)
+  const to =
+    String(operation.arrival || '').slice(0, 10) ||
+    String(operation.raw?.operation?.arrival_datetime || '').slice(0, 10) ||
+    String(operation.raw?.arrival_datetime || '').slice(0, 10) ||
+    from
+
+  return {
+    from: /^\d{4}-\d{2}-\d{2}$/.test(from) ? from : '',
+    to: /^\d{4}-\d{2}-\d{2}$/.test(to) ? to : from,
+  }
+}
+
+function availabilityQueryKey(operation = {}) {
+  const range = operationDateRange(operation)
+  return `${range.from || 'sin-fecha'}:${range.to || 'sin-fecha'}:${String(operation.origin || operation.presentationPlace || '').trim() || 'sin-base'}`
+}
+
+async function ensureAvailableCrewForOperation(operation = {}) {
+  const range = operationDateRange(operation)
+  const cacheKey = availabilityQueryKey(operation)
+  if (!range.from || loadingAvailableCrew[cacheKey]) return
+  if (Array.isArray(availableCrewCache[cacheKey])) return
+
+  loadingAvailableCrew[cacheKey] = true
+  try {
+    availableCrewCache[cacheKey] = await fetchAvailableCrewByRange({
+      from: range.from,
+      to: range.to,
+      base: String(operation.origin || operation.presentationPlace || '').trim(),
+    })
+  } catch {
+    delete availableCrewCache[cacheKey]
+  } finally {
+    loadingAvailableCrew[cacheKey] = false
+  }
 }
 
 const assignedOperations = computed(() =>
@@ -799,7 +855,6 @@ function auditEntryTone(entry = {}) {
       <div class="section-head workspace-head">
         <div>
           <p class="eyebrow">Centro de despacho</p>
-          <h3>{{ isOperationsView ? 'Operaciones con sobrecargo' : 'Sobrecargos operativos' }}</h3>
           <p class="muted">
             {{
               isOperationsView
@@ -1022,6 +1077,7 @@ function auditEntryTone(entry = {}) {
                         v-model="getDraft(operation.id).crewId"
                         class="compact-field"
                         :disabled="isOperationClosed(operation) || !canAssignCrew(operation)"
+                        @focus="ensureAvailableCrewForOperation(operation)"
                       >
                         <option value="">Selecciona</option>
                         <option v-for="member in assignableCrewMembers(operation)" :key="member.id" :value="member.id">
@@ -1411,6 +1467,7 @@ function auditEntryTone(entry = {}) {
                 <select
                   v-model="getDraft(selectedOperation.id).crewId"
                   :disabled="isOperationClosed(selectedOperation) || !canAssignCrew(selectedOperation)"
+                  @focus="ensureAvailableCrewForOperation(selectedOperation)"
                 >
                   <option value="">Selecciona</option>
                   <option v-for="member in assignableCrewMembers(selectedOperation)" :key="member.id" :value="member.id">

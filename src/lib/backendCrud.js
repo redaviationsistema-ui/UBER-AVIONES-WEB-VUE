@@ -22,7 +22,7 @@ function buildAttemptSummary(attempts = []) {
     .join(' | ')
 }
 
-export async function requestWithCandidates(candidates) {
+export async function requestWithCandidates(candidates, requestOptions = {}) {
   let lastError = null
   const attempts = []
 
@@ -33,6 +33,7 @@ export async function requestWithCandidates(candidates) {
         query: candidate.query,
         headers: candidate.headers,
         timeoutMs: candidate.timeoutMs,
+        signal: requestOptions.signal,
       }
 
       if (method === 'get') {

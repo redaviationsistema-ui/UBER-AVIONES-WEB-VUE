@@ -40,11 +40,14 @@ export const roleSections = {
   ],
   crew: [
     { id: 'dashboard', label: 'Centro Operativo', icon: 'overview' },
-    { id: 'asignaciones', label: 'Vuelo Asignado', icon: 'link' },
-    { id: 'calendario', label: 'Agenda Operativa', icon: 'calendar' },
+    { id: 'disponibilidad', label: 'Disponibilidad', icon: 'calendar', path: '/sobrecargo/disponibilidad' },
+    { id: 'asignaciones', label: 'Operacion', icon: 'link' },
+    { id: 'calendario', label: 'Seguimiento', icon: 'checklist' },
+    { id: 'incidencias', label: 'Incidencias', icon: 'alert' },
+    { id: 'historial', label: 'Historial', icon: 'history' },
+    { id: 'documentos', label: 'Documentos', icon: 'clipboard' },
     { id: 'perfil', label: 'Cuenta', icon: 'account' },
-    { id: 'incidencias', label: 'Reporte Rapido Operativo', icon: 'alert' },
-    { id: 'historial', label: 'Historial operativo', icon: 'history' },
+    { id: 'configuracion', label: 'Configuracion', icon: 'grid' },
   ],
   admin: [
     { id: 'ejecutivo', label: 'Dashboard', icon: 'overview' },
@@ -54,8 +57,9 @@ export const roleSections = {
     { id: 'proveedores', label: 'Proveedores', icon: 'shield' },
     { id: 'aeronaves', label: 'Aeronaves', icon: 'jet' },
     { id: 'operadores', label: 'Operadores', icon: 'clipboard' },
-    { id: 'sobrecargos', label: 'Sobrecargos', icon: 'crew' },
-    { id: 'sobrecargo-operaciones', label: 'Operaciones sobrecargos', icon: 'link' },
+    { id: 'sobrecargos', label: 'Directorio de sobrecargos', icon: 'crew' },
+    { id: 'disponibilidad', label: 'Disponibilidad', icon: 'calendar', path: '/admin/sobrecargos/disponibilidad' },
+    { id: 'sobrecargo-operaciones', label: 'Operaciones de sobrecargos', icon: 'link' },
     { id: 'reservas', label: 'Flujo del cliente', icon: 'reservations' },
     { id: 'liberaciones', label: 'Liberaciones', icon: 'clipboard' },
     { id: 'suscripciones', label: 'Suscripciones', icon: 'wallet' },
@@ -76,9 +80,10 @@ export const roleSectionGroups = {
   ],
   crew: [
     { label: 'Centro Operativo', ids: ['dashboard'] },
+    { label: 'Disponibilidad', ids: ['disponibilidad'] },
     { label: 'Operacion', ids: ['asignaciones', 'calendario'] },
     { label: 'Seguimiento', ids: ['incidencias', 'historial', 'documentos'] },
-    { label: 'Cuenta', ids: ['perfil', 'configuracion', 'disponibilidad'] },
+    { label: 'Cuenta', ids: ['perfil', 'configuracion'] },
   ],
   operator: [
     {
@@ -94,7 +99,7 @@ export const roleSectionGroups = {
       label: 'Operacion y Proveedores',
       ids: ['proveedores', 'aeronaves', 'operadores', 'liberaciones', 'documentos', 'incidencias', 'notificaciones'],
     },
-    { label: 'Sobrecargos', ids: ['sobrecargos', 'sobrecargo-operaciones'] },
+    { label: 'Sobrecargos', ids: ['sobrecargos', 'disponibilidad', 'sobrecargo-operaciones'] },
     { label: 'Control Interno', ids: ['ejecutivo', 'importaciones', 'usuarios', 'analytics', 'configuracion'] },
   ],
 }
@@ -144,4 +149,19 @@ export function resolveSection(role, section) {
   const fallback = role === 'client' ? 'reservar' : sections[0]?.id || 'dashboard'
   const normalizedSection = legacyAliases[role]?.[section] || section
   return sections.some((item) => item.id === normalizedSection) ? normalizedSection : fallback
+}
+
+export function resolveRoleSectionPath(role, sectionOrItem) {
+  const sectionItem =
+    typeof sectionOrItem === 'object' && sectionOrItem !== null
+      ? sectionOrItem
+      : (roleSections[role] || []).find((item) => item.id === sectionOrItem)
+
+  if (sectionItem?.path) {
+    return sectionItem.path
+  }
+
+  const basePath = roleBasePaths[role] || ''
+  const sectionId = sectionItem?.id || sectionOrItem || ''
+  return `${basePath}/${sectionId}`.replace(/\/+$/, '')
 }

@@ -21,9 +21,11 @@ import {
   createClientWireIntent,
   getClientDestinations,
   getClientFlightPackages,
+  getClientTrip,
   markClientTripPaymentConfirmed,
   markClientTripReadyForPayment,
   getClientTrips,
+  normalizeTrip,
   searchClientFlights,
 } from '../clientBookingApi'
 import { useAuthStore } from '../../../stores/auth'
@@ -72,6 +74,7 @@ const technicalAircraft = ref(null)
 let removeWorkflowSyncSubscription = null
 let workflowSyncRefreshTimer = null
 let reservationsRequestPromise = null
+const reservationDetailRequestIds = new Set()
 let signedContractSyncTimer = null
 const appliedSignedContractReturnKey = ref('')
 const CLIENT_TRIPS_TIMEOUT_MS = Number(import.meta.env.VITE_CLIENT_TRIPS_TIMEOUT_MS || 45000)
@@ -3386,17 +3389,43 @@ async function requestReservation(aircraft = selectedAircraft.value) {
       reservation?.id ||
       selectedTripId.value ||
       ''
-    const refreshedReservations = await getClientTrips({ timeoutMs: CLIENT_TRIPS_TIMEOUT_MS })
-    if (refreshedReservations.length) {
-      reservations.value = refreshedReservations
+
+    const createdReservation =
+      reservation?.flight_request && typeof reservation.flight_request === 'object'
+        ? reservation.flight_request
+        : reservation?.data?.flight_request && typeof reservation.data.flight_request === 'object'
+          ? reservation.data.flight_request
+          : null
+
+    if (createdReservation) {
+      const normalizedCreatedReservation = normalizeTrip(createdReservation, {
+        entityType: 'flight_request',
+      })
+      const createdReservationId = String(
+        normalizedCreatedReservation.id ||
+          normalizedCreatedReservation.flight_request_id ||
+          createdFlightRequestId ||
+          '',
+      ).trim()
+
+      reservations.value = [
+        {
+          ...normalizedCreatedReservation,
+          summary_only: false,
+        },
+        ...reservations.value.filter(
+          (item) => String(item.id || item.flight_request_id || '').trim() !== createdReservationId,
+        ),
+      ]
     }
-    const matchedReservation = refreshedReservations.find(
+
+    const matchedReservation = reservations.value.find(
       (item) =>
         String(item.flight_request_id || '') === String(createdFlightRequestId) ||
         String(item.id || '') === String(createdFlightRequestId),
     )
     const targetReservationId =
-      matchedReservation?.id || refreshedReservations[0]?.id || createdFlightRequestId || ''
+      matchedReservation?.id || reservations.value[0]?.id || createdFlightRequestId || ''
     ui.pushToast({
       tone: 'success',
       title: 'Tu vuelo esta siendo confirmado',
@@ -3447,7 +3476,10 @@ async function refreshReservations({ silent = false } = {}) {
 
   reservationsRequestPromise = (async () => {
     try {
-      const trips = await getClientTrips({ timeoutMs: CLIENT_TRIPS_TIMEOUT_MS })
+      const trips = await getClientTrips({
+        timeoutMs: CLIENT_TRIPS_TIMEOUT_MS,
+        query: { per_page: 10 },
+      })
       reservations.value = trips
       return trips
     } finally {
@@ -3460,6 +3492,58 @@ async function refreshReservations({ silent = false } = {}) {
   })()
 
   return reservationsRequestPromise
+}
+
+function upsertReservationDetail(reservation) {
+  if (!reservation || typeof reservation !== 'object') return
+
+  const resolvedId = String(reservation.id || reservation.flight_request_id || '').trim()
+
+  if (!resolvedId) return
+
+  const nextReservations = [...reservations.value]
+  const index = nextReservations.findIndex(
+    (item) =>
+      String(item.id || '').trim() === resolvedId ||
+      String(item.flight_request_id || '').trim() === resolvedId,
+  )
+
+  if (index >= 0) {
+    nextReservations[index] = {
+      ...nextReservations[index],
+      ...reservation,
+      summary_only: false,
+    }
+  } else {
+    nextReservations.unshift({
+      ...reservation,
+      summary_only: false,
+    })
+  }
+
+  reservations.value = nextReservations
+}
+
+async function hydrateSelectedReservationDetail() {
+  const reservation = selectedReservation.value
+  const reservationId = String(reservation?.id || reservation?.flight_request_id || '').trim()
+
+  if (!reservation?.summary_only || !reservationId || reservationDetailRequestIds.has(reservationId)) {
+    return
+  }
+
+  reservationDetailRequestIds.add(reservationId)
+
+  try {
+    const detail = await getClientTrip(reservationId, {
+      timeoutMs: CLIENT_TRIPS_TIMEOUT_MS,
+    })
+    upsertReservationDetail(detail)
+  } catch {
+    // La vista puede seguir mostrando el resumen actual y reintentar despues.
+  } finally {
+    reservationDetailRequestIds.delete(reservationId)
+  }
 }
 
 function clearReservationsPolling() {
@@ -3520,8 +3604,11 @@ async function loadServerData() {
 onMounted(async () => {
   redirectLegacyInProgressSection()
   restoreQuotePreview()
-  await auth.refreshSession()
-  loadServerData()
+  if (!auth.user?.id) {
+    await auth.refreshSession()
+  }
+  await loadServerData()
+  void hydrateSelectedReservationDetail()
 
   removeWorkflowSyncSubscription = subscribeWorkflowSync((payload = {}) => {
     if (payload.scope !== 'reservation-workflow') return
@@ -3540,6 +3627,14 @@ watch(
   ],
   () => {
     void applySignedContractReturnState()
+  },
+  { immediate: true },
+)
+
+watch(
+  () => selectedReservation.value?.id || selectedReservation.value?.flight_request_id || '',
+  () => {
+    void hydrateSelectedReservationDetail()
   },
   { immediate: true },
 )

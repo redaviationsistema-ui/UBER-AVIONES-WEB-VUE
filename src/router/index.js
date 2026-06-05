@@ -14,6 +14,8 @@ const ClientLoginView = () => import('../views/ClientLoginView.vue')
 const ContractResultView = () => import('../views/ContractResultView.vue')
 const RegisterView = () => import('../views/RegisterView.vue')
 const RoleView = () => import('../views/RoleView.vue')
+const DisponibilidadSobrecargoView = () => import('../views/DisponibilidadSobrecargoView.vue')
+const DisponibilidadSobrecargosAdminView = () => import('../views/DisponibilidadSobrecargosAdminView.vue')
 const AircraftRentView = () => import('../views/AircraftRentView.vue')
 const StartMembershipView = () => import('../views/StartMembershipView.vue')
 const BusinessRegisterView = () => import('../views/BusinessRegisterView.vue')
@@ -124,11 +126,24 @@ const router = createRouter({
       meta: { requiresAuth: true, role: 'operator', hideTopbar: true },
     },
     {
+      path: '/sobrecargo/disponibilidad',
+      alias: ['/crew/disponibilidad'],
+      name: 'sobrecargo-disponibilidad',
+      component: DisponibilidadSobrecargoView,
+      meta: { requiresAuth: true, role: 'crew', hideTopbar: true },
+    },
+    {
       path: '/crew/:section?',
       alias: ['/sobrecargo/:section?'],
       name: 'crew',
       component: RoleView,
       meta: { requiresAuth: true, role: 'crew', hideTopbar: true },
+    },
+    {
+      path: '/admin/sobrecargos/disponibilidad',
+      name: 'admin-sobrecargos-disponibilidad',
+      component: DisponibilidadSobrecargosAdminView,
+      meta: { requiresAuth: true, role: 'admin', hideTopbar: true },
     },
     {
       path: '/admin/:section?',

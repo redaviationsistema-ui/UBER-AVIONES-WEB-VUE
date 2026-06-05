@@ -2,7 +2,7 @@
 import { computed, defineAsyncComponent, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import BrandLogo from './BrandLogo.vue'
-import { buildMenuGroups, roleBasePaths, roleSections } from '../data/roleFlows'
+import { buildMenuGroups, resolveRoleSectionPath, roleSections } from '../data/roleFlows'
 import { useAuthStore } from '../stores/auth'
 import { useUiStore } from '../stores/ui'
 
@@ -17,6 +17,7 @@ const props = defineProps({
   role: { type: Object, required: true },
   activeRole: { type: String, required: true },
   section: { type: String, required: true },
+  profileForm: { type: Object, default: () => ({}) },
 })
 
 
@@ -174,7 +175,9 @@ watch(
           </nav>
 
           <div class="workspace-menu-actions">
-            <span class="workspace-menu-hint">Operacion centralizada</span>
+           <span class="workspace-menu-hint">
+              {{ auth.user?.name || auth.user?.nombre || 'Operacion centralizada' }}
+            </span> 
             <button
               type="button"
               class="workspace-menu-logout"
@@ -202,7 +205,7 @@ watch(
               <RouterLink
                 v-for="item in currentGroup.items"
                 :key="item.id"
-                :to="`${roleBasePaths[activeRole]}/${item.id}`"
+                :to="resolveRoleSectionPath(activeRole, item)"
                 class="workspace-submenu-link"
                 :class="{ 'workspace-submenu-link--active': section === item.id }"
               >
@@ -247,7 +250,7 @@ watch(
                 <RouterLink
                   v-for="item in group.items"
                   :key="`mobile-link-${item.id}`"
-                  :to="`${roleBasePaths[activeRole]}/${item.id}`"
+                  :to="resolveRoleSectionPath(activeRole, item)"
                   class="workspace-mobile-link"
                   :class="{ 'workspace-mobile-link--active': section === item.id }"
                 >

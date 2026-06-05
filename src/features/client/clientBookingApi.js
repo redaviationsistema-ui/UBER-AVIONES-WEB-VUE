@@ -50,6 +50,7 @@ const CLIENT_TRIPS_PATHS = [
   ),
 ]
 let preferredClientTripsPath = ''
+const CLIENT_TRIP_SHOW_PATHS = CLIENT_TRIPS_PATHS.filter((path) => path.includes('/flight-requests'))
 const CLIENT_TRIP_CREATE_PATH =
   configuredTripCreatePath ||
   (configuredTripsPath && !configuredTripsPath.includes('/historial') ? configuredTripsPath : '') ||
@@ -1324,7 +1325,10 @@ async function getAircraftFromDatabase(query = {}) {
   for (const path of CLIENT_AIRCRAFT_PATHS) {
     try {
       const payload = await api.get(path, {
-        query,
+        query: {
+          per_page: 18,
+          ...query,
+        },
         timeoutMs: 15000,
       })
       const collection = normalizeArray(payload, ['aircraft', 'fleet', 'items', 'aeronaves'])
@@ -1839,6 +1843,7 @@ export function normalizeTrip(request = {}, options = {}) {
     client_id: request.client_id || request.customer_id || request.user_id || request.client?.id || '',
     entity_type: entityType,
     is_reservation: entityType === 'reservation',
+    summary_only: Boolean(request.summary_only),
     route,
     title: route || `Solicitud ${request.id || ''}`,
     origin: request.origin || legs[0]?.origin || '',
@@ -2364,6 +2369,10 @@ export async function getClientFlightPackages() {
 export const getClientMembershipPlans = getClientFlightPackages
 
 export async function getClientTrips(options = {}) {
+  const mergedQuery = {
+    per_page: 10,
+    ...(options.query || {}),
+  }
   const candidatePaths = preferredClientTripsPath
     ? [
         preferredClientTripsPath,
@@ -2373,7 +2382,7 @@ export async function getClientTrips(options = {}) {
 
   for (const path of candidatePaths) {
     try {
-      const payload = await api.get(path, options)
+      const payload = await api.get(path, { ...options, query: mergedQuery })
       const reservations = normalizeArray(payload, ['reservations']).map((item) =>
         normalizeTrip(item, { entityType: 'reservation' }),
       )
@@ -2469,6 +2478,30 @@ export async function getClientTrips(options = {}) {
   }
 
   return []
+}
+
+export async function getClientTrip(flightRequestId, options = {}) {
+  const normalizedId = normalizeEntityIdentifier(flightRequestId)
+
+  if (!normalizedId) {
+    throw new Error('No encontramos la solicitud del cliente.')
+  }
+
+  for (const path of CLIENT_TRIP_SHOW_PATHS) {
+    try {
+      const payload = await api.get(`${path}/${normalizedId}`, options)
+      const tripPayload =
+        payload?.flight_request || payload?.reservation || payload?.trip || payload?.data || payload
+
+      if (tripPayload && typeof tripPayload === 'object') {
+        return normalizeTrip(tripPayload, { entityType: 'flight_request' })
+      }
+    } catch {
+      continue
+    }
+  }
+
+  throw new Error('No se pudo cargar el detalle del viaje.')
 }
 
 function replaceRouteId(path, reservationId) {

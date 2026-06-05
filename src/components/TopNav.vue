@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import BrandLogo from './BrandLogo.vue'
-import { buildMenuGroups, roleBasePaths, roleSections } from '../data/roleFlows'
+import { buildMenuGroups, resolveRoleSectionPath, roleBasePaths, roleSections } from '../data/roleFlows'
 import { useAuthStore } from '../stores/auth'
 
 const route = useRoute()
@@ -199,7 +199,7 @@ watch([activeRole, () => auth.isAuthenticated], () => {
 
 const workspaceHome = computed(() => {
   if (!activeRole.value || !currentRoleMenu.value.length) return '/'
-  return `${roleBasePaths[activeRole.value]}/${currentRoleMenu.value[0].id}`
+  return resolveRoleSectionPath(activeRole.value, currentRoleMenu.value[0])
 })
 
 const roleBadgeLabel = computed(() => {
@@ -628,7 +628,7 @@ onBeforeUnmount(() => {
               <RouterLink
                 v-for="item in group.items"
                 :key="item.id"
-                :to="`${roleBasePaths[activeRole]}/${item.id}`"
+                :to="resolveRoleSectionPath(activeRole, item)"
                 class="menu-master-link workspace-link"
                 :class="{ active: isWorkspaceItemActive(item) }"
               >
@@ -644,7 +644,7 @@ onBeforeUnmount(() => {
 
       <ul v-if="!usesMobileDrawer && isClientWorkspace" class="workspace-links">
         <li v-for="item in currentRoleMenu" :key="item.id">
-          <RouterLink :to="`${roleBasePaths[activeRole]}/${item.id}`" class="workspace-link">
+          <RouterLink :to="resolveRoleSectionPath(activeRole, item)" class="workspace-link">
             <svg class="workspace-link-icon" viewBox="0 0 24 24" aria-hidden="true">
               <path fill="currentColor" :d="resolveIcon(item.icon)" />
             </svg>
@@ -736,7 +736,7 @@ onBeforeUnmount(() => {
                 <RouterLink
                   v-for="item in mobileQuickActions"
                   :key="item.id"
-                  :to="`${roleBasePaths[activeRole]}/${item.id}`"
+                  :to="resolveRoleSectionPath(activeRole, item)"
                   class="workspace-drawer-quick-link"
                   :class="{ 'workspace-drawer-quick-link-primary': item.id === 'dashboard' }"
                 >
@@ -753,7 +753,7 @@ onBeforeUnmount(() => {
                 <ul class="workspace-drawer-list">
                   <li v-for="item in currentRoleMenu" :key="item.id">
                     <RouterLink
-                      :to="`${roleBasePaths[activeRole]}/${item.id}`"
+                      :to="resolveRoleSectionPath(activeRole, item)"
                       class="workspace-drawer-link"
                     >
                       <svg class="workspace-link-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -795,7 +795,7 @@ onBeforeUnmount(() => {
                 >
                   <li v-for="item in group.items" :key="item.id">
                     <RouterLink
-                      :to="`${roleBasePaths[activeRole]}/${item.id}`"
+                      :to="resolveRoleSectionPath(activeRole, item)"
                       class="workspace-drawer-link workspace-drawer-submenu-item"
                     >
                       <svg class="workspace-link-icon" viewBox="0 0 24 24" aria-hidden="true">

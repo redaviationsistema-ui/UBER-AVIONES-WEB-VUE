@@ -1,20 +1,9 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { api } from '../../lib/api'
 import { pickCollection, requestWithCandidates } from '../../lib/backendCrud'
 import { fallbackAdminFlags, fallbackAdminKpis } from '../../data/platform'
 import { useUiStore } from '../../stores/ui'
-import AdminAlertsSection from './AdminAlertsSection.vue'
-import AdminAircraftSubscriptionsSection from './AdminAircraftSubscriptionsSection.vue'
-import AdminCrewOperationsSection from './AdminCrewOperationsSection.vue'
-import AdminContractsSection from './AdminContractsSection.vue'
-import AdminCrudSection from './AdminCrudSection.vue'
-import AdminExecutiveSection from './AdminExecutiveSection.vue'
-import AdminImportsSection from './AdminImportsSection.vue'
-import AdminProvidersNetworkSection from './AdminProvidersNetworkSection.vue'
-import AdminReleasesSection from './AdminReleasesSection.vue'
-import AdminReservationsSection from './AdminReservationsSection.vue'
-import AdminUsersSection from './AdminUsersSection.vue'
 import { normalizeWorkflowLabel, resolveWorkflowState, SHARED_WORKFLOW_STEPS } from '../../utils/flightWorkflow'
 import { emitWorkflowSync, subscribeWorkflowSync } from '../../lib/workflowSync'
 import {
@@ -24,6 +13,21 @@ import {
   resumeAdminReservation,
   updateAdminReservationStage,
 } from './adminReservationsApi'
+import { saveAvailabilityRange } from '../../services/disponibilidadService'
+
+const AdminAlertsSection = defineAsyncComponent(() => import('./AdminAlertsSection.vue'))
+const AdminAircraftSubscriptionsSection = defineAsyncComponent(() => import('./AdminAircraftSubscriptionsSection.vue'))
+const AdminCrewAvailabilitySection = defineAsyncComponent(() => import('./AdminCrewAvailabilitySection.vue'))
+const AdminCrewDirectorySection = defineAsyncComponent(() => import('./AdminCrewDirectorySection.vue'))
+const AdminCrewOperationsSection = defineAsyncComponent(() => import('./AdminCrewOperationsSection.vue'))
+const AdminContractsSection = defineAsyncComponent(() => import('./AdminContractsSection.vue'))
+const AdminCrudSection = defineAsyncComponent(() => import('./AdminCrudSection.vue'))
+const AdminExecutiveSection = defineAsyncComponent(() => import('./AdminExecutiveSection.vue'))
+const AdminImportsSection = defineAsyncComponent(() => import('./AdminImportsSection.vue'))
+const AdminProvidersNetworkSection = defineAsyncComponent(() => import('./AdminProvidersNetworkSection.vue'))
+const AdminReleasesSection = defineAsyncComponent(() => import('./AdminReleasesSection.vue'))
+const AdminReservationsSection = defineAsyncComponent(() => import('./AdminReservationsSection.vue'))
+const AdminUsersSection = defineAsyncComponent(() => import('./AdminUsersSection.vue'))
 
 const props = defineProps({
   section: { type: String, required: true },
@@ -41,6 +45,7 @@ const aircraft = ref([])
 const subscriptions = ref([])
 const contracts = ref([])
 const crewMembers = ref([])
+const crewAvailabilityStatuses = ref([])
 const operations = ref([])
 const auditEntries = ref([])
 const reservationAuditEntries = ref([])
@@ -82,6 +87,7 @@ const ADMIN_SECTION_REFRESH_THROTTLE_MS = Number(
   import.meta.env.VITE_ADMIN_SECTION_REFRESH_THROTTLE_MS || (IS_LOCAL_ADMIN_DEV ? 12000 : 5000),
 )
 const adminReservationsLoadWarningShown = ref(false)
+const adminCrewAvailabilityWarningShown = ref(false)
 
 function getReservationRefreshTimestamp(section = props.section) {
   return section === 'liberaciones' ? lastReleasesRefreshAt : lastReservationsRefreshAt
@@ -106,6 +112,35 @@ function markCrewRefresh() {
 
 function isCrewRefreshCoolingDown() {
   return Date.now() - lastCrewRefreshAt < ADMIN_CREW_REFRESH_COOLDOWN_MS
+}
+
+function shouldFallbackAssignmentRoute(error) {
+  const status = Number(error?.status || 0)
+  const message = String(error?.message || '').toLowerCase()
+  return status === 0 || status === 404 || status === 405 || (message.includes('route') && message.includes('found'))
+}
+
+function extractOperationRange(operation = {}) {
+  const startCandidate =
+    operation.departureDate ||
+    String(operation.departure || '').slice(0, 10) ||
+    String(operation.raw?.operation?.departure_datetime || '').slice(0, 10) ||
+    String(operation.raw?.departure_datetime || '').slice(0, 10) ||
+    String(operation.raw?.departure_date || '').slice(0, 10)
+
+  const endCandidate =
+    String(operation.arrival || '').slice(0, 10) ||
+    String(operation.raw?.operation?.arrival_datetime || '').slice(0, 10) ||
+    String(operation.raw?.arrival_datetime || '').slice(0, 10) ||
+    String(operation.raw?.return_date || '').slice(0, 10)
+
+  const from = /^\d{4}-\d{2}-\d{2}$/.test(startCandidate) ? startCandidate : ''
+  const to = /^\d{4}-\d{2}-\d{2}$/.test(endCandidate) ? endCandidate : from
+
+  return {
+    from,
+    to: to && to >= from ? to : from,
+  }
 }
 
 const quickActions = [
@@ -270,6 +305,15 @@ const adminSections = {
     details: ['Agenda', 'Vuelos asignados', 'Rating', 'Horas trabajadas', 'Pagos', 'Incidencias'],
     edits: ['Certificados', 'Estado', 'Disponibilidad', 'Informacion bancaria', 'Perfil'],
     deactivation: ['Suspender', 'Pausar'],
+  },
+  disponibilidad: {
+    eyebrow: 'Sobrecargos',
+    title: 'Disponibilidad de sobrecargos',
+    description: 'Consulta y administra la disponibilidad diaria de todas las sobrecargos.',
+    actions: ['Aprobar bloqueo', 'Rechazar bloqueo', 'Actualizar estado', 'Ver bitacora'],
+    fields: ['Sobrecargo', 'Base', 'Dia', 'Estado', 'Comentario'],
+    details: ['Semana operativa', 'Bloqueos', 'Operaciones ligadas', 'Bitacora'],
+    edits: ['Estado', 'Comentario administrativo'],
   },
   reservas: {
     eyebrow: 'Reservas',
@@ -653,6 +697,7 @@ const normalizedSectionSources = computed(() => ({
   suscripciones: subscriptions.value,
   contratos: contracts.value,
   sobrecargos: crewMembers.value,
+  disponibilidad: crewMembers.value,
   'sobrecargo-operaciones': crewMembers.value,
   reservas: operations.value,
   liberaciones: operations.value,
@@ -676,6 +721,12 @@ const dynamicSectionHighlights = computed(() => ({
     { label: 'En servicio', value: formatCount(crewInServiceCount.value), detail: 'Sobrecargos asignados o con operacion en curso.' },
     { label: 'Aprobados', value: formatCount(approvedCrewCount.value), detail: 'Perfiles con validacion administrativa aprobada.' },
     { label: 'Con alerta', value: formatCount(crewAlertsCount.value), detail: 'Expedientes que requieren seguimiento operativo o documental.' },
+  ],
+  disponibilidad: [
+    { label: 'Disponibles', value: formatCount(availableCrewCount.value), detail: 'Sobrecargos listos para una nueva asignacion.' },
+    { label: 'En servicio', value: formatCount(crewInServiceCount.value), detail: 'Tripulacion ya ligada a una operacion activa.' },
+    { label: 'Aprobados', value: formatCount(approvedCrewCount.value), detail: 'Perfiles con expediente validado por admin.' },
+    { label: 'Con alerta', value: formatCount(crewAlertsCount.value), detail: 'Casos que requieren seguimiento adicional.' },
   ],
   reservas: [
     { label: 'Activas', value: formatCount(activeReservationsCount.value), detail: 'Reservas y vuelos que siguen en flujo operativo.' },
@@ -1051,36 +1102,14 @@ async function loadCrewMembers(options = {}) {
   if (crewMembersRequestPromise) return crewMembersRequestPromise
 
   const timeoutMs = options.timeoutMs || ADMIN_CREW_TIMEOUT_MS
-  const allowUsersFallback = options.allowUsersFallback !== false
   crewMembersRequestPromise = (async () => {
-    const [crewResult, usersResult] = await Promise.allSettled([
-      requestWithCandidates([
-        { method: 'get', path: '/admin/sobrecargos', timeoutMs },
-        { method: 'get', path: '/admin/crew', timeoutMs },
-        { method: 'get', path: '/admin/users', timeoutMs },
-      ]),
-      !allowUsersFallback
-        ? Promise.resolve({ users: users.value })
-        : users.value.length
-        ? Promise.resolve({ users: users.value })
-        : requestWithCandidates([
-            { method: 'get', path: '/admin/users', timeoutMs },
-          ]),
+    const crewResult = await requestWithCandidates([
+      { method: 'get', path: '/admin/sobrecargos', timeoutMs },
+      { method: 'get', path: '/admin/crew', timeoutMs },
     ])
 
-    const usersCollection =
-      usersResult.status === 'fulfilled'
-        ? pickCollection(usersResult.value, ['users', 'usuarios'])
-        : []
-
-    if (!users.value.length) {
-      users.value = usersCollection
-    }
-
-    const directCrewCollection =
-      crewResult.status === 'fulfilled'
-        ? pickCollection(crewResult.value, ['sobrecargos', 'crew', 'users', 'data'])
-        : []
+    const directCrewCollection = pickCollection(crewResult, ['sobrecargos', 'crew', 'data'])
+    const usersCollection = users.value.filter((item) => normalizeAdminCrewMember(item))
 
     rawSectionRecords.sobrecargos = directCrewCollection.length ? directCrewCollection : usersCollection
 
@@ -1094,6 +1123,60 @@ async function loadCrewMembers(options = {}) {
     await crewMembersRequestPromise
   } finally {
     crewMembersRequestPromise = null
+  }
+}
+
+async function loadCrewAvailability(options = {}) {
+  const timeoutMs = options.timeoutMs || ADMIN_CREW_TIMEOUT_MS
+  const from = options.from || new Date().toISOString().slice(0, 10)
+  const to = options.to || new Date(Date.now() + 6 * 86400000).toISOString().slice(0, 10)
+
+  try {
+    const response = await requestWithCandidates([
+      {
+        method: 'get',
+        path: '/admin/sobrecargos/disponibilidad',
+        query: { from, to },
+        timeoutMs,
+      },
+    ])
+
+    const records = pickCollection(response, ['crew_members', 'sobrecargos', 'crew', 'users', 'data'])
+    crewAvailabilityStatuses.value = pickCollection(response, ['statuses', 'estatuses', 'data'])
+    rawSectionRecords.disponibilidad = records
+    const normalizedRecords = records.map(normalizeAdminCrewMember).filter(Boolean)
+    if (normalizedRecords.length) {
+      crewMembers.value = normalizedRecords
+    } else {
+      await loadCrewMembers({
+        timeoutMs,
+        allowUsersFallback: true,
+      })
+      rawSectionRecords.disponibilidad = rawSectionRecords.sobrecargos || []
+    }
+    adminCrewAvailabilityWarningShown.value = false
+    markCrewRefresh()
+  } catch (error) {
+    if (isTimeoutLikeError(error)) {
+      await loadCrewMembers({
+        timeoutMs,
+        allowUsersFallback: true,
+      })
+      rawSectionRecords.disponibilidad = crewMembers.value.length ? rawSectionRecords.sobrecargos || [] : rawSectionRecords.disponibilidad || []
+      crewAvailabilityStatuses.value = crewAvailabilityStatuses.value.length ? crewAvailabilityStatuses.value : []
+      if (!adminCrewAvailabilityWarningShown.value) {
+        adminCrewAvailabilityWarningShown.value = true
+        ui.pushToast({
+          tone: 'warning',
+          title: 'Disponibilidad sin respuesta',
+          message:
+            'El backend de disponibilidad tardó demasiado. Conservamos la vista actual mientras vuelve a responder.',
+        })
+      }
+      return
+    }
+
+    throw error
   }
 }
 
@@ -1277,13 +1360,20 @@ async function loadPortalSection(section) {
     return
   }
 
-  if (section === 'sobrecargos' || section === 'sobrecargo-operaciones') {
-    await loadCrewSection({
-      allowUsersFallback: true,
-      shouldReuseWarmCache: false,
-      preserveExistingOnEmpty: true,
-      silentOperations: true,
-    })
+  if (section === 'sobrecargos' || section === 'disponibilidad' || section === 'sobrecargo-operaciones') {
+    if (section === 'disponibilidad') {
+      await loadOperations({
+        silent: true,
+        preserveExistingOnEmpty: true,
+      })
+    } else {
+      await loadCrewSection({
+        allowUsersFallback: true,
+        shouldReuseWarmCache: false,
+        preserveExistingOnEmpty: true,
+        silentOperations: true,
+      })
+    }
     return
   }
 
@@ -1312,13 +1402,13 @@ function shouldAutoRefreshReservations() {
 }
 
 function shouldAutoRefreshCrewSection() {
-  return ['sobrecargos', 'sobrecargo-operaciones'].includes(props.section)
+  return false
 }
 
 function shouldWarmCrewSection(section = props.section) {
   if (IS_LOCAL_ADMIN_DEV) return false
 
-  return !['ejecutivo', 'sobrecargos', 'sobrecargo-operaciones', 'reservas', 'liberaciones'].includes(section)
+  return !['ejecutivo', 'sobrecargos', 'disponibilidad', 'sobrecargo-operaciones', 'reservas', 'liberaciones'].includes(section)
 }
 
 function shouldThrottlePortalSectionLoad(section = props.section, force = false) {
@@ -1594,6 +1684,16 @@ async function assignCrewToOperation({ operationId, crewId, note }) {
     return
   }
 
+  const operationRange = extractOperationRange(operation)
+  if (!operationRange.from) {
+    ui.pushToast({
+      tone: 'error',
+      title: 'Operacion sin fechas',
+      message: 'No pudimos identificar el rango operativo del vuelo para asignar y bloquear disponibilidad.',
+    })
+    return
+  }
+
   const payload = {
     provider_id: operation.providerId || undefined,
     aircraft_id: operation.aircraftId || undefined,
@@ -1604,6 +1704,57 @@ async function assignCrewToOperation({ operationId, crewId, note }) {
     note: note || '',
     briefing_time: operation.briefingTime || undefined,
     presentation_place: operation.presentationPlace || operation.origin || undefined,
+  }
+
+  let dedicatedAssignmentResponse = null
+  let usedAvailabilityFallback = false
+
+  try {
+    dedicatedAssignmentResponse = await requestWithCandidates([
+      {
+        method: 'post',
+        path: '/admin/sobrecargos/asignar-vuelo',
+        body: {
+          vuelo_id: operation.raw?.operation?.id || operation.id,
+          operacion_id: operation.raw?.operation?.id || operation.id,
+          sobrecargo_id: member.id,
+          sobrecargo_user_id: member.id,
+        },
+      },
+    ])
+  } catch (error) {
+    if (!shouldFallbackAssignmentRoute(error)) {
+      ui.pushToast({
+        tone: 'error',
+        title: 'Asignacion rechazada',
+        message: error?.message || 'El backend no permitio asignar la sobrecargo a este vuelo.',
+      })
+      return
+    }
+
+    try {
+      await saveAvailabilityRange({
+        scope: 'admin',
+        crewId: member.id,
+        from: operationRange.from,
+        to: operationRange.to,
+        statusKey: 'EN_OPERACION',
+        comment: `Asignacion automatica al vuelo ${operation.folio || `RA-${operation.id}`}`,
+        reason: 'En operacion',
+        base: member.base || '',
+        audit: true,
+      })
+      usedAvailabilityFallback = true
+    } catch (availabilityError) {
+      ui.pushToast({
+        tone: 'error',
+        title: 'Disponibilidad no sincronizada',
+        message:
+          availabilityError?.message ||
+          'No fue posible registrar el rango del vuelo como disponibilidad En operacion.',
+      })
+      return
+    }
   }
 
   const persistentAssignmentPatch = {
@@ -1684,7 +1835,10 @@ async function assignCrewToOperation({ operationId, crewId, note }) {
           ...(persistentReservation || {}),
           crew: member.name,
           crewId: member.id,
-          crewOperationalState: persistentReservation?.crewOperationalState || 'pending_crew_response',
+          crewOperationalState:
+            persistentReservation?.crewOperationalState ||
+            dedicatedAssignmentResponse?.crew_status ||
+            'en_operacion',
           status: visibleWorkflowStage || item.status,
           workflowStatus: visibleWorkflowStage || item.workflowStatus,
           notes: note ? `${item.notes} · ${note}` : item.notes,
@@ -1694,20 +1848,20 @@ async function assignCrewToOperation({ operationId, crewId, note }) {
 
   upsertCrewMember({
     ...member,
-    state: 'Asignado',
+    state: 'En operacion',
     lastAudit: new Date().toISOString().slice(0, 16).replace('T', ' '),
   })
 
   pushAuditEntry(
     `Asignacion confirmada: ${member.name}`,
-    `Operacion #${operationId} asignada a ${member.name}.${note ? ` ${note}` : ''}`,
+    `Operacion #${operationId} asignada a ${member.name}. Rango ${operationRange.from}${operationRange.to !== operationRange.from ? ` a ${operationRange.to}` : ''} marcado como En operacion.${note ? ` ${note}` : ''}`,
   )
   ui.pushToast({
     tone: 'success',
     title: 'Sobrecargo asignado',
     message: promotedWorkflowStage
-      ? `${member.name} ya quedo ligado a la operacion #${operationId} y el flujo paso a Tracking.`
-      : `${member.name} ya quedo ligado a la operacion #${operationId}.`,
+      ? `${member.name} ya quedo ligado a la operacion #${operationId}, y su disponibilidad operativa se actualizo.`
+      : `${member.name} ya quedo ligado a la operacion #${operationId}${usedAvailabilityFallback ? ' y se marco En operacion en disponibilidad.' : '.'}`,
   })
 }
 
@@ -2032,16 +2186,34 @@ watch(
     :subscriptions="subscriptions"
     mode="subscriptions"
   />
-  <AdminCrewOperationsSection
-    v-else-if="section === 'sobrecargos' || section === 'sobrecargo-operaciones'"
+  <AdminCrewDirectorySection
+    v-else-if="section === 'sobrecargos'"
     :crew-members="crewMembers"
     :operations="operations"
     :audit-entries="crewAuditEntries"
-    :view-mode="section === 'sobrecargo-operaciones' ? 'operations' : 'review'"
+    @approve-crew="approveCrew"
+    @reject-crew="rejectCrew"
+    @suspend-crew="suspendCrew"
+    @audit-crew="auditCrew"
+  />
+  <AdminCrewOperationsSection
+    v-else-if="section === 'sobrecargo-operaciones'"
+    :crew-members="crewMembers"
+    :operations="operations"
+    :audit-entries="crewAuditEntries"
+    view-mode="operations"
     @approve-crew="approveCrew"
     @reject-crew="rejectCrew"
     @suspend-crew="suspendCrew"
     @assign-crew="assignCrewToOperation"
+    @audit-crew="auditCrew"
+  />
+  <AdminCrewAvailabilitySection
+    v-else-if="section === 'disponibilidad'"
+    :crew-members="crewMembers"
+    :operations="operations"
+    :audit-entries="crewAuditEntries"
+    :status-options="crewAvailabilityStatuses"
     @audit-crew="auditCrew"
   />
   <AdminReservationsSection

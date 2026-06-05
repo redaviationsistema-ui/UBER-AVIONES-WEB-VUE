@@ -188,30 +188,50 @@ function extractVisibleName(rawText = '') {
     .join(' ')
 }
 
-export async function scanIneFiles(files = []) {
+export async function scanDocumentFiles(files = [], options = {}) {
+  const kind = String(options.kind || 'ine').trim().toLowerCase()
   const imageFiles = files.filter((file) => file?.type?.startsWith('image/'))
+
+  if (kind === 'license') {
+    const ocrPasses = await scanTextWithOcr(imageFiles, { includeCurpPass: false, kind: 'license' })
+    return {
+      method: 'ocr',
+      rawText: ocrPasses.map((pass) => pass.text).filter(Boolean).join('\n\n'),
+      data: {},
+      passes: ocrPasses,
+    }
+  }
+
   const barcodeText = await scanBarcodes(imageFiles)
 
   if (barcodeText) {
     const barcodeData = parseIneData(barcodeText)
 
     if (hasUsefulParsedData(barcodeData)) {
-      return { method: 'codigo', rawText: barcodeText, data: barcodeData }
+      return {
+        method: 'codigo',
+        rawText: barcodeText,
+        data: barcodeData,
+        passes: [{ source: 'barcode', text: barcodeText }],
+      }
     }
 
-    const ocrTextFromBarcodeFallback = await scanTextWithOcr(imageFiles)
+    const ocrPasses = await scanTextWithOcr(imageFiles, { includeCurpPass: true, kind: 'ine' })
+    const ocrTextFromBarcodeFallback = ocrPasses.map((pass) => pass.text).filter(Boolean).join('\n\n')
     const ocrDataFromBarcodeFallback = parseIneData(ocrTextFromBarcodeFallback)
 
     return {
       method: 'codigo+ocr',
       rawText: [barcodeText, ocrTextFromBarcodeFallback].filter(Boolean).join('\n\n'),
       data: mergeParsedIneData(ocrDataFromBarcodeFallback, barcodeData),
+      passes: [{ source: 'barcode', text: barcodeText }, ...ocrPasses],
     }
   }
 
-  const ocrText = await scanTextWithOcr(imageFiles)
+  const ocrPasses = await scanTextWithOcr(imageFiles, { includeCurpPass: true, kind: 'ine' })
+  const ocrText = ocrPasses.map((pass) => pass.text).filter(Boolean).join('\n\n')
   const ocrData = parseIneData(ocrText)
-  return { method: 'ocr', rawText: ocrText, data: ocrData }
+  return { method: 'ocr', rawText: ocrText, data: ocrData, passes: ocrPasses }
 }
 
 async function scanBarcodes(files) {
@@ -279,49 +299,66 @@ async function getZxingReader() {
   return zxingReader
 }
 
-async function scanTextWithOcr(files) {
+async function scanTextWithOcr(files, options = {}) {
   if (!files.length) return ''
 
+  const includeCurpPass = options.includeCurpPass !== false
+  const kind = String(options.kind || 'ine').trim().toLowerCase()
   const { createWorker } = await import('tesseract.js')
   const worker = await createWorker('spa+eng')
-  const chunks = []
+  const passes = []
 
   try {
     for (const file of files) {
-      const images = await buildOcrImages(file)
+      const images = kind === 'license' ? await buildLicenseOcrImages(file) : await buildOcrImages(file)
 
-      for (const image of images) {
+      for (const [index, image] of images.entries()) {
         const result = await worker.recognize(image)
-        chunks.push(result?.data?.text || '')
+        passes.push({
+          source: `${kind}-ocr-${index + 1}`,
+          text: result?.data?.text || '',
+        })
       }
     }
 
-    await worker.setParameters({
-      tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
-      preserve_interword_spaces: '1',
-    })
+    if (includeCurpPass) {
+      await worker.setParameters({
+        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
+        preserve_interword_spaces: '1',
+      })
 
-    for (const file of files) {
-      const curpImages = await buildCurpFocusedImages(file)
+      for (const file of files) {
+        const curpImages = await buildCurpFocusedImages(file)
 
-      for (const image of curpImages) {
-        const result = await worker.recognize(image)
-        chunks.push(result?.data?.text || '')
+        for (const [index, image] of curpImages.entries()) {
+          const result = await worker.recognize(image)
+          passes.push({
+            source: `ine-curp-${index + 1}`,
+            text: result?.data?.text || '',
+          })
+        }
       }
     }
   } finally {
     await worker.terminate()
   }
 
-  return chunks.join('\n')
+  return passes
 }
 
 function readImage(file) {
   return new Promise((resolve, reject) => {
+    const imageUrl = URL.createObjectURL(file)
     const image = new Image()
-    image.onload = () => resolve(image)
-    image.onerror = reject
-    image.src = URL.createObjectURL(file)
+    image.onload = () => {
+      URL.revokeObjectURL(imageUrl)
+      resolve(image)
+    }
+    image.onerror = (error) => {
+      URL.revokeObjectURL(imageUrl)
+      reject(error)
+    }
+    image.src = imageUrl
   })
 }
 
@@ -339,6 +376,18 @@ async function buildOcrImages(file) {
     enhanceImage(image, { top: 0.12, left: 0, width: 1, height: 0.52 }, { scaleWidth: 2200, mode: 'contrast' }),
     enhanceImage(image, { top: 0.28, left: 0, width: 1, height: 0.44 }, { scaleWidth: 2200, mode: 'threshold' }),
     enhanceImage(image, { top: 0.40, left: 0, width: 1, height: 0.36 }, { scaleWidth: 2200, mode: 'contrast' }),
+  ]
+}
+
+async function buildLicenseOcrImages(file) {
+  const image = await readImage(file)
+
+  return [
+    enhanceImage(image, null, { scaleWidth: 1800, mode: 'contrast' }),
+    enhanceImage(image, null, { scaleWidth: 2400, mode: 'threshold' }),
+    enhanceImage(image, { top: 0.18, left: 0.22, width: 0.68, height: 0.56 }, { scaleWidth: 2400, mode: 'contrast' }),
+    enhanceImage(image, { top: 0.18, left: 0.22, width: 0.68, height: 0.56 }, { scaleWidth: 2600, mode: 'threshold' }),
+    enhanceImage(image, { top: 0.66, left: 0.05, width: 0.9, height: 0.2 }, { scaleWidth: 2200, mode: 'contrast' }),
   ]
 }
 

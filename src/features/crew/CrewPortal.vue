@@ -5,9 +5,13 @@ import { api } from '../../lib/api'
 import { pickCollection, pickRecord, requestWithCandidates } from '../../lib/backendCrud'
 import { roleBasePaths } from '../../data/roleFlows'
 import { subscribeWorkflowSync } from '../../lib/workflowSync'
+import {
+  saveAvailabilityDate as persistAvailabilityDate,
+} from '../../services/disponibilidadService'
 import { useAuthStore } from '../../stores/auth'
 import { useUiStore } from '../../stores/ui'
 import CrewAgendaSection from './CrewAgendaSection.vue'
+import CrewAvailabilitySection from './CrewAvailabilitySection.vue'
 import CrewAssignmentsSection from './CrewAssignmentsSection.vue'
 import CrewDashboardSection from './CrewDashboardSection.vue'
 import CrewHistorySection from './CrewHistorySection.vue'
@@ -82,14 +86,11 @@ const crewStatusOptions = ['Disponible', 'Descanso', 'En vuelo', 'No disponible'
 const incidentTypes = ['Catering', 'Cabina', 'Cliente', 'Seguridad', 'Horario', 'Proveedor', 'Otro']
 const incidentPriorities = ['Baja', 'Media', 'Alta', 'Critica']
 const incidentStates = ['Nueva', 'En revision', 'Escalada', 'Resuelta por admin', 'Cerrada']
-const availabilityStates = ['Disponible', 'Descanso', 'No disponible']
+const availabilityStates = ['DISPONIBLE', 'DESCANSO', 'NO_DISPONIBLE', 'BLOQUEO_SOLICITADO']
 const blockTypes = ['Descanso', 'Capacitacion', 'Medico', 'Personal', 'Restriccion operativa']
 const bases = []
 const languages = []
 const profileStates = ['Pendiente', 'En revision', 'Aprobado', 'Rechazado', 'Suspendido']
-const CREW_ASSIGNMENT_DETAIL_CONCURRENCY = Number(
-  import.meta.env.VITE_CREW_ASSIGNMENT_DETAIL_CONCURRENCY || 2,
-)
 
 const providerContext = reactive({
   providerName: '',
@@ -101,6 +102,7 @@ const providerContext = reactive({
 const assignments = ref([])
 
 const availabilityBlocks = ref([])
+const availabilityStatusCatalog = ref([])
 
 const documentItems = ref([])
 
@@ -125,7 +127,7 @@ const agendaBlockForm = reactive({
 const availabilityForm = reactive({
   from: '',
   to: '',
-  state: 'Disponible',
+  state: 'DISPONIBLE',
   base: '',
   coverage: '',
   restriction: '',
@@ -869,73 +871,100 @@ function extractAssignmentsCollection(payload = {}) {
   return pickCollection(payload, ['assignments', 'asignaciones', 'operations', 'operaciones', 'data', 'items'])
 }
 
-async function mapWithConcurrency(items = [], worker, concurrency = 2) {
-  const source = Array.isArray(items) ? items : []
-  const normalizedConcurrency = Math.max(1, Number(concurrency) || 1)
-  const results = new Array(source.length)
-  let nextIndex = 0
-
-  async function consumeQueue() {
-    while (nextIndex < source.length) {
-      const currentIndex = nextIndex
-      nextIndex += 1
-
-      try {
-        results[currentIndex] = {
-          status: 'fulfilled',
-          value: await worker(source[currentIndex], currentIndex),
-        }
-      } catch (error) {
-        results[currentIndex] = {
-          status: 'rejected',
-          reason: error,
-        }
-      }
-    }
-  }
-
-  await Promise.all(
-    Array.from({ length: Math.min(normalizedConcurrency, source.length || 1) }, () => consumeQueue()),
-  )
-
-  return results
-}
-
 async function fetchCrewAssignments() {
   const response = await requestWithCandidates([
     { method: 'get', path: '/sobrecargo/assignments', timeoutMs: CREW_PORTAL_TIMEOUT_MS },
   ])
 
   const collection = extractAssignmentsCollection(response)
-  const detailResults = await mapWithConcurrency(
-    collection,
-    (item) =>
-      requestWithCandidates([
-        { method: 'get', path: `/sobrecargo/operations/${item.id}`, timeoutMs: CREW_PORTAL_TIMEOUT_MS },
-      ]),
-    CREW_ASSIGNMENT_DETAIL_CONCURRENCY,
-  )
 
-  return collection.map((item, index) =>
-    normalizeAssignment(
-      item,
-      detailResults[index]?.status === 'fulfilled'
-        ? pickRecord(detailResults[index].value, ['operation', 'operacion', 'assignment', 'data'])
-        : {},
-      index,
-    ),
-  )
+  return collection.map((item, index) => normalizeAssignment(item, item, index))
 }
 
 function normalizeCrewAvailabilityRecord(raw = {}, index = 0) {
+  const statusId = raw.estatus_id || raw.status_id || raw.availability_status_id || null
+  const statusDefinitionById =
+    availabilityStatusCatalog.value.find(
+      (item) => String(item.id || item.estatus_id || '') === String(statusId || ''),
+    ) || null
+  const statusKey = normalizeAvailabilityStatusKey(
+    raw.clave ||
+      raw.status_key ||
+      raw.status ||
+      raw.availability_status ||
+      raw.state ||
+      raw.nombre ||
+      statusDefinitionById?.clave ||
+      statusDefinitionById?.status ||
+      statusDefinitionById?.nombre ||
+      '',
+  )
+  const statusDefinition = statusDefinitionById || getAvailabilityStatusDefinition(statusKey)
+
   return {
     id: raw.id || index + 1,
-    from: raw.from || raw.starts_at || raw.start_datetime || '',
-    to: raw.to || raw.ends_at || raw.end_datetime || '',
-    state: raw.state || raw.status || raw.availability_status || 'Disponible',
+    from: raw.from || raw.fecha || raw.starts_at || raw.start_datetime || '',
+    to: raw.to || raw.fecha || raw.ends_at || raw.end_datetime || '',
+    statusId: statusId || statusDefinition?.id || null,
+    state: raw.state || raw.nombre || statusDefinition?.nombre || humanizeAvailabilityStatusKey(statusKey) || 'Disponible',
+    statusKey,
     base: raw.base || raw.city || profileForm.base || '',
     coverage: raw.coverage || raw.zone || configForm.personalCoverage || '',
-    restriction: raw.restriction || raw.reason || raw.notes || '',
+    restriction: raw.restriction || raw.comentario || raw.reason || raw.notes || '',
+    reason: raw.motivo || '',
+    color: raw.color || statusDefinition?.color || '',
+    icon: raw.icono || statusDefinition?.icono || '',
+    allowsAssignment: Boolean(raw.permite_asignacion ?? statusDefinition?.permite_asignacion),
+    origin: raw.origen || '',
+    createdBy: raw.created_by_nombre || raw.created_by_name || '',
+  }
+}
+
+function normalizeAvailabilityStatusKey(value = '') {
+  const normalized = String(value || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, '_')
+
+  if (!normalized) return 'DISPONIBLE'
+  if (normalized === 'EN_OPERACION' || normalized === 'EN_VUELO' || normalized === 'OPERACION') return 'EN_OPERACION'
+  if (normalized === 'NO_DISPONIBLE' || normalized === 'INACTIVO' || normalized === 'BLOCKED') return 'NO_DISPONIBLE'
+  if (normalized === 'BLOQUEO' || normalized === 'PENDIENTE') return 'BLOQUEO_SOLICITADO'
+  return normalized
+}
+
+function humanizeAvailabilityStatusKey(key = '') {
+  const normalized = normalizeAvailabilityStatusKey(key)
+  if (normalized === 'DISPONIBLE') return 'Disponible'
+  if (normalized === 'NO_DISPONIBLE') return 'No disponible'
+  if (normalized === 'DESCANSO') return 'Descanso'
+  if (normalized === 'EN_OPERACION') return 'En operacion'
+  if (normalized === 'BLOQUEO_SOLICITADO') return 'Bloqueo solicitado'
+  if (normalized === 'BLOQUEO_APROBADO') return 'Bloqueo aprobado'
+  if (normalized === 'BLOQUEO_RECHAZADO') return 'Bloqueo rechazado'
+  if (normalized === 'POR_CONFIRMAR') return 'Por confirmar'
+  return key
+}
+
+function getAvailabilityStatusDefinition(key = '') {
+  const normalized = normalizeAvailabilityStatusKey(key)
+  return availabilityStatusCatalog.value.find(
+    (item) => normalizeAvailabilityStatusKey(item.clave || item.status || item.id) === normalized,
+  ) || null
+}
+
+function resolveAvailabilityPayload(statusKey, comment = '', reason = '') {
+  const normalized = normalizeAvailabilityStatusKey(statusKey)
+  const definition = getAvailabilityStatusDefinition(normalized)
+  return {
+    fecha: '',
+    status_key: normalized,
+    clave: normalized,
+    status: definition?.nombre || humanizeAvailabilityStatusKey(normalized),
+    state: definition?.nombre || humanizeAvailabilityStatusKey(normalized),
+    motivo: reason || '',
+    comentario: comment || '',
+    notes: comment || '',
   }
 }
 
@@ -1210,20 +1239,19 @@ async function requestBlock() {
     : new Date().toISOString().slice(0, 10)
 
   try {
+    const payload = resolveAvailabilityPayload(
+      agendaBlockForm.state,
+      [agendaBlockForm.blockType, agendaBlockForm.reason].filter(Boolean).join(' · '),
+      agendaBlockForm.blockType || 'Bloqueo solicitado',
+    )
+
+    payload.fecha = referenceDate
+
     await requestWithCandidates([
       {
         method: 'post',
         path: '/sobrecargo/availability',
-        body: {
-          from: `${referenceDate}T00:00`,
-          to: `${referenceDate}T23:59`,
-          state: agendaBlockForm.state,
-          status: agendaBlockForm.state,
-          base: profileForm.base,
-          coverage: configForm.personalCoverage,
-          restriction: [agendaBlockForm.blockType, agendaBlockForm.reason].filter(Boolean).join(' · '),
-          notes: [agendaBlockForm.blockType, agendaBlockForm.reason].filter(Boolean).join(' · '),
-        },
+        body: payload,
       },
     ])
     await loadPortal()
@@ -1381,29 +1409,19 @@ async function createAvailabilityBlock() {
   }
 
   const payload = {
+    ...resolveAvailabilityPayload(
+      availabilityForm.state,
+      availabilityForm.restriction || 'Sin restriccion adicional',
+      '',
+    ),
     from: availabilityForm.from,
     to: availabilityForm.to,
-    starts_at: availabilityForm.from,
-    ends_at: availabilityForm.to,
-    status: availabilityForm.state,
-    state: availabilityForm.state,
-    base: availabilityForm.base,
-    coverage: availabilityForm.coverage,
-    restriction: availabilityForm.restriction || 'Sin restriccion adicional',
-    notes: availabilityForm.restriction || 'Sin restriccion adicional',
   }
 
   try {
-    const response = await requestWithCandidates([
+    await requestWithCandidates([
       { method: 'post', path: '/sobrecargo/availability', body: payload },
     ])
-
-    const created = pickRecord(response, ['availability', 'block', 'data'])
-    availabilityBlocks.value.unshift(
-      Object.keys(created || {}).length
-        ? normalizeCrewAvailabilityRecord(created, availabilityBlocks.value.length)
-        : normalizeCrewAvailabilityRecord(payload, availabilityBlocks.value.length),
-    )
   } catch (error) {
     return ui.pushToast({
       tone: 'error',
@@ -1420,6 +1438,67 @@ async function createAvailabilityBlock() {
   availabilityForm.from = ''
   availabilityForm.to = ''
   availabilityForm.restriction = ''
+}
+
+async function saveAvailabilityDay({ date, state, reason }) {
+  if (!date) {
+    ui.pushToast({
+      tone: 'error',
+      title: 'Fecha invalida',
+      message: 'Selecciona un dia del calendario antes de guardar.',
+    })
+    return
+  }
+
+  const assignmentExists = assignments.value.some((item) => item.date === date)
+  if (assignmentExists) {
+    ui.pushToast({
+      tone: 'warning',
+      title: 'Dia en operacion',
+      message: 'Este dia ya tiene una operacion asignada. Solicita revision a Admin / Red Sky.',
+    })
+    return
+  }
+
+  const overlappingBlocks = availabilityBlocks.value.filter((item) => {
+    const from = String(item.from || '').slice(0, 10)
+    const to = String(item.to || item.from || '').slice(0, 10)
+    return from <= date && to >= date
+  })
+
+  try {
+    await Promise.all(
+      overlappingBlocks
+        .filter((item) => item.id)
+        .map((item) =>
+          requestWithCandidates([{ method: 'delete', path: `/sobrecargo/availability/${item.id}` }]),
+        ),
+    )
+
+    await persistAvailabilityDate({
+      scope: 'crew',
+      date,
+      statusKey: state,
+      comment: reason || 'Actualizado desde calendario de disponibilidad',
+      base: profileForm.base,
+      coverage: configForm.personalCoverage,
+      audit: true,
+    })
+  } catch (error) {
+    ui.pushToast({
+      tone: 'error',
+      title: 'No se pudo guardar',
+      message: error.message || 'La disponibilidad no pudo actualizarse en backend.',
+    })
+    return
+  }
+
+  await loadPortal()
+  ui.pushToast({
+    tone: 'success',
+    title: 'Disponibilidad guardada',
+    message: 'El dia seleccionado ya quedo actualizado en tu calendario operativo.',
+  })
 }
 
 async function removeAvailabilityBlock(id) {
@@ -1907,7 +1986,9 @@ async function loadPortal(options = {}) {
       }
 
       if (key === 'availability') {
-        const collection = pickCollection(result.value, ['availability', 'disponibilidad', 'data', 'items'])
+        const availabilityResponse = result.value || {}
+        const collection = pickCollection(availabilityResponse, ['availability', 'disponibilidad', 'data', 'items'])
+        availabilityStatusCatalog.value = pickCollection(availabilityResponse, ['statuses', 'estatuses'])
         availabilityBlocks.value = collection.map(normalizeCrewAvailabilityRecord)
         portalDataLoaded.availability = true
         return
@@ -1950,7 +2031,6 @@ onMounted(() => {
     if (payload.scope !== 'crew-status') return
     if (Number(payload.crewUserId || 0) !== Number(auth.user?.id || 0)) return
 
-    await auth.refreshSession()
     await loadPortal({ force: true, resources: ['dashboard', 'assignments', 'profile', 'documents', 'availability', 'incidents'] })
   })
 })
@@ -2102,72 +2182,22 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <section v-else-if="resolvedSection === 'disponibilidad'" class="surface availability-page">
-      <div class="page-head">
-        <div class="title-row">
-          <span class="icon-badge"><CrewUiIcon name="agenda" :size="20" /></span>
-          <div>
-            <span class="eyebrow">Disponibilidad</span>
-            <h3>Disponibilidad personal del sobrecargo</h3>
-          </div>
-        </div>
-        <button class="primary-action action-button" type="button" @click="createAvailabilityBlock">
-          <CrewUiIcon name="checklist" :size="16" />
-          Guardar disponibilidad
-        </button>
-      </div>
-
-      <div class="availability-layout">
-        <section class="surface inner-card">
-          <h4>Calendario y cobertura</h4>
-          <div class="form-grid">
-            <label>
-              <span>Inicio</span>
-              <input v-model="availabilityForm.from" type="datetime-local" />
-            </label>
-            <label>
-              <span>Fin</span>
-              <input v-model="availabilityForm.to" type="datetime-local" />
-            </label>
-            <label>
-              <span>Estado</span>
-              <select v-model="availabilityForm.state">
-                <option v-for="item in availabilityStates" :key="item" :value="item">{{ item }}</option>
-              </select>
-            </label>
-            <label>
-              <span>Base</span>
-              <input v-model="availabilityForm.base" type="text" />
-            </label>
-            <label>
-              <span>Cobertura</span>
-              <input v-model="availabilityForm.coverage" type="text" />
-            </label>
-            <label class="span-2">
-              <span>Restricciones</span>
-              <textarea v-model="availabilityForm.restriction" rows="3"></textarea>
-            </label>
-          </div>
-        </section>
-
-        <section class="surface inner-card">
-          <h4>Bloqueos y estados actuales</h4>
-          <div class="record-list">
-            <article v-for="item in availabilityBlocks" :key="item.id" class="record-card">
-              <div>
-                <strong>{{ item.state }}</strong>
-                <p>{{ item.base }} · {{ item.coverage }}</p>
-                <small>{{ item.from || 'Sin inicio' }} → {{ item.to || 'Sin fin' }}</small>
-                <small>{{ item.restriction }}</small>
-              </div>
-              <button type="button" class="ghost-button" @click="removeAvailabilityBlock(item.id)">
-                Liberar
-              </button>
-            </article>
-          </div>
-        </section>
-      </div>
-    </section>
+    <CrewAvailabilitySection
+      v-else-if="resolvedSection === 'disponibilidad'"
+      :availability-blocks="availabilityBlocks"
+      :status-options="availabilityStatusCatalog"
+      :assignments="assignments"
+      :base="profileForm.base"
+      :coverage="configForm.personalCoverage"
+      @save-day="saveAvailabilityDay"
+      @request-review="
+        ui.pushToast({
+          tone: 'info',
+          title: 'Solicitud enviada',
+          message: 'Comparte el cambio con Admin / Red Sky para revisar la operacion asignada.',
+        })
+      "
+    />
 
     <section v-else-if="resolvedSection === 'perfil' && isProfileLoading" class="crew-loading-view">
       <div class="surface crew-loading-hero">

@@ -2545,8 +2545,7 @@
               <span class="badge">{{ operation.status }}</span>
             </div>
 
-            <p class="muted">Tripulacion: {{ operation.crew }}</p>
-            <p class="muted">Estado crew: {{ operation.crewStatusLabel }}</p>
+           
             <p v-if="operation.crewConfirmedAt" class="muted">
               Confirmado: {{ operation.crewConfirmedAt }}
             </p>
@@ -2564,48 +2563,8 @@
             </p>
             <p class="muted">{{ operation.crewNotes || operation.notes }}</p>
 
-            <div class="form-grid compact">
-              <label>
-                <span>Sobrecargo</span>
-                <select v-model="getOperationCrewDraft(operation.id).crewId">
-                  <option value="">Selecciona</option>
-                  <option
-                    v-for="member in assignableCrewOptions"
-                    :key="member.id"
-                    :value="member.id"
-                  >
-                    {{ member.name }} · {{ member.base }}
-                  </option>
-                </select>
-              </label>
-              <label>
-                <span>Nota de asignacion</span>
-                <input
-                  v-model="getOperationCrewDraft(operation.id).note"
-                  type="text"
-                  placeholder="VIP, base, briefing..."
-                />
-              </label>
-            </div>
-
-            <div class="chips">
-              <button
-                v-for="status in operationStatusOptions"
-                :key="status"
-                type="button"
-                class="chip-button"
-                @click="updateOperationStatus(operation.id, status)"
-              >
-                {{ status }}
-              </button>
-              <button
-                type="button"
-                class="primary-action"
-                @click="assignCrewToOperation(operation.id)"
-              >
-                Asignar sobrecargo
-              </button>
-            </div>
+            
+            
           </article>
         </div>
       </article>
