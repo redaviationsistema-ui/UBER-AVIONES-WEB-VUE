@@ -290,6 +290,21 @@ describe('resolveSharedWorkflowStatus', () => {
       }),
     ).toBe('payment_pending')
   })
+
+  it('keeps tracking_live when operational signals already exist even if payment data is what the backend exposes', () => {
+    expect(
+      resolveSharedWorkflowStatus({
+        id: 113,
+        status: 'payment_confirmed',
+        contract_status: 'signed',
+        payment_status: 'Pagado',
+        operation_id: 9003,
+        crew_id: 41,
+        crew_name: 'Valeria Garcia Ramirez',
+        briefing_time: '15:00',
+      }),
+    ).toBe('tracking_live')
+  })
 })
 
 describe('resolveMostAdvancedWorkflowValue', () => {

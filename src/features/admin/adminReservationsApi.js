@@ -18,6 +18,10 @@ const normalizedConfiguredAdminRequestsPath = configuredAdminRequestsPath.starts
 const normalizedConfiguredWorkflowPath = configuredTripWorkflowPath.startsWith('/admin/')
   ? configuredTripWorkflowPath
   : ''
+const normalizedConfiguredAdminRequestDetailPath =
+  normalizedConfiguredAdminRequestsPath && !normalizedConfiguredAdminRequestsPath.includes(':id')
+    ? `${normalizedConfiguredAdminRequestsPath.replace(/\/$/, '')}/:id`
+    : normalizedConfiguredAdminRequestsPath
 const ADMIN_REQUESTS_PATH_CANDIDATES = [
   '/admin/requests',
   normalizedConfiguredAdminRequestsPath,
@@ -26,6 +30,9 @@ const ADMIN_REQUESTS_PATH_CANDIDATES = [
 const ADMIN_RELEASES_PATH_CANDIDATES = ['/admin/releases']
 
 const ADMIN_UPDATE_PATH_CANDIDATES = [
+  '/admin/requests/:id',
+  normalizedConfiguredAdminRequestDetailPath,
+  '/admin/reservations/:id',
   '/admin/requests/:id/workflow',
   normalizedConfiguredWorkflowPath,
 ].filter(Boolean)
@@ -95,6 +102,14 @@ function buildAdminReservationRecord(record = {}) {
   const normalizedTrip = normalizeTrip(record, {
     entityType: record.is_reservation ? 'reservation' : 'flight_request',
   })
+  const nestedReservation =
+    record.reservation && typeof record.reservation === 'object'
+      ? record.reservation
+      : record.flight_request && typeof record.flight_request === 'object'
+        ? record.flight_request
+        : record.request && typeof record.request === 'object'
+          ? record.request
+          : {}
   const explicitWorkflowValue = record.workflow_status || record.workflow || ''
   const explicitWorkflowId = resolveWorkflowState(explicitWorkflowValue).id
   const enrichedRecord = {
@@ -194,13 +209,20 @@ function buildAdminReservationRecord(record = {}) {
       record.crew_name ||
       record.crew ||
       record.tripulation ||
+      nestedReservation.crew_name ||
+      nestedReservation.crew ||
       record.sobrecargo?.name ||
-      'Por definir',
+      nestedReservation.sobrecargo?.name ||
+      '',
     crewId:
       record.crew_id ||
       record.sobrecargo_id ||
       record.crew_member_id ||
       record.sobrecargo?.id ||
+      nestedReservation.crew_id ||
+      nestedReservation.sobrecargo_id ||
+      nestedReservation.crew_member_id ||
+      nestedReservation.sobrecargo?.id ||
       '',
     departure: departureValue,
     departureDate: String(departureValue).includes('T') ? String(departureValue).slice(0, 10) : String(departureValue).slice(0, 10),
@@ -208,12 +230,16 @@ function buildAdminReservationRecord(record = {}) {
     briefingTime:
       record.briefing_time ||
       record.presentation_time ||
+      nestedReservation.briefing_time ||
+      nestedReservation.presentation_time ||
       adminFlow.presentation_time ||
       briefing.hora_presentacion ||
       (String(departureValue).includes('T') ? String(departureValue).slice(11, 16) : ''),
     presentationPlace:
       record.presentation_place ||
       record.presentation_location ||
+      nestedReservation.presentation_place ||
+      nestedReservation.presentation_location ||
       adminFlow.presentation_place ||
       briefing.lugar_presentacion ||
       record.departure_airport ||
@@ -264,6 +290,7 @@ function buildAdminReservationRecord(record = {}) {
     crewOperationalState:
       record.crew_status_label ||
       record.crew_status ||
+      record.operation?.crew_status ||
       record.crew_overall_status ||
       '',
     incidentsLabel:

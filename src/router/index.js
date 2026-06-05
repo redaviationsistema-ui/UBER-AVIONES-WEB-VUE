@@ -1,28 +1,24 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
-import HomeView from '../views/HomeView.vue'
-import ServicesView from '../views/ServicesView.vue'
-import PlatformView from '../views/PlatformView.vue'
-import MembershipsView from '../views/MembershipsView.vue'
-import CoverageView from '../views/CoverageView.vue'
-import HelpView from '../views/HelpView.vue'
-import ClientLoginView from '../views/ClientLoginView.vue'
-import ContractResultView from '../views/ContractResultView.vue'
-import RegisterView from '../views/RegisterView.vue'
-import RoleView from '../views/RoleView.vue'
-import AircraftRentView from '../views/AircraftRentView.vue'
-import StartMembershipView from '../views/StartMembershipView.vue'
-import BusinessRegisterView from '../views/BusinessRegisterView.vue'
-import BusinessContactView from '../views/BusinessContactView.vue'
-import LanguageView from '../views/LanguageView.vue'
-
-import {
-  normalizeAuthRole,
-  resolveDashboardPathByRole,
-  sanitizePostLoginRedirect,
-} from '../lib/authRouting'
+import { normalizeAuthRole } from '../lib/authRouting'
 import { pinia } from '../stores'
 import { useAuthStore } from '../stores/auth'
+
+const HomeView = () => import('../views/HomeView.vue')
+const ServicesView = () => import('../views/ServicesView.vue')
+const PlatformView = () => import('../views/PlatformView.vue')
+const MembershipsView = () => import('../views/MembershipsView.vue')
+const CoverageView = () => import('../views/CoverageView.vue')
+const HelpView = () => import('../views/HelpView.vue')
+const ClientLoginView = () => import('../views/ClientLoginView.vue')
+const ContractResultView = () => import('../views/ContractResultView.vue')
+const RegisterView = () => import('../views/RegisterView.vue')
+const RoleView = () => import('../views/RoleView.vue')
+const AircraftRentView = () => import('../views/AircraftRentView.vue')
+const StartMembershipView = () => import('../views/StartMembershipView.vue')
+const BusinessRegisterView = () => import('../views/BusinessRegisterView.vue')
+const BusinessContactView = () => import('../views/BusinessContactView.vue')
+const LanguageView = () => import('../views/LanguageView.vue')
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -145,11 +141,6 @@ const router = createRouter({
       name: 'renta-aeronaves',
       component: AircraftRentView,
       meta: { hideTopbar: true },
-    },
-    {
-      path: '/membresias',
-      name: 'membresias',
-      component: MembershipsView,
     },
     {
       path: '/membresias/comenzar',

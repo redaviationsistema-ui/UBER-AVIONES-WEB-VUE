@@ -1,14 +1,17 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import BrandLogo from './BrandLogo.vue'
-import AdminPortal from '../features/admin/AdminPortal.vue'
-import ClientPortal from '../features/client/ClientPortal.vue'
-import CrewPortal from '../features/crew/CrewPortal.vue'
-import OperatorPortal from '../features/operator/portal/OperatorPortal.vue'
 import { buildMenuGroups, roleBasePaths, roleSections } from '../data/roleFlows'
 import { useAuthStore } from '../stores/auth'
 import { useUiStore } from '../stores/ui'
+
+const AdminPortal = defineAsyncComponent(() => import('../features/admin/AdminPortal.vue'))
+const ClientPortal = defineAsyncComponent(() => import('../features/client/ClientPortal.vue'))
+const CrewPortal = defineAsyncComponent(() => import('../features/crew/CrewPortal.vue'))
+const OperatorPortal = defineAsyncComponent(
+  () => import('../features/operator/portal/OperatorPortal.vue'),
+)
 
 const props = defineProps({
   role: { type: Object, required: true },

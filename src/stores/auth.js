@@ -12,33 +12,42 @@ function canUseStorage(storageName) {
   return typeof window !== 'undefined' && typeof window[storageName] !== 'undefined'
 }
 
+function getSessionStorage() {
+  if (!canUseStorage('sessionStorage')) return null
+  const storage = window.sessionStorage
+  return typeof storage?.getItem === 'function' ? storage : null
+}
+
+function getLegacyLocalStorage() {
+  if (!canUseStorage('localStorage')) return null
+  const storage = window.localStorage
+  return typeof storage?.removeItem === 'function' ? storage : null
+}
+
+function clearLegacyAuthSnapshot() {
+  const legacyStorage = getLegacyLocalStorage()
+  if (!legacyStorage) return
+  legacyStorage.removeItem(AUTH_SNAPSHOT_KEY)
+}
+
 function readStoredAuthSnapshot() {
-  const storageSources = []
+  const sessionStorage = getSessionStorage()
+  const rawSnapshot = sessionStorage?.getItem(AUTH_SNAPSHOT_KEY)
 
-  if (canUseStorage('sessionStorage')) {
-    storageSources.push(window.sessionStorage)
+  clearLegacyAuthSnapshot()
+
+  if (!rawSnapshot) {
+    return null
   }
 
-  if (canUseStorage('localStorage')) {
-    storageSources.push(window.localStorage)
-  }
+  try {
+    const snapshot = JSON.parse(rawSnapshot)
 
-  for (const storage of storageSources) {
-    const rawSnapshot = storage.getItem(AUTH_SNAPSHOT_KEY)
-
-    if (!rawSnapshot) {
-      continue
+    if (snapshot && typeof snapshot === 'object') {
+      return snapshot
     }
-
-    try {
-      const snapshot = JSON.parse(rawSnapshot)
-
-      if (snapshot && typeof snapshot === 'object') {
-        return snapshot
-      }
-    } catch {
-      storage.removeItem(AUTH_SNAPSHOT_KEY)
-    }
+  } catch {
+    sessionStorage?.removeItem(AUTH_SNAPSHOT_KEY)
   }
 
   return null
@@ -46,22 +55,17 @@ function readStoredAuthSnapshot() {
 
 function writeStoredAuthSnapshot(snapshot) {
   const serializedSnapshot = snapshot ? JSON.stringify(snapshot) : null
+  const sessionStorage = getSessionStorage()
 
-  if (canUseStorage('sessionStorage')) {
+  if (sessionStorage) {
     if (serializedSnapshot) {
-      window.sessionStorage.setItem(AUTH_SNAPSHOT_KEY, serializedSnapshot)
+      sessionStorage.setItem(AUTH_SNAPSHOT_KEY, serializedSnapshot)
     } else {
-      window.sessionStorage.removeItem(AUTH_SNAPSHOT_KEY)
+      sessionStorage.removeItem(AUTH_SNAPSHOT_KEY)
     }
   }
 
-  if (canUseStorage('localStorage')) {
-    if (serializedSnapshot) {
-      window.localStorage.setItem(AUTH_SNAPSHOT_KEY, serializedSnapshot)
-    } else {
-      window.localStorage.removeItem(AUTH_SNAPSHOT_KEY)
-    }
-  }
+  clearLegacyAuthSnapshot()
 }
 
 function normalizeRoles(payload = {}) {

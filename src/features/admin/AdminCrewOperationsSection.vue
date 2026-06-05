@@ -215,11 +215,18 @@ function isCrewAssigned(member = {}) {
 }
 
 function isCrewAvailableToday(member = {}) {
+  const validationState = normalizeToken(crewValidationState(member))
+  const operationalState = normalizeOperationalState(crewOperationalState(member))
+  const hasBlockedValidationState =
+    validationState.includes('rech') ||
+    validationState.includes('pend') ||
+    validationState.includes('suspend')
+
   return (
-    isCrewApproved(member) &&
+    !hasBlockedValidationState &&
     !isCrewSuspended(member) &&
     !isCrewAssigned(member) &&
-    normalizeOperationalState(crewOperationalState(member)) === 'Disponible'
+    operationalState === 'Disponible'
   )
 }
 
@@ -369,6 +376,7 @@ const approvedCrew = computed(() =>
 
 function isCrewAssignableToOperation(member = {}, operation = {}) {
   const validationState = normalizeToken(crewValidationState(member))
+  const operationalState = normalizeOperationalState(crewOperationalState(member))
   const hasExplicitValidationState = Boolean(validationState)
   const hasBlockedValidationState =
     validationState.includes('rech') ||
@@ -377,6 +385,7 @@ function isCrewAssignableToOperation(member = {}, operation = {}) {
 
   if (hasBlockedValidationState || isCrewSuspended(member)) return false
   if (hasExplicitValidationState && !isCrewApproved(member)) return false
+  if (['No disponible', 'Descanso', 'En vuelo'].includes(operationalState)) return false
 
   const assignedOperationId = Number(member.assignedOperation?.id || 0)
   const targetOperationId = Number(operation.id || 0)
@@ -389,20 +398,7 @@ function isCrewAssignableToOperation(member = {}, operation = {}) {
 }
 
 function assignableCrewMembers(operation = {}) {
-  const strictMatches = normalizedCrewMembers.value.filter((member) => isCrewAssignableToOperation(member, operation))
-
-  if (strictMatches.length) {
-    return strictMatches
-  }
-
-  return normalizedCrewMembers.value.filter((member) => {
-    if (isCrewSuspended(member)) return false
-
-    const assignedOperationId = Number(member.assignedOperation?.id || 0)
-    const targetOperationId = Number(operation.id || 0)
-
-    return !assignedOperationId || assignedOperationId === targetOperationId
-  })
+  return normalizedCrewMembers.value.filter((member) => isCrewAssignableToOperation(member, operation))
 }
 
 const assignedOperations = computed(() =>
@@ -420,6 +416,8 @@ const auditQueue = computed(() =>
   props.auditEntries.filter((entry) => matchesSearch(entry)),
 )
 
+const totalAuditEntries = computed(() => props.auditEntries.length)
+
 const summaryCards = computed(() => [
   { label: 'Pendientes de validar', value: validationQueue.value.length, tone: 'warning' },
   { label: 'Aprobados activos', value: approvedCrew.value.length, tone: 'success' },
@@ -434,13 +432,13 @@ const tabs = computed(() =>
     ? [
         { id: 'validation', label: 'Sobrecargos', count: filteredCrewMembers.value.length },
         { id: 'assigned', label: 'Vuelos', count: assignedOperations.value.length },
-        { id: 'audit', label: 'Bitacora', count: auditQueue.value.length },
+        { id: 'audit', label: 'Bitacora', count: totalAuditEntries.value },
       ]
     : [
         { id: 'validation', label: 'Sobrecargos', count: filteredCrewMembers.value.length },
         { id: 'available', label: 'Disponibles', count: availableQueue.value.length },
         { id: 'assigned', label: 'Asignados', count: assignedOperations.value.length },
-        { id: 'audit', label: 'Auditoria', count: auditQueue.value.length },
+        { id: 'audit', label: 'Auditoria', count: totalAuditEntries.value },
       ],
 )
 
@@ -679,9 +677,9 @@ function operationStatusLabel(operation = {}) {
 }
 
 function operationCrewStateLabel(operation = {}) {
+  if (operation.crewOperationalState) return humanizeStatus(operation.crewOperationalState)
   const linkedCrew = operationCrewMember(operation)
   if (linkedCrew) return humanizeStatus(linkedCrew.state || linkedCrew.operationalState || '')
-  if (operation.crewOperationalState) return humanizeStatus(operation.crewOperationalState)
   return String(operation.crew || operation.crewId || '').trim() ? 'Asignada' : 'Pendiente'
 }
 
@@ -738,6 +736,14 @@ function humanizeStatus(value = '') {
   if (normalizedState) return normalizedState
   const normalized = normalizeToken(value)
   if (!normalized) return ''
+  if (normalized === 'pending crew response') return 'Sin responder'
+  if (normalized === 'crew confirmed') return 'Confirmado'
+  if (normalized === 'crew declined') return 'Rechazado'
+  if (normalized === 'crew change requested') return 'Solicita cambio'
+  if (normalized === 'crew enroute') return 'En traslado'
+  if (normalized === 'crew active') return 'En servicio'
+  if (normalized === 'crew completed') return 'Finalizado'
+  if (normalized === 'crew incident reported') return 'Con incidencia'
   if (normalized === 'active') return 'Activo'
   if (normalized === 'activo') return 'Activo'
   if (normalized === 'blocked') return 'Bloqueado'
@@ -766,6 +772,24 @@ function isOperationallyBlocked(member = {}) {
 
 function showApprovalBlockedNote(member = {}) {
   return includesAny(member.validationState, ['aprob']) && isOperationallyBlocked(member)
+}
+
+function auditEntrySummary(entry = {}) {
+  const detail = String(entry.detail || '').trim()
+  const segments = detail.split('·').map((segment) => segment.trim()).filter(Boolean)
+
+  return {
+    headline: segments[0] || detail || 'Movimiento operativo',
+    meta: segments.slice(1),
+  }
+}
+
+function auditEntryTone(entry = {}) {
+  const normalized = normalizeToken(`${entry.title || ''} ${entry.detail || ''}`)
+  if (normalized.includes('rechaz')) return 'chip-danger'
+  if (normalized.includes('confirm')) return 'chip-success'
+  if (normalized.includes('cambio') || normalized.includes('revision')) return 'chip-warning'
+  return 'chip-info'
 }
 </script>
 
@@ -1039,34 +1063,43 @@ function showApprovalBlockedNote(member = {}) {
               <span class="badge badge-muted">{{ auditQueue.length }} eventos</span>
             </div>
 
-            <div class="table-wrap">
-              <table class="queue-table">
-                <thead>
-                  <tr>
-                    <th>Fecha</th>
-                    <th>Evento</th>
-                    <th>Detalle</th>
-                    <th>Accion</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="entry in auditQueue"
-                    :key="entry.id"
-                    :class="{ 'is-selected': entry.id === selectedAuditEntry?.id }"
-                    @click="selectAudit(entry.id)"
-                  >
-                    <td>{{ entry.date }}</td>
-                    <td><strong>{{ entry.title }}</strong></td>
-                    <td class="detail-cell">{{ entry.detail }}</td>
-                    <td>
-                      <button type="button" class="ghost-button ghost-button--sm" @click.stop="openAuditDetail(entry.id)">
-                        Ver
-                      </button>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+            <div class="audit-list">
+              <article
+                v-for="entry in auditQueue"
+                :key="entry.id"
+                class="audit-card"
+                :class="{ 'audit-card--selected': entry.id === selectedAuditEntry?.id }"
+                @click="selectAudit(entry.id)"
+              >
+                <div class="audit-card__date">
+                  <strong>{{ entry.date.split(' ')[0] || entry.date }}</strong>
+                  <span>{{ entry.date.split(' ')[1] || 'Sin hora' }}</span>
+                </div>
+
+                <div class="audit-card__body">
+                  <div class="audit-card__head">
+                    <div>
+                      <p class="audit-card__eyebrow">Registro operativo</p>
+                      <h5>{{ entry.title }}</h5>
+                    </div>
+                    <span class="status-chip" :class="auditEntryTone(entry)">
+                      {{ auditEntrySummary(entry).meta.at(-1) || 'Seguimiento' }}
+                    </span>
+                  </div>
+
+                  <p class="audit-card__headline">{{ auditEntrySummary(entry).headline }}</p>
+
+                  <div v-if="auditEntrySummary(entry).meta.length" class="audit-card__meta">
+                    <span v-for="item in auditEntrySummary(entry).meta.slice(0, 3)" :key="item">{{ item }}</span>
+                  </div>
+                </div>
+
+                <div class="audit-card__action">
+                  <button type="button" class="ghost-button ghost-button--sm" @click.stop="openAuditDetail(entry.id)">
+                    Ver
+                  </button>
+                </div>
+              </article>
             </div>
 
             <p v-if="!auditQueue.length" class="empty-state">
@@ -1874,6 +1907,117 @@ function showApprovalBlockedNote(member = {}) {
   background: #fffdfa;
 }
 
+.audit-list {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.audit-card {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: center;
+  padding: 1rem 1.05rem;
+  border: 1px solid #eee2cc;
+  border-radius: 20px;
+  background:
+    linear-gradient(135deg, rgba(255, 248, 235, 0.55) 0%, rgba(255, 253, 249, 0.96) 28%),
+    #fffdfa;
+  cursor: pointer;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+}
+
+.audit-card:hover {
+  border-color: rgba(194, 138, 18, 0.34);
+  box-shadow: 0 18px 36px rgba(145, 108, 36, 0.08);
+  transform: translateY(-1px);
+}
+
+.audit-card--selected {
+  border-color: rgba(194, 138, 18, 0.42);
+  box-shadow: 0 20px 42px rgba(194, 138, 18, 0.12);
+}
+
+.audit-card__date,
+.audit-card__body,
+.audit-card__head,
+.audit-card__meta,
+.audit-card__action {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.audit-card__date {
+  align-content: start;
+  padding: 0.9rem;
+  border-radius: 16px;
+  border: 1px solid #eadfc9;
+  background: rgba(255, 250, 240, 0.95);
+}
+
+.audit-card__date strong {
+  font-size: 0.96rem;
+  line-height: 1.2;
+}
+
+.audit-card__date span {
+  color: #7a6a51;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.audit-card__head {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.audit-card__eyebrow {
+  color: #b58319;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.audit-card__head h5 {
+  margin: 0.18rem 0 0;
+  font-size: 1.08rem;
+  line-height: 1.2;
+  color: #20160d;
+}
+
+.audit-card__headline {
+  margin: 0;
+  color: #3f3428;
+  font-size: 1rem;
+  line-height: 1.45;
+}
+
+.audit-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.audit-card__meta span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.7rem;
+  padding: 0 0.65rem;
+  border-radius: 999px;
+  background: rgba(17, 17, 17, 0.04);
+  color: #625645;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.audit-card__action {
+  align-content: center;
+}
+
 .queue-table {
   width: 100%;
   min-width: 980px;
@@ -2165,6 +2309,18 @@ textarea {
   .summary-strip,
   .record-grid {
     grid-template-columns: 1fr;
+  }
+
+  .audit-card {
+    grid-template-columns: 1fr;
+  }
+
+  .audit-card__head {
+    grid-template-columns: 1fr;
+  }
+
+  .audit-card__action {
+    justify-items: start;
   }
 }
 </style>

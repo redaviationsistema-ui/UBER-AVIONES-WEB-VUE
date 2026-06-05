@@ -64,7 +64,6 @@ const currentSectionLabel = computed(
 )
 const workspaceAccountLabel = computed(() => auth.userName)
 const isClientWorkspace = computed(() => activeRole.value === 'client')
-const isCrewWorkspace = computed(() => activeRole.value === 'crew')
 const isLightWorkspace = computed(() =>
   ['client', 'crew', 'operator', 'admin'].includes(activeRole.value),
 )
@@ -78,6 +77,9 @@ const workspaceThemeClass = computed(() =>
 // const usesMobileDrawer = computed(() => ['client', 'operator', 'crew', 'admin'].includes(activeRole.value))
 const MOBILE_WORKSPACE_BREAKPOINT = 1024
 const isMobile = ref(window.innerWidth <= MOBILE_WORKSPACE_BREAKPOINT)
+const IS_LOCAL_CREW_WORKSPACE =
+  typeof window !== 'undefined' &&
+  /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname || '')
 
 window.addEventListener('resize', () => {
   isMobile.value = window.innerWidth <= MOBILE_WORKSPACE_BREAKPOINT
@@ -92,10 +94,6 @@ const workspaceMenuGroups = computed(() => buildMenuGroups(activeRole.value, cur
 const workspaceDesktopMenu = ref('')
 const workspaceDrawerMenu = ref('')
 let crewStatusRefreshTimer = null
-
-function findActiveGroupLabel(groups, matcher, fallback = '') {
-  return groups.find((group) => group.items.some(matcher))?.label || fallback
-}
 
 function isWorkspaceItemActive(item) {
   return route.params.section === item.id
@@ -147,6 +145,7 @@ async function refreshCrewStatusCard() {
 function startCrewStatusRefresh() {
   clearCrewStatusRefresh()
   if (activeRole.value !== 'crew' || !auth.isAuthenticated) return
+  if (IS_LOCAL_CREW_WORKSPACE) return
   crewStatusRefreshTimer = setInterval(() => {
     void refreshCrewStatusCard()
   }, 15000)

@@ -20,6 +20,7 @@ import { emitWorkflowSync, subscribeWorkflowSync } from '../../lib/workflowSync'
 import {
   delayAdminReservation,
   getAdminReservations,
+  persistAdminReservationPatch,
   resumeAdminReservation,
   updateAdminReservationStage,
 } from './adminReservationsApi'
@@ -29,6 +30,9 @@ const props = defineProps({
 })
 
 const ui = useUiStore()
+const IS_LOCAL_ADMIN_DEV =
+  typeof window !== 'undefined' &&
+  /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname || '')
 const kpis = ref({})
 const users = ref([])
 const flags = ref([])
@@ -58,17 +62,25 @@ let removeWorkflowSyncSubscription = null
 let reservationsPollTimer = null
 let reservationsRequestPromise = null
 let releasesRequestPromise = null
+let crewMembersRequestPromise = null
+const portalSectionRequestPromises = new Map()
+const lastPortalSectionLoadAt = new Map()
 const adminPortalInstanceId = `admin-${Math.random().toString(16).slice(2, 10)}`
 let lastReservationsRefreshAt = 0
 let lastReleasesRefreshAt = 0
 let lastCrewRefreshAt = 0
-const ADMIN_RESERVATIONS_POLL_INTERVAL_MS = 10000
-const ADMIN_RESERVATIONS_TIMEOUT_MS = Number(import.meta.env.VITE_ADMIN_RESERVATIONS_TIMEOUT_MS || 20000)
-const ADMIN_FLOW_UPDATE_TIMEOUT_MS = Number(import.meta.env.VITE_ADMIN_FLOW_UPDATE_TIMEOUT_MS || 12000)
+const ADMIN_RESERVATIONS_POLL_INTERVAL_MS = Number(
+  import.meta.env.VITE_ADMIN_RESERVATIONS_POLL_INTERVAL_MS || (IS_LOCAL_ADMIN_DEV ? 30000 : 10000),
+)
+const ADMIN_RESERVATIONS_TIMEOUT_MS = Number(import.meta.env.VITE_ADMIN_RESERVATIONS_TIMEOUT_MS || 45000)
+const ADMIN_FLOW_UPDATE_TIMEOUT_MS = Number(import.meta.env.VITE_ADMIN_FLOW_UPDATE_TIMEOUT_MS || 20000)
 const ADMIN_USERS_TIMEOUT_MS = Number(import.meta.env.VITE_ADMIN_USERS_TIMEOUT_MS || 45000)
-const ADMIN_CREW_TIMEOUT_MS = Number(import.meta.env.VITE_ADMIN_CREW_TIMEOUT_MS || 12000)
+const ADMIN_CREW_TIMEOUT_MS = Number(import.meta.env.VITE_ADMIN_CREW_TIMEOUT_MS || 30000)
 const ADMIN_RESERVATIONS_REFRESH_COOLDOWN_MS = 4000
 const ADMIN_CREW_REFRESH_COOLDOWN_MS = 30000
+const ADMIN_SECTION_REFRESH_THROTTLE_MS = Number(
+  import.meta.env.VITE_ADMIN_SECTION_REFRESH_THROTTLE_MS || (IS_LOCAL_ADMIN_DEV ? 12000 : 5000),
+)
 const adminReservationsLoadWarningShown = ref(false)
 
 function getReservationRefreshTimestamp(section = props.section) {
@@ -731,25 +743,82 @@ function normalizeAdminAircraft(item = {}) {
   }
 }
 
+function resolveRoleCandidates(item = {}) {
+  const directRoles = Array.isArray(item.roles)
+    ? item.roles.map((role) => role?.code || role?.key || role?.name || role).filter(Boolean)
+    : []
+  const loginContextRoles = Array.isArray(item.login_context?.roles)
+    ? item.login_context.roles
+    : Array.isArray(item.loginContext?.roles)
+      ? item.loginContext.roles
+      : []
+  const accessRoles = Array.isArray(item.access?.roles) ? item.access.roles : []
+
+  return [
+    item.effective_role,
+    item.login_context?.effective_role,
+    item.loginContext?.effective_role,
+    item.access?.effective_role,
+    item.role?.code,
+    item.role?.name,
+    item.operational_role,
+    item.role,
+    item.position,
+    ...directRoles,
+    ...loginContextRoles,
+    ...accessRoles,
+  ]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+}
+
 function normalizeAdminCrewMember(item = {}) {
   const profile = item.profile && typeof item.profile === 'object' ? item.profile : {}
   const taxData = profile.tax_data && typeof profile.tax_data === 'object' ? profile.tax_data : {}
   const provider =
     (item.provider && typeof item.provider === 'object' ? item.provider : null) ||
+    (item.proveedor && typeof item.proveedor === 'object' ? item.proveedor : null) ||
+    (item.ownedProvider && typeof item.ownedProvider === 'object' ? item.ownedProvider : null) ||
     (item.owned_provider && typeof item.owned_provider === 'object' ? item.owned_provider : null)
-  const roleValue =
-    item.effective_role ||
-    item.role?.code ||
-    item.role?.name ||
-    item.operational_role ||
-    item.role ||
-    item.position ||
-    ''
-  const roleKey = String(roleValue || '').toLowerCase()
-  const isCrew =
-    roleKey.includes('sobrecargo') ||
-    roleKey.includes('crew') ||
-    roleKey.includes('cabin')
+  const certificationsArray = Array.isArray(item.certifications)
+    ? item.certifications
+    : Array.isArray(item.licenses)
+      ? item.licenses
+      : typeof item.certifications === 'string'
+        ? item.certifications.split(',').map((value) => value.trim()).filter(Boolean)
+        : typeof item.licenses === 'string'
+          ? item.licenses.split(',').map((value) => value.trim()).filter(Boolean)
+          : []
+  const languagesArray = Array.isArray(item.languages)
+    ? item.languages
+    : typeof item.languages === 'string'
+      ? item.languages.split(',').map((value) => value.trim()).filter(Boolean)
+      : typeof item.idiomas === 'string'
+        ? item.idiomas.split(',').map((value) => value.trim()).filter(Boolean)
+        : []
+  const documentsArray = Array.isArray(item.documents)
+    ? item.documents
+    : Array.isArray(item.files)
+      ? item.files
+      : []
+  const documentsSummary =
+    profile.documents_summary ||
+    profile.documents_status ||
+    item.documents_summary ||
+    item.documents_status ||
+    item.document_status ||
+    profile.document_status ||
+    (documentsArray.length ? `${documentsArray.length} documento(s)` : '')
+  const roleCandidates = resolveRoleCandidates(item)
+  const isCrew = roleCandidates.some((roleValue) => {
+    const roleKey = String(roleValue || '').toLowerCase()
+    return (
+      roleKey.includes('sobrecargo') ||
+      roleKey.includes('crew') ||
+      roleKey.includes('cabin') ||
+      roleKey.includes('cabina')
+    )
+  })
 
   if (!isCrew) return null
 
@@ -758,12 +827,26 @@ function normalizeAdminCrewMember(item = {}) {
     name: item.name || item.full_name || 'Sobrecargo',
     email: item.email || '',
     phone: item.phone || item.phone_number || '',
-    base: item.base || item.base_airport || item.city || profile.base_airport || profile.city || '',
+    base:
+      item.base ||
+      item.base_airport ||
+      item.base_name ||
+      item.base_code ||
+      item.city ||
+      item.location ||
+      profile.base_airport ||
+      profile.city ||
+      profile.base ||
+      '',
     providerId: item.provider_id || item.proveedor_id || provider?.id || null,
     providerName:
       provider?.commercial_name ||
       provider?.company_name ||
+      provider?.trade_name ||
+      provider?.nombre_comercial ||
       item.provider_name ||
+      item.operator_name ||
+      item.company_name ||
       '',
     state:
       item.current_status ||
@@ -785,24 +868,28 @@ function normalizeAdminCrewMember(item = {}) {
       provider?.approval_status ||
       '',
     certifications:
-      Array.isArray(item.certifications)
-        ? item.certifications.join(', ')
+      certificationsArray.length
+        ? certificationsArray.join(', ')
         : item.certifications ||
+          item.license ||
           item.licenses ||
+          profile.certifications ||
+          profile.licenses ||
           profile.document_type ||
           '',
-    documentsSummary:
-      profile.documents_summary ||
-      profile.documents_status ||
-      item.documents_summary ||
-      item.documents_status ||
-      item.documents ||
-      item.document_status ||
-      profile.document_status ||
-      '',
+    certificationsList: certificationsArray,
+    languages: languagesArray.join(', '),
+    documentsSummary,
     rating: item.rating || item.score || '',
     adminNotes: item.admin_notes || item.observations || '',
-    lastAudit: item.lastAudit || item.updated_at || profile.updated_at || '',
+    lastAudit:
+      item.lastAudit ||
+      item.last_audit ||
+      item.reviewed_at ||
+      item.updated_at ||
+      profile.updated_at ||
+      profile.reviewed_at ||
+      '',
     birthDate: profile.birth_date || '',
     nationality: profile.nationality || '',
     documentType: profile.document_type || '',
@@ -817,10 +904,34 @@ function normalizeAdminCrewMember(item = {}) {
       '',
     identityValidationRequired: profile.identity_validation_required ?? null,
     baseAirport: profile.base_airport || item.base_airport || '',
+    raw: item,
   }
 }
 
 const reservationRecords = computed(() => operations.value)
+const crewAuditEntries = computed(() => {
+  return operations.value
+    .filter((operation) => Number(operation?.raw?.operation?.id || operation?.operation?.id || 0) > 0)
+    .map((operation) => {
+      const rawOperation = operation?.raw?.operation || operation?.operation || {}
+      const timeline = Array.isArray(rawOperation.timeline) ? rawOperation.timeline : []
+      const latestTimelineEntry = timeline[0] || null
+      const crewName = String(operation.crew || '').trim() || 'Sin sobrecargo'
+      const operationStatus = String(rawOperation.status || operation.workflowStatus || operation.status || 'Sin estado')
+      const aircraft = String(operation.aircraft || '').trim() || 'Aeronave por definir'
+
+      return {
+        id: `operation-${rawOperation.id || operation.id}`,
+        date:
+          String(latestTimelineEntry?.created_at || operation.departure || '')
+            .replace('T', ' ')
+            .slice(0, 16) || 'Sin fecha',
+        title: `Operacion #${rawOperation.id || operation.id}`,
+        detail: `Vuelo ${operation.folio || `RA-${operation.id}`} · ${aircraft} · ${crewName} · Estado ${operationStatus}`,
+      }
+    })
+    .sort((left, right) => String(right.date || '').localeCompare(String(left.date || '')))
+})
 
 function pushAuditEntry(title, detail) {
   auditEntries.value.unshift({
@@ -937,43 +1048,53 @@ async function loadContracts() {
 }
 
 async function loadCrewMembers(options = {}) {
+  if (crewMembersRequestPromise) return crewMembersRequestPromise
+
   const timeoutMs = options.timeoutMs || ADMIN_CREW_TIMEOUT_MS
   const allowUsersFallback = options.allowUsersFallback !== false
-  const [crewResult, usersResult] = await Promise.allSettled([
-    requestWithCandidates([
-      { method: 'get', path: '/admin/sobrecargos', timeoutMs },
-      { method: 'get', path: '/admin/crew', timeoutMs },
-      { method: 'get', path: '/admin/users', timeoutMs },
-    ]),
-    !allowUsersFallback
-      ? Promise.resolve({ users: users.value })
-      : users.value.length
-      ? Promise.resolve({ users: users.value })
-      : requestWithCandidates([
-          { method: 'get', path: '/admin/users', timeoutMs },
-        ]),
-  ])
+  crewMembersRequestPromise = (async () => {
+    const [crewResult, usersResult] = await Promise.allSettled([
+      requestWithCandidates([
+        { method: 'get', path: '/admin/sobrecargos', timeoutMs },
+        { method: 'get', path: '/admin/crew', timeoutMs },
+        { method: 'get', path: '/admin/users', timeoutMs },
+      ]),
+      !allowUsersFallback
+        ? Promise.resolve({ users: users.value })
+        : users.value.length
+        ? Promise.resolve({ users: users.value })
+        : requestWithCandidates([
+            { method: 'get', path: '/admin/users', timeoutMs },
+          ]),
+    ])
 
-  const usersCollection =
-    usersResult.status === 'fulfilled'
-      ? pickCollection(usersResult.value, ['users', 'usuarios'])
-      : []
+    const usersCollection =
+      usersResult.status === 'fulfilled'
+        ? pickCollection(usersResult.value, ['users', 'usuarios'])
+        : []
 
-  if (!users.value.length) {
-    users.value = usersCollection
+    if (!users.value.length) {
+      users.value = usersCollection
+    }
+
+    const directCrewCollection =
+      crewResult.status === 'fulfilled'
+        ? pickCollection(crewResult.value, ['sobrecargos', 'crew', 'users', 'data'])
+        : []
+
+    rawSectionRecords.sobrecargos = directCrewCollection.length ? directCrewCollection : usersCollection
+
+    crewMembers.value = (directCrewCollection.length ? directCrewCollection : usersCollection)
+      .map(normalizeAdminCrewMember)
+      .filter(Boolean)
+    markCrewRefresh()
+  })()
+
+  try {
+    await crewMembersRequestPromise
+  } finally {
+    crewMembersRequestPromise = null
   }
-
-  const directCrewCollection =
-    crewResult.status === 'fulfilled'
-      ? pickCollection(crewResult.value, ['sobrecargos', 'crew', 'users', 'data'])
-      : []
-
-  rawSectionRecords.sobrecargos = directCrewCollection.length ? directCrewCollection : usersCollection
-
-  crewMembers.value = (directCrewCollection.length ? directCrewCollection : usersCollection)
-    .map(normalizeAdminCrewMember)
-    .filter(Boolean)
-  markCrewRefresh()
 }
 
 function isTimeoutLikeError(error) {
@@ -1085,20 +1206,49 @@ function hasCrewSectionCache() {
   return crewMembers.value.length > 0 || operations.value.length > 0
 }
 
-function loadCrewSectionBackground(options = {}) {
-  if (isCrewRefreshCoolingDown() && hasCrewSectionCache()) return
+async function loadCrewSection(options = {}) {
+  const preserveExistingOnEmpty = options.preserveExistingOnEmpty !== false
+  const shouldReuseWarmCache = options.shouldReuseWarmCache !== false
 
-  void Promise.all([
+  if (shouldReuseWarmCache && isCrewRefreshCoolingDown() && hasCrewSectionCache()) {
+    return
+  }
+
+  await Promise.all([
     loadCrewMembers({
       timeoutMs: options.timeoutMs || ADMIN_CREW_TIMEOUT_MS,
       allowUsersFallback: options.allowUsersFallback !== false,
     }),
-    loadOperations({ silent: true }),
-  ]).then(() => {
-    if (!auditEntries.value.length) {
-      pushAuditEntry('Admin listo para auditar sobrecargos', 'Se inicializo la bitacora de validacion y asignacion.')
-    }
-  })
+    loadOperations({
+      silent: options.silentOperations !== false,
+      preserveExistingOnEmpty,
+    }),
+  ])
+
+  if (!auditEntries.value.length) {
+    pushAuditEntry('Admin listo para auditar sobrecargos', 'Se inicializo la bitacora de validacion y asignacion.')
+  }
+}
+
+function loadCrewSectionBackground(options = {}) {
+  void loadCrewSection(options)
+}
+
+async function loadExecutiveSection() {
+  await Promise.allSettled([
+    loadFlags(),
+    loadProviders(),
+    loadAircraft(),
+    loadSubscriptions(),
+    loadContracts(),
+  ])
+
+  await Promise.allSettled([
+    loadCrewMembers({ timeoutMs: ADMIN_CREW_TIMEOUT_MS, allowUsersFallback: true }),
+    loadOperations({ silent: false, timeoutMs: ADMIN_RESERVATIONS_TIMEOUT_MS }),
+  ])
+
+  await loadDashboardKpis()
 }
 
 async function loadPortalSection(section) {
@@ -1128,12 +1278,12 @@ async function loadPortalSection(section) {
   }
 
   if (section === 'sobrecargos' || section === 'sobrecargo-operaciones') {
-    if (hasCrewSectionCache()) {
-      loadCrewSectionBackground({ allowUsersFallback: false })
-      return
-    }
-
-    loadCrewSectionBackground({ allowUsersFallback: true })
+    await loadCrewSection({
+      allowUsersFallback: true,
+      shouldReuseWarmCache: false,
+      preserveExistingOnEmpty: true,
+      silentOperations: true,
+    })
     return
   }
 
@@ -1153,21 +1303,54 @@ async function loadPortalSection(section) {
   }
 
   if (section === 'ejecutivo') {
-    await Promise.all([
-      loadFlags(),
-      loadProviders(),
-      loadAircraft(),
-      loadSubscriptions(),
-      loadContracts(),
-      loadCrewMembers(),
-      loadOperations({ silent: false }),
-    ])
-    await loadDashboardKpis()
+    await loadExecutiveSection()
   }
 }
 
 function shouldAutoRefreshReservations() {
   return ['reservas', 'liberaciones'].includes(props.section)
+}
+
+function shouldAutoRefreshCrewSection() {
+  return ['sobrecargos', 'sobrecargo-operaciones'].includes(props.section)
+}
+
+function shouldWarmCrewSection(section = props.section) {
+  if (IS_LOCAL_ADMIN_DEV) return false
+
+  return !['ejecutivo', 'sobrecargos', 'sobrecargo-operaciones', 'reservas', 'liberaciones'].includes(section)
+}
+
+function shouldThrottlePortalSectionLoad(section = props.section, force = false) {
+  if (force) return false
+
+  const lastLoadedAt = Number(lastPortalSectionLoadAt.get(section) || 0)
+  return Date.now() - lastLoadedAt < ADMIN_SECTION_REFRESH_THROTTLE_MS
+}
+
+function requestPortalSectionLoad(section = props.section, options = {}) {
+  const { force = false } = options
+
+  if (!section) return Promise.resolve()
+
+  const existingRequest = portalSectionRequestPromises.get(section)
+  if (existingRequest) return existingRequest
+  if (shouldThrottlePortalSectionLoad(section, force)) return Promise.resolve()
+
+  lastPortalSectionLoadAt.set(section, Date.now())
+
+  const requestPromise = (async () => {
+    try {
+      await loadPortalSection(section)
+    } finally {
+      if (portalSectionRequestPromises.get(section) === requestPromise) {
+        portalSectionRequestPromises.delete(section)
+      }
+    }
+  })()
+
+  portalSectionRequestPromises.set(section, requestPromise)
+  return requestPromise
 }
 
 function clearReservationsPolling() {
@@ -1180,22 +1363,22 @@ function clearReservationsPolling() {
 function startReservationsPolling() {
   clearReservationsPolling()
 
-  if (!shouldAutoRefreshReservations()) return
+  if (!shouldAutoRefreshReservations() && !shouldAutoRefreshCrewSection()) return
 
   reservationsPollTimer = setInterval(() => {
     if (typeof document !== 'undefined' && document.hidden) return
     if (reservationFlowLoading.value) return
-    if (isReservationRefreshCoolingDown(props.section)) return
-    void loadPortalSection(props.section)
+    if (shouldAutoRefreshReservations() && isReservationRefreshCoolingDown(props.section)) return
+    void requestPortalSectionLoad(props.section)
   }, ADMIN_RESERVATIONS_POLL_INTERVAL_MS)
 }
 
 function handleReservationsVisibilityRefresh() {
   if (typeof document !== 'undefined' && document.hidden) return
-  if (!shouldAutoRefreshReservations()) return
+  if (!shouldAutoRefreshReservations() && !shouldAutoRefreshCrewSection()) return
   if (reservationFlowLoading.value) return
-  if (isReservationRefreshCoolingDown(props.section)) return
-  void loadPortalSection(props.section)
+  if (shouldAutoRefreshReservations() && isReservationRefreshCoolingDown(props.section)) return
+  void requestPortalSectionLoad(props.section)
 }
 
 function auditUser(user) {
@@ -1423,12 +1606,46 @@ async function assignCrewToOperation({ operationId, crewId, note }) {
     presentation_place: operation.presentationPlace || operation.origin || undefined,
   }
 
+  const persistentAssignmentPatch = {
+    sobrecargo_user_id: member.id,
+    crew_id: member.id,
+    sobrecargo_id: member.id,
+    crew_member_id: member.id,
+    crew_name: member.name,
+    crew_status: 'pending_crew_response',
+    briefing_time: operation.briefingTime || undefined,
+    presentation_time: operation.briefingTime || undefined,
+    presentation_place: operation.presentationPlace || operation.origin || undefined,
+    presentation_location: operation.presentationPlace || operation.origin || undefined,
+    notes: note ? `${operation.notes || ''} · ${note}`.replace(/^ · /, '') : operation.notes,
+  }
+
   try {
     await requestWithCandidates([
       { method: 'post', path: `/admin/requests/${operation.requestId || operationId}/assign`, body: payload },
     ])
   } catch {
     // Fall back to local synchronization until every backend route is available.
+  }
+
+  let persistentReservation = null
+
+  try {
+    persistentReservation = await persistAdminReservationPatch(
+      operation,
+      persistentAssignmentPatch,
+      { timeoutMs: ADMIN_FLOW_UPDATE_TIMEOUT_MS },
+    )
+    updateReservationLocalState(operation.id, persistentReservation)
+  } catch {
+    updateReservationLocalState(operation.id, {
+      crew: member.name,
+      crewId: member.id,
+      crewOperationalState: 'pending_crew_response',
+      briefingTime: operation.briefingTime || '',
+      presentationPlace: operation.presentationPlace || operation.origin || '',
+      notes: persistentAssignmentPatch.notes,
+    })
   }
 
   const promotedWorkflowStage = ''
@@ -1464,8 +1681,10 @@ async function assignCrewToOperation({ operationId, crewId, note }) {
     item.id === operationId
       ? {
           ...item,
+          ...(persistentReservation || {}),
           crew: member.name,
           crewId: member.id,
+          crewOperationalState: persistentReservation?.crewOperationalState || 'pending_crew_response',
           status: visibleWorkflowStage || item.status,
           workflowStatus: visibleWorkflowStage || item.workflowStatus,
           notes: note ? `${item.notes} · ${note}` : item.notes,
@@ -1493,7 +1712,7 @@ async function assignCrewToOperation({ operationId, crewId, note }) {
 }
 
 async function refreshNetworkState(title, message) {
-  await loadPortalSection(props.section)
+  await requestPortalSectionLoad(props.section, { force: true })
   ui.pushToast({ tone: 'success', title, message })
 }
 
@@ -1502,7 +1721,7 @@ async function refreshReservationContent() {
 
   try {
     reservationContentRefreshing.value = true
-    await loadPortalSection(props.section)
+    await requestPortalSectionLoad(props.section, { force: true })
     ui.pushToast({
       tone: 'success',
       title: 'Contenido actualizado',
@@ -1730,8 +1949,8 @@ async function handleSuspendAircraft(aircraftId) {
 }
 
 onMounted(() => {
-  loadPortalSection(props.section)
-  if (!['sobrecargos', 'sobrecargo-operaciones'].includes(props.section)) {
+  void requestPortalSectionLoad(props.section, { force: true })
+  if (shouldWarmCrewSection(props.section)) {
     loadCrewSectionBackground({ allowUsersFallback: false })
   }
   if (typeof window !== 'undefined') {
@@ -1746,7 +1965,7 @@ onMounted(() => {
     if (payload.source === adminPortalInstanceId) return
     applyExternalWorkflowSync(payload)
     if (isReservationRefreshCoolingDown(props.section)) return
-    loadPortalSection(props.section)
+    void requestPortalSectionLoad(props.section)
   })
   startReservationsPolling()
 })
@@ -1768,8 +1987,8 @@ onBeforeUnmount(() => {
 watch(
   () => props.section,
   (section) => {
-    loadPortalSection(section)
-    if (!['sobrecargos', 'sobrecargo-operaciones'].includes(section)) {
+    void requestPortalSectionLoad(section, { force: true })
+    if (shouldWarmCrewSection(section)) {
       loadCrewSectionBackground({ allowUsersFallback: false })
     }
     startReservationsPolling()
@@ -1817,7 +2036,7 @@ watch(
     v-else-if="section === 'sobrecargos' || section === 'sobrecargo-operaciones'"
     :crew-members="crewMembers"
     :operations="operations"
-    :audit-entries="auditEntries"
+    :audit-entries="crewAuditEntries"
     :view-mode="section === 'sobrecargo-operaciones' ? 'operations' : 'review'"
     @approve-crew="approveCrew"
     @reject-crew="rejectCrew"

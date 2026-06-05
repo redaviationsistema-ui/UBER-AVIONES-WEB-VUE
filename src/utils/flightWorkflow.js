@@ -412,6 +412,15 @@ export function resolveSharedWorkflowStatus(record = {}) {
   }
 
   const nestedReservation = nestedReservationRecord(record)
+  const visibilityPayload =
+    record.visibility_payload && typeof record.visibility_payload === 'object'
+      ? record.visibility_payload
+      : {}
+  const adminFlow =
+    visibilityPayload.admin_flow && typeof visibilityPayload.admin_flow === 'object'
+      ? visibilityPayload.admin_flow
+      : {}
+  const briefing = record.briefing && typeof record.briefing === 'object' ? record.briefing : {}
   const explicitWorkflow =
     record.workflow_status ||
     record.workflow ||
@@ -453,6 +462,32 @@ export function resolveSharedWorkflowStatus(record = {}) {
       nestedReservation?.operation_id ||
       record.operaciones?.[0]?.id,
   )
+  const hasAssignedCrew = Boolean(
+    record.crew_id ||
+      record.sobrecargo_id ||
+      record.crew_member_id ||
+      record.sobrecargo?.id ||
+      record.crew_name ||
+      record.crew ||
+      nestedReservation?.crew_id ||
+      nestedReservation?.sobrecargo_id ||
+      nestedReservation?.crew_name,
+  )
+  const hasBriefingSignal = Boolean(
+    record.briefing_time ||
+      record.presentation_time ||
+      record.presentation_place ||
+      record.presentation_location ||
+      nestedReservation?.briefing_time ||
+      nestedReservation?.presentation_time ||
+      nestedReservation?.presentation_place ||
+      nestedReservation?.presentation_location ||
+      adminFlow.presentation_time ||
+      adminFlow.presentation_place ||
+      briefing.hora_presentacion ||
+      briefing.lugar_presentacion,
+  )
+  const hasTrackingReadinessSignals = hasOperation && (hasAssignedCrew || hasBriefingSignal)
   const acceptedMatch = pickAcceptedRequestMatch(record)
   const hasAcceptedMatch = Boolean(acceptedMatch)
   const matches = listRequestMatches(record)
@@ -568,6 +603,19 @@ export function resolveSharedWorkflowStatus(record = {}) {
     ].includes(explicitWorkflowId)
   ) {
     return explicitWorkflow
+  }
+
+  if (
+    hasTrackingReadinessSignals &&
+    (
+      ['payment_confirmed', 'flight_confirmed'].includes(explicitWorkflowId) ||
+      ['payment confirmed', 'pago confirmado', 'flight confirmed', 'vuelo confirmado'].includes(
+        normalizedWorkflow,
+      ) ||
+      (paymentConfirmedSignals.has(normalizedPaymentStatus) && normalizedContractStatus === 'signed')
+    )
+  ) {
+    return 'tracking_live'
   }
 
   if (contractOrLaterStates.has(normalizedWorkflow)) {

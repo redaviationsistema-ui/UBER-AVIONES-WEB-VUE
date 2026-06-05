@@ -138,7 +138,7 @@ async function loadContractStatus({ silent = false } = {}) {
               ? persistedReservation.contract
               : contract.value?.contract || null,
           frontend_state: {
-            ...(persistedReservation.frontend_state || {}),
+            ...persistedReservation.frontend_state,
             ready_for_payment: true,
             next_action: 'go_to_history',
             docusign_status: 'completed',

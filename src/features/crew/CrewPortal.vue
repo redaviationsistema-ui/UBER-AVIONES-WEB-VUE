@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../../lib/api'
 import { pickCollection, pickRecord, requestWithCandidates } from '../../lib/backendCrud'
@@ -23,6 +23,40 @@ const router = useRouter()
 const auth = useAuthStore()
 const ui = useUiStore()
 let removeCrewSyncSubscription = null
+let loadPortalPromise = null
+const CREW_PORTAL_TIMEOUT_MS = 15000
+const IS_LOCAL_CREW_DEV =
+  import.meta.env.DEV &&
+  typeof window !== 'undefined' &&
+  /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname || '')
+const portalDataLoaded = reactive({
+  dashboard: false,
+  assignments: false,
+  profile: false,
+  documents: false,
+  availability: false,
+  incidents: false,
+})
+const portalDataLoading = reactive({
+  dashboard: false,
+  assignments: false,
+  profile: false,
+  documents: false,
+  availability: false,
+  incidents: false,
+})
+
+if (IS_LOCAL_CREW_DEV && import.meta.hot) {
+  import.meta.hot.on('vite:beforeUpdate', (payload) => {
+    const shouldReloadCrewPortal = Array.isArray(payload?.updates)
+      ? payload.updates.some((update) => String(update.path || '').includes('/src/features/crew/'))
+      : false
+
+    if (shouldReloadCrewPortal) {
+      window.location.reload()
+    }
+  })
+}
 
 const metrics = ref({
   asignaciones: 0,
@@ -45,8 +79,6 @@ const assignmentStatusOptions = [
   'Cancelado',
 ]
 const crewStatusOptions = ['Disponible', 'Descanso', 'En vuelo', 'No disponible']
-const responseOptions = ['Confirmado', 'Rechazado', 'Solicitar revision']
-const rejectReasons = ['No disponible', 'Empalme de agenda', 'Base distinta', 'Certificacion pendiente', 'Otro']
 const incidentTypes = ['Catering', 'Cabina', 'Cliente', 'Seguridad', 'Horario', 'Proveedor', 'Otro']
 const incidentPriorities = ['Baja', 'Media', 'Alta', 'Critica']
 const incidentStates = ['Nueva', 'En revision', 'Escalada', 'Resuelta por admin', 'Cerrada']
@@ -55,6 +87,9 @@ const blockTypes = ['Descanso', 'Capacitacion', 'Medico', 'Personal', 'Restricci
 const bases = []
 const languages = []
 const profileStates = ['Pendiente', 'En revision', 'Aprobado', 'Rechazado', 'Suspendido']
+const CREW_ASSIGNMENT_DETAIL_CONCURRENCY = Number(
+  import.meta.env.VITE_CREW_ASSIGNMENT_DETAIL_CONCURRENCY || 2,
+)
 
 const providerContext = reactive({
   providerName: '',
@@ -211,38 +246,6 @@ function normalizeCrewOperationalStatus(value = '') {
   return value
 }
 
-const availabilitySummary = computed(() => {
-  if (currentStatus.value === 'En vuelo') {
-    return 'En vuelo'
-  }
-  if (currentStatus.value === 'Asignado') {
-    return 'Asignado'
-  }
-  const explicitStatus = normalizeCrewOperationalStatus(storedOperationalStatus.value)
-  if (explicitStatus) {
-    return explicitStatus
-  }
-  if (availabilityBlocks.value.some((item) => item.state === 'Suspendido')) {
-    return 'Suspendido'
-  }
-  if (availabilityBlocks.value.some((item) => item.state === 'No disponible')) {
-    return 'No disponible'
-  }
-  return ''
-})
-
-function formatPortalDate(value, options = {}) {
-  if (!value || value === 'Pendiente') return 'Por definir'
-  const normalized = String(value).includes('T') ? String(value) : `${value}T08:00`
-  const date = new Date(normalized)
-  if (Number.isNaN(date.getTime())) return String(value)
-  return new Intl.DateTimeFormat('es-MX', {
-    day: 'numeric',
-    month: 'long',
-    ...options,
-  }).format(date)
-}
-
 function formatProfileDate(value) {
   if (!value) return ''
   const normalized = String(value).includes('T') ? String(value) : `${value}T08:00`
@@ -262,6 +265,9 @@ const checklistProgress = computed(() => {
     Pendiente: 36,
     Confirmado: 58,
     Preparacion: 78,
+    'En aeropuerto/base': 82,
+    'Cabina revisada': 88,
+    'Pasajeros recibidos': 92,
     'En servicio': 94,
     Finalizado: 100,
     Incidencia: 71,
@@ -271,7 +277,6 @@ const checklistProgress = computed(() => {
   return currentAssignment.value ? statusMap[currentAssignment.value.missionStatus] || 0 : 0
 })
 
-const validDocumentsCount = computed(() => approvedDocuments.value.length)
 const documentsValidity = computed(() => {
   if (!documentItems.value.length) return 0
   return Math.round((approvedDocuments.value.length / documentItems.value.length) * 100)
@@ -445,31 +450,88 @@ const crewProfileAlerts = computed(() => {
   return [...new Set(alerts)]
 })
 
-const sectionLabelMap = {
-  dashboard: 'Mi operacion',
-  asignaciones: 'Asignaciones activas',
-  calendario: 'Operacion del dia',
-  disponibilidad: 'Disponibilidad personal',
-  perfil: 'Perfil de vuelo',
-  documentos: 'Centro operativo',
-  incidencias: 'Incidencias operativas',
-  historial: 'Historial de servicio',
-  configuracion: 'Configuracion del portal',
+function hasLoadedResources(keys = []) {
+  return keys.every((key) => portalDataLoaded[key])
 }
 
-const activeSectionLabel = computed(() => sectionLabelMap[resolvedSection.value] || 'Portal de sobrecargo')
+function hasLoadingResources(keys = []) {
+  return keys.some((key) => portalDataLoading[key])
+}
+
+const isDashboardLoading = computed(
+  () =>
+    hasLoadingResources(['dashboard', 'assignments', 'profile', 'documents', 'incidents']) &&
+    !hasLoadedResources(['dashboard', 'assignments', 'profile', 'documents', 'incidents']),
+)
+const isAssignmentsLoading = computed(
+  () => portalDataLoading.assignments && !portalDataLoaded.assignments,
+)
+const isCalendarLoading = computed(
+  () => portalDataLoading.assignments && !portalDataLoaded.assignments,
+)
+const isAvailabilityLoading = computed(
+  () => portalDataLoading.availability && !portalDataLoaded.availability,
+)
+const isProfileLoading = computed(
+  () =>
+    hasLoadingResources(['profile', 'documents', 'assignments']) &&
+    !hasLoadedResources(['profile', 'documents', 'assignments']),
+)
+const isDocumentsLoading = computed(
+  () => portalDataLoading.documents && !portalDataLoaded.documents,
+)
+const isIncidentsLoading = computed(
+  () =>
+    hasLoadingResources(['incidents', 'assignments']) &&
+    !hasLoadedResources(['incidents', 'assignments']),
+)
+const isHistoryLoading = computed(
+  () =>
+    hasLoadingResources(['assignments', 'incidents']) &&
+    !hasLoadedResources(['assignments', 'incidents']),
+)
+const isConfigLoading = computed(
+  () => portalDataLoading.profile && !portalDataLoaded.profile,
+)
+
+function getCrewPortalResourceKeys(section = resolvedSection.value) {
+  switch (section) {
+    case 'dashboard':
+      return ['dashboard', 'assignments', 'profile', 'documents', 'incidents']
+    case 'asignaciones':
+    case 'calendario':
+      return ['assignments']
+    case 'disponibilidad':
+      return ['availability', 'assignments']
+    case 'perfil':
+      return ['profile', 'documents', 'assignments']
+    case 'documentos':
+      return ['documents']
+    case 'incidencias':
+      return ['incidents', 'assignments']
+    case 'historial':
+      return ['assignments', 'incidents']
+    case 'configuracion':
+      return ['profile']
+    default:
+      return ['assignments']
+  }
+}
+
+function finalizePortalState() {
+  providerContext.providerName = providerName.value
+  providerContext.operatorLabel = auth.user?.provider?.commercial_name
+    ? 'Proveedor validado · coordinacion Admin / Red Sky'
+    : 'Operacion coordinada por Admin / Red Sky'
+  providerContext.managedBy = 'Admin / Red Sky'
+  providerContext.approvalState = profileForm.profileState
+  currentStatus.value = deriveCrewStatusFromAssignments()
+  rebuildHistoryFromBackend()
+}
 
 const agendaItems = computed(() =>
   assignments.value.map((item) => ({
-    id: item.id,
-    flight: item.flight,
-    route: item.route,
-    date: item.date,
-    time: item.time,
-    aircraft: item.aircraft,
-    briefing: item.briefing,
-    serviceLevel: item.serviceLevel,
-    vipRequirements: item.vipRequirements,
+    ...item,
     state: item.missionStatus,
     confirmed: item.assignmentConfirmed,
   })),
@@ -490,17 +552,6 @@ const incidentFlightOptions = computed(() =>
             : 'Pre-vuelo',
     })),
 )
-
-const assignmentErrors = computed(() => {
-  const errors = {}
-  if (currentAssignment.value?.responseDeadlinePassed) {
-    errors.deadline = 'La ventana de respuesta ya vencio y requiere seguimiento de Admin / Red Sky.'
-  }
-  if (assignmentResponseForm.response === 'Rechazado' && !assignmentResponseForm.rejectReason) {
-    errors.rejectReason = 'Selecciona un motivo para rechazar la asignacion.'
-  }
-  return errors
-})
 
 const agendaErrors = computed(() => {
   const errors = {}
@@ -546,32 +597,60 @@ function pushHistory(action, status, comment, flight = currentAssignment.value?.
   })
 }
 
-function currentMissionTime() {
-  return new Date().toISOString().slice(11, 16)
-}
-
-function appendIncidentTimeline(incident, label) {
-  const timeline = Array.isArray(incident.timeline) ? incident.timeline : []
-  return [
-    ...timeline,
-    {
-      id: `${incident.id}-${timeline.length + 1}`,
-      time: currentMissionTime(),
-      label,
-    },
-  ]
-}
-
 function normalizeMissionStatus(status = '') {
-  const normalized = String(status).toLowerCase()
+  const normalized = String(status || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+  if (['crew checkin', 'checkin operativo', 'check in operativo'].includes(normalized)) return 'En aeropuerto/base'
+  if (['cabina lista', 'cabina revisada'].includes(normalized)) return 'Cabina revisada'
+  if (['pasajeros recibidos'].includes(normalized)) return 'Pasajeros recibidos'
   if (['confirmada', 'confirmed'].includes(normalized)) return 'Confirmado'
-  if (['preparacion', 'preparing', 'lista'].includes(normalized)) return 'Preparacion'
-  if (['en_vuelo', 'in_progress', 'servicio_iniciado', 'incidencia'].includes(normalized)) {
+  if (
+    [
+      'preparacion',
+      'preparing',
+      'lista',
+      'tracking en vivo',
+      'tracking live',
+      'crew enroute',
+      'crew_enroute',
+      'operador asignado',
+    ].includes(normalized)
+  ) return 'Preparacion'
+  if (['en vuelo', 'in progress', 'servicio iniciado', 'incidencia'].includes(normalized)) {
     return normalized === 'incidencia' ? 'Incidencia' : 'En servicio'
   }
   if (['finalizada', 'completed'].includes(normalized)) return 'Finalizado'
   if (['cancelada', 'cancelled'].includes(normalized)) return 'Cancelado'
   return 'Pendiente'
+}
+
+function resolveLatestTimelineStatus(detail = {}) {
+  const timeline = Array.isArray(detail.timeline) ? detail.timeline : []
+  if (!timeline.length) return ''
+
+  const latestEntry = [...timeline].sort((left, right) => {
+    const leftTime = Date.parse(left?.created_at || left?.updated_at || '')
+    const rightTime = Date.parse(right?.created_at || right?.updated_at || '')
+    return (Number.isFinite(rightTime) ? rightTime : 0) - (Number.isFinite(leftTime) ? leftTime : 0)
+  })[0]
+
+  return latestEntry?.status || ''
+}
+
+function buildTimelineStatusSet(detail = {}) {
+  const timeline = Array.isArray(detail.timeline) ? detail.timeline : []
+  return new Set(
+    timeline
+      .map((item) =>
+        String(item?.status || '')
+          .trim()
+          .toLowerCase()
+          .replace(/[_-]+/g, ' '),
+      )
+      .filter(Boolean),
+  )
 }
 
 function normalizeAssignmentResponseStatus(raw = {}, missionStatus = 'Pendiente') {
@@ -620,6 +699,38 @@ function humanizeCrewLifecycleStatus(value = '') {
   return value || ''
 }
 
+function resolveAssignmentResponsePayload(response = '') {
+  if (response === 'Confirmado') {
+    return {
+      response: 'Confirmado',
+      status: 'crew_confirmed',
+      crew_status: 'crew_confirmed',
+    }
+  }
+
+  if (response === 'Rechazado') {
+    return {
+      response: 'Rechazado',
+      status: 'crew_declined',
+      crew_status: 'crew_declined',
+    }
+  }
+
+  if (response === 'Solicitar revision') {
+    return {
+      response: 'Solicitar revision',
+      status: 'crew_change_requested',
+      crew_status: 'crew_change_requested',
+    }
+  }
+
+  return {
+    response,
+    status: '',
+    crew_status: '',
+  }
+}
+
 function deriveCrewStatusFromAssignments() {
   if (assignments.value.some((item) => item.missionStatus === 'En servicio')) return 'En vuelo'
   if (
@@ -637,14 +748,75 @@ function deriveCrewStatusFromAssignments() {
 function normalizeAssignment(raw = {}, detail = {}, index = 0) {
   const briefing = detail.briefing || {}
   const departure = briefing.salida || raw.departure_datetime || raw.started_at || ''
+  const latestTimelineStatus = resolveLatestTimelineStatus(detail)
+  const operationStatus = latestTimelineStatus || detail.status || raw.status || ''
   const crewLifecycleStatus =
     detail.crew_status || raw.crew_status || raw.crewStatus || raw.crew_status_label || ''
+  const timelineStatuses = buildTimelineStatusSet(detail)
+  const hasCheckin =
+    Boolean(raw.crew_checkin_at || detail.crew_checkin_at) ||
+    timelineStatuses.has('crew checkin')
+  const hasCabinReady = timelineStatuses.has('cabina lista')
+  const hasPassengersReady = timelineStatuses.has('pasajeros recibidos')
+  const hasServiceStarted =
+    Boolean(raw.crew_service_started_at || detail.crew_service_started_at) ||
+    timelineStatuses.has('servicio iniciado') ||
+    ['crew_active', 'crew_completed'].includes(String(crewLifecycleStatus || '').toLowerCase()) ||
+    ['in_progress', 'completed'].includes(String(operationStatus || '').toLowerCase())
+  const hasServiceCompleted =
+    Boolean(raw.crew_service_completed_at || detail.crew_service_completed_at) ||
+    timelineStatuses.has('servicio finalizado') ||
+    String(crewLifecycleStatus || '').toLowerCase() === 'crew_completed' ||
+    String(operationStatus || '').toLowerCase() === 'completed'
   const missionStatus =
-    normalizeCrewLifecycleStatus(crewLifecycleStatus) || normalizeMissionStatus(detail.status || raw.status)
+    hasServiceCompleted
+      ? 'Finalizado'
+      : hasServiceStarted
+        ? 'En servicio'
+        : hasPassengersReady
+          ? 'Pasajeros recibidos'
+          : hasCabinReady
+            ? 'Cabina revisada'
+            : hasCheckin
+              ? 'En aeropuerto/base'
+              : normalizeCrewLifecycleStatus(crewLifecycleStatus) || normalizeMissionStatus(operationStatus)
   const responseStatus = normalizeAssignmentResponseStatus(raw, missionStatus)
   const origin = briefing.origen || raw.origin || ''
   const destination = briefing.destino || raw.destination || ''
+  const originName =
+    briefing.origen_name ||
+    briefing.origen_nombre ||
+    raw.origin_name ||
+    raw.origin_label ||
+    detail.origin_name ||
+    detail.origin_label ||
+    ''
+  const destinationName =
+    briefing.destino_name ||
+    briefing.destino_nombre ||
+    raw.destination_name ||
+    raw.destination_label ||
+    detail.destination_name ||
+    detail.destination_label ||
+    ''
   const route = origin && destination ? `${origin} -> ${destination}` : origin || destination || ''
+  const normalizedCrewLifecycleStatus = String(crewLifecycleStatus || '').toLowerCase()
+  const responseLocked = [
+    'crew_confirmed',
+    'crew_declined',
+    'crew_change_requested',
+    'crew_enroute',
+    'crew_active',
+    'crew_completed',
+  ].includes(normalizedCrewLifecycleStatus)
+  const canRespondToAssignment = !responseLocked
+  const canCheckin =
+    ['crew_confirmed', 'crew_enroute', 'crew_active', 'crew_completed'].includes(normalizedCrewLifecycleStatus) &&
+    !hasCheckin
+  const canMarkCabinReady = hasCheckin && !hasCabinReady && !hasServiceStarted
+  const canReceivePassengers = hasCabinReady && !hasPassengersReady && !hasServiceStarted
+  const canStartService = hasPassengersReady && !hasServiceStarted
+  const canFinalizeService = hasServiceStarted && !hasServiceCompleted
 
   return {
     id: raw.id || index + 1,
@@ -674,12 +846,21 @@ function normalizeAssignment(raw = {}, detail = {}, index = 0) {
     operationActive: ['Preparacion', 'En servicio', 'Incidencia'].includes(missionStatus),
     responseDeadlinePassed: false,
     origin,
+    originName,
     destination,
+    destinationName,
     catering: raw.catering || detail.catering || '',
     amenities: raw.amenities || detail.amenities || '',
     missionStatus,
+    operationStatus,
     providerName: providerName.value,
     timeline: Array.isArray(detail.timeline) ? detail.timeline : [],
+    canRespondToAssignment,
+    canCheckin,
+    canMarkCabinReady,
+    canReceivePassengers,
+    canStartService,
+    canFinalizeService,
     operationId: raw.id || index + 1,
   }
 }
@@ -688,22 +869,51 @@ function extractAssignmentsCollection(payload = {}) {
   return pickCollection(payload, ['assignments', 'asignaciones', 'operations', 'operaciones', 'data', 'items'])
 }
 
+async function mapWithConcurrency(items = [], worker, concurrency = 2) {
+  const source = Array.isArray(items) ? items : []
+  const normalizedConcurrency = Math.max(1, Number(concurrency) || 1)
+  const results = new Array(source.length)
+  let nextIndex = 0
+
+  async function consumeQueue() {
+    while (nextIndex < source.length) {
+      const currentIndex = nextIndex
+      nextIndex += 1
+
+      try {
+        results[currentIndex] = {
+          status: 'fulfilled',
+          value: await worker(source[currentIndex], currentIndex),
+        }
+      } catch (error) {
+        results[currentIndex] = {
+          status: 'rejected',
+          reason: error,
+        }
+      }
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(normalizedConcurrency, source.length || 1) }, () => consumeQueue()),
+  )
+
+  return results
+}
+
 async function fetchCrewAssignments() {
   const response = await requestWithCandidates([
-    { method: 'get', path: '/sobrecargo/assignments' },
-    { method: 'get', path: '/sobrecargo/asignaciones' },
-    { method: 'get', path: '/sobrecargo/operations' },
-    { method: 'get', path: '/sobrecargo/operaciones' },
+    { method: 'get', path: '/sobrecargo/assignments', timeoutMs: CREW_PORTAL_TIMEOUT_MS },
   ])
 
   const collection = extractAssignmentsCollection(response)
-  const detailResults = await Promise.allSettled(
-    collection.map((item) =>
+  const detailResults = await mapWithConcurrency(
+    collection,
+    (item) =>
       requestWithCandidates([
-        { method: 'get', path: `/sobrecargo/operations/${item.id}` },
-        { method: 'get', path: `/sobrecargo/operaciones/${item.id}` },
+        { method: 'get', path: `/sobrecargo/operations/${item.id}`, timeoutMs: CREW_PORTAL_TIMEOUT_MS },
       ]),
-    ),
+    CREW_ASSIGNMENT_DETAIL_CONCURRENCY,
   )
 
   return collection.map((item, index) =>
@@ -986,24 +1196,6 @@ function goToSection(section) {
   router.push(`${roleBasePaths.crew}/${section}`)
 }
 
-function updateAgendaState(id, next) {
-  assignments.value = assignments.value.map((item) =>
-    item.id === id
-      ? {
-          ...item,
-          missionStatus: next === 'En briefing' ? 'Preparacion' : next === 'En servicio' ? 'En servicio' : next,
-          assignmentConfirmed: next !== 'Pendiente',
-          operationActive: ['Preparacion', 'En aeropuerto/base', 'Cabina revisada', 'Pasajeros recibidos', 'En servicio', 'En escala / siguiente tramo', 'Reporte enviado', 'Incidencia'].includes(
-            next === 'En briefing' ? 'Preparacion' : next,
-          ),
-        }
-      : item,
-  )
-  currentStatus.value = deriveCrewStatusFromAssignments()
-  const assignment = assignments.value.find((item) => item.id === id)
-  pushHistory('Calendario actualizado', next, `La mision ${id} cambio a ${next}.`, assignment?.flight || String(id))
-}
-
 async function requestBlock() {
   if (Object.keys(agendaErrors.value).length) {
     return ui.pushToast({
@@ -1053,12 +1245,14 @@ async function respondAssignment(id, response) {
   const assignment = assignments.value.find((item) => item.id === id)
   if (!assignment) return
 
-  if (response === 'Rechazado' && !assignmentResponseForm.rejectReason) {
-    return ui.pushToast({
-      tone: 'error',
-      title: 'Motivo obligatorio',
-      message: 'Debes capturar el motivo antes de rechazar la asignacion.',
-    })
+  const responsePayload = resolveAssignmentResponsePayload(response)
+  const payload = {
+    response: responsePayload.response,
+    status: responsePayload.status,
+    crew_status: responsePayload.crew_status,
+    reject_reason: assignmentResponseForm.rejectReason || '',
+    comment: assignmentResponseForm.comment || '',
+    eta: assignmentResponseForm.eta || '',
   }
 
   try {
@@ -1066,32 +1260,17 @@ async function respondAssignment(id, response) {
       {
         method: 'post',
         path: `/sobrecargo/operations/${assignment.operationId || id}/respond`,
-        body: {
-          response,
-          reject_reason: assignmentResponseForm.rejectReason || undefined,
-          comment: assignmentResponseForm.comment || undefined,
-          eta: assignmentResponseForm.eta || undefined,
-        },
+        body: payload,
       },
       {
         method: 'post',
         path: `/sobrecargo/assignments/${assignment.operationId || id}/respond`,
-        body: {
-          response,
-          reject_reason: assignmentResponseForm.rejectReason || undefined,
-          comment: assignmentResponseForm.comment || undefined,
-          eta: assignmentResponseForm.eta || undefined,
-        },
+        body: payload,
       },
       {
         method: 'post',
         path: `/sobrecargo/operations/${assignment.operationId || id}/assignment-response`,
-        body: {
-          response,
-          reject_reason: assignmentResponseForm.rejectReason || undefined,
-          comment: assignmentResponseForm.comment || undefined,
-          eta: assignmentResponseForm.eta || undefined,
-        },
+        body: payload,
       },
     ])
   } catch (error) {
@@ -1133,6 +1312,58 @@ async function confirmBriefing(id) {
       tone: 'error',
       title: 'No se pudo confirmar check-in',
       message: error.message || 'El check-in operativo no pudo registrarse en backend.',
+    })
+  }
+
+  await loadPortal()
+  goToSection('asignaciones')
+}
+
+async function markCabinReady(id) {
+  const assignment = assignments.value.find((item) => item.id === id)
+  if (!assignment) return
+
+  try {
+    await requestWithCandidates([
+      {
+        method: 'post',
+        path: `/sobrecargo/operations/${assignment.operationId || id}/cabin-ready`,
+        body: {
+          note: assignmentResponseForm.comment || 'Cabina, catering e insumos revisados por sobrecargo.',
+        },
+      },
+    ])
+  } catch (error) {
+    return ui.pushToast({
+      tone: 'error',
+      title: 'No se pudo registrar cabina',
+      message: error.message || 'La revision de cabina no pudo registrarse en backend.',
+    })
+  }
+
+  await loadPortal()
+  goToSection('asignaciones')
+}
+
+async function markPassengersReceived(id) {
+  const assignment = assignments.value.find((item) => item.id === id)
+  if (!assignment) return
+
+  try {
+    await requestWithCandidates([
+      {
+        method: 'post',
+        path: `/sobrecargo/operations/${assignment.operationId || id}/passengers-ready`,
+        body: {
+          note: assignmentResponseForm.comment || 'Pasajeros recibidos por sobrecargo antes del vuelo.',
+        },
+      },
+    ])
+  } catch (error) {
+    return ui.pushToast({
+      tone: 'error',
+      title: 'No se pudo registrar recepcion',
+      message: error.message || 'La recepcion de pasajeros no pudo registrarse en backend.',
     })
   }
 
@@ -1570,56 +1801,149 @@ async function saveConfig() {
   }
 }
 
-async function loadPortal() {
-  const [dashboardResult, assignmentsResult, profileResult, documentsResult, availabilityResult, incidentsResult] = await Promise.allSettled([
-    api.get('/sobrecargo/dashboard'),
-    fetchCrewAssignments(),
-    requestWithCandidates([{ method: 'get', path: '/sobrecargo/profile' }]),
-    requestWithCandidates([{ method: 'get', path: '/sobrecargo/documents' }]),
-    requestWithCandidates([{ method: 'get', path: '/sobrecargo/availability' }]),
-    requestWithCandidates([{ method: 'get', path: '/sobrecargo/incidents' }]),
-  ])
+async function loadPortal(options = {}) {
+  const { force = true, resources = null } = options
+  const requestedKeys = new Set(resources?.length ? resources : getCrewPortalResourceKeys())
 
-  metrics.value =
-    dashboardResult.status === 'fulfilled'
-      ? dashboardResult.value.metrics || metrics.value
-      : metrics.value
-
-  if (assignmentsResult.status === 'fulfilled') {
-    assignments.value = assignmentsResult.value
+  if (loadPortalPromise) {
+    if (!force) return loadPortalPromise
+    await loadPortalPromise
   }
 
-  if (profileResult.status === 'fulfilled') {
-    hydrateProfile(pickRecord(profileResult.value, ['profile', 'user', 'data']))
-  }
+  loadPortalPromise = (async () => {
+    const requestEntries = []
 
-  if (documentsResult.status === 'fulfilled') {
-    const collection = pickCollection(documentsResult.value, ['documents', 'documentos', 'data'])
-    documentItems.value = collection.map(normalizeCrewDocumentRecord)
-    syncDocumentSummary()
-  }
+    if (requestedKeys.has('dashboard') && (force || !portalDataLoaded.dashboard)) {
+      requestEntries.push([
+        'dashboard',
+        () => api.get('/sobrecargo/dashboard', { timeoutMs: CREW_PORTAL_TIMEOUT_MS }),
+      ])
+    }
 
-  if (availabilityResult.status === 'fulfilled') {
-    const collection = pickCollection(availabilityResult.value, ['availability', 'disponibilidad', 'data', 'items'])
-    availabilityBlocks.value = collection.map(normalizeCrewAvailabilityRecord)
-  }
+    if (requestedKeys.has('assignments') && (force || !portalDataLoaded.assignments)) {
+      requestEntries.push(['assignments', () => fetchCrewAssignments()])
+    }
 
-  if (incidentsResult.status === 'fulfilled') {
-    const collection = pickCollection(incidentsResult.value, ['incidents', 'incidencias', 'data', 'items'])
-    incidents.value = collection.map(normalizeCrewIncidentRecord)
-  }
+    if (requestedKeys.has('profile') && (force || !portalDataLoaded.profile)) {
+      requestEntries.push([
+        'profile',
+        () =>
+          requestWithCandidates([
+            { method: 'get', path: '/sobrecargo/profile', timeoutMs: CREW_PORTAL_TIMEOUT_MS },
+          ]),
+      ])
+    }
 
-  providerContext.providerName = providerName.value
-  providerContext.operatorLabel = auth.user?.provider?.commercial_name
-    ? 'Proveedor validado · coordinacion Admin / Red Sky'
-    : 'Operacion coordinada por Admin / Red Sky'
-  providerContext.managedBy = 'Admin / Red Sky'
-  providerContext.approvalState = profileForm.profileState
-  currentStatus.value = deriveCrewStatusFromAssignments()
-  rebuildHistoryFromBackend()
+    if (requestedKeys.has('documents') && (force || !portalDataLoaded.documents)) {
+      requestEntries.push([
+        'documents',
+        () =>
+          requestWithCandidates([
+            { method: 'get', path: '/sobrecargo/documents', timeoutMs: CREW_PORTAL_TIMEOUT_MS },
+          ]),
+      ])
+    }
+
+    if (requestedKeys.has('availability') && (force || !portalDataLoaded.availability)) {
+      requestEntries.push([
+        'availability',
+        () =>
+          requestWithCandidates([
+            { method: 'get', path: '/sobrecargo/availability', timeoutMs: CREW_PORTAL_TIMEOUT_MS },
+          ]),
+      ])
+    }
+
+    if (requestedKeys.has('incidents') && (force || !portalDataLoaded.incidents)) {
+      requestEntries.push([
+        'incidents',
+        () =>
+          requestWithCandidates([
+            { method: 'get', path: '/sobrecargo/incidents', timeoutMs: CREW_PORTAL_TIMEOUT_MS },
+          ]),
+      ])
+    }
+
+    if (!requestEntries.length) {
+      finalizePortalState()
+      return
+    }
+
+    requestEntries.forEach(([key]) => {
+      portalDataLoading[key] = true
+    })
+
+    const results = await Promise.allSettled(requestEntries.map(([, request]) => request()))
+
+    results.forEach((result, index) => {
+      const [key] = requestEntries[index]
+
+      if (result.status !== 'fulfilled') return
+
+      if (key === 'dashboard') {
+        metrics.value = result.value.metrics || metrics.value
+        portalDataLoaded.dashboard = true
+        return
+      }
+
+      if (key === 'assignments') {
+        assignments.value = result.value
+        portalDataLoaded.assignments = true
+        return
+      }
+
+      if (key === 'profile') {
+        hydrateProfile(pickRecord(result.value, ['profile', 'user', 'data']))
+        portalDataLoaded.profile = true
+        return
+      }
+
+      if (key === 'documents') {
+        const collection = pickCollection(result.value, ['documents', 'documentos', 'data'])
+        documentItems.value = collection.map(normalizeCrewDocumentRecord)
+        syncDocumentSummary()
+        portalDataLoaded.documents = true
+        return
+      }
+
+      if (key === 'availability') {
+        const collection = pickCollection(result.value, ['availability', 'disponibilidad', 'data', 'items'])
+        availabilityBlocks.value = collection.map(normalizeCrewAvailabilityRecord)
+        portalDataLoaded.availability = true
+        return
+      }
+
+      if (key === 'incidents') {
+        const collection = pickCollection(result.value, ['incidents', 'incidencias', 'data', 'items'])
+        incidents.value = collection.map(normalizeCrewIncidentRecord)
+        portalDataLoaded.incidents = true
+      }
+    })
+
+    requestEntries.forEach(([key]) => {
+      portalDataLoading[key] = false
+    })
+
+    finalizePortalState()
+  })()
+
+  try {
+    await loadPortalPromise
+  } finally {
+    Object.keys(portalDataLoading).forEach((key) => {
+      portalDataLoading[key] = false
+    })
+    loadPortalPromise = null
+  }
 }
 
-onMounted(loadPortal)
+watch(
+  resolvedSection,
+  () => {
+    void loadPortal({ force: false })
+  },
+  { immediate: true },
+)
 
 onMounted(() => {
   removeCrewSyncSubscription = subscribeWorkflowSync(async (payload = {}) => {
@@ -1627,7 +1951,7 @@ onMounted(() => {
     if (Number(payload.crewUserId || 0) !== Number(auth.user?.id || 0)) return
 
     await auth.refreshSession()
-    await loadPortal()
+    await loadPortal({ force: true, resources: ['dashboard', 'assignments', 'profile', 'documents', 'availability', 'incidents'] })
   })
 })
 
@@ -1641,8 +1965,39 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="crew-portal-page">
+    <section v-if="resolvedSection === 'dashboard' && isDashboardLoading" class="crew-loading-view">
+      <div class="surface crew-loading-hero">
+        <div>
+          <span class="eyebrow">Operacion</span>
+          <h3>Preparando tablero de vuelo</h3>
+          <p class="muted">Sincronizando readiness, mision actual, estatus y alertas operativas.</p>
+        </div>
+        <span class="badge">Cargando dashboard</span>
+      </div>
+      <div class="crew-loading-grid crew-loading-grid--dashboard">
+        <article v-for="item in 4" :key="`dashboard-stat-${item}`" class="surface crew-loading-card">
+          <span class="crew-skeleton crew-skeleton-line crew-skeleton-line--sm"></span>
+          <span class="crew-skeleton crew-skeleton-line crew-skeleton-line--md"></span>
+          <span class="crew-skeleton crew-skeleton-line crew-skeleton-line--lg"></span>
+        </article>
+      </div>
+      <div class="crew-loading-grid crew-loading-grid--dashboard-main">
+        <article class="surface crew-loading-panel">
+          <span class="crew-skeleton crew-skeleton-line crew-skeleton-line--lg"></span>
+          <span class="crew-skeleton crew-skeleton-line crew-skeleton-line--md"></span>
+          <div class="crew-loading-chip-row">
+            <span v-for="item in 5" :key="`dashboard-chip-${item}`" class="crew-skeleton crew-skeleton-pill"></span>
+          </div>
+        </article>
+        <article class="surface crew-loading-panel">
+          <span class="crew-skeleton crew-skeleton-line crew-skeleton-line--md"></span>
+          <span v-for="item in 4" :key="`dashboard-side-${item}`" class="crew-skeleton crew-skeleton-panel"></span>
+        </article>
+      </div>
+    </section>
+
     <CrewDashboardSection
-      v-if="resolvedSection === 'dashboard'"
+      v-else-if="resolvedSection === 'dashboard'"
       :crew-name="crewMemberName"
       :provider-name="providerName"
       :profile-state="profileForm.profileState"
@@ -1670,16 +2025,40 @@ onBeforeUnmount(() => {
     <CrewAssignmentsSection
       v-else-if="resolvedSection === 'asignaciones'"
       :assignments="assignments"
-      :assignment-response-form="assignmentResponseForm"
-      :assignment-errors="assignmentErrors"
-      :response-options="responseOptions"
-      :reject-reasons="rejectReasons"
-      @update-field="updateField"
+      :is-loading="isAssignmentsLoading"
       @confirm="(id) => respondAssignment(id, 'Confirmado')"
       @reject="(id) => respondAssignment(id, 'Rechazado')"
       @request-change="(id) => respondAssignment(id, 'Solicitar revision')"
       @confirm-briefing="confirmBriefing"
+      @mark-cabin-ready="markCabinReady"
+      @mark-passengers-ready="markPassengersReceived"
+      @start-service="startAssignedService"
+      @finalize-service="finalizeAssignedService"
     />
+
+    <section v-else-if="resolvedSection === 'calendario' && isCalendarLoading" class="crew-loading-view">
+      <div class="surface crew-loading-hero">
+        <div>
+          <span class="eyebrow">Calendario</span>
+          <h3>Armando operacion del dia</h3>
+          <p class="muted">Traemos briefing, etapas activas y movimientos de agenda.</p>
+        </div>
+        <span class="badge">Cargando agenda</span>
+      </div>
+      <div class="crew-loading-grid crew-loading-grid--split">
+        <article class="surface crew-loading-panel">
+          <span class="crew-skeleton crew-skeleton-line crew-skeleton-line--lg"></span>
+          <span v-for="item in 5" :key="`calendar-row-${item}`" class="crew-skeleton crew-skeleton-panel"></span>
+        </article>
+        <article class="surface crew-loading-panel">
+          <span class="crew-skeleton crew-skeleton-line crew-skeleton-line--md"></span>
+          <div class="crew-loading-chip-row">
+            <span v-for="item in 6" :key="`calendar-chip-${item}`" class="crew-skeleton crew-skeleton-pill"></span>
+          </div>
+          <span v-for="item in 3" :key="`calendar-card-${item}`" class="crew-skeleton crew-skeleton-panel crew-skeleton-panel--tall"></span>
+        </article>
+      </div>
+    </section>
 
     <section v-else-if="resolvedSection === 'calendario'" class="section-stack">
       <CrewAgendaSection
@@ -1689,16 +2068,38 @@ onBeforeUnmount(() => {
         :agenda-states="assignmentStatusOptions"
         :block-types="blockTypes"
         @update-field="updateField"
-        @confirm-flight="(id) => updateAgendaState(id, 'Confirmado')"
-        @mark-en-camino="(id) => updateAgendaState(id, 'En aeropuerto/base')"
-        @mark-briefing="(id) => updateAgendaState(id, 'Preparacion')"
-        @mark-cabin-ready="(id) => updateAgendaState(id, 'Cabina revisada')"
-        @mark-passengers-ready="(id) => updateAgendaState(id, 'Pasajeros recibidos')"
+        @confirm-flight="(id) => respondAssignment(id, 'Confirmado')"
+        @mark-en-camino="confirmBriefing"
+        @mark-briefing="confirmBriefing"
+        @mark-cabin-ready="markCabinReady"
+        @mark-passengers-ready="markPassengersReceived"
         @mark-service="startAssignedService"
-        @mark-next-leg="(id) => updateAgendaState(id, 'En escala / siguiente tramo')"
         @mark-finalizado="finalizeAssignedService"
         @request-block="requestBlock"
       />
+    </section>
+
+    <section v-else-if="resolvedSection === 'disponibilidad' && isAvailabilityLoading" class="crew-loading-view">
+      <div class="surface crew-loading-hero">
+        <div>
+          <span class="eyebrow">Disponibilidad</span>
+          <h3>Sincronizando cobertura personal</h3>
+          <p class="muted">Consultando bloques, base operativa y periodos disponibles.</p>
+        </div>
+        <span class="badge">Cargando disponibilidad</span>
+      </div>
+      <div class="crew-loading-grid crew-loading-grid--split">
+        <article class="surface crew-loading-panel">
+          <span class="crew-skeleton crew-skeleton-line crew-skeleton-line--lg"></span>
+          <div class="crew-loading-form-grid">
+            <span v-for="item in 6" :key="`availability-field-${item}`" class="crew-skeleton crew-skeleton-field"></span>
+          </div>
+        </article>
+        <article class="surface crew-loading-panel">
+          <span class="crew-skeleton crew-skeleton-line crew-skeleton-line--md"></span>
+          <span v-for="item in 4" :key="`availability-block-${item}`" class="crew-skeleton crew-skeleton-panel"></span>
+        </article>
+      </div>
     </section>
 
     <section v-else-if="resolvedSection === 'disponibilidad'" class="surface availability-page">
@@ -1768,6 +2169,29 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
+    <section v-else-if="resolvedSection === 'perfil' && isProfileLoading" class="crew-loading-view">
+      <div class="surface crew-loading-hero">
+        <div>
+          <span class="eyebrow">Perfil</span>
+          <h3>Preparando perfil de vuelo</h3>
+          <p class="muted">Estamos cargando datos personales, validaciones y alertas del expediente.</p>
+        </div>
+        <span class="badge">Cargando perfil</span>
+      </div>
+      <div class="crew-loading-grid crew-loading-grid--split">
+        <article class="surface crew-loading-panel">
+          <span class="crew-skeleton crew-skeleton-line crew-skeleton-line--lg"></span>
+          <div class="crew-loading-form-grid">
+            <span v-for="item in 8" :key="`profile-field-${item}`" class="crew-skeleton crew-skeleton-field"></span>
+          </div>
+        </article>
+        <article class="surface crew-loading-panel">
+          <span class="crew-skeleton crew-skeleton-line crew-skeleton-line--md"></span>
+          <span v-for="item in 5" :key="`profile-side-${item}`" class="crew-skeleton crew-skeleton-panel"></span>
+        </article>
+      </div>
+    </section>
+
     <CrewProfileSection
       v-else-if="resolvedSection === 'perfil'"
       :profile-form="profileForm"
@@ -1783,6 +2207,29 @@ onBeforeUnmount(() => {
       @update-field="updateField"
       @save="saveProfile"
     />
+
+    <section v-else-if="resolvedSection === 'documentos' && isDocumentsLoading" class="crew-loading-view">
+      <div class="surface crew-loading-hero">
+        <div>
+          <span class="eyebrow">Documentos</span>
+          <h3>Organizando centro documental</h3>
+          <p class="muted">Sincronizando certificados, vencimientos y estado de validacion.</p>
+        </div>
+        <span class="badge">Cargando documentos</span>
+      </div>
+      <div class="crew-loading-grid crew-loading-grid--split">
+        <article class="surface crew-loading-panel">
+          <span class="crew-skeleton crew-skeleton-line crew-skeleton-line--lg"></span>
+          <div class="crew-loading-form-grid">
+            <span v-for="item in 4" :key="`docs-field-${item}`" class="crew-skeleton crew-skeleton-field"></span>
+          </div>
+        </article>
+        <article class="surface crew-loading-panel">
+          <span class="crew-skeleton crew-skeleton-line crew-skeleton-line--md"></span>
+          <span v-for="item in 4" :key="`docs-row-${item}`" class="crew-skeleton crew-skeleton-panel"></span>
+        </article>
+      </div>
+    </section>
 
     <section v-else-if="resolvedSection === 'documentos'" class="surface documents-page">
       <div class="page-head">
@@ -1849,6 +2296,30 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
+    <section v-else-if="resolvedSection === 'incidencias' && isIncidentsLoading" class="crew-loading-view">
+      <div class="surface crew-loading-hero">
+        <div>
+          <span class="eyebrow">Incidencias</span>
+          <h3>Conectando bitacora operativa</h3>
+          <p class="muted">Estamos reuniendo incidentes, prioridades, vuelos y estados de seguimiento.</p>
+        </div>
+        <span class="badge">Cargando incidencias</span>
+      </div>
+      <div class="crew-loading-grid crew-loading-grid--split">
+        <article class="surface crew-loading-panel">
+          <span class="crew-skeleton crew-skeleton-line crew-skeleton-line--lg"></span>
+          <div class="crew-loading-form-grid">
+            <span v-for="item in 5" :key="`incident-field-${item}`" class="crew-skeleton crew-skeleton-field"></span>
+          </div>
+          <span class="crew-skeleton crew-skeleton-panel crew-skeleton-panel--tall"></span>
+        </article>
+        <article class="surface crew-loading-panel">
+          <span class="crew-skeleton crew-skeleton-line crew-skeleton-line--md"></span>
+          <span v-for="item in 4" :key="`incident-row-${item}`" class="crew-skeleton crew-skeleton-panel"></span>
+        </article>
+      </div>
+    </section>
+
     <CrewIncidentSection
       v-else-if="resolvedSection === 'incidencias'"
       :incident-form="incidentForm"
@@ -1866,11 +2337,53 @@ onBeforeUnmount(() => {
       @escalate="escalateIncident"
     />
 
+    <section v-else-if="resolvedSection === 'historial' && isHistoryLoading" class="crew-loading-view">
+      <div class="surface crew-loading-hero">
+        <div>
+          <span class="eyebrow">Historial</span>
+          <h3>Recuperando trazabilidad de servicio</h3>
+          <p class="muted">Estamos armando resumen operativo, actividad cerrada y registro historico.</p>
+        </div>
+        <span class="badge">Cargando historial</span>
+      </div>
+      <div class="crew-loading-grid crew-loading-grid--dashboard">
+        <article v-for="item in 4" :key="`history-stat-${item}`" class="surface crew-loading-card">
+          <span class="crew-skeleton crew-skeleton-line crew-skeleton-line--sm"></span>
+          <span class="crew-skeleton crew-skeleton-line crew-skeleton-line--md"></span>
+          <span class="crew-skeleton crew-skeleton-line crew-skeleton-line--lg"></span>
+        </article>
+      </div>
+      <article class="surface crew-loading-panel">
+        <span class="crew-skeleton crew-skeleton-line crew-skeleton-line--md"></span>
+        <span v-for="item in 5" :key="`history-row-${item}`" class="crew-skeleton crew-skeleton-panel"></span>
+      </article>
+    </section>
+
     <CrewHistorySection
       v-else-if="resolvedSection === 'historial'"
       :history-summary="historySummary"
       :history-entries="historyEntries"
     />
+
+    <section v-else-if="resolvedSection === 'configuracion' && isConfigLoading" class="crew-loading-view">
+      <div class="surface crew-loading-hero">
+        <div>
+          <span class="eyebrow">Configuracion</span>
+          <h3>Preparando preferencias del portal</h3>
+          <p class="muted">Sincronizando notificaciones, cobertura y reglas de escalamiento.</p>
+        </div>
+        <span class="badge">Cargando configuracion</span>
+      </div>
+      <article class="surface crew-loading-panel">
+        <span class="crew-skeleton crew-skeleton-line crew-skeleton-line--lg"></span>
+        <div class="crew-loading-toggle-list">
+          <span v-for="item in 3" :key="`config-toggle-${item}`" class="crew-skeleton crew-skeleton-panel"></span>
+        </div>
+        <div class="crew-loading-form-grid">
+          <span v-for="item in 2" :key="`config-field-${item}`" class="crew-skeleton crew-skeleton-field"></span>
+        </div>
+      </article>
+    </section>
 
     <section v-else-if="resolvedSection === 'configuracion'" class="surface config-page">
       <div class="page-head">
@@ -1935,7 +2448,11 @@ onBeforeUnmount(() => {
 .availability-layout,
 .documents-layout,
 .record-list,
-.toggle-list {
+.toggle-list,
+.crew-loading-view,
+.crew-loading-grid,
+.crew-loading-form-grid,
+.crew-loading-toggle-list {
   display: grid;
   gap: 1.5rem;
 }
@@ -2069,8 +2586,109 @@ onBeforeUnmount(() => {
 .availability-page,
 .documents-page,
 .config-page,
-.inner-card {
+.inner-card,
+.crew-loading-hero,
+.crew-loading-panel,
+.crew-loading-card {
   padding: 1.4rem;
+}
+
+.crew-loading-hero,
+.crew-loading-panel,
+.crew-loading-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.crew-loading-hero {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.crew-loading-hero h3 {
+  margin: 0;
+  font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: -0.04em;
+}
+
+.crew-loading-hero p {
+  margin: 0.4rem 0 0;
+}
+
+.crew-loading-grid--dashboard {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.crew-loading-grid--dashboard-main,
+.crew-loading-grid--split {
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+}
+
+.crew-loading-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+}
+
+.crew-loading-form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.crew-loading-toggle-list {
+  gap: 1rem;
+}
+
+.crew-skeleton {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(16, 163, 127, 0.08);
+}
+
+.crew-skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.74), transparent);
+  animation: crew-shimmer 1.5s ease-in-out infinite;
+}
+
+.crew-skeleton-line--sm {
+  width: 28%;
+  height: 0.78rem;
+}
+
+.crew-skeleton-line--md {
+  width: 52%;
+  height: 0.95rem;
+}
+
+.crew-skeleton-line--lg {
+  width: 72%;
+  height: 1.15rem;
+}
+
+.crew-skeleton-pill {
+  width: 6.8rem;
+  height: 2rem;
+}
+
+.crew-skeleton-panel {
+  min-height: 5rem;
+  border-radius: 18px;
+}
+
+.crew-skeleton-panel--tall {
+  min-height: 7rem;
+}
+
+.crew-skeleton-field {
+  min-height: 3.15rem;
+  border-radius: 16px;
 }
 
 .crew-portal-page .crew-context-hero {
@@ -2456,7 +3074,11 @@ onBeforeUnmount(() => {
   .hero-stats-grid,
   .availability-layout,
   .documents-layout,
-  .form-grid {
+  .form-grid,
+  .crew-loading-grid--dashboard,
+  .crew-loading-grid--dashboard-main,
+  .crew-loading-grid--split,
+  .crew-loading-form-grid {
     grid-template-columns: 1fr;
   }
 
@@ -2480,7 +3102,10 @@ onBeforeUnmount(() => {
   .availability-page,
   .documents-page,
   .config-page,
-  .inner-card {
+  .inner-card,
+  .crew-loading-hero,
+  .crew-loading-panel,
+  .crew-loading-card {
     padding: 1.05rem;
   }
 
@@ -2503,6 +3128,17 @@ onBeforeUnmount(() => {
   .mission-status-pill {
     width: 100%;
     justify-content: center;
+  }
+
+  .crew-loading-hero {
+    display: grid;
+    justify-content: stretch;
+  }
+}
+
+@keyframes crew-shimmer {
+  100% {
+    transform: translateX(100%);
   }
 }
 </style>

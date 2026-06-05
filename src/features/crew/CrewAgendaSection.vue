@@ -18,7 +18,6 @@ defineEmits([
   'mark-cabin-ready',
   'mark-passengers-ready',
   'mark-service',
-  'mark-next-leg',
   'mark-finalizado',
   'request-block',
 ])
@@ -30,8 +29,6 @@ const flowLabels = [
   'Cabina revisada',
   'Pasajeros recibidos',
   'En vuelo',
-  'En escala / siguiente tramo',
-  'Reporte enviado',
   'Cierre operativo',
 ]
 
@@ -43,9 +40,7 @@ const flowStatusMap = {
   'Cabina revisada': 3,
   'Pasajeros recibidos': 4,
   'En servicio': 5,
-  'En escala / siguiente tramo': 6,
-  'Reporte enviado': 7,
-  Finalizado: 8,
+  Finalizado: 6,
 }
 
 const flowSummary = computed(() => {
@@ -155,35 +150,31 @@ function itemFlowSteps(item = {}) {
             </div>
             <div class="action-stack">
               <span class="badge">{{ item.state }}</span>
-              <button class="ghost-button action-button" type="button" @click="$emit('confirm-flight', item.id)">
+              <button class="ghost-button action-button" type="button" :disabled="!item.canRespondToAssignment" @click="$emit('confirm-flight', item.id)">
                 <CrewUiIcon name="assignment" :size="15" />
                 Confirmar vuelo
               </button>
-              <button class="ghost-button action-button" type="button" @click="$emit('mark-en-camino', item.id)">
+              <button class="ghost-button action-button" type="button" :disabled="!item.canCheckin" @click="$emit('mark-en-camino', item.id)">
                 <CrewUiIcon name="route" :size="15" />
                 En aeropuerto/base
               </button>
-              <button class="ghost-button action-button" type="button" @click="$emit('mark-briefing', item.id)">
+              <button class="ghost-button action-button" type="button" :disabled="!item.canCheckin" @click="$emit('mark-briefing', item.id)">
                 <CrewUiIcon name="briefing" :size="15" />
                 Llegada a briefing
               </button>
-              <button class="ghost-button action-button" type="button" @click="$emit('mark-cabin-ready', item.id)">
+              <button class="ghost-button action-button" type="button" :disabled="!item.canMarkCabinReady" @click="$emit('mark-cabin-ready', item.id)">
                 <CrewUiIcon name="service" :size="15" />
                 Cabina / catering listos
               </button>
-              <button class="ghost-button action-button" type="button" @click="$emit('mark-passengers-ready', item.id)">
+              <button class="ghost-button action-button" type="button" :disabled="!item.canReceivePassengers" @click="$emit('mark-passengers-ready', item.id)">
                 <CrewUiIcon name="assignment" :size="15" />
                 Pasajeros recibidos
               </button>
-              <button class="ghost-button action-button" type="button" @click="$emit('mark-service', item.id)">
+              <button class="ghost-button action-button" type="button" :disabled="!item.canStartService" @click="$emit('mark-service', item.id)">
                 <CrewUiIcon name="service" :size="15" />
                 Servicio en vuelo
               </button>
-              <button class="ghost-button action-button" type="button" @click="$emit('mark-next-leg', item.id)">
-                <CrewUiIcon name="route" :size="15" />
-                Escala / siguiente tramo
-              </button>
-              <button class="ghost-button action-button" type="button" @click="$emit('mark-finalizado', item.id)">
+              <button class="ghost-button action-button" type="button" :disabled="!item.canFinalizeService" @click="$emit('mark-finalizado', item.id)">
                 <CrewUiIcon name="checklist" :size="15" />
                 Reporte y cierre
               </button>
@@ -363,6 +354,12 @@ function itemFlowSteps(item = {}) {
 
 .action-button {
   gap: 0.45rem;
+}
+
+.action-button:disabled {
+  opacity: 0.46;
+  cursor: not-allowed;
+  filter: saturate(0.7);
 }
 
 @media (max-width: 1080px) {

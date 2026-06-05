@@ -40,14 +40,11 @@ export const roleSections = {
   ],
   crew: [
     { id: 'dashboard', label: 'Centro Operativo', icon: 'overview' },
-    { id: 'asignaciones', label: 'Misiones', icon: 'link' },
-    { id: 'calendario', label: 'Operacion del Dia', icon: 'calendar' },
-    { id: 'disponibilidad', label: 'Disponibilidad', icon: 'calendar' },
-    { id: 'perfil', label: 'Perfil de Vuelo', icon: 'account' },
-    { id: 'documentos', label: 'Centro Operativo', icon: 'clipboard' },
-    { id: 'incidencias', label: 'Incidencias', icon: 'alert' },
-    { id: 'historial', label: 'Historial', icon: 'history' },
-    { id: 'configuracion', label: 'Ajustes', icon: 'grid' },
+    { id: 'asignaciones', label: 'Vuelo Asignado', icon: 'link' },
+    { id: 'calendario', label: 'Agenda Operativa', icon: 'calendar' },
+    { id: 'perfil', label: 'Cuenta', icon: 'account' },
+    { id: 'incidencias', label: 'Reporte Rapido Operativo', icon: 'alert' },
+    { id: 'historial', label: 'Historial operativo', icon: 'history' },
   ],
   admin: [
     { id: 'ejecutivo', label: 'Dashboard', icon: 'overview' },
@@ -78,9 +75,10 @@ export const roleSectionGroups = {
     { label: 'Membresia', ids: ['membresia'] },
   ],
   crew: [
-    { label: 'Operacion', ids: ['dashboard', 'asignaciones', 'calendario', 'disponibilidad'] },
-    { label: 'Seguimiento', ids: ['documentos', 'incidencias', 'historial'] },
-    { label: 'Cuenta', ids: ['perfil', 'configuracion'] },
+    { label: 'Centro Operativo', ids: ['dashboard'] },
+    { label: 'Operacion', ids: ['asignaciones', 'calendario'] },
+    { label: 'Seguimiento', ids: ['incidencias', 'historial', 'documentos'] },
+    { label: 'Cuenta', ids: ['perfil', 'configuracion', 'disponibilidad'] },
   ],
   operator: [
     {

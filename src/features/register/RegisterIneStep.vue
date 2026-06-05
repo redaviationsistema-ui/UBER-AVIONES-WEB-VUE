@@ -572,7 +572,7 @@ function applyBiometricValidationResult(result = {}, file, previewUrl) {
     faceDetected: Boolean(result.faceDetected),
     faceMatchScore: null,
     livenessScore: null,
-    imageStorageScore: Boolean(result.biometricImageSaved) ? 100 : 0,
+    imageStorageScore: result.biometricImageSaved ? 100 : 0,
     biometricImageSaved: Boolean(result.biometricImageSaved),
     biometricCapturedAt: new Date().toISOString(),
     biometricProvider: result.biometricProvider || 'aws_rekognition',

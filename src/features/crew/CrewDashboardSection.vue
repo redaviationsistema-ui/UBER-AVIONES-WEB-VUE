@@ -63,17 +63,17 @@ const visibleStatusOptions = computed(() => [
 ])
 
 const missionTitle = computed(() =>
-  props.nextFlight?.route || 'Sin asignacion',
+  props.nextFlight?.route || 'Sin vuelo asignado',
 )
 
 const missionMeta = computed(() => {
-  if (!props.nextFlight) return 'Sin servicio activo'
+  if (!props.nextFlight) return 'Sin operacion activa'
   const fragments = [props.nextFlight.date, props.nextFlight.briefingTime || props.nextFlight.time].filter(Boolean)
   return fragments.length ? fragments.join(' · Reporte ') : 'Sin horario confirmado'
 })
 
 const missionSupport = computed(() => {
-  if (!props.nextFlight) return 'Sin servicio activo. Red Sky te contactara si existe una asignacion compatible.'
+  if (!props.nextFlight) return 'Admin / Red Sky te contactara cuando exista una asignacion compatible.'
   return [props.nextFlight.aircraft, props.nextFlight.serviceLevel, 'Coordinacion Admin / Red Sky'].filter(Boolean).join(' · ')
 })
 
@@ -81,7 +81,7 @@ const nextAction = computed(() => {
   if (!props.nextFlight) {
     return {
       title: 'Proxima accion',
-      detail: 'Manten tu disponibilidad activa. Red Sky te contactara cuando exista una asignacion.',
+      detail: 'Manten tu disponibilidad activa. Admin / Red Sky te contactara cuando exista una mision compatible.',
     }
   }
 
@@ -114,19 +114,19 @@ const nextAction = computed(() => {
 
 const checklistItems = computed(() => [
   {
-    label: 'Documentacion operacional',
+    label: 'Perfil validado',
     state: props.documentsValidity >= 90 ? 'ok' : props.documentsValidity >= 70 ? 'warn' : 'block',
   },
   {
-    label: 'Disponibilidad activa',
+    label: 'Disponibilidad confirmada para hoy',
     state: props.currentStatus === 'Disponible' ? 'ok' : props.currentStatus === 'Asignado' ? 'warn' : 'block',
   },
   {
-    label: 'Protocolo y briefing',
+    label: 'Briefing y protocolo listos',
     state: props.checklistProgress >= 70 ? 'ok' : 'warn',
   },
   {
-    label: 'Coordinacion administrativa',
+    label: 'Base operativa registrada',
     state: props.identitySummary.level === 'Elite Internacional' ? 'ok' : 'warn',
   },
 ])
@@ -135,16 +135,16 @@ const summaryMap = computed(() => Object.fromEntries(props.summary.map((item) =>
 
 const kpiCards = computed(() => [
   {
-    title: 'Disponibilidad',
-    value: props.currentStatus === 'Asignado' ? 'Confirmada' : props.currentStatus,
+    title: 'Estado actual',
+    value: props.currentStatus === 'Asignado' ? 'Asignada' : props.currentStatus || 'Sin definir',
   },
   {
-    title: 'Servicios asignados',
-    value: props.nextFlight ? '1 activa' : 'Sin asignacion',
+    title: 'Proxima vuelo',
+    value: props.nextFlight ? props.nextFlight.route || 'Asignada' : 'Sin vuelo asignado',
   },
   {
     title: 'Documentos',
-    value: props.documentsValidity ? `${props.documentsValidity}%` : 'Sin dato',
+    value: props.documentsValidity ? `${props.documentsValidity}% validados` : 'Pendiente de revision',
   },
   {
     title: 'Alertas',
@@ -154,22 +154,22 @@ const kpiCards = computed(() => [
 
 const quickActions = computed(() => [
   {
-    label: props.currentStatus === 'Disponible' ? 'Disponibilidad activa' : 'Activar disponibilidad',
+    label: props.currentStatus === 'Disponible' ? 'Disponibilidad' : 'Actualizar disponibilidad',
     icon: 'status',
     event: 'open-availability',
   },
   {
-    label: 'Centro admin',
+    label: 'Documentos y licencia',
     icon: 'report',
     event: 'open-documents',
   },
   {
-    label: props.nextFlight ? 'Proxima asignacion' : 'Servicios asignados',
+    label: props.nextFlight ? 'Mi mision asignada' : 'Operacion',
     icon: 'route',
     event: props.nextFlight ? 'view-flight' : 'start-checklist',
   },
   {
-    label: 'Incidencias',
+    label: 'Seguimiento y reportes',
     icon: 'incident',
     event: 'open-incidents',
   },
@@ -177,25 +177,28 @@ const quickActions = computed(() => [
 
 const operationsStrip = computed(() => [
   {
-    label: 'Validacion',
-    value: props.identitySummary.validationState || props.profileState || 'Pendiente',
-  },
-  {
-    label: 'Estado operativo',
+    label: 'Estado actual',
     value:
       props.currentStatus === 'Disponible'
         ? 'Disponible'
         : props.currentStatus === 'Asignado'
-          ? 'Confirmada'
-          : props.currentStatus || 'Sin dato',
+          ? 'Asignada'
+          : props.currentStatus || 'Sin definir',
   },
-  { label: 'Canal operativo', value: 'Admin / Red Sky' },
-  { label: 'Base', value: props.identitySummary.base || 'Sin dato' },
   {
-    label: 'Proxima asignacion',
-    value: props.nextFlight ? [props.nextFlight.flight, props.nextFlight.time].filter(Boolean).join(' · ') || 'Sin dato' : 'Sin asignacion',
+    label: 'Proxima vuelo',
+    value: props.nextFlight ? props.nextFlight.route || 'Asignada' : 'Sin vuelo asignado',
   },
-  { label: 'Documentos', value: props.documentsValidity ? `${props.documentsValidity}% validado` : 'Sin dato' },
+  { label: 'Base operativa', value: props.identitySummary.base || 'Pendiente de registro' },
+  { label: 'Canal de coordinacion', value: 'Admin / Red Sky' },
+  {
+    label: 'Documentos',
+    value: props.documentsValidity ? `${props.documentsValidity}% validados` : 'Pendiente de revision',
+  },
+  {
+    label: 'Disponibilidad',
+    value: props.currentStatus === 'Disponible' ? 'Activa' : props.currentStatus || 'Por confirmar',
+  },
 ])
 
 const readinessBreakdown = computed(() => [
@@ -301,30 +304,32 @@ function checklistTone(state) {
       <div class="header-main">
         <div class="identity-block">
           <p class="eyebrow">Mi operacion</p>
-          <h2>{{ crewName || 'Sobrecargo' }}</h2>
+          <h2>Hola, {{ crewName || 'Sobrecargo' }}</h2>
           <p class="identity-copy">
             {{ [identitySummary.level, identitySummary.hours, identitySummary.languages].filter(Boolean).join(' · ') || 'Sin datos de perfil cargados' }}
           </p>
-          <p class="identity-rule">Consulta tu estado, disponibilidad, asignaciones y reportes. Toda coordinacion es unicamente con Admin / Red Sky.</p>
+          <p class="identity-rule">
+            Tu estado actual es: {{ props.currentStatus || 'Sin definir' }}. Admin / Red Sky te contactara cuando exista una asignacion compatible.
+          </p>
         </div>
 
         <div class="header-priority-grid">
           <article class="priority-panel">
-            <span class="mini-label">Servicio activo</span>
+            <span class="mini-label">Proxima vuelo</span>
             <strong>{{ missionTitle }}</strong>
             <p>{{ missionMeta }}</p>
             <small>{{ missionSupport }}</small>
           </article>
 
           <article class="priority-panel priority-panel-compact">
-            <span class="mini-label">{{ nextAction.title }}</span>
-            <strong>{{ props.currentStatus === 'Disponible' ? 'Lista para asignacion' : props.currentStatus || 'Sin estado operativo' }}</strong>
+            <span class="mini-label">Canal de coordinacion</span>
+            <strong>{{ props.currentStatus === 'Disponible' ? 'Lista para operar' : props.currentStatus || 'Pendiente operativo' }}</strong>
             <p>{{ nextAction.detail }}</p>
-            <small>Canal unico: Admin / Red Sky</small>
+            <small>Coordinacion unica: Admin / Red Sky</small>
           </article>
 
           <article class="priority-panel priority-panel-cta">
-            <span class="mini-label">Flight Ready Score</span>
+            <span class="mini-label">Listo para operar</span>
             <div class="ready-ring" :style="{ '--ready-score': readinessScore }">
               <div class="ready-ring-core">
                 <strong>{{ readinessScore }}%</strong>
@@ -406,8 +411,8 @@ function checklistTone(state) {
       <article class="dashboard-shell timeline-card">
         <div class="section-head">
           <div>
-            <p class="eyebrow">Seguimiento operativo</p>
-            <h3>Proximos vencimientos y servicio</h3>
+            <p class="eyebrow">Operacion activa</p>
+            <h3>Proxima vuelo y seguimiento</h3>
           </div>
         </div>
 
@@ -445,8 +450,8 @@ function checklistTone(state) {
     <section class="dashboard-shell control-center">
       <div class="section-head">
         <div>
-          <p class="eyebrow">Centro de control</p>
-          <h3>Operacion, alertas y coordinacion con Admin / Red Sky</h3>
+          <p class="eyebrow">Centro Operativo</p>
+          <h3>Alertas, coordinacion y estado de cuenta operativa</h3>
         </div>
       </div>
 
@@ -519,7 +524,7 @@ function checklistTone(state) {
 }
 
 .operations-strip {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   margin-bottom: 0.9rem;
 }
 

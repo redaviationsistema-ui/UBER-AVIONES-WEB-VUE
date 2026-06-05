@@ -1,11 +1,7 @@
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import RegisterClientStep from '../features/register/RegisterClientStep.vue'
-import RegisterCredentialsStep from '../features/register/RegisterCredentialsStep.vue'
-import RegisterIneStep from '../features/register/RegisterIneStep.vue'
 import RegisterProgress from '../features/register/RegisterProgress.vue'
-import RegisterRoleStep from '../features/register/RegisterRoleStep.vue'
 import {
   allowedRoles,
   buildRegistrationSteps,
@@ -14,6 +10,19 @@ import {
 import '../features/register/registerWizard.css'
 import { resolveDashboardPathByRole } from '../lib/authRouting'
 import { useAuthStore } from '../stores/auth'
+
+const RegisterClientStep = defineAsyncComponent(
+  () => import('../features/register/RegisterClientStep.vue'),
+)
+const RegisterCredentialsStep = defineAsyncComponent(
+  () => import('../features/register/RegisterCredentialsStep.vue'),
+)
+const RegisterIneStep = defineAsyncComponent(
+  () => import('../features/register/RegisterIneStep.vue'),
+)
+const RegisterRoleStep = defineAsyncComponent(
+  () => import('../features/register/RegisterRoleStep.vue'),
+)
 
 const router = useRouter()
 const route = useRoute()

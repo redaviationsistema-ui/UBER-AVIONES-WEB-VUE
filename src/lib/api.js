@@ -26,6 +26,24 @@ let memoryToken = null
 const AUTH_STORAGE_KEY = 'red_aviation_auth_token'
 let activeBackendIndex = 0
 
+function getSessionStorage() {
+  if (!canUseSessionStorage()) return null
+  const storage = window.sessionStorage
+  return typeof storage?.getItem === 'function' ? storage : null
+}
+
+function getLegacyLocalStorage() {
+  if (!canUseLocalStorage()) return null
+  const storage = window.localStorage
+  return typeof storage?.removeItem === 'function' ? storage : null
+}
+
+function clearLegacyStoredAuth() {
+  const legacyStorage = getLegacyLocalStorage()
+  if (!legacyStorage) return
+  legacyStorage.removeItem(AUTH_STORAGE_KEY)
+}
+
 function isLocalOrigin(origin = '') {
   return /^(http:\/\/)?(localhost|127\.0\.0\.1)(:\d+)?$/i.test(String(origin || '').trim())
 }
@@ -299,47 +317,41 @@ function redirectToClientLogin() {
 }
 
 export function getStoredToken() {
-  if (!memoryToken && canUseSessionStorage()) {
-    memoryToken = window.sessionStorage.getItem(AUTH_STORAGE_KEY)
+  const sessionStorage = getSessionStorage()
+  if (!memoryToken && sessionStorage) {
+    memoryToken = sessionStorage.getItem(AUTH_STORAGE_KEY)
   }
 
-  if (!memoryToken && canUseLocalStorage()) {
-    memoryToken = window.localStorage.getItem(AUTH_STORAGE_KEY)
-  }
+  // Clean up older persistent tokens so sessions stay scoped to the browser tab.
+  clearLegacyStoredAuth()
 
   return memoryToken
 }
 
 export function setStoredToken(token) {
   memoryToken = token || null
+  const sessionStorage = getSessionStorage()
 
-  if (canUseSessionStorage()) {
+  if (sessionStorage) {
     if (memoryToken) {
-      window.sessionStorage.setItem(AUTH_STORAGE_KEY, memoryToken)
+      sessionStorage.setItem(AUTH_STORAGE_KEY, memoryToken)
     } else {
-      window.sessionStorage.removeItem(AUTH_STORAGE_KEY)
+      sessionStorage.removeItem(AUTH_STORAGE_KEY)
     }
   }
 
-  if (canUseLocalStorage()) {
-    if (memoryToken) {
-      window.localStorage.setItem(AUTH_STORAGE_KEY, memoryToken)
-    } else {
-      window.localStorage.removeItem(AUTH_STORAGE_KEY)
-    }
-  }
+  clearLegacyStoredAuth()
 }
 
 export function clearStoredToken() {
   memoryToken = null
+  const sessionStorage = getSessionStorage()
 
-  if (canUseSessionStorage()) {
-    window.sessionStorage.removeItem(AUTH_STORAGE_KEY)
+  if (sessionStorage) {
+    sessionStorage.removeItem(AUTH_STORAGE_KEY)
   }
 
-  if (canUseLocalStorage()) {
-    window.localStorage.removeItem(AUTH_STORAGE_KEY)
-  }
+  clearLegacyStoredAuth()
 }
 // checar la causa del porque no me muestra el valor presiso como en el sistema , contemplando el ascenso y el desenso
 // guiate con el movil

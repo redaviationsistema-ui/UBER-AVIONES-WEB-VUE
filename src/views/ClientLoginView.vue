@@ -68,13 +68,8 @@ async function submit() {
   <main class="client-login-page">
     <section class="client-login-shell">
       <RouterLink to="/" class="brand" aria-label="Sky Group">
-        <BrandLogo variant="dark" :width="158" />
+        <BrandLogo variant="dark" :width="318" />
       </RouterLink>
-
-      <RouterLink to="/renta/" class="back-link">
-        Regresar
-      </RouterLink>
-
       <div class="login-card">
         <div class="login-copy">
           <h1 v-if="currentStep === 1">¿Cuál es tu número de teléfono o tu correo electrónico?</h1>

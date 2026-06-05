@@ -2265,7 +2265,7 @@ async function applySignedContractReturnState() {
     contract:
       currentReservation.contract || contractId
         ? {
-            ...(currentReservation.contract || {}),
+            ...currentReservation.contract,
             ...(contractStatusPayload?.contract && typeof contractStatusPayload.contract === 'object'
               ? contractStatusPayload.contract
               : {}),
@@ -2293,7 +2293,7 @@ async function applySignedContractReturnState() {
       contractStatusPayload?.contract?.docusign_status ||
       'completed',
     frontend_state: {
-      ...(currentReservation.frontend_state || {}),
+      ...currentReservation.frontend_state,
       ...syncedFrontendState,
       ui_status: syncedFrontendState.ui_status || 'completed',
       ready_for_payment: true,
@@ -2502,7 +2502,7 @@ async function handleContractConfirm(contractPayload = {}) {
       contract:
         contractId || baseReservation.contract
           ? {
-              ...(baseReservation.contract || {}),
+              ...baseReservation.contract,
               id: contractId || baseReservation.contract?.id || '',
               docusign_envelope_id: docusignEnvelopeId,
               docusign_status: docusignStatus,
