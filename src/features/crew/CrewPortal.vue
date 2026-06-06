@@ -1469,9 +1469,9 @@ async function saveAvailabilityDay({ date, state, reason }) {
   try {
     await Promise.all(
       overlappingBlocks
-        .filter((item) => item.id)
+        .filter((item) => item.recordId != null)
         .map((item) =>
-          requestWithCandidates([{ method: 'delete', path: `/sobrecargo/availability/${item.id}` }]),
+          requestWithCandidates([{ method: 'delete', path: `/sobrecargo/availability/${item.recordId}` }]),
         ),
     )
 

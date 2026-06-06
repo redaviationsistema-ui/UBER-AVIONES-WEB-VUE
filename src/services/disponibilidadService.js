@@ -65,6 +65,7 @@ export function buildAvailabilityColorMap(statusCatalog = []) {
 
 export function normalizeAvailabilityRecord(raw = {}, statusCatalog = []) {
   const statusId = raw.estatus_id || raw.status_id || raw.availability_status_id || null
+  const persistedId = raw.id ?? null
   const statusDefinitionById =
     statusCatalog.find((item) => String(item.id || item.estatus_id || '') === String(statusId || '')) || null
   const statusKey = normalizeAvailabilityStatusKey(
@@ -85,7 +86,9 @@ export function normalizeAvailabilityRecord(raw = {}, statusCatalog = []) {
     null
 
   return {
-    id: raw.id || `${raw.crew_id || raw.sobrecargo_user_id || 'availability'}-${raw.fecha || raw.from || raw.starts_at || ''}`,
+    id: persistedId || `${raw.crew_id || raw.sobrecargo_user_id || 'availability'}-${raw.fecha || raw.from || raw.starts_at || ''}`,
+    recordId: persistedId,
+    isPersisted: persistedId != null,
     crewId: raw.crew_id || raw.sobrecargo_id || raw.sobrecargo_user_id || raw.user_id || raw.member_id || null,
     from: raw.from || raw.fecha || raw.starts_at || raw.start_datetime || '',
     to: raw.to || raw.fecha || raw.ends_at || raw.end_datetime || raw.from || raw.fecha || '',

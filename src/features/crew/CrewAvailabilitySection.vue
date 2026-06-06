@@ -184,6 +184,8 @@ const availabilityByDay = computed(() => {
       const existing = map.get(key)
       map.set(key, {
         id: item.id,
+        recordId: item.recordId || null,
+        isPersisted: item.isPersisted === true,
         state: normalizeStatus(item.statusKey || item.state),
         reason: item.restriction || item.reason || item.notes || '',
         base: item.base || '',
@@ -218,7 +220,7 @@ const selectedDateRecord = computed(() => {
     createdBy: block?.createdBy || '',
     operation: null,
     editable: true,
-    blockId: block?.id || null,
+    blockId: block?.recordId || null,
   }
 })
 
