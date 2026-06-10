@@ -33,7 +33,7 @@ export const roleSections = {
     { id: 'release-provider', label: 'Liberacion', icon: 'clipboard' },
     { id: 'operaciones', label: 'Operaciones', icon: 'jet' },
   /*{ id: 'tripulacion', label: 'Tripulacion', icon: 'crew' },*/ 
-    { id: 'incidencias', label: 'Incidencias', icon: 'alert' },
+    { id: 'incidencias', label: 'Incidencias de sobrecargo', icon: 'alert' },
   /*{ id: 'pagos', label: 'Pagos', icon: 'wallet' },*/ 
     { id: 'historial', label: 'Historial', icon: 'history' },
     { id: 'configuracion', label: 'Configuracion', icon: 'grid' },
@@ -97,9 +97,9 @@ export const roleSectionGroups = {
     { label: 'Cliente y Comercial', ids: ['clientes', 'reservas', 'contratos', 'pricing', 'paquetes', 'suscripciones', 'pagos'] },
     {
       label: 'Operacion y Proveedores',
-      ids: ['proveedores', 'aeronaves', 'operadores', 'liberaciones', 'documentos', 'incidencias', 'notificaciones'],
+      ids: ['proveedores', 'aeronaves', 'operadores', 'liberaciones', 'documentos', 'notificaciones'],
     },
-    { label: 'Sobrecargos', ids: ['sobrecargos', 'disponibilidad', 'sobrecargo-operaciones'] },
+    { label: 'Sobrecargos', ids: ['sobrecargos', 'disponibilidad', 'sobrecargo-operaciones', 'incidencias'] },
     { label: 'Control Interno', ids: ['ejecutivo', 'importaciones', 'usuarios', 'analytics', 'configuracion'] },
   ],
 }

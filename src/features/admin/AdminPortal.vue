@@ -24,6 +24,7 @@ const AdminContractsSection = defineAsyncComponent(() => import('./AdminContract
 const AdminCrudSection = defineAsyncComponent(() => import('./AdminCrudSection.vue'))
 const AdminExecutiveSection = defineAsyncComponent(() => import('./AdminExecutiveSection.vue'))
 const AdminImportsSection = defineAsyncComponent(() => import('./AdminImportsSection.vue'))
+const AdminIncidenciasPage = defineAsyncComponent(() => import('./AdminIncidenciasPage.vue'))
 const AdminProvidersNetworkSection = defineAsyncComponent(() => import('./AdminProvidersNetworkSection.vue'))
 const AdminReleasesSection = defineAsyncComponent(() => import('./AdminReleasesSection.vue'))
 const AdminReservationsSection = defineAsyncComponent(() => import('./AdminReservationsSection.vue'))
@@ -2245,6 +2246,7 @@ watch(
     v-else-if="section === 'contratos'"
     :contracts="contracts"
   />
+  <AdminIncidenciasPage v-else-if="section === 'incidencias'" />
   <AdminCrudSection
     v-else
     :eyebrow="resolvedAdminSectionConfig.eyebrow"

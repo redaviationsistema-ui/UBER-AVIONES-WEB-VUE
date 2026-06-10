@@ -83,9 +83,9 @@ const assignmentStatusOptions = [
   'Cancelado',
 ]
 const crewStatusOptions = ['Disponible', 'Descanso', 'En vuelo', 'No disponible']
-const incidentTypes = ['Catering', 'Cabina', 'Cliente', 'Seguridad', 'Horario', 'Proveedor', 'Otro']
-const incidentPriorities = ['Baja', 'Media', 'Alta', 'Critica']
-const incidentStates = ['Nueva', 'En revision', 'Escalada', 'Resuelta por admin', 'Cerrada']
+const incidentTypes = ['catering', 'cabina', 'cliente', 'seguridad', 'horario', 'coordinacion', 'otro']
+const incidentPriorities = ['baja', 'media', 'alta', 'critica']
+const incidentStates = ['open', 'in_review', 'resolved', 'closed']
 const availabilityStates = ['DISPONIBLE', 'DESCANSO', 'NO_DISPONIBLE', 'BLOQUEO_SOLICITADO']
 const blockTypes = ['Descanso', 'Capacitacion', 'Medico', 'Personal', 'Restriccion operativa']
 const bases = []
@@ -139,7 +139,8 @@ const incidentForm = reactive({
   priority: '',
   description: '',
   evidence: '',
-  state: 'Nueva',
+  files: [],
+  state: 'open',
   actionTaken: '',
   phase: 'Pre-vuelo',
 })
@@ -568,10 +569,11 @@ const agendaErrors = computed(() => {
 
 const incidentErrors = computed(() => {
   const errors = {}
+  if (!incidentForm.type) errors.type = 'Selecciona una categoria.'
   if (!incidentForm.description.trim()) errors.description = 'Describe lo sucedido.'
   if (!incidentForm.priority) errors.priority = 'Selecciona una prioridad.'
   if (!incidentForm.flight) errors.flight = 'Selecciona un vuelo asignado.'
-  if (['Alta', 'Critica'].includes(incidentForm.priority) && !incidentForm.evidence.trim()) {
+  if (['alta', 'critica'].includes(incidentForm.priority) && !(incidentForm.files || []).length) {
     errors.evidence = 'Adjunta evidencia para prioridades altas o criticas.'
   }
   return {
@@ -980,19 +982,22 @@ function normalizeCrewDocumentRecord(raw = {}, index = 0) {
 }
 
 function normalizeCrewIncidentRecord(raw = {}, index = 0) {
+  const files = Array.isArray(raw.files) ? raw.files : []
   return {
     id: raw.id || index + 1,
-    flight: raw.flight || raw.reference || (raw.operation_id != null ? String(raw.operation_id) : ''),
-    type: raw.type || raw.title || '',
+    flight: raw.flight || raw.reference || (raw.crew_operation_id || raw.operation_id != null ? String(raw.crew_operation_id || raw.operation_id) : ''),
+    type: raw.category || raw.type || raw.title || '',
     priority: raw.priority || '',
     description: raw.description || raw.comment || '',
-    evidence: raw.evidence || '',
-    time: raw.created_at || '',
+    evidence: files.map((file) => file.original_name || file.file_path).filter(Boolean).join(', ') || raw.evidence || '',
+    files,
+    adminResponse: raw.admin_response || '',
+    time: raw.reported_at || raw.created_at || '',
     state: raw.status || raw.state || '',
     phase: raw.phase || '',
     actionTaken: raw.action_taken || raw.actionTaken || '',
     timeline: Array.isArray(raw.timeline) ? raw.timeline : [],
-    operationId: raw.operation_id || null,
+    operationId: raw.crew_operation_id || raw.operation_id || null,
   }
 }
 
@@ -1142,14 +1147,18 @@ function applyIncidentBackendErrors(error, fallbackMessage = '') {
   if (validationErrors && typeof validationErrors === 'object') {
     const fieldMap = {
       operation_id: 'flight',
+      crew_operation_id: 'flight',
+      crew_id: 'flight',
       request_id: 'flight',
       flight: 'flight',
+      category: 'type',
       type: 'type',
       title: 'type',
       priority: 'priority',
       phase: 'phase',
       status: 'state',
       evidence: 'evidence',
+      files: 'evidence',
       action_taken: 'actionTaken',
       comment: 'description',
       description: 'description',
@@ -1552,7 +1561,7 @@ async function finalizeAssignedService(id) {
   await loadPortal()
 }
 
-async function createIncident(options = {}) {
+async function createIncident() {
   incidentApiErrors.value = {}
 
   if (Object.keys(incidentErrors.value).length) {
@@ -1563,7 +1572,6 @@ async function createIncident(options = {}) {
     })
   }
 
-  const shouldEscalate = Boolean(options.escalate)
   const linkedAssignment =
     assignments.value.find((item) => item.flight === incidentForm.flight) || currentAssignment.value
 
@@ -1575,50 +1583,31 @@ async function createIncident(options = {}) {
     })
   }
 
-  const resolvedStatus = shouldEscalate ? 'Escalada' : incidentForm.state || 'Nueva'
-  const resolvedActionTaken = shouldEscalate ? 'Escalado' : incidentForm.actionTaken || 'Reportado'
-  const payload = {
-    operation_id: linkedAssignment.operationId,
-    type: incidentForm.type || 'Incidencia operativa',
-    title: incidentForm.type || 'Incidencia operativa',
-    flight: incidentForm.flight,
-    reference: incidentForm.flight,
-    priority: incidentForm.priority,
-    phase: incidentForm.phase,
-    status: resolvedStatus,
-    evidence: incidentForm.evidence || undefined,
-    comment: incidentForm.description,
-    description: incidentForm.description,
-    action_taken: resolvedActionTaken,
-  }
+  const formData = new FormData()
+  formData.append('crew_operation_id', linkedAssignment.operationId)
+  formData.append('crew_id', auth.user?.id || linkedAssignment.crewId || '')
+  formData.append('category', incidentForm.type)
+  formData.append('priority', incidentForm.priority)
+  formData.append('description', incidentForm.description)
+  ;(incidentForm.files || []).forEach((file) => {
+    formData.append('files[]', file)
+  })
 
   try {
-    await requestWithCandidates([
-      {
-        method: 'post',
-        path: `/sobrecargo/operations/${linkedAssignment.operationId}/incident`,
-        body: payload,
-      },
-      {
-        method: 'post',
-        path: '/sobrecargo/incidents',
-        body: payload,
-      },
-    ])
-    await loadPortal()
+    await api.postForm('/crew-operation-incidents', formData)
+    await loadPortal({ force: true, resources: ['incidents'] })
     ui.pushToast({
       tone: 'success',
       title: 'Incidencia creada',
-      message: shouldEscalate
-        ? 'La incidencia ya quedo vinculada a tu operacion y fue escalada a Admin / Red Sky.'
-        : 'La incidencia ya quedo vinculada a tu operacion.',
+      message: 'La incidencia ya quedo vinculada a tu operacion para seguimiento de Admin / Red Sky.',
     })
     incidentForm.flight = ''
     incidentForm.type = ''
     incidentForm.priority = ''
     incidentForm.description = ''
     incidentForm.evidence = ''
-    incidentForm.state = 'Nueva'
+    incidentForm.files = []
+    incidentForm.state = 'open'
     incidentForm.actionTaken = ''
     incidentForm.phase = 'Pre-vuelo'
     goToSection('dashboard')
@@ -1934,11 +1923,19 @@ async function loadPortal(options = {}) {
     }
 
     if (requestedKeys.has('incidents') && (force || !portalDataLoaded.incidents)) {
+      const crewOperationId = currentAssignment.value?.operationId || currentAssignment.value?.id || ''
       requestEntries.push([
         'incidents',
         () =>
           requestWithCandidates([
-            { method: 'get', path: '/sobrecargo/incidents', timeoutMs: CREW_PORTAL_TIMEOUT_MS },
+            {
+              method: 'get',
+              path: '/crew-operation-incidents',
+              query: {
+                crew_operation_id: crewOperationId || undefined,
+              },
+              timeoutMs: CREW_PORTAL_TIMEOUT_MS,
+            },
           ]),
       ])
     }
@@ -2024,6 +2021,14 @@ watch(
     void loadPortal({ force: false })
   },
   { immediate: true },
+)
+
+watch(
+  () => [resolvedSection.value, currentAssignment.value?.operationId || ''],
+  ([section, operationId]) => {
+    if (section !== 'incidencias' || !operationId || portalDataLoading.incidents) return
+    void loadPortal({ force: true, resources: ['incidents'] })
+  },
 )
 
 onMounted(() => {

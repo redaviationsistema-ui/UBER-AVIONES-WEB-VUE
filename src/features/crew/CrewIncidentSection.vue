@@ -12,7 +12,7 @@ const props = defineProps({
   incidentFlightOptions: { type: Array, required: true },
 })
 
-const emit = defineEmits(['update-field', 'create', 'add-evidence', 'add-comment', 'mark-attended', 'escalate'])
+const emit = defineEmits(['update-field', 'create'])
 
 const composerOpen = ref(false)
 const currentStep = ref(1)
@@ -26,8 +26,26 @@ const stepLabels = [
 ]
 
 const activeIncidents = computed(() =>
-  props.incidents.filter((item) => !['Cerrada', 'Resuelta por operador'].includes(item.state)),
+  props.incidents.filter((item) => !['closed', 'resolved'].includes(item.state)),
 )
+
+const labels = {
+  catering: 'Catering',
+  cabina: 'Cabina',
+  cliente: 'Cliente',
+  seguridad: 'Seguridad',
+  horario: 'Horario',
+  coordinacion: 'Coordinacion',
+  otro: 'Otro',
+  baja: 'Baja',
+  media: 'Media',
+  alta: 'Alta',
+  critica: 'Critica',
+  open: 'Abierta',
+  in_review: 'En revision',
+  resolved: 'Resuelta',
+  closed: 'Cerrada',
+}
 
 function openComposer() {
   composerOpen.value = true
@@ -48,22 +66,25 @@ function previousStep() {
 }
 
 function priorityTone(value = '') {
-  if (value === 'Critica') return 'critical'
-  if (value === 'Alta') return 'high'
-  if (value === 'Media') return 'medium'
+  if (value === 'critica') return 'critical'
+  if (value === 'alta') return 'high'
+  if (value === 'media') return 'medium'
   return 'low'
 }
 
 function statusTone(value = '') {
-  if (value === 'Escalada') return 'critical'
-  if (value === 'En revision') return 'medium'
-  if (value === 'Resuelta por operador') return 'success'
-  if (value === 'Cerrada') return 'neutral'
+  if (value === 'in_review') return 'medium'
+  if (value === 'resolved') return 'success'
+  if (value === 'closed') return 'neutral'
   return 'high'
 }
 
-function submitIncident(escalate = false) {
-  emit('create', { escalate })
+function labelFor(value = '') {
+  return labels[value] || value || 'Sin dato'
+}
+
+function submitIncident() {
+  emit('create')
 }
 </script>
 
@@ -79,7 +100,7 @@ function submitIncident(escalate = false) {
           </div>
         </div>
         <p class="muted">
-          Reporta incidencias operativas, adjunta evidencia y escala eventos criticos a tu operador.
+          Reporta incidencias operativas, adjunta evidencia y da seguimiento a la respuesta de Admin.
         </p>
       </div>
       <button class="primary-action action-button" type="button" @click="openComposer">
@@ -129,9 +150,10 @@ function submitIncident(escalate = false) {
                 :class="{ active: incidentForm.type === item }"
                 @click="emit('update-field', { form: 'incident', field: 'type', value: item })"
               >
-                {{ item }}
+                {{ labelFor(item) }}
               </button>
             </div>
+            <small v-if="incidentErrors.type" class="field-error">{{ incidentErrors.type }}</small>
           </div>
 
           <div v-else-if="currentStep === 2" class="step-body">
@@ -146,7 +168,7 @@ function submitIncident(escalate = false) {
                 :class="{ active: incidentForm.priority === item }"
                 @click="emit('update-field', { form: 'incident', field: 'priority', value: item })"
               >
-                {{ item }}
+                {{ labelFor(item) }}
               </button>
             </div>
             <small v-if="incidentErrors.priority" class="field-error">{{ incidentErrors.priority }}</small>
@@ -198,49 +220,26 @@ function submitIncident(escalate = false) {
               <label class="full-width">
                 <span>Foto / video / documento</span>
                 <input
-                  :value="incidentForm.evidence"
-                  type="text"
-                  placeholder="briefing-catering-742.jpg o enlace interno"
-                  @input="emit('update-field', { form: 'incident', field: 'evidence', value: $event.target.value })"
+                  type="file"
+                  multiple
+                  @change="emit('update-field', { form: 'incident', field: 'files', value: Array.from($event.target.files || []) })"
                 />
                 <small v-if="incidentErrors.evidence" class="field-error">{{ incidentErrors.evidence }}</small>
               </label>
 
-              <label class="full-width">
-                <span>Accion tomada</span>
-                <select
-                  :value="incidentForm.actionTaken"
-                  @change="emit('update-field', { form: 'incident', field: 'actionTaken', value: $event.target.value })"
-                >
-                  <option value="">Selecciona</option>
-                  <option>Reportado</option>
-                  <option>Escalado</option>
-                  <option>Atendido en cabina</option>
-                  <option>Requiere operador</option>
-                </select>
-                <small v-if="incidentErrors.actionTaken" class="field-error">{{ incidentErrors.actionTaken }}</small>
-              </label>
             </div>
           </div>
 
           <div v-else class="step-body">
             <div class="review-card">
               <span class="mini-label">Resumen</span>
-              <strong>{{ incidentForm.type || 'Categoria por definir' }}</strong>
-              <p>{{ incidentForm.flight || 'Vuelo sin seleccionar' }} · {{ incidentForm.phase }} · {{ incidentForm.priority || 'Prioridad por definir' }}</p>
+              <strong>{{ labelFor(incidentForm.type) || 'Categoria por definir' }}</strong>
+              <p>{{ incidentForm.flight || 'Vuelo sin seleccionar' }} · {{ incidentForm.phase }} · {{ labelFor(incidentForm.priority) }}</p>
               <small>{{ incidentForm.description || 'Sin descripcion' }}</small>
             </div>
 
             <div class="status-preview">
-              <label>
-                <span>Estado inicial</span>
-                <select
-                  :value="incidentForm.state"
-                  @change="emit('update-field', { form: 'incident', field: 'state', value: $event.target.value })"
-                >
-                  <option v-for="item in incidentStates" :key="item" :value="item">{{ item }}</option>
-                </select>
-              </label>
+              <strong>Estado inicial: {{ labelFor(incidentForm.state) }}</strong>
               <small class="muted">La hora se registra automaticamente al enviar el reporte.</small>
             </div>
           </div>
@@ -253,11 +252,8 @@ function submitIncident(escalate = false) {
             <button v-if="currentStep < 5" type="button" class="primary-action" @click="nextStep">
               Siguiente
             </button>
-            <button v-else type="button" class="ghost-button" @click="submitIncident(false)">
-              Enviar
-            </button>
-            <button v-if="currentStep === 5" type="button" class="primary-action" @click="submitIncident(true)">
-              Enviar y escalar
+            <button v-else type="button" class="primary-action" @click="submitIncident">
+              Reportar incidencia
             </button>
           </div>
         </div>
@@ -278,14 +274,16 @@ function submitIncident(escalate = false) {
               <div class="incident-top">
                 <strong>{{ item.flight }} · {{ item.type }}</strong>
                 <div class="meta-stack">
-                  <span class="status-pill" :data-tone="priorityTone(item.priority)">{{ item.priority }}</span>
-                  <span class="status-pill status-pill--ghost" :data-tone="statusTone(item.state)">{{ item.state }}</span>
+                  <span class="status-pill" :data-tone="priorityTone(item.priority)">{{ labelFor(item.priority) }}</span>
+                  <span class="status-pill status-pill--ghost" :data-tone="statusTone(item.state)">{{ labelFor(item.state) }}</span>
                 </div>
               </div>
 
               <p>{{ item.description }}</p>
+              <small>Categoria: {{ labelFor(item.type) }}</small>
               <small>{{ item.phase }} · {{ item.time }}</small>
-              <small>Accion: {{ item.actionTaken || 'Pendiente' }}</small>
+              <small>Respuesta del Admin: {{ item.adminResponse || 'Pendiente' }}</small>
+              <small>Evidencia: {{ item.evidence || 'Sin evidencia' }}</small>
 
               <div class="timeline">
                 <article v-for="entry in item.timeline || []" :key="entry.id" class="timeline-item">
@@ -293,25 +291,6 @@ function submitIncident(escalate = false) {
                   <p>{{ entry.label }}</p>
                 </article>
               </div>
-            </div>
-
-            <div class="action-stack">
-              <button class="ghost-button action-button" type="button" @click="$emit('add-evidence', item.id)">
-                <CrewUiIcon name="report" :size="15" />
-                Agregar foto
-              </button>
-              <button class="ghost-button action-button" type="button" @click="$emit('add-comment', item.id)">
-                <CrewUiIcon name="briefing" :size="15" />
-                Actualizar accion
-              </button>
-              <button class="ghost-button action-button" type="button" @click="$emit('mark-attended', item.id)">
-                <CrewUiIcon name="checklist" :size="15" />
-                En revision
-              </button>
-              <button class="primary-action action-button" type="button" @click="$emit('escalate', item.id)">
-                <CrewUiIcon name="incident" :size="15" />
-                Escalar operador
-              </button>
             </div>
           </article>
         </div>
