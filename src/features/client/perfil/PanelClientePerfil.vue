@@ -31,7 +31,9 @@ const props = defineProps({
 })
 
 const showAdvanced = ref(false)
+const activeProfileTab = ref('dashboard')
 const activeAirportField = ref('')
+const profileMenuOpen = ref(false)
 const conciergeDraft = ref('')
 const documentType = ref('nda')
 const documentTitle = ref('')
@@ -58,6 +60,24 @@ const requestTokens = {
   origin: 0,
   destination: 0,
 }
+const profileTabs = [
+  { id: 'dashboard', label: 'Perfil', caption: 'Vista general' },
+  { id: 'travelers', label: 'Viajeros', caption: 'Frecuentes y rutas' },
+  { id: 'billing', label: 'Facturacion', caption: 'Cobro y cierre' },
+  { id: 'documents', label: 'Documentos', caption: 'Expediente digital' },
+  { id: 'preferences', label: 'Preferencias', caption: 'Experiencia a bordo' },
+  { id: 'security', label: 'Seguridad', caption: 'Privacidad y seguimiento' },
+]
+const preferenceChipOptions = [
+  { id: 'catering_gourmet', label: 'Catering Gourmet', field: 'catering', value: 'Gourmet' },
+  { id: 'pets', label: 'Mascotas', field: 'pets', value: 'Si' },
+  { id: 'ground_transport', label: 'Transporte Terrestre', field: 'ground_transport', value: 'Ejecutivo' },
+  { id: 'concierge', label: 'Concierge', note: 'Concierge' },
+  { id: 'vip_lounge', label: 'Sala VIP', note: 'Sala VIP' },
+  { id: 'privacy', label: 'Privacidad Reforzada', note: 'Privacidad Reforzada' },
+  { id: 'executive_menu', label: 'Menu Ejecutivo', field: 'catering', value: 'Menu Ejecutivo' },
+]
+const preferenceNotesPrefix = 'Preferencias:'
 
 const emit = defineEmits([
   'submit-request',
@@ -267,6 +287,163 @@ const clientModules = computed(() => [
   },
 ])
 
+const clientName = computed(
+  () =>
+    props.profile?.name ||
+    props.profile?.nombre ||
+    props.profile?.company_name ||
+    props.profile?.company ||
+    'Cliente privado',
+)
+
+const clientFirstName = computed(() => String(clientName.value || '').trim().split(/\s+/)[0] || 'Cliente')
+
+const clientInitials = computed(() =>
+  String(clientName.value || '')
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0] || '')
+    .join('')
+    .toUpperCase() || 'CL',
+)
+
+const memberTier = computed(() => {
+  if (props.access?.has_access && (props.metrics?.solicitudes || 0) >= 10) return 'Executive Member'
+  if (props.access?.has_access) return 'Preferred Client'
+  return 'Access on Demand'
+})
+
+const lastFlightLabel = computed(() => {
+  const request = props.requests[0] || props.latestRequest || null
+  if (!request) return 'Sin vuelo reciente'
+  return formatAirportRoute(request)
+})
+
+const favoriteAircraftCount = computed(() => {
+  if (Array.isArray(props.profile?.favorite_aircraft) && props.profile.favorite_aircraft.length) {
+    return props.profile.favorite_aircraft.length
+  }
+
+  return Math.min(2, props.aircraft.length)
+})
+
+const travelerCount = computed(() => {
+  const profileTravelers = props.profile?.travelers_count || props.profile?.travellers_count
+  if (Number(profileTravelers) > 0) return Number(profileTravelers)
+
+  return Math.max(1, Number(props.latestRequest?.passengers || props.form.passengers || 1))
+})
+
+const heroMembershipFacts = computed(() => [
+  { label: 'Vuelos realizados', value: String(props.metrics?.solicitudes || 0) },
+  { label: 'Aeronaves favoritas', value: String(favoriteAircraftCount.value) },
+  { label: 'Ultimo vuelo', value: lastFlightLabel.value },
+])
+
+const dashboardMetrics = computed(() => [
+  {
+    label: 'Vuelos',
+    value: String(props.metrics?.solicitudes || 0),
+    caption: 'Historial total',
+  },
+  {
+    label: 'Viajeros',
+    value: String(travelerCount.value),
+    caption: 'Frecuentes',
+  },
+  {
+    label: 'Facturacion',
+    value: props.commercialProfile?.invoice_required ? 'Configurada' : 'Pendiente',
+    caption: 'Cuenta comercial',
+  },
+  {
+    label: 'Concierge',
+    value: props.access?.has_access ? 'Activo' : 'Bajo solicitud',
+    caption: 'Servicio premium',
+  },
+])
+
+const travelerCards = computed(() => [
+  {
+    title: 'Pasajeros recurrentes',
+    value: `${travelerCount.value} viajeros`,
+    detail: 'Listos para itinerarios ejecutivos y reservas recurrentes.',
+  },
+  {
+    title: 'Ruta favorita',
+    value: frequentRoutes.value[0]?.label || currentRouteLabel.value,
+    detail: 'Ideal para repetir una operacion en menos pasos.',
+  },
+  {
+    title: 'Aeronaves guardadas',
+    value: `${favoriteAircraftCount.value} favoritas`,
+    detail: 'Modelos premium sugeridos para tu perfil.',
+  },
+])
+
+const recentActivity = computed(() => {
+  const items = [
+    ...props.requests.slice(0, 4).map((request, index) => ({
+      id: `request-${request.id || index}`,
+      category: 'Vuelo',
+      title: formatAirportRoute(request),
+      description: request.status || request.workflow_status || 'Solicitud registrada',
+      date: request.created_at || request.departure_datetime || 'Sin fecha',
+    })),
+    ...props.commercialEvents.slice(0, 3).map((item) => ({
+      id: `commercial-${item.id}`,
+      category: 'Comercial',
+      title: item.title,
+      description: item.description,
+      date: item.created_at || 'Sin fecha',
+    })),
+    ...props.clientDocuments.slice(0, 3).map((item) => ({
+      id: `document-${item.id}`,
+      category: 'Documento',
+      title: item.title,
+      description: item.status || 'Actualizado',
+      date: item.created_at || item.updated_at || 'Sin fecha',
+    })),
+  ]
+
+  return items.slice(0, 6)
+})
+
+const dashboardDocuments = computed(() =>
+  props.clientDocuments.slice(0, 3).map((item) => ({
+    ...item,
+    icon: 'DOC',
+    statusLabel:
+      item.status === 'approved'
+        ? 'Subido'
+        : item.status === 'needs_update'
+          ? 'Pendiente'
+          : item.status === 'ready'
+            ? 'Firmado'
+            : 'En revision',
+  })),
+)
+
+const securityHighlights = computed(() => [
+  {
+    label: 'Privacidad',
+    value: props.access?.has_access ? 'Reforzada' : 'Estándar',
+  },
+  {
+    label: 'NDA',
+    value: props.commercialProfile?.nda_required ? 'Requerido' : 'Opcional',
+  },
+  {
+    label: 'Documentos aprobados',
+    value: String(props.documentStats?.approved || 0),
+  },
+  {
+    label: 'Canal concierge',
+    value: props.conciergeChat?.id ? 'Protegido' : 'Pendiente',
+  },
+])
+
 const commercialSteps = computed(() => [
   {
     title: 'Cierre listo',
@@ -295,6 +472,70 @@ const documentTypeOptions = computed(() => [
   { value: 'manifest', label: 'Itinerario / pasajeros' },
   { value: 'support', label: 'Adjunto operativo' },
 ])
+
+function normalizeValue(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+}
+
+function parsePreferenceNotes(rawNotes = '') {
+  const notes = String(rawNotes || '').trim()
+  const lines = notes
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+  const preferenceLine = lines.find((line) => line.startsWith(preferenceNotesPrefix))
+  if (!preferenceLine) return []
+
+  return preferenceLine
+    .slice(preferenceNotesPrefix.length)
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function composePreferenceNotes(rawNotes = '', nextTags = []) {
+  const lines = String(rawNotes || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !line.startsWith(preferenceNotesPrefix))
+
+  if (nextTags.length) {
+    lines.unshift(`${preferenceNotesPrefix} ${nextTags.join(', ')}`)
+  }
+
+  return lines.join('\n')
+}
+
+function isPreferenceChipActive(chip) {
+  if (chip.field) {
+    return normalizeValue(props.form?.[chip.field]).includes(normalizeValue(chip.value))
+  }
+
+  return parsePreferenceNotes(props.form?.notes).includes(chip.note)
+}
+
+function togglePreferenceChip(chip) {
+  if (chip.field) {
+    emit('update-form', {
+      field: chip.field,
+      value: isPreferenceChipActive(chip) ? '' : chip.value,
+    })
+    return
+  }
+
+  const currentTags = parsePreferenceNotes(props.form?.notes)
+  const nextTags = currentTags.includes(chip.note)
+    ? currentTags.filter((item) => item !== chip.note)
+    : [...currentTags, chip.note]
+
+  emit('update-form', {
+    field: 'notes',
+    value: composePreferenceNotes(props.form?.notes, nextTags),
+  })
+}
 
 function updateField(field, event) {
   emit('update-form', {
@@ -447,181 +688,345 @@ onBeforeUnmount(() => {
 <template>
   <div class="client-dashboard-page">
     <section class="dashboard-hero">
-      <div class="hero-center">
-        <p class="eyebrow dark-eyebrow">Sistema cliente operativo</p>
-        <h1>Controla toda tu operacion privada desde un solo dashboard</h1>
-        <p class="hero-subtitle">
-          Este portal ya no vive como una web informativa: concentra captacion, solicitud,
-          validacion, concierge, cobro, ejecucion y retencion dentro del mismo ecosistema.
-        </p>
+      <div class="hero-grid">
+        <div class="hero-copy-shell">
+          <p class="eyebrow dark-eyebrow">Red Aviation Client Lounge</p>
+          <h1>Bienvenido, {{ clientFirstName }}</h1>
+          <p class="hero-subtitle">
+            Gestiona vuelos, documentos, preferencias, pagos y concierge desde una cabina premium
+            pensada para aviacion ejecutiva.
+          </p>
 
-        <div v-if="access.has_access" class="hero-snapshot">
-          <article v-for="item in heroSnapshot" :key="item.label" class="snapshot-card">
-            <span>{{ item.label }}</span>
-            <strong>{{ item.value }}</strong>
-          </article>
+          <div class="hero-status-row">
+            <span class="hero-status-pill">{{ memberTier }}</span>
+            <span class="hero-status-pill hero-status-pill--dark">{{ currentStatus }}</span>
+          </div>
+
+          <div class="hero-membership-grid">
+            <article v-for="item in heroMembershipFacts" :key="item.label" class="hero-membership-card">
+              <span>{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
+            </article>
+          </div>
+
+          <div v-if="access.has_access" class="hero-snapshot">
+            <article v-for="item in heroSnapshot" :key="item.label" class="snapshot-card">
+              <span>{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
+            </article>
+          </div>
+
+          <p v-if="access.has_access && shouldShowRouteCaption" class="hero-route-caption">
+            {{ currentRouteLabel }}
+          </p>
         </div>
 
-        <p v-if="access.has_access && shouldShowRouteCaption" class="hero-route-caption">
-          {{ currentRouteLabel }}
-        </p>
+        <aside class="hero-member-card">
+          <div class="hero-member-top">
+            <button class="hero-profile-trigger" type="button" @click="profileMenuOpen = !profileMenuOpen">
+              <span class="hero-avatar">{{ clientInitials }}</span>
+              <span class="hero-profile-copy">
+                <strong>{{ clientName }}</strong>
+                <small>{{ memberTier }}</small>
+              </span>
+            </button>
 
-        <template v-if="access.has_access">
-          <div class="hero-search">
-            <label class="search-field search-field--stack">
-              <span class="field-icon">O</span>
-              <input
-                :value="form.origin"
-                placeholder="Origen"
-                @focus="focusAirportField('origin')"
-                @blur="clearAirportSuggestions"
-                @input="updateField('origin', $event)"
-              />
-              <div
-                v-if="activeAirportField === 'origin' && (airportLoading.origin || originSuggestions.length)"
-                class="airport-suggestions"
+            <div v-if="profileMenuOpen" class="hero-profile-menu">
+              <button
+                v-for="tab in profileTabs"
+                :key="tab.id"
+                type="button"
+                @click="activeProfileTab = tab.id; profileMenuOpen = false"
               >
-                <div class="airport-search-meta">
-                  <span v-if="airportLoading.origin">Buscando aeropuertos...</span>
-                  <span v-else>{{ airportSource.origin === 'remote' ? 'Resultados conectados al backend' : 'Sugerencias locales de apoyo' }}</span>
-                </div>
-                <button
-                  v-for="airport in originSuggestions"
-                  :key="`origin-${airport.code}`"
-                  class="airport-option"
-                  type="button"
-                  @mousedown.prevent="applyAirport('origin', airport)"
-                >
-                  <strong>{{ formatAirportOption(airport) }}</strong>
-                  <span>{{ airport.name }} - {{ airport.code }}</span>
-                </button>
-              </div>
-            </label>
+                {{ tab.label }}
+              </button>
+            </div>
+          </div>
 
-            <label class="search-field search-field--stack">
-              <span class="field-icon">D</span>
-              <input
-                :value="form.destination"
-                placeholder="Destino"
-                @focus="focusAirportField('destination')"
-                @blur="clearAirportSuggestions"
-                @input="updateField('destination', $event)"
-              />
-              <div
-                v-if="activeAirportField === 'destination' && (airportLoading.destination || destinationSuggestions.length)"
-                class="airport-suggestions"
-              >
-                <div class="airport-search-meta">
-                  <span v-if="airportLoading.destination">Buscando aeropuertos...</span>
-                  <span v-else>{{ airportSource.destination === 'remote' ? 'Resultados conectados al backend' : 'Sugerencias locales de apoyo' }}</span>
-                </div>
-                <button
-                  v-for="airport in destinationSuggestions"
-                  :key="`destination-${airport.code}`"
-                  class="airport-option"
-                  type="button"
-                  @mousedown.prevent="applyAirport('destination', airport)"
-                >
-                  <strong>{{ formatAirportOption(airport) }}</strong>
-                  <span>{{ airport.name }} · {{ airport.code }}</span>
-                </button>
-              </div>
-            </label>
+          <div class="hero-member-body">
+            <span class="member-flag">Miembro activo</span>
+            <strong>{{ memberTier }}</strong>
+            <p>Perfil protegido con historial de vuelo, preferencias guardadas y cierre comercial centralizado.</p>
+          </div>
 
-            <button class="hero-action" type="button" :disabled="submitting" @click="$emit('submit-request')">
-              {{ submitting ? 'Consultando...' : 'Ver tarifas sugeridas' }}
+          <div class="concierge-glass-card">
+            <span>Concierge Ejecutivo</span>
+            <strong>Disponible ahora</strong>
+            <p>Tiempo promedio de respuesta: 3 min</p>
+            <button class="glass-action" type="button" @click="$emit('open-concierge')">
+              Abrir concierge
             </button>
           </div>
-
-          <div class="quick-routes">
-            <span class="quick-routes-label">Autobusquedas frecuentes</span>
-            <button
-              v-for="route in frequentRoutes"
-              :key="route.label"
-              class="quick-route-chip"
-              type="button"
-              @click="applyFrequentRoute(route)"
-            >
-              {{ route.label }}
-            </button>
-          </div>
-
-          <div class="hero-meta-row hero-meta-row--four">
-            <label class="inline-field">
-              <span>Fecha y hora</span>
-              <input
-                :value="form.departure_datetime"
-                type="datetime-local"
-                @input="updateField('departure_datetime', $event)"
-              />
-            </label>
-
-            <label class="inline-field small">
-              <span>Pasajeros</span>
-              <input :value="form.passengers" type="number" min="1" @input="updateField('passengers', $event)" />
-            </label>
-
-            <label class="inline-field">
-              <span>Cabina</span>
-              <input :value="form.aircraft_type" placeholder="Light, midsize, heavy..." @input="updateField('aircraft_type', $event)" />
-            </label>
-
-            <button class="ghost-link-button" type="button" @click="showAdvanced = !showAdvanced">
-              {{ showAdvanced ? 'Ocultar operacion' : 'Completar operacion' }}
-            </button>
-          </div>
-
-          <div v-if="showAdvanced" class="advanced-panel">
-            <label class="inline-field">
-              <span>Mascotas</span>
-              <input :value="form.pets" placeholder="Si / No / Detalles" @input="updateField('pets', $event)" />
-            </label>
-
-            <label class="inline-field">
-              <span>Catering</span>
-              <input :value="form.catering" placeholder="Preferencias a bordo" @input="updateField('catering', $event)" />
-            </label>
-
-            <label class="inline-field">
-              <span>Equipaje</span>
-              <input :value="form.baggage" placeholder="Cantidad o restricciones" @input="updateField('baggage', $event)" />
-            </label>
-
-            <label class="inline-field">
-              <span>Traslado terrestre</span>
-              <input
-                :value="form.ground_transport"
-                placeholder="Blindado, ejecutivo, hotel..."
-                @input="updateField('ground_transport', $event)"
-              />
-            </label>
-
-            <label class="inline-field inline-field--wide">
-              <span>Notas operativas</span>
-              <input :value="form.notes" placeholder="Requerimientos adicionales del vuelo" @input="updateField('notes', $event)" />
-            </label>
-          </div>
-        </template>
-
-        <template v-else>
-          <div class="inactive-shell">
-            <p>Tu cuenta ya puede reservar. Si necesitas mas apoyo, activa beneficios premium o continua por concierge.</p>
-            <button class="hero-action" type="button" @click="$emit('activate-access')">
-              Ver beneficios premium
-            </button>
-          </div>
-        </template>
+        </aside>
       </div>
     </section>
 
-    <section class="status-strip">
+    <section class="dashboard-metrics">
+      <article v-for="item in dashboardMetrics" :key="item.label" class="metric-tile">
+        <span>{{ item.label }}</span>
+        <strong>{{ item.value }}</strong>
+        <small>{{ item.caption }}</small>
+      </article>
+    </section>
+
+    <section class="profile-tabs-shell">
+      <button
+        v-for="tab in profileTabs"
+        :key="tab.id"
+        type="button"
+        class="profile-tab"
+        :class="{ 'profile-tab--active': activeProfileTab === tab.id }"
+        @click="activeProfileTab = tab.id"
+      >
+        <strong>{{ tab.label }}</strong>
+        <small>{{ tab.caption }}</small>
+      </button>
+    </section>
+
+    <section v-if="activeProfileTab === 'dashboard'" class="dashboard-command-section">
+      <div class="dashboard-command-grid">
+        <article class="dashboard-panel dashboard-panel--wide">
+          <div class="section-heading section-heading--compact">
+            <h2>Reserva premium</h2>
+            <p>Busca tu siguiente vuelo con una interfaz mas cercana a una cabina de control privada.</p>
+          </div>
+
+          <template v-if="access.has_access">
+            <div class="hero-search">
+              <label class="search-field search-field--stack">
+                <span class="field-icon">O</span>
+                <input
+                  :value="form.origin"
+                  placeholder="Origen"
+                  @focus="focusAirportField('origin')"
+                  @blur="clearAirportSuggestions"
+                  @input="updateField('origin', $event)"
+                />
+                <div
+                  v-if="activeAirportField === 'origin' && (airportLoading.origin || originSuggestions.length)"
+                  class="airport-suggestions"
+                >
+                  <div class="airport-search-meta">
+                    <span v-if="airportLoading.origin">Buscando aeropuertos...</span>
+                    <span v-else>{{ airportSource.origin === 'remote' ? 'Resultados conectados al backend' : 'Sugerencias locales de apoyo' }}</span>
+                  </div>
+                  <button
+                    v-for="airport in originSuggestions"
+                    :key="`origin-${airport.code}`"
+                    class="airport-option"
+                    type="button"
+                    @mousedown.prevent="applyAirport('origin', airport)"
+                  >
+                    <strong>{{ formatAirportOption(airport) }}</strong>
+                    <span>{{ airport.name }} - {{ airport.code }}</span>
+                  </button>
+                </div>
+              </label>
+
+              <label class="search-field search-field--stack">
+                <span class="field-icon">D</span>
+                <input
+                  :value="form.destination"
+                  placeholder="Destino"
+                  @focus="focusAirportField('destination')"
+                  @blur="clearAirportSuggestions"
+                  @input="updateField('destination', $event)"
+                />
+                <div
+                  v-if="activeAirportField === 'destination' && (airportLoading.destination || destinationSuggestions.length)"
+                  class="airport-suggestions"
+                >
+                  <div class="airport-search-meta">
+                    <span v-if="airportLoading.destination">Buscando aeropuertos...</span>
+                    <span v-else>{{ airportSource.destination === 'remote' ? 'Resultados conectados al backend' : 'Sugerencias locales de apoyo' }}</span>
+                  </div>
+                  <button
+                    v-for="airport in destinationSuggestions"
+                    :key="`destination-${airport.code}`"
+                    class="airport-option"
+                    type="button"
+                    @mousedown.prevent="applyAirport('destination', airport)"
+                  >
+                    <strong>{{ formatAirportOption(airport) }}</strong>
+                    <span>{{ airport.name }} · {{ airport.code }}</span>
+                  </button>
+                </div>
+              </label>
+
+              <button class="hero-action" type="button" :disabled="submitting" @click="$emit('submit-request')">
+                {{ submitting ? 'Consultando...' : 'Ver tarifas sugeridas' }}
+              </button>
+            </div>
+
+            <div class="quick-routes">
+              <span class="quick-routes-label">Rutas frecuentes</span>
+              <button
+                v-for="route in frequentRoutes"
+                :key="route.label"
+                class="quick-route-chip"
+                type="button"
+                @click="applyFrequentRoute(route)"
+              >
+                {{ route.label }}
+              </button>
+            </div>
+
+            <div class="hero-meta-row hero-meta-row--four">
+              <label class="inline-field">
+                <span>Fecha y hora</span>
+                <input
+                  :value="form.departure_datetime"
+                  type="datetime-local"
+                  @input="updateField('departure_datetime', $event)"
+                />
+              </label>
+
+              <label class="inline-field small">
+                <span>Pasajeros</span>
+                <input :value="form.passengers" type="number" min="1" @input="updateField('passengers', $event)" />
+              </label>
+
+              <label class="inline-field">
+                <span>Cabina</span>
+                <input :value="form.aircraft_type" placeholder="Light, midsize, heavy..." @input="updateField('aircraft_type', $event)" />
+              </label>
+
+              <button class="ghost-link-button" type="button" @click="showAdvanced = !showAdvanced">
+                {{ showAdvanced ? 'Ocultar operacion' : 'Completar operacion' }}
+              </button>
+            </div>
+
+            <div v-if="showAdvanced" class="advanced-panel">
+              <label class="inline-field">
+                <span>Mascotas</span>
+                <input :value="form.pets" placeholder="Si / No / Detalles" @input="updateField('pets', $event)" />
+              </label>
+
+              <label class="inline-field">
+                <span>Catering</span>
+                <input :value="form.catering" placeholder="Preferencias a bordo" @input="updateField('catering', $event)" />
+              </label>
+
+              <label class="inline-field">
+                <span>Equipaje</span>
+                <input :value="form.baggage" placeholder="Cantidad o restricciones" @input="updateField('baggage', $event)" />
+              </label>
+
+              <label class="inline-field">
+                <span>Traslado terrestre</span>
+                <input
+                  :value="form.ground_transport"
+                  placeholder="Blindado, ejecutivo, hotel..."
+                  @input="updateField('ground_transport', $event)"
+                />
+              </label>
+
+              <label class="inline-field inline-field--wide">
+                <span>Notas operativas</span>
+                <input :value="form.notes" placeholder="Requerimientos adicionales del vuelo" @input="updateField('notes', $event)" />
+              </label>
+            </div>
+          </template>
+
+          <template v-else>
+            <div class="inactive-shell">
+              <p>Tu cuenta ya puede reservar. Si necesitas mas apoyo, activa beneficios premium o continua por concierge.</p>
+              <button class="hero-action" type="button" @click="$emit('activate-access')">
+                Ver beneficios premium
+              </button>
+            </div>
+          </template>
+        </article>
+
+        <article class="dashboard-panel">
+          <div class="section-heading section-heading--compact">
+            <h2>Actividad reciente</h2>
+            <p>Ultimos movimientos de vuelo, facturacion y documentos dentro del ecosistema.</p>
+          </div>
+
+          <div class="timeline-list">
+            <article v-for="item in recentActivity" :key="item.id" class="timeline-item timeline-item--premium">
+              <span>{{ item.category }}</span>
+              <strong>{{ item.title }}</strong>
+              <p>{{ item.description }}</p>
+              <small>{{ item.date }}</small>
+            </article>
+            <div v-if="!recentActivity.length" class="timeline-empty">
+              Aun no hay actividad reciente dentro del perfil.
+            </div>
+          </div>
+        </article>
+
+        <article class="dashboard-panel">
+          <div class="section-heading section-heading--compact">
+            <h2>Viajeros frecuentes</h2>
+            <p>Resumen de los perfiles y patrones de viaje que mas valor generan.</p>
+          </div>
+
+          <div class="traveler-grid">
+            <article v-for="item in travelerCards" :key="item.title" class="traveler-card">
+              <strong>{{ item.title }}</strong>
+              <span>{{ item.value }}</span>
+              <p>{{ item.detail }}</p>
+            </article>
+          </div>
+        </article>
+
+        <article class="dashboard-panel">
+          <div class="section-heading section-heading--compact">
+            <h2>Preferencias premium</h2>
+            <p>Selecciona servicios y experiencia a bordo con un lenguaje mas visual.</p>
+          </div>
+
+          <div class="preference-chip-grid">
+            <button
+              v-for="chip in preferenceChipOptions"
+              :key="chip.id"
+              type="button"
+              class="preference-chip"
+              :class="{ 'preference-chip--active': isPreferenceChipActive(chip) }"
+              @click="togglePreferenceChip(chip)"
+            >
+              {{ chip.label }}
+            </button>
+          </div>
+        </article>
+
+        <article class="dashboard-panel dashboard-panel--wide">
+          <div class="section-heading section-heading--compact">
+            <h2>Documentos digitales</h2>
+            <p>Estado rapido de pasaporte, privacidad y adjuntos del expediente cliente.</p>
+          </div>
+
+          <div class="document-dashboard-grid">
+            <article
+              v-for="item in dashboardDocuments"
+              :key="item.id"
+              class="document-dashboard-card"
+              :class="`document-dashboard-card--${item.status}`"
+            >
+              <div class="document-dashboard-icon">{{ item.icon }}</div>
+              <strong>{{ item.title }}</strong>
+              <span>{{ item.statusLabel }}</span>
+              <small>{{ item.request_id ? `Solicitud #${item.request_id}` : 'Perfil general' }}</small>
+            </article>
+
+            <div v-if="!dashboardDocuments.length" class="timeline-empty">
+              Aun no hay documentos cargados dentro del expediente.
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section v-if="['dashboard', 'travelers', 'preferences'].includes(activeProfileTab)" class="status-strip">
       <article v-for="item in experienceSignals" :key="item.label" class="signal-card">
         <span>{{ item.label }}</span>
         <strong>{{ item.value }}</strong>
       </article>
     </section>
 
-    <section class="profile-section">
+    <section v-if="['dashboard', 'travelers'].includes(activeProfileTab)" class="profile-section">
       <div class="section-heading">
         <h2>Perfil cliente listo para operar</h2>
         <p>
@@ -638,7 +1043,63 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <section class="editorial-section">
+    <section v-if="activeProfileTab === 'preferences'" class="profile-section">
+      <div class="section-heading">
+        <h2>Preferencias visuales y operativas</h2>
+        <p>
+          Configura amenities, privacidad, catering y experiencia terrestre desde una interfaz mas
+          cercana a un club de aviacion ejecutiva.
+        </p>
+      </div>
+
+      <div class="preferences-shell">
+        <div class="preference-chip-grid">
+          <button
+            v-for="chip in preferenceChipOptions"
+            :key="chip.id"
+            type="button"
+            class="preference-chip"
+            :class="{ 'preference-chip--active': isPreferenceChipActive(chip) }"
+            @click="togglePreferenceChip(chip)"
+          >
+            {{ chip.label }}
+          </button>
+        </div>
+
+        <div class="advanced-panel advanced-panel--preferences">
+          <label class="inline-field">
+            <span>Mascotas</span>
+            <input :value="form.pets" placeholder="Si / No / Detalles" @input="updateField('pets', $event)" />
+          </label>
+
+          <label class="inline-field">
+            <span>Catering</span>
+            <input :value="form.catering" placeholder="Preferencias a bordo" @input="updateField('catering', $event)" />
+          </label>
+
+          <label class="inline-field">
+            <span>Equipaje</span>
+            <input :value="form.baggage" placeholder="Cantidad o restricciones" @input="updateField('baggage', $event)" />
+          </label>
+
+          <label class="inline-field">
+            <span>Traslado terrestre</span>
+            <input
+              :value="form.ground_transport"
+              placeholder="Blindado, ejecutivo, hotel..."
+              @input="updateField('ground_transport', $event)"
+            />
+          </label>
+
+          <label class="inline-field inline-field--wide">
+            <span>Notas operativas</span>
+            <input :value="form.notes" placeholder="Requerimientos adicionales del vuelo" @input="updateField('notes', $event)" />
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <section v-if="activeProfileTab === 'travelers'" class="editorial-section">
       <div class="editorial-heading">
         <h2>Flujo real del sistema cliente</h2>
         <p>
@@ -659,7 +1120,7 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <section class="matching-section">
+    <section v-if="['travelers', 'security'].includes(activeProfileTab)" class="matching-section">
       <div class="section-heading">
         <h2>Motor de matching y coordinacion premium</h2>
         <p>
@@ -687,7 +1148,7 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <section class="modes-section">
+    <section v-if="activeProfileTab === 'travelers'" class="modes-section">
       <div class="section-heading">
         <h2>Modulos que monetizan y retienen al cliente</h2>
         <p>
@@ -714,7 +1175,7 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <section class="discovery-section">
+    <section v-if="['dashboard', 'travelers'].includes(activeProfileTab)" class="discovery-section">
       <div class="section-heading">
         <h2>Opciones premium para tu ruta</h2>
         <p>
@@ -761,7 +1222,7 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <section class="closing-section">
+    <section v-if="['billing', 'documents', 'security'].includes(activeProfileTab)" class="closing-section">
       <div class="section-heading">
         <h2>Cierre comercial, seguridad y post-vuelo</h2>
         <p>
@@ -770,14 +1231,14 @@ onBeforeUnmount(() => {
         </p>
       </div>
 
-      <div class="closing-grid">
+      <div v-if="activeProfileTab !== 'documents'" class="closing-grid">
         <article v-for="item in commercialSteps" :key="item.title" class="closing-card">
           <span class="closing-label">{{ item.title }}</span>
           <p>{{ item.description }}</p>
         </article>
       </div>
 
-      <div class="commercial-grid">
+      <div v-if="activeProfileTab !== 'documents'" class="commercial-grid">
         <article class="commercial-card commercial-card-wide">
           <div class="commercial-head">
             <div>
@@ -983,7 +1444,7 @@ onBeforeUnmount(() => {
         </article>
       </div>
 
-      <div class="documents-shell">
+      <div v-if="activeProfileTab !== 'billing'" class="documents-shell">
         <article class="documents-card documents-card-wide">
           <div class="commercial-head">
             <div>
@@ -1141,13 +1602,20 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <section class="operations-live-section">
+    <section v-if="['dashboard', 'security'].includes(activeProfileTab)" class="operations-live-section">
       <div class="section-heading">
         <h2>Seguimiento operativo y concierge en vivo</h2>
         <p>
           Cuando una solicitud ya avanza dentro del sistema, aqui concentramos timeline real,
           canal privado y seguimiento operativo sin sacar al cliente del ecosistema.
         </p>
+      </div>
+
+      <div v-if="activeProfileTab === 'security'" class="security-highlight-grid">
+        <article v-for="item in securityHighlights" :key="item.label" class="signal-card">
+          <span>{{ item.label }}</span>
+          <strong>{{ item.value }}</strong>
+        </article>
       </div>
 
       <div class="live-grid">
@@ -1248,7 +1716,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .client-dashboard-page {
   min-height: 100vh;
-  background: #ffffff;
+  background: #f7f6f3;
   color: #111111;
 }
 
@@ -1264,26 +1732,24 @@ onBeforeUnmount(() => {
 }
 
 .dashboard-hero {
-  display: grid;
-  gap: 2rem;
-  min-height: 76vh;
-  padding-top: 1.5rem;
+  min-height: auto;
+  padding-top: 2rem;
   background:
-    radial-gradient(circle at top right, rgba(201, 164, 90, 0.18), transparent 20%),
-    radial-gradient(circle at left 20%, rgba(17, 17, 17, 0.03), transparent 26%),
-    linear-gradient(180deg, #ffffff 0%, #faf8f2 100%);
+    linear-gradient(180deg, rgba(17, 17, 17, 0.64), rgba(17, 17, 17, 0.72)),
+    radial-gradient(circle at top right, rgba(181, 138, 60, 0.32), transparent 24%),
+    url('https://images.unsplash.com/photo-1517479149777-5f3b1511d5ad?auto=format&fit=crop&w=1800&q=80')
+      center/cover no-repeat;
 }
 
-.hero-center {
+.hero-grid {
   display: grid;
-  justify-items: center;
-  align-content: center;
-  gap: 1.15rem;
-  text-align: center;
+  grid-template-columns: minmax(0, 1.45fr) minmax(320px, 420px);
+  gap: 1.4rem;
+  align-items: stretch;
 }
 
 .dark-eyebrow {
-  color: #8c6a1f;
+  color: #d5b067;
 }
 
 .hero-center h1,
@@ -1297,10 +1763,22 @@ onBeforeUnmount(() => {
   letter-spacing: -0.05em;
 }
 
-.hero-center h1 {
-  max-width: 12ch;
-  font-size: clamp(3rem, 7vw, 5.05rem);
-  line-height: 0.9;
+.hero-copy-shell {
+  display: grid;
+  gap: 1rem;
+  padding: clamp(1.5rem, 4vw, 2.4rem);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 32px;
+  background: linear-gradient(180deg, rgba(18, 18, 18, 0.72), rgba(18, 18, 18, 0.52));
+  backdrop-filter: blur(12px);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.18);
+}
+
+.hero-copy-shell h1 {
+  max-width: 10ch;
+  color: #ffffff;
+  font-size: clamp(3rem, 7vw, 5.2rem);
+  line-height: 0.92;
 }
 
 .hero-subtitle,
@@ -1317,18 +1795,214 @@ onBeforeUnmount(() => {
 }
 
 .hero-subtitle {
-  max-width: 58ch;
+  max-width: 54ch;
   margin: 0;
-  font-size: 1.04rem;
+  color: rgba(255, 255, 255, 0.84);
+  font-size: 1.02rem;
+}
+
+.hero-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.hero-status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.1rem;
+  padding: 0 0.85rem;
+  border-radius: 999px;
+  background: rgba(181, 138, 60, 0.18);
+  color: #f6ddb0;
+  border: 1px solid rgba(181, 138, 60, 0.4);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hero-status-pill--dark {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.hero-membership-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.hero-membership-card {
+  display: grid;
+  gap: 0.35rem;
+  padding: 1rem;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.hero-membership-card span {
+  color: #d9b462;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hero-membership-card strong {
+  color: #ffffff;
+  font-size: 1rem;
+  line-height: 1.4;
+}
+
+.hero-member-card {
+  position: relative;
+  display: grid;
+  gap: 1rem;
+  align-content: start;
+  padding: 1.4rem;
+  border-radius: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.08));
+  backdrop-filter: blur(16px);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.16);
+}
+
+.hero-member-top {
+  position: relative;
+}
+
+.hero-profile-trigger {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0;
+  border: 0;
+  color: #ffffff;
+  background: transparent;
+  text-align: left;
+}
+
+.hero-avatar {
+  display: inline-flex;
+  width: 3rem;
+  height: 3rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #d9b462 0%, #b58a3c 100%);
+  color: #111111;
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+.hero-profile-copy {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.hero-profile-copy strong,
+.hero-profile-copy small {
+  color: #ffffff;
+}
+
+.hero-profile-copy small {
+  opacity: 0.75;
+}
+
+.hero-profile-menu {
+  position: absolute;
+  top: calc(100% + 0.65rem);
+  right: 0;
+  z-index: 10;
+  display: grid;
+  gap: 0.35rem;
+  min-width: 220px;
+  padding: 0.55rem;
+  border-radius: 18px;
+  background: rgba(17, 17, 17, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.hero-profile-menu button {
+  min-height: 2.6rem;
+  border: 0;
+  border-radius: 12px;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.06);
+  text-align: left;
+}
+
+.hero-member-body {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.hero-member-body strong,
+.hero-member-body p {
+  color: #ffffff;
+}
+
+.hero-member-body p {
+  margin: 0;
+  opacity: 0.82;
+  line-height: 1.6;
+}
+
+.member-flag {
+  color: #d9b462;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.concierge-glass-card {
+  display: grid;
+  gap: 0.35rem;
+  padding: 1rem;
+  border-radius: 24px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.08));
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.concierge-glass-card span {
+  color: #d9b462;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.concierge-glass-card strong,
+.concierge-glass-card p {
+  color: #ffffff;
+}
+
+.concierge-glass-card p {
+  margin: 0;
+  opacity: 0.8;
+}
+
+.glass-action {
+  min-height: 2.8rem;
+  border: 0;
+  border-radius: 16px;
+  color: #111111;
+  background: linear-gradient(180deg, #f4deb0 0%, #d3a24d 100%);
+  font-weight: 900;
 }
 
 .hero-route-caption {
   width: min(100%, 1120px);
   margin: -0.15rem 0 0;
-  color: #8c6a1f;
+  color: #f6ddb0;
   font-size: 0.94rem;
   font-weight: 700;
-  text-align: center;
 }
 
 .hero-snapshot {
@@ -1342,11 +2016,15 @@ onBeforeUnmount(() => {
 .signal-card,
 .profile-card,
 .closing-card,
-.commercial-metric {
+.commercial-metric,
+.metric-tile,
+.dashboard-panel,
+.traveler-card,
+.document-dashboard-card {
   display: grid;
   gap: 0.42rem;
   padding: 1.1rem 1.1rem;
-  border: 1px solid rgba(140, 106, 31, 0.12);
+  border: 1px solid rgba(181, 138, 60, 0.12);
   border-radius: 22px;
   background: rgba(255, 255, 255, 0.92);
   box-shadow: 0 16px 34px rgba(17, 17, 17, 0.04);
@@ -1365,9 +2043,185 @@ onBeforeUnmount(() => {
 
 .snapshot-card strong,
 .signal-card strong,
-.profile-card strong {
+.profile-card strong,
+.metric-tile strong {
   font-size: 1.04rem;
   line-height: 1.35;
+}
+
+.dashboard-metrics,
+.profile-tabs-shell,
+.dashboard-command-section {
+  padding: 0 clamp(1.25rem, 5vw, 4.5rem);
+}
+
+.dashboard-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: -1.35rem;
+}
+
+.metric-tile {
+  background: #ffffff;
+}
+
+.metric-tile span {
+  color: #b58a3c;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.metric-tile small {
+  color: #6a665f;
+  font-size: 0.84rem;
+}
+
+.profile-tabs-shell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.4rem;
+}
+
+.profile-tab {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 150px;
+  padding: 0.9rem 1rem;
+  border: 1px solid #e3dbcf;
+  border-radius: 20px;
+  background: #ffffff;
+  text-align: left;
+}
+
+.profile-tab strong {
+  color: #111111;
+  font-size: 0.95rem;
+}
+
+.profile-tab small {
+  color: #6f6657;
+}
+
+.profile-tab--active {
+  border-color: #b58a3c;
+  background: linear-gradient(180deg, #fffdfa 0%, #f6efe2 100%);
+  box-shadow: 0 18px 38px rgba(181, 138, 60, 0.12);
+}
+
+.dashboard-command-section {
+  margin-top: 1.5rem;
+}
+
+.dashboard-command-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(320px, 0.7fr);
+  gap: 1rem;
+}
+
+.dashboard-panel {
+  background: linear-gradient(180deg, #ffffff 0%, #fcfaf6 100%);
+}
+
+.dashboard-panel--wide {
+  grid-column: span 2;
+}
+
+.section-heading--compact h2 {
+  font-size: clamp(1.5rem, 3vw, 2.1rem);
+}
+
+.traveler-grid,
+.document-dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.traveler-card strong,
+.document-dashboard-card strong {
+  font-size: 1rem;
+}
+
+.traveler-card span {
+  color: #b58a3c;
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.traveler-card p,
+.document-dashboard-card small {
+  margin: 0;
+  color: #6a665f;
+  line-height: 1.55;
+}
+
+.preference-chip-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.preference-chip {
+  min-height: 2.8rem;
+  padding: 0 1rem;
+  border: 1px solid #e5ddd1;
+  border-radius: 999px;
+  color: #111111;
+  background: #ffffff;
+  font-weight: 700;
+}
+
+.preference-chip--active {
+  border-color: #b58a3c;
+  background: linear-gradient(180deg, #fff6e8 0%, #f3e1bb 100%);
+  box-shadow: 0 10px 22px rgba(181, 138, 60, 0.18);
+}
+
+.preferences-shell {
+  display: grid;
+  gap: 1rem;
+}
+
+.advanced-panel--preferences {
+  width: 100%;
+}
+
+.document-dashboard-card {
+  align-content: start;
+}
+
+.document-dashboard-icon {
+  display: inline-flex;
+  width: 2.5rem;
+  height: 2.5rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  background: #f3ead2;
+  color: #111111;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.document-dashboard-card span {
+  color: #b58a3c;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.document-dashboard-card--approved,
+.document-dashboard-card--ready {
+  border-color: #d5e7da;
+  background: linear-gradient(180deg, #ffffff 0%, #f6fbf8 100%);
+}
+
+.document-dashboard-card--needs_update {
+  border-color: #ecd4be;
+  background: linear-gradient(180deg, #ffffff 0%, #fff7f2 100%);
 }
 
 .hero-search {
@@ -2048,6 +2902,12 @@ onBeforeUnmount(() => {
   gap: 1.1rem;
 }
 
+.security-highlight-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+}
+
 .live-card {
   display: grid;
   gap: 1rem;
@@ -2165,6 +3025,10 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 1180px) {
+  .hero-grid,
+  .dashboard-command-grid,
+  .hero-membership-grid,
+  .dashboard-metrics,
   .hero-snapshot,
   .status-strip,
   .profile-grid,
@@ -2175,31 +3039,39 @@ onBeforeUnmount(() => {
   .commercial-grid,
   .documents-shell,
   .document-stats-grid,
+  .security-highlight-grid,
   .live-grid,
   .matching-shell,
   .hero-search,
   .hero-meta-row--four,
   .advanced-panel,
   .commercial-metrics,
-  .commercial-form {
+  .commercial-form,
+  .traveler-grid,
+  .document-dashboard-grid {
     grid-template-columns: 1fr;
+  }
+
+  .dashboard-panel--wide {
+    grid-column: auto;
   }
 }
 
 @media (max-width: 760px) {
-  .hero-center {
-    justify-items: stretch;
-    text-align: left;
+  .hero-copy-shell,
+  .hero-member-card {
+    padding: 1.1rem;
   }
 
   .hero-search,
   .hero-meta-row,
   .advanced-panel,
-  .hero-snapshot {
+  .hero-snapshot,
+  .hero-membership-grid {
     width: 100%;
   }
 
-  .hero-center h1 {
+  .hero-copy-shell h1 {
     max-width: none;
   }
 
@@ -2222,6 +3094,10 @@ onBeforeUnmount(() => {
   .hero-action,
   .ghost-link-button {
     width: 100%;
+  }
+
+  .profile-tab {
+    min-width: calc(50% - 0.4rem);
   }
 }
 </style>

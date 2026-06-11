@@ -119,7 +119,7 @@ const WORKFLOW_DEFINITIONS = {
     ],
   },
   completed: {
-    label: 'Completado',
+    label: 'Finalizado',
     apiStatus: 'completed',
     apiWorkflow: 'finalizada',
     matches: ['completed', 'completada', 'finalizada', 'finalizado', 'cerrada', 'post-vuelo'],
@@ -184,6 +184,12 @@ export const SHARED_WORKFLOW_STEPS = [
     shortLabel: 'Tracking',
     title: 'Tracking activo',
     clientLabel: 'Tracking',
+  },
+  {
+    id: 'completed',
+    shortLabel: 'Cierre',
+    title: 'Finalizado',
+    clientLabel: 'Finalizado',
   },
 ]
 
@@ -256,8 +262,8 @@ const SHARED_WORKFLOW_ACTION_COPY = {
     detail: 'El admin puede seguir la ejecucion y las novedades del servicio.',
   },
   completed: {
-    title: 'Viaje completado',
-    detail: 'La operacion ya termino y queda disponible en tu historial.',
+    title: 'Finalizado',
+    detail: 'La sobrecargo finalizo el servicio y la operacion ya quedo cerrada para seguimiento e historial.',
   },
   cancelled: {
     title: 'Viaje cancelado',
@@ -299,6 +305,11 @@ const SHARED_WORKFLOW_STEP_DESCRIPTIONS = {
     pending: 'El admin puede seguir la ejecucion y las novedades del servicio.',
     current: 'El admin puede seguir la ejecucion y las novedades del servicio.',
     done: 'El seguimiento del servicio ya esta corriendo para este caso.',
+  },
+  completed: {
+    pending: 'La operacion quedara cerrada por admin cuando termine el servicio.',
+    current: 'La operacion ya esta lista para cierre administrativo.',
+    done: 'El admin ya cerro la operacion y el viaje paso a historial.',
   },
 }
 
@@ -450,6 +461,17 @@ export function resolveSharedWorkflowStatus(record = {}) {
       nestedReservation?.payment_status ||
       '',
   )
+  const normalizedCrewStatus = normalizeWorkflowToken(
+    record.crew_status ||
+      record.crewStatus ||
+      record.operation?.crew_status ||
+      record.operation?.crewStatus ||
+      nestedReservation?.crew_status ||
+      nestedReservation?.crewStatus ||
+      nestedReservation?.operation?.crew_status ||
+      nestedReservation?.operation?.crewStatus ||
+      '',
+  )
   const hasExplicitAssignedProvider = Boolean(record.assigned_provider_id)
   const hasExplicitAssignedAircraft = Boolean(record.assigned_aircraft_id)
   const hasSelectedProvider = Boolean(record.provider_id)
@@ -574,6 +596,11 @@ export function resolveSharedWorkflowStatus(record = {}) {
     'requires payment method',
     'requires_payment_method',
   ])
+  const crewCompletedSignals = new Set(['crew completed', 'crew_completed'])
+
+  if (crewCompletedSignals.has(normalizedCrewStatus)) {
+    return 'completed'
+  }
 
   if (
     paymentConfirmedSignals.has(normalizedPaymentStatus) &&
@@ -687,7 +714,6 @@ export function resolveSharedVisualWorkflowStepId(value = '') {
   if (workflowId === 'provider_accepted') return 'contract_pending'
   if (workflowId === 'contract_signed') return 'contract_pending'
   if (workflowId === 'payment_confirmed') return 'flight_confirmed'
-  if (workflowId === 'completed') return 'tracking_live'
 
   return workflowId
 }
@@ -700,6 +726,7 @@ export function resolveSharedWorkflowStageTitle(value = '') {
   if (workflowId === 'contract_signed') return 'Contrato firmado'
   if (workflowId === 'payment_pending') return 'Pago pendiente'
   if (workflowId === 'payment_confirmed') return 'Pago confirmado'
+  if (workflowId === 'completed') return 'Finalizado'
 
   return normalizeWorkflowLabel(value)
 }

@@ -45,7 +45,6 @@ export const roleSections = {
     { id: 'calendario', label: 'Seguimiento', icon: 'checklist' },
     { id: 'incidencias', label: 'Incidencias', icon: 'alert' },
     { id: 'historial', label: 'Historial', icon: 'history' },
-    { id: 'documentos', label: 'Documentos', icon: 'clipboard' },
     { id: 'perfil', label: 'Cuenta', icon: 'account' },
     { id: 'configuracion', label: 'Configuracion', icon: 'grid' },
   ],
@@ -81,8 +80,8 @@ export const roleSectionGroups = {
   crew: [
     { label: 'Centro Operativo', ids: ['dashboard'] },
     { label: 'Disponibilidad', ids: ['disponibilidad'] },
-    { label: 'Operacion', ids: ['asignaciones', 'calendario'] },
     { label: 'Seguimiento', ids: ['incidencias', 'historial', 'documentos'] },
+    { label: 'Operacion', ids: ['asignaciones', 'calendario'] },
     { label: 'Cuenta', ids: ['perfil', 'configuracion'] },
   ],
   operator: [

@@ -2627,9 +2627,8 @@ function applyOperationsResponse(payload) {
   sectionLoadState.operaciones = true
 }
 
-function applyIncidentsResponse(payload) {
-  const collection = pickCollection(payload, ['incidents', 'data', 'items'])
-  incidents.value = collection.map(normalizeIncident)
+function applyIncidentsResponse(collection) {
+  incidents.value = Array.isArray(collection) ? collection : []
   sectionLoadState.incidencias = true
 }
 
@@ -3177,18 +3176,250 @@ function findLinkedOperationForRequest(request = {}) {
 }
 
 function normalizeIncident(raw = {}, index = 0) {
+  const fallbackFlight =
+    raw.flight ||
+    raw.route ||
+    raw.operation_route ||
+    raw.operation ||
+    (raw.crew_operation_id || raw.operation_id != null
+      ? `Operacion #${raw.crew_operation_id || raw.operation_id}`
+      : 'Sin vuelo')
+
   return {
     id: raw.id || index + 1,
     requestId: raw.request_id || raw.flight_request_id || raw.reservation_id || null,
-    type: raw.type || 'Problema operativo',
-    flight: raw.flight || raw.route || raw.operation || 'Sin vuelo',
-    status: raw.status || 'Abierta',
-    priority: raw.priority || 'Media',
-    evidence: raw.evidence || raw.attachment || 'Pendiente',
+    type: normalizeIncidentType(raw.type || raw.category || raw.title),
+    flight: fallbackFlight,
+    route: raw.route || raw.flight || raw.operation_route || raw.operation || fallbackFlight,
+    status: normalizeIncidentStatus(raw.status || raw.state),
+    priority: normalizeIncidentPriority(raw.priority),
+    evidence:
+      raw.evidence ||
+      raw.attachment ||
+      (Array.isArray(raw.files)
+        ? raw.files.map((file) => file.original_name || file.file_path).filter(Boolean).join(', ')
+        : '') ||
+      'Pendiente',
     comment: raw.comment || raw.description || '',
     responsible: raw.responsible || raw.assigned_to || raw.owner || 'Por asignar',
-    createdAt: raw.created_at || null,
+    source: normalizeIncidentSource(raw),
+    crewName: raw.crew_name || raw.crew?.name || '',
+    providerId: raw.provider_id || raw.provider?.id || null,
+    providerName: raw.provider_name || raw.provider?.name || '',
+    operationId: raw.operation_id || raw.crew_operation_id || null,
+    createdAt: raw.created_at || raw.reported_at || null,
   }
+}
+
+function normalizeIncidentStatus(value = '') {
+  const normalized = String(value || '').trim().toLowerCase()
+
+  if (!normalized) return 'Abierta'
+  if (['open', 'abierta'].includes(normalized)) return 'Abierta'
+  if (['in_review', 'en revision', 'en revisión', 'review'].includes(normalized)) return 'En revision'
+  if (['resolved', 'resuelta'].includes(normalized)) return 'Resuelta'
+  if (['closed', 'cerrada'].includes(normalized)) return 'Cerrada'
+
+  return value
+}
+
+function normalizeIncidentPriority(value = '') {
+  const normalized = String(value || '').trim().toLowerCase()
+
+  if (!normalized) return 'Media'
+  if (['low', 'baja'].includes(normalized)) return 'Baja'
+  if (['medium', 'media'].includes(normalized)) return 'Media'
+  if (['high', 'alta'].includes(normalized)) return 'Alta'
+  if (['critical', 'critica', 'crítica'].includes(normalized)) return 'Critica'
+
+  return value
+}
+
+function normalizeIncidentType(value = '') {
+  const normalized = String(value || '').trim().toLowerCase()
+  const labels = {
+    catering: 'Catering',
+    cabina: 'Cabina',
+    cliente: 'Cliente',
+    seguridad: 'Seguridad',
+    horario: 'Horario',
+    coordinacion: 'Coordinacion',
+    coordinación: 'Coordinacion',
+    otro: 'Otro',
+  }
+
+  if (!normalized) return 'Problema operativo'
+  return labels[normalized] || value
+}
+
+function normalizeIncidentSource(raw = {}) {
+  if (raw.source) return raw.source
+  if (raw.crew_operation_id || raw.crew_id || raw.crew_name) return 'Sobrecargo'
+  return 'Proveedor'
+}
+
+function normalizeComparableId(value) {
+  const normalized = String(value || '').trim()
+  return normalized || ''
+}
+
+function buildProviderOperationReferenceSet() {
+  const references = new Set()
+
+  const append = (value) => {
+    const normalized = normalizeComparableId(value)
+    if (normalized) references.add(normalized)
+  }
+
+  operations.value.forEach((operation) => {
+    append(operation.id)
+    append(operation.requestId)
+    append(operation.reservationId)
+    append(operation.raw?.id)
+    append(operation.raw?.request_id)
+    append(operation.raw?.flight_request_id)
+    append(operation.raw?.reservation_id)
+    append(operation.raw?.booking_id)
+  })
+
+  requests.value.forEach((request) => {
+    append(request.id)
+    append(request.requestId)
+    append(request.reservationId)
+    append(request.operationId)
+    append(request.raw?.id)
+    append(request.raw?.request_id)
+    append(request.raw?.flight_request_id)
+    append(request.raw?.reservation_id)
+    append(request.raw?.booking_id)
+  })
+
+  return references
+}
+
+function isSkippableIncidentLoadError(error) {
+  const status = Number(error?.status || 0)
+  const message = String(error?.message || '').toLowerCase()
+
+  return (
+    status === 0 ||
+    [401, 403, 404, 405].includes(status) ||
+    (status >= 500 && status <= 599) ||
+    (message.includes('route') && message.includes('could not be found'))
+  )
+}
+
+async function fetchOptionalIncidentsPayload(loader) {
+  try {
+    return await loader()
+  } catch (error) {
+    if (isSkippableIncidentLoadError(error)) return null
+    throw error
+  }
+}
+
+function isCrewIncidentForCurrentProvider(raw = {}) {
+  const providerReferences = new Set(
+    [providerId.value, companyId.value]
+      .map((value) => normalizeComparableId(value))
+      .filter(Boolean),
+  )
+
+  const incidentProviderCandidates = [
+    raw.provider_id,
+    raw.proveedor_id,
+    raw.provider?.id,
+    raw.proveedor?.id,
+  ]
+    .map((value) => normalizeComparableId(value))
+    .filter(Boolean)
+
+  if (incidentProviderCandidates.some((value) => providerReferences.has(value))) {
+    return true
+  }
+
+  const operationReferences = buildProviderOperationReferenceSet()
+  const incidentOperationCandidates = [
+    raw.operation_id,
+    raw.crew_operation_id,
+    raw.request_id,
+    raw.flight_request_id,
+    raw.reservation_id,
+  ]
+    .map((value) => normalizeComparableId(value))
+    .filter(Boolean)
+
+  return incidentOperationCandidates.some((value) => operationReferences.has(value))
+}
+
+function mergeIncidentCollections(...collections) {
+  const merged = []
+  const seenKeys = new Set()
+
+  collections.flat().forEach((raw) => {
+    if (!raw || typeof raw !== 'object') return
+
+    const key =
+      normalizeComparableId(raw.id) ||
+      [
+        normalizeComparableId(raw.operation_id || raw.crew_operation_id),
+        normalizeComparableId(raw.request_id || raw.flight_request_id || raw.reservation_id),
+        String(raw.description || raw.comment || '').trim().toLowerCase(),
+        String(raw.created_at || raw.reported_at || '').trim(),
+      ]
+        .filter(Boolean)
+        .join('::')
+
+    if (key && seenKeys.has(key)) return
+    if (key) seenKeys.add(key)
+
+    merged.push(normalizeIncident(raw, merged.length))
+  })
+
+  return merged.sort((left, right) => {
+    const rightTime = Date.parse(right.createdAt || '') || 0
+    const leftTime = Date.parse(left.createdAt || '') || 0
+    if (rightTime !== leftTime) return rightTime - leftTime
+    return Number(right.id || 0) - Number(left.id || 0)
+  })
+}
+
+async function fetchProviderIncidentCollection(timeoutMs) {
+  const shouldLoadOperations = operations.value.length === 0
+
+  const [providerPayload, crewPayload, operationsPayload] = await Promise.all([
+    fetchOptionalIncidentsPayload(() =>
+      requestWithCandidates([{ method: 'get', path: '/proveedor/incidencias', timeoutMs }]),
+    ),
+    fetchOptionalIncidentsPayload(() =>
+      api.get('/crew-operation-incidents', {
+        timeoutMs,
+      }),
+    ),
+    shouldLoadOperations
+      ? fetchOptionalIncidentsPayload(() =>
+          requestWithCandidates([{ method: 'get', path: '/proveedor/operaciones', timeoutMs }]),
+        )
+      : Promise.resolve(null),
+  ])
+
+  if (operationsPayload) {
+    const operationCollection = pickCollection(operationsPayload, ['operations', 'data', 'items'])
+    if (operationCollection.length) {
+      operations.value = operationCollection.map(normalizeOperation)
+    }
+  }
+
+  const providerIncidents = providerPayload
+    ? pickCollection(providerPayload, ['incidents', 'data', 'items'])
+    : []
+  const crewIncidents = crewPayload
+    ? pickCollection(crewPayload, ['incidents', 'incidencias', 'data', 'items']).filter(
+        isCrewIncidentForCurrentProvider,
+      )
+    : []
+
+  return mergeIncidentCollections(providerIncidents, crewIncidents)
 }
 
 function normalizePayment(raw = {}, index = 0) {
@@ -5160,7 +5391,7 @@ async function ensureSectionDataLoaded(section = props.section, options = {}) {
     request = fetchCrewPayload(timeoutMs)
     apply = applyCrewResponse
   } else if (normalizedSection === 'incidencias') {
-    request = requestWithCandidates([{ method: 'get', path: '/proveedor/incidencias', timeoutMs }])
+    request = fetchProviderIncidentCollection(timeoutMs)
     apply = applyIncidentsResponse
   } else if (normalizedSection === 'pagos') {
     request = requestWithCandidates([{ method: 'get', path: '/proveedor/pagos', timeoutMs }])

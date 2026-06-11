@@ -31,7 +31,9 @@ const missionProgressSteps = [
   { id: 'cabin', label: 'Cabina' },
   { id: 'passengers', label: 'Pasajeros' },
   { id: 'service', label: 'Servicio' },
+  { id: 'layover', label: 'Escala / tramo' },
   { id: 'closing', label: 'Cierre' },
+  { id: 'admin-closing', label: 'Cierre admin' },
 ]
 
 const nextAction = computed(() => {
@@ -172,7 +174,7 @@ const checklistStages = computed(() => {
       label: 'Servicio en vuelo',
       state: item.canStartService ? 'Pendiente' : ['En servicio', 'Finalizado'].includes(missionState) ? 'Completado' : 'Pendiente',
       points: [
-        'Iniciar servicio de bebidas o alimentos',
+        'Atiende servicio durante el vuelo',
         'Mantener cabina limpia y ordenada',
         'Atender solicitudes del cliente',
         'Supervisar seguridad y cinturones',
@@ -181,8 +183,9 @@ const checklistStages = computed(() => {
     {
       id: 'layover',
       label: 'Escala / siguiente tramo',
-      state: 'No aplica',
+      state: ['En escala / siguiente tramo', 'Reporte enviado', 'Finalizado'].includes(missionState) ? 'Completado' : 'Pendiente',
       points: [
+        'Apoya en desembarque / escala / siguiente tramo',
         'Verificar pasajeros que bajan o suben',
         'Revisar cabina despues del tramo',
         'Reponer insumos, si aplica',
@@ -197,7 +200,17 @@ const checklistStages = computed(() => {
         'Apoyar en desembarque',
         'Revisar objetos olvidados',
         'Registrar faltantes o danos',
-        'Confirmar incidencias y enviar cierre al Admin',
+        'Reporta incidencias y cierre al Admin',
+      ],
+    },
+    {
+      id: 'admin-closing',
+      label: 'Cierre administrativo',
+      state: missionState === 'Finalizado' ? 'Completado' : 'Pendiente admin',
+      points: [
+        'Admin cierra la operacion',
+        'Se resguarda la trazabilidad final del servicio',
+        'La asignacion queda lista para consulta e historial',
       ],
     },
   ]

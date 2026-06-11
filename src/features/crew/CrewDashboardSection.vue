@@ -33,11 +33,15 @@ defineEmits([
 function stringifyMetric(value, fallback = '0') {
   if (value == null) return fallback
   if (typeof value === 'string' || typeof value === 'number') return String(value)
+  if (Array.isArray(value)) return String(value.length)
   if (typeof value === 'object') {
     if (typeof value.value === 'string' || typeof value.value === 'number') {
       return String(value.value)
     }
-    if (Array.isArray(value)) return String(value.length)
+    if (typeof value.count === 'string' || typeof value.count === 'number') {
+      return String(value.count)
+    }
+    if (Array.isArray(value.items)) return String(value.items.length)
     return fallback
   }
   return fallback

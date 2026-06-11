@@ -2821,6 +2821,8 @@
               <span class="badge">{{ mapIncidentTone(incident.priority) }}</span>
               <span class="badge">Responsable: {{ incident.responsible }}</span>
               <span class="badge">Solicitud: {{ incident.requestId || 'N/D' }}</span>
+              <span class="badge">Origen: {{ incident.source }}</span>
+              <span v-if="incident.crewName" class="badge">Sobrecargo: {{ incident.crewName }}</span>
             </div>
             <p class="muted">
               Prioridad: {{ incident.priority }} - Evidencia: {{ incident.evidence }} - Alta:

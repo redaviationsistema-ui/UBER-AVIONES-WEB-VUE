@@ -386,6 +386,7 @@ const monthlyFlightHours = computed(() => servicesCompletedThisMonth.value * 9 +
 const punctualityRate = computed(() =>
   historyEntries.value.length ? `${Math.max(0, 100 - openIncidents.value.length)}%` : '',
 )
+const activeAlertsCount = computed(() => openIncidents.value.length + pendingDocuments.value.length)
 const dashboardSummary = computed(() => [
   {
     label: 'Servicios completados',
@@ -404,7 +405,7 @@ const dashboardSummary = computed(() => [
   },
   {
     label: 'Alertas activas',
-    value: `${openIncidents.value + pendingDocuments.value.length}`,
+    value: String(activeAlertsCount.value),
     detail: `${openIncidents.value} incidencia${openIncidents.value === 1 ? '' : 's'} abierta${openIncidents.value === 1 ? '' : 's'} | ${pendingDocuments.value.length} alerta${pendingDocuments.value.length === 1 ? '' : 's'} documental${pendingDocuments.value.length === 1 ? '' : 'es'}`,
   },
 ])
@@ -995,6 +996,8 @@ function normalizeCrewIncidentRecord(raw = {}, index = 0) {
     time: raw.reported_at || raw.created_at || '',
     state: raw.status || raw.state || '',
     phase: raw.phase || '',
+    providerId: raw.provider_id || null,
+    providerName: raw.provider_name || '',
     actionTaken: raw.action_taken || raw.actionTaken || '',
     timeline: Array.isArray(raw.timeline) ? raw.timeline : [],
     operationId: raw.crew_operation_id || raw.operation_id || null,
@@ -1588,6 +1591,7 @@ async function createIncident() {
   formData.append('crew_id', auth.user?.id || linkedAssignment.crewId || '')
   formData.append('category', incidentForm.type)
   formData.append('priority', incidentForm.priority)
+  formData.append('phase', incidentForm.phase)
   formData.append('description', incidentForm.description)
   ;(incidentForm.files || []).forEach((file) => {
     formData.append('files[]', file)

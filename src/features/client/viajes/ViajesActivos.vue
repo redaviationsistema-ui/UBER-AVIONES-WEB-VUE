@@ -41,7 +41,9 @@ const PROGRESS_STEPS = SHARED_WORKFLOW_STEPS.map((step) => ({
             ? 'payment'
             : step.id === 'flight_confirmed'
               ? 'flight'
-              : 'tracking',
+              : step.id === 'tracking_live'
+                ? 'tracking'
+                : 'closure',
   id: step.id,
   label: step.clientLabel,
 }))
@@ -55,7 +57,7 @@ function workflowId(status = '') {
 }
 
 function displayWorkflowLabel(status = '') {
-  return workflowId(status) === 'completed' ? 'Buen viaje' : statusMeta(status).label
+  return workflowId(status) === 'completed' ? 'Finalizado' : statusMeta(status).label
 }
 
 function progressSteps(status = '') {
@@ -413,7 +415,7 @@ function reservationAircraftCategory(reservation = {}) {
 function flightActionLabel(reservation = {}) {
   const stateId = workflowId(reservationWorkflowValue(reservation))
 
-  if (stateId === 'completed') return '✈ Buen viaje'
+  if (stateId === 'completed') return '✅ Finalizado'
   if (stateId === 'tracking_live') return '📡 Tracking en vivo'
   if (stateId === 'flight_confirmed') return '🛫 Vuelo confirmado'
   if (stateId === 'payment_confirmed') return '🛫 Vuelo en liberacion operativa'

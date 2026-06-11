@@ -7,6 +7,8 @@ const isLoading = ref(false)
 const selectedIncidentId = ref(null)
 const statusFilter = ref('all')
 const priorityFilter = ref('all')
+const providerFilter = ref('all')
+const crewFilter = ref('all')
 const searchQuery = ref('')
 const updateDrafts = reactive({})
 
@@ -36,12 +38,15 @@ const filteredIncidents = computed(() => {
   return incidents.value
     .filter((incident) => statusFilter.value === 'all' || incident.status === statusFilter.value)
     .filter((incident) => priorityFilter.value === 'all' || incident.priority === priorityFilter.value)
+    .filter((incident) => providerFilter.value === 'all' || resolveProviderKey(incident) === providerFilter.value)
+    .filter((incident) => crewFilter.value === 'all' || resolveCrewKey(incident) === crewFilter.value)
     .filter((incident) => {
       if (!query) return true
       return [
         incident.id,
         incident.crew_operation_id,
         incident.operation_route,
+        incident.provider_name,
         incident.crew_id,
         incident.crew_name,
         labelFor(incident.category),
@@ -56,6 +61,28 @@ const filteredIncidents = computed(() => {
     })
     .sort((left, right) => Number(right.id || 0) - Number(left.id || 0))
 })
+
+const providerOptions = computed(() =>
+  [...new Map(
+    incidents.value
+      .map((incident) => {
+        const key = resolveProviderKey(incident)
+        return key ? [key, { key, label: resolveProviderLabel(incident) }] : null
+      })
+      .filter(Boolean),
+  ).values()].sort((left, right) => left.label.localeCompare(right.label, 'es')),
+)
+
+const crewOptions = computed(() =>
+  [...new Map(
+    incidents.value
+      .map((incident) => {
+        const key = resolveCrewKey(incident)
+        return key ? [key, { key, label: resolveCrewLabel(incident) }] : null
+      })
+      .filter(Boolean),
+  ).values()].sort((left, right) => left.label.localeCompare(right.label, 'es')),
+)
 
 const selectedIncident = computed(
   () =>
@@ -88,6 +115,26 @@ watch(
 
 function labelFor(value = '') {
   return labels[value] || value || 'Sin dato'
+}
+
+function resolveProviderKey(incident = {}) {
+  return String(incident.provider_id || incident.provider_name || '')
+    .trim()
+    .toLowerCase()
+}
+
+function resolveProviderLabel(incident = {}) {
+  return String(incident.provider_name || '').trim() || 'Proveedor por definir'
+}
+
+function resolveCrewKey(incident = {}) {
+  return String(incident.crew_id || incident.crew_name || '')
+    .trim()
+    .toLowerCase()
+}
+
+function resolveCrewLabel(incident = {}) {
+  return String(incident.crew_name || '').trim() || (incident.crew_id ? `Sobrecargo #${incident.crew_id}` : 'Sobrecargo por definir')
 }
 
 function filesLabel(incident = {}) {
@@ -192,6 +239,24 @@ onMounted(fetchIncidents)
           <option v-for="priority in priorities" :key="priority" :value="priority">{{ labelFor(priority) }}</option>
         </select>
       </label>
+      <label>
+        <span>Empresa</span>
+        <select v-model="providerFilter">
+          <option value="all">Todas</option>
+          <option v-for="provider in providerOptions" :key="provider.key" :value="provider.key">
+            {{ provider.label }}
+          </option>
+        </select>
+      </label>
+      <label>
+        <span>Sobrecargo</span>
+        <select v-model="crewFilter">
+          <option value="all">Todas</option>
+          <option v-for="crew in crewOptions" :key="crew.key" :value="crew.key">
+            {{ crew.label }}
+          </option>
+        </select>
+      </label>
     </section>
 
     <section class="incidents-workspace">
@@ -210,6 +275,7 @@ onMounted(fetchIncidents)
                 <th>Prioridad</th>
                 <th>Estado</th>
                 <th>Ruta</th>
+                <th>Empresa</th>
                 <th>Sobrecargo</th>
                 <th>Descripcion</th>
               </tr>
@@ -226,6 +292,7 @@ onMounted(fetchIncidents)
                 <td><span class="pill">{{ labelFor(incident.priority) }}</span></td>
                 <td><span class="pill pill-status">{{ labelFor(incident.status) }}</span></td>
                 <td>{{ incident.operation_route || `Operacion #${incident.crew_operation_id}` }}</td>
+                <td>{{ incident.provider_name || 'Proveedor por definir' }}</td>
                 <td>{{ incident.crew_name || `Sobrecargo #${incident.crew_id}` }}</td>
                 <td class="description-cell">{{ incident.description }}</td>
               </tr>
@@ -257,6 +324,10 @@ onMounted(fetchIncidents)
             <article>
               <span>Ruta</span>
               <strong>{{ selectedIncident.operation_route || 'Ruta por definir' }}</strong>
+            </article>
+            <article>
+              <span>Empresa</span>
+              <strong>{{ selectedIncident.provider_name || 'Proveedor por definir' }}</strong>
             </article>
             <article>
               <span>Sobrecargo</span>
@@ -411,7 +482,7 @@ onMounted(fetchIncidents)
 
 .filters-bar {
   align-items: end;
-  grid-template-columns: minmax(240px, 1fr) 180px 180px;
+  grid-template-columns: minmax(220px, 1fr) repeat(4, minmax(150px, 180px));
 }
 
 .filters-bar label,

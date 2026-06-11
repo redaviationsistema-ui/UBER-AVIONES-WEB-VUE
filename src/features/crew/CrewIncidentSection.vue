@@ -282,6 +282,7 @@ function submitIncident() {
               <p>{{ item.description }}</p>
               <small>Categoria: {{ labelFor(item.type) }}</small>
               <small>{{ item.phase }} · {{ item.time }}</small>
+              <small>Empresa del vuelo: {{ item.providerName || 'Por definir' }}</small>
               <small>Respuesta del Admin: {{ item.adminResponse || 'Pendiente' }}</small>
               <small>Evidencia: {{ item.evidence || 'Sin evidencia' }}</small>
 

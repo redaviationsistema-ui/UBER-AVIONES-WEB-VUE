@@ -57,6 +57,12 @@ function addLegAndOpen(emit, nextIndex) {
   emit('add-leg')
 }
 
+function removeLastLeg(emit, legsLength) {
+  if (legsLength <= 1) return
+  activeLegIndex.value = Math.max(0, legsLength - 2)
+  emit('remove-leg', legsLength - 1)
+}
+
 function updateFormField(field, event) {
   emit('update-form-field', { field, value: event.target.value })
 }
@@ -203,6 +209,20 @@ function routePreview(origin = '', destination = '') {
   if (destination) return `Origen → ${destination}`
   return 'Origen → Destino'
 }
+
+function legStatus(leg = {}) {
+  const hasOrigin = Boolean(String(leg.origin || '').trim())
+  const hasDestination = Boolean(String(leg.destination || '').trim())
+  const hasDate = Boolean(String(leg.date || '').trim())
+
+  if (hasOrigin && hasDestination && hasDate) return 'Completo'
+  if (hasOrigin || hasDestination || hasDate) return 'En captura'
+  return 'Pendiente'
+}
+
+function legStatusClass(leg = {}) {
+  return `leg-status--${legStatus(leg).toLowerCase().replace(/\s+/g, '-')}`
+}
 </script>
 
 <template>
@@ -215,9 +235,15 @@ function routePreview(origin = '', destination = '') {
       <form class="flight-form" @submit.prevent="$emit('submit')">
         <div class="segmented-control">
           <button type="button" :class="{ active: tripType === 'Ida' }" @click="$emit('update-trip-type', 'Ida')">
+            <span class="control-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M21 16v-2l-8-5V4.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5L21 16Z" fill="currentColor"/></svg>
+            </span>
             Ida
           </button>
           <button type="button" :class="{ active: tripType === 'Redondo' }" @click="$emit('update-trip-type', 'Redondo')">
+            <span class="control-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M7 7h8.5l-2.8-2.8L14 3l5 5-5 5-1.3-1.2L15.5 9H7V7Zm10 10H8.5l2.8 2.8L10 21l-5-5 5-5 1.3 1.2L8.5 15H17v2Z" fill="currentColor"/></svg>
+            </span>
             Redondo
           </button>
           <button
@@ -225,6 +251,9 @@ function routePreview(origin = '', destination = '') {
             :class="{ active: tripType === 'Multi-destino' }"
             @click="$emit('update-trip-type', 'Multi-destino')"
           >
+            <span class="control-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M6 6a2 2 0 1 1 0 4 2 2 0 0 1 0-4Zm0 8a2 2 0 1 1 0 4 2 2 0 0 1 0-4Zm12-4a2 2 0 1 1 0 4 2 2 0 0 1 0-4ZM8 8h6v2H8V8Zm0 8h6v2H8v-2Zm8-4h-2v-2h2V7l4 4-4 4v-3Z" fill="currentColor"/></svg>
+            </span>
             Multi-destino
           </button>
         </div>
@@ -243,7 +272,7 @@ function routePreview(origin = '', destination = '') {
 
         <template v-if="tripType === 'Ida'">
           <label class="airport-field">
-            Origen
+            <span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 1 7 7c0 5.25-7 13-7 13S5 14.25 5 9a7 7 0 0 1 7-7Zm0 9a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" fill="currentColor"/></svg></span>Origen</span>
             <input
               :value="form.origin"
               autocomplete="off"
@@ -266,7 +295,7 @@ function routePreview(origin = '', destination = '') {
             </div>
           </label>
           <label class="airport-field">
-            Destino
+            <span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 1 7 7c0 5.25-7 13-7 13S5 14.25 5 9a7 7 0 0 1 7-7Zm0 9a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" fill="currentColor"/></svg></span>Destino</span>
             <input
               :value="form.destination"
               autocomplete="off"
@@ -288,7 +317,7 @@ function routePreview(origin = '', destination = '') {
               </button>
             </div>
           </label>
-          <label class="date-field">Fecha<input :value="form.departureDate" type="date" @input="updateFormField('departureDate', $event)" /></label>
+          <label class="date-field"><span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 2h2v2h6V2h2v2h3v18H4V4h3V2Zm12 8H5v10h14V10Z" fill="currentColor"/></svg></span>Fecha</span><input :value="form.departureDate" type="date" @input="updateFormField('departureDate', $event)" /></label>
           <button
             v-if="!showDepartureTime && !form.departureTime"
             class="time-toggle"
@@ -298,7 +327,7 @@ function routePreview(origin = '', destination = '') {
             Agregar hora especifica
           </button>
           <label v-else class="time-field">
-            Hora
+            <span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20Zm1 5h-2v6l5 3 1-1.73-4-2.37V7Z" fill="currentColor"/></svg></span>Hora</span>
             <div class="time-parts">
               <select :value="splitTimeParts(form.departureTime).hour" @change="updateFormTime('departureTime', 'hour', $event.target.value)">
                 <option value="">Hora</option>
@@ -324,7 +353,7 @@ function routePreview(origin = '', destination = '') {
               </div>
               <div class="trip-panel__body">
                 <label class="airport-field">
-                  Origen
+                  <span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 1 7 7c0 5.25-7 13-7 13S5 14.25 5 9a7 7 0 0 1 7-7Zm0 9a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" fill="currentColor"/></svg></span>Origen</span>
                   <input
                     :value="form.origin"
                     autocomplete="off"
@@ -347,7 +376,7 @@ function routePreview(origin = '', destination = '') {
                   </div>
                 </label>
                 <label class="airport-field">
-                  Destino
+                  <span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 1 7 7c0 5.25-7 13-7 13S5 14.25 5 9a7 7 0 0 1 7-7Zm0 9a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" fill="currentColor"/></svg></span>Destino</span>
                   <input
                     :value="form.destination"
                     autocomplete="off"
@@ -369,7 +398,7 @@ function routePreview(origin = '', destination = '') {
                     </button>
                   </div>
                 </label>
-                <label class="date-field">Fecha salida<input :value="form.departureDate" type="date" @input="updateFormField('departureDate', $event)" /></label>
+                <label class="date-field"><span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 2h2v2h6V2h2v2h3v18H4V4h3V2Zm12 8H5v10h14V10Z" fill="currentColor"/></svg></span>Fecha salida</span><input :value="form.departureDate" type="date" @input="updateFormField('departureDate', $event)" /></label>
                 <button
                   v-if="!showDepartureTime && !form.departureTime"
                   class="time-toggle"
@@ -379,7 +408,7 @@ function routePreview(origin = '', destination = '') {
                   Agregar hora salida
                 </button>
                 <label v-else class="time-field">
-                  Hora salida
+                  <span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20Zm1 5h-2v6l5 3 1-1.73-4-2.37V7Z" fill="currentColor"/></svg></span>Hora salida</span>
                   <div class="time-parts">
                     <select :value="splitTimeParts(form.departureTime).hour" @change="updateFormTime('departureTime', 'hour', $event.target.value)">
                       <option value="">Hora</option>
@@ -403,7 +432,7 @@ function routePreview(origin = '', destination = '') {
                 <small>{{ routePreview(form.destination, form.origin) }}</small>
               </div>
               <div class="trip-panel__body">
-                <label class="date-field">Fecha regreso<input :value="form.returnDate" type="date" @input="updateFormField('returnDate', $event)" /></label>
+                <label class="date-field"><span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 2h2v2h6V2h2v2h3v18H4V4h3V2Zm12 8H5v10h14V10Z" fill="currentColor"/></svg></span>Fecha regreso</span><input :value="form.returnDate" type="date" @input="updateFormField('returnDate', $event)" /></label>
                 <button
                   v-if="!showReturnTime && !form.returnTime"
                   class="time-toggle"
@@ -413,7 +442,7 @@ function routePreview(origin = '', destination = '') {
                   Agregar hora regreso
                 </button>
                 <label v-else class="time-field">
-                  Hora regreso
+                  <span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20Zm1 5h-2v6l5 3 1-1.73-4-2.37V7Z" fill="currentColor"/></svg></span>Hora regreso</span>
                   <div class="time-parts">
                     <select :value="splitTimeParts(form.returnTime).hour" @change="updateFormTime('returnTime', 'hour', $event.target.value)">
                       <option value="">Hora</option>
@@ -436,12 +465,6 @@ function routePreview(origin = '', destination = '') {
         </template>
 
         <template v-else>
-          <div class="builder-headline">
-            <span>Mapa ejecutivo</span>
-            <strong>{{ summary.legs.length }} tramos listos para tu gira privada</strong>
-            <small>Ordena ciudades, fechas y horarios sin perder continuidad operativa.</small>
-          </div>
-
           <section class="multi-leg-builder" aria-label="Tramos multi-destino">
             <article
               v-for="(leg, index) in form.legs"
@@ -450,18 +473,25 @@ function routePreview(origin = '', destination = '') {
               :class="{ active: activeLegIndex === index }"
             >
               <button class="leg-summary" type="button" @click="toggleLeg(index)">
-                <span class="timeline-dot"></span>
+                <span class="timeline-marker">
+                  <span class="timeline-step">{{ index + 1 }}</span>
+                </span>
                 <span class="leg-copy">
-                  <small>{{ legName(index, form.legs.length) }}</small>
-                  <strong>{{ leg.origin || 'Origen' }} -> {{ leg.destination || 'Destino' }}</strong>
+                  <span class="leg-copy__top">
+                    <small>{{ legName(index, form.legs.length) }}</small>
+                    <span class="leg-status" :class="legStatusClass(leg)">
+                      {{ legStatus(leg) }}
+                    </span>
+                  </span>
+                  <strong>{{ routePreview(leg.origin, leg.destination) }}</strong>
                   <em>{{ formatLegDate(leg.date) }} · {{ leg.time || 'Hora pendiente' }}</em>
                 </span>
-                <span class="edit-label">{{ activeLegIndex === index ? 'Cerrar' : 'Editar' }}</span>
+                <span class="edit-label">{{ activeLegIndex === index ? 'Ocultar detalles' : 'Editar tramo' }}</span>
               </button>
 
               <div v-if="activeLegIndex === index" class="leg-editor">
                 <label class="airport-field">
-                  Desde
+                  <span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 1 7 7c0 5.25-7 13-7 13S5 14.25 5 9a7 7 0 0 1 7-7Zm0 9a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" fill="currentColor"/></svg></span>Desde</span>
                   <input
                     :value="leg.origin"
                     autocomplete="off"
@@ -486,7 +516,7 @@ function routePreview(origin = '', destination = '') {
                   </div>
                 </label>
                 <label class="airport-field">
-                  Hacia
+                  <span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 1 7 7c0 5.25-7 13-7 13S5 14.25 5 9a7 7 0 0 1 7-7Zm0 9a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" fill="currentColor"/></svg></span>Hacia</span>
                   <input
                     :value="leg.destination"
                     autocomplete="off"
@@ -508,9 +538,9 @@ function routePreview(origin = '', destination = '') {
                     </button>
                   </div>
                 </label>
-                <label class="date-field">Fecha<input :value="leg.date" type="date" @input="updateLegField(index, 'date', $event)" /></label>
+                <label class="date-field"><span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 2h2v2h6V2h2v2h3v18H4V4h3V2Zm12 8H5v10h14V10Z" fill="currentColor"/></svg></span>Fecha</span><input :value="leg.date" type="date" @input="updateLegField(index, 'date', $event)" /></label>
                 <label class="time-field">
-                  Hora
+                  <span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20Zm1 5h-2v6l5 3 1-1.73-4-2.37V7Z" fill="currentColor"/></svg></span>Hora</span>
                   <div class="time-parts">
                     <select :value="splitTimeParts(leg.time).hour" @change="updateLegTime(index, 'hour', $event.target.value)">
                       <option value="">Hora</option>
@@ -524,14 +554,23 @@ function routePreview(origin = '', destination = '') {
                     </select>
                   </div>
                 </label>
-                <button v-if="form.legs.length > 2" type="button" @click="$emit('remove-leg', index)">Quitar destino</button>
               </div>
             </article>
           </section>
 
-          <button class="secondary-action" type="button" @click="addLegAndOpen($emit, form.legs.length)">
-            + Agregar destino
-          </button>
+          <div class="multi-leg-actions">
+            <button class="secondary-action" type="button" @click="addLegAndOpen($emit, form.legs.length)">
+              + Agregar destino
+            </button>
+            <button
+              v-if="form.legs.length > 1"
+              class="danger-action"
+              type="button"
+              @click="removeLastLeg($emit, form.legs.length)"
+            >
+              Eliminar destino
+            </button>
+          </div>
 
         </template>
 
@@ -692,6 +731,34 @@ p {
   background: #ece8df;
 }
 
+.field-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.field-label__icon,
+.control-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.field-label__icon {
+  width: 1.7rem;
+  height: 1.7rem;
+  border-radius: 999px;
+  background: #f3ead2;
+  color: #8b6a24;
+}
+
+.field-label__icon svg,
+.control-icon svg {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
 .segmented-control {
   display: grid;
   grid-column: 1 / -1;
@@ -712,6 +779,10 @@ button {
 }
 
 .segmented-control button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
   border-radius: 999px;
   background: transparent;
   color: #111111;
@@ -839,11 +910,20 @@ button {
   color: #111111;
 }
 
+.danger-action {
+  background: #fff0ed;
+  color: #8f1f1f;
+}
+
 .multi-leg-builder {
-  position: relative;
   display: grid;
-  gap: 0.85rem;
-  padding-left: 0.35rem;
+  gap: 1rem;
+}
+
+.multi-leg-actions {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 0.75rem;
 }
 
 .builder-headline {
@@ -874,57 +954,63 @@ button {
 }
 
 .timeline-leg {
-  position: relative;
   display: grid;
-  gap: 0.65rem;
-  padding-left: 1.35rem;
-}
-
-.timeline-leg::before {
-  position: absolute;
-  top: 2.4rem;
-  bottom: -1rem;
-  left: 0.4rem;
-  width: 1px;
-  background: #d8d2c4;
-  content: '';
-}
-
-.timeline-leg:last-child::before {
-  display: none;
+  gap: 0.75rem;
 }
 
 .leg-summary {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 0.8rem;
-  align-items: center;
-  min-height: 4.8rem;
-  padding: 0.85rem;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: #fbfaf7;
+  gap: 1rem;
+  align-items: start;
+  min-height: 5.25rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid #e1d5bc;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #fffdf9, #f8f4ec);
   color: #111111;
   text-align: left;
+  box-shadow: 0 10px 24px rgba(50, 38, 15, 0.04);
 }
 
 .timeline-leg.active .leg-summary {
-  border-color: #d7c89f;
+  border-color: #b7903c;
   background: #ffffff;
+  box-shadow: 0 18px 36px rgba(50, 38, 15, 0.1);
 }
 
-.timeline-dot {
-  width: 0.85rem;
-  height: 0.85rem;
+.timeline-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: 0.1rem;
+}
+
+.timeline-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.2rem;
+  height: 2.2rem;
   border-radius: 999px;
   background: #141414;
-  box-shadow: 0 0 0 5px #f1ead9;
+  color: #ffffff;
+  font-size: 0.9rem;
+  font-weight: 900;
+  box-shadow: 0 0 0 6px #f5ecda;
 }
 
 .leg-copy {
   display: grid;
   min-width: 0;
-  gap: 0.15rem;
+  gap: 0.32rem;
+}
+
+.leg-copy__top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  align-items: center;
 }
 
 .leg-copy small {
@@ -936,34 +1022,60 @@ button {
 }
 
 .leg-copy strong {
-  overflow: hidden;
   color: #141414;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 1.05rem;
+  line-height: 1.2;
 }
 
 .leg-copy em {
-  overflow: hidden;
   color: #6f6a60;
   font-style: normal;
-  font-weight: 800;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-weight: 700;
+}
+
+.leg-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.5rem;
+  padding: 0 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.leg-status--completo {
+  background: #e5f4ea;
+  color: #1c6a39;
+}
+
+.leg-status--en-captura {
+  background: #fff1d8;
+  color: #9a6200;
+}
+
+.leg-status--pendiente {
+  background: #f1ede5;
+  color: #6f6657;
 }
 
 .edit-label {
-  color: #141414;
-  font-size: 0.84rem;
+  align-self: center;
+  color: #4d4332;
+  font-size: 0.8rem;
   font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .leg-editor {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.85rem 0.65rem;
-  padding: 0.9rem;
-  border: 1px solid #e5e1d8;
-  border-radius: 8px;
+  padding: 1rem;
+  border: 1px solid #eadfcb;
+  border-radius: 18px;
   background: #ffffff;
 }
 
@@ -1073,20 +1185,16 @@ button {
     font-size: 0.72rem;
     padding: 0 0.6rem;
   }
-  .multi-leg-builder {
-    padding-left: 0;
-  }
-
-  .timeline-leg {
-    padding-left: 1rem;
-  }
 
   .leg-summary {
     grid-template-columns: auto minmax(0, 1fr);
+    padding: 0.95rem;
+    border-radius: 16px;
   }
 
   .edit-label {
     grid-column: 2;
+    justify-self: start;
   }
 
   .leg-editor {

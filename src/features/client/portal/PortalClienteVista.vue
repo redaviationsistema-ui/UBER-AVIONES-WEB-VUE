@@ -5,7 +5,6 @@ import ActiveTrips from '../ActiveTrips.vue'
 import ClientContractPreview from '../ClientContractPreview.vue'
 import ClientTopNav from '../ClientTopNav.vue'
 import ConciergeFloatingButton from '../ConciergeFloatingButton.vue'
-import DestinationCards from '../DestinationCards.vue'
 import FlightSearchHero from '../FlightSearchHero.vue'
 import { featuredAirports } from '../../../utils/airports'
 import {
@@ -102,14 +101,6 @@ const searchForm = reactive({
   specialBaggage: '',
   preference: '',
   legs: [
-    {
-      origin: '',
-      originAirport: null,
-      destination: '',
-      destinationAirport: null,
-      date: '',
-      time: '',
-    },
     {
       origin: '',
       originAirport: null,
@@ -721,6 +712,7 @@ const canQuoteFlights = computed(() => {
     normalizedFlags.some((value) => truthyStates.has(value) || demoStatuses.has(value))
   )
 })
+const hasActiveClientAccess = computed(() => canQuoteFlights.value)
 const activeSection = computed(() => {
   if (
     ['viajes', 'mis-vuelos', 'historial', 'contrato', 'pago', 'reserva-confirmada'].includes(
@@ -758,9 +750,39 @@ const isResultsSection = computed(() =>
   ['resultados', 'paquete-vuelo', 'aeronave', 'reserva'].includes(props.section),
 )
 const userFirstName = computed(() => {
-  const rawName = auth.user?.name || auth.user?.company_name || auth.userName || 'Kevin'
-  return String(rawName).trim().split(/\s+/)[0] || 'Kevin'
+  const rawName = auth.user?.name || auth.user?.company_name || auth.userName || ''
+  return String(rawName).trim().split(/\s+/)[0] || ''
 })
+const profileDisplayName = computed(
+  () => auth.user?.name || auth.user?.company_name || auth.userName || 'Cliente privado',
+)
+const profileInitials = computed(() =>
+  String(profileDisplayName.value || '')
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0] || '')
+    .join('')
+    .toUpperCase() || 'CP',
+)
+const profileStats = computed(() => [
+  { label: 'Vuelos', value: String(reservations.value.length || 0), caption: 'Historial total' },
+  {
+    label: 'Viajeros',
+    value: String(Math.max(1, Number(auth.user?.traveler_count || searchForm.passengers || 1))),
+    caption: 'Frecuentes',
+  },
+  {
+    label: 'Facturacion',
+    value: auth.user?.billing_email ? 'Configurada' : 'Pendiente',
+    caption: 'Cuenta comercial',
+  },
+  {
+    label: 'Concierge',
+    value: hasActiveClientAccess.value ? 'Activo' : 'Disponible',
+    caption: 'Atencion premium',
+  },
+])
 const selectedPriorityMeta = computed(
   () => flightPackages.value.find((item) => item.code === selectedPriorityType.value) || null,
 )
@@ -3051,7 +3073,7 @@ function addLeg() {
 }
 
 function removeLeg(index) {
-  if (searchForm.legs.length <= 2) return
+  if (searchForm.legs.length <= 1) return
   if (submittedItinerary.value || aircraftOptions.value.length) {
     clearQuotePreviewState()
   }
@@ -3676,24 +3698,14 @@ watch(
     }
 
     if (nextType === 'Multi-destino') {
-      const firstLeg = createEmptyLeg({
+      searchForm.legs = [createEmptyLeg({
         origin: searchForm.origin,
         originAirport: searchForm.originAirport,
         destination: searchForm.destination,
         destinationAirport: searchForm.destinationAirport,
         date: searchForm.departureDate,
         time: searchForm.departureTime || '09:00',
-      })
-      const secondLeg = createEmptyLeg({
-        origin: firstLeg.destination || '',
-        originAirport: firstLeg.destinationAirport || null,
-        destination: '',
-        destinationAirport: null,
-        date: searchForm.departureDate,
-        time: searchForm.departureTime || '09:00',
-      })
-
-      searchForm.legs = [firstLeg, secondLeg]
+      })]
     }
   },
   { immediate: true },
@@ -3742,7 +3754,7 @@ watch(
       :active-section="activeSection"
       :items="topNavItems"
       :profile-open="profileMenuOpen"
-      :user-first-name="userFirstName"
+      :user-first-name="profileDisplayName"
       @logout="handleLogout"
       @navigate="go"
       @toggle-profile="profileMenuOpen = !profileMenuOpen"
@@ -3766,12 +3778,6 @@ watch(
           @update-trip-type="tripType = $event"
         />
 
-        <DestinationCards
-          v-if="featuredDestinations.length"
-          :destinations="featuredDestinations"
-          :trip-type="tripType"
-          @select="selectDestination"
-        />
       </section>
 
       <section v-else-if="activeSection === 'reservar' && isResultsSection" class="screen">
@@ -4372,47 +4378,84 @@ watch(
       </section>
 
       <section v-else class="screen">
-        <div v-if="activeSection === 'perfil'" class="screen-head">
-          <span class="eyebrow">Perfil</span>
-          <h2>Tu cuenta vuela mejor cuando ya te conoce</h2>
-          <p>
-            Guarda datos, viajeros frecuentes y preferencias para reservar en segundos la siguiente
-            vez.
-          </p>
-        </div>
+       
 
         <template v-if="activeSection === 'perfil'">
-          <div class="profile-cards">
-            <article class="profile-highlight-card">
-              <span class="eyebrow">Viajeros frecuentes</span>
-              <h3>CEO, familia o equipo ejecutivo</h3>
-              <p>
-                Deja perfiles guardados para acelerar futuras reservas y reducir friccion operativa.
-              </p>
-            </article>
-            <article class="profile-highlight-card">
-              <span class="eyebrow">Facturacion</span>
-              <h3>Pagos y datos listos</h3>
-              <p>
-                Metodo de pago, razon social y datos de contacto siempre a mano dentro del mismo
-                flujo.
-              </p>
-            </article>
+          <section class="profile-hero-shell">
+            <div class="profile-hero-card">
+              <div class="profile-hero-copy">
+                <span class="eyebrow">Miembro Executive</span>
+                <h3>Bienvenido, {{ userFirstName }}</h3>
+                <p>
+                  Tu expediente ya concentra identidad, facturacion, preferencias de cabina y
+                  seguridad para reservar mas rapido la siguiente operacion.
+                </p>
+              </div>
+
+              <div class="profile-member-chip">
+                <span class="profile-member-avatar">{{ profileInitials }}</span>
+                <div>
+                  <strong>{{ profileDisplayName }}</strong>
+                  <small>{{ hasActiveClientAccess ? 'Executive Member' : 'Private Client' }}</small>
+                </div>
+              </div>
+            </div>
+
+            <div class="profile-kpi-grid">
+              <article v-for="item in profileStats" :key="item.label" class="profile-kpi-card">
+                <div class="profile-kpi-card__head">
+                  <span class="profile-kpi-icon" aria-hidden="true">
+                    <svg v-if="item.label === 'Vuelos'" viewBox="0 0 24 24">
+                      <path
+                        d="M21 16v-2l-8-5V4.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5L21 16Z"
+                        fill="currentColor"
+                      />
+                    </svg>
+                    <svg v-else-if="item.label === 'Viajeros'" viewBox="0 0 24 24">
+                      <path
+                        d="M9 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8Zm6 2a3 3 0 1 1 0-6 3 3 0 0 1 0 6ZM3 19c0-2.67 4-4 6-4s6 1.33 6 4v2H3v-2Zm12 2v-1.5c0-1.15-.44-2.15-1.18-2.94 2.37.2 5.18 1.17 5.18 3.44V21h-4Z"
+                        fill="currentColor"
+                      />
+                    </svg>
+                    <svg v-else-if="item.label === 'Facturacion'" viewBox="0 0 24 24">
+                      <path
+                        d="M6 3h9l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm8 1.5V9h4.5L14 4.5ZM8 12h8v1.5H8V12Zm0 3h8v1.5H8V15Z"
+                        fill="currentColor"
+                      />
+                    </svg>
+                    <svg v-else viewBox="0 0 24 24">
+                      <path
+                        d="M12 2a7 7 0 0 1 7 7c0 5.25-7 13-7 13S5 14.25 5 9a7 7 0 0 1 7-7Zm0 9a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"
+                        fill="currentColor"
+                      />
+                    </svg>
+                  </span>
+                  <span>{{ item.label }}</span>
+                </div>
+                <strong>{{ item.value }}</strong>
+                <small>{{ item.caption }}</small>
+              </article>
+            </div>
+          </section>
+
+          <div class="profile-cards profile-cards--premium">
+            
+           
           </div>
 
-          <form class="profile-form">
-            <label>Nombre<input :value="auth.user?.name || 'Miembro Red Aviation'" /></label>
-            <label>Telefono<input placeholder="+52 55 0000 0000" /></label>
+          <form class="profile-form profile-form--premium">
+            <label><span class="profile-field-label"><span class="profile-field-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3a5 5 0 1 1 0 10 5 5 0 0 1 0-10Zm0 12c4.418 0 8 2.239 8 5v1H4v-1c0-2.761 3.582-5 8-5Z" fill="currentColor"/></svg></span>Nombre</span><input :value="auth.user?.name || 'Miembro Red Aviation'" /></label>
+            <label><span class="profile-field-label"><span class="profile-field-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6.6 10.8a15.5 15.5 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.24c1.1.36 2.3.56 3.6.56a1 1 0 0 1 1 1V20a1 1 0 0 1-1 1C10.3 21 3 13.7 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.3.2 2.5.56 3.6a1 1 0 0 1-.24 1l-2.22 2.2Z" fill="currentColor"/></svg></span>Telefono</span><input placeholder="+52 55 0000 0000" /></label>
             <label
-              >Empresa<input :value="auth.user?.company_name || ''" placeholder="Empresa"
+              ><span class="profile-field-label"><span class="profile-field-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 21V7l9-4 9 4v14H3Zm2-2h14V8.3l-7-3.1-7 3.1V19Zm3-2h3v-3H8v3Zm0-5h3V9H8v3Zm5 5h3v-3h-3v3Zm0-5h3V9h-3v3Z" fill="currentColor"/></svg></span>Empresa</span><input :value="auth.user?.company_name || ''" placeholder="Empresa"
             /></label>
-            <label>Correo<input :value="auth.user?.email || 'miembro@redaviation.test'" /></label>
-            <label>Pasaporte / ID<input placeholder="Documento principal" /></label>
-            <label>Metodo de pago<input placeholder="Tarjeta corporativa o transferencia" /></label>
-            <label>Facturacion<input placeholder="RFC / razon social" /></label>
-            <label>Seguridad<input placeholder="NDA, privacidad, requerimientos" /></label>
+            <label><span class="profile-field-label"><span class="profile-field-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 5h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Zm0 3v.5l8 4.5 8-4.5V8H4Z" fill="currentColor"/></svg></span>Correo</span><input :value="auth.user?.email || 'miembro@redaviation.test'" /></label>
+            <label><span class="profile-field-label"><span class="profile-field-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 3h9l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm8 1.5V9h4.5L14 4.5ZM8 12h8v1.5H8V12Zm0 3h8v1.5H8V15Z" fill="currentColor"/></svg></span>Pasaporte / ID</span><input placeholder="Documento principal" /></label>
+            <label><span class="profile-field-label"><span class="profile-field-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3V7Zm3 1a1 1 0 0 0-1 1v1h12V9a1 1 0 0 0-1-1H7Zm11 5H6v4a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-4Z" fill="currentColor"/></svg></span>Metodo de pago</span><input placeholder="Tarjeta corporativa o transferencia" /></label>
+            <label><span class="profile-field-label"><span class="profile-field-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 3h9l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm8 1.5V9h4.5L14 4.5ZM8 12h8v1.5H8V12Zm0 3h8v1.5H8V15Z" fill="currentColor"/></svg></span>Facturacion</span><input placeholder="RFC / razon social" /></label>
+            <label><span class="profile-field-label"><span class="profile-field-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2 4 5v6c0 5 3.4 9.7 8 11 4.6-1.3 8-6 8-11V5l-8-3Zm-1.2 13.6L7.6 12.4l1.4-1.4 1.8 1.8 4.2-4.2 1.4 1.4-5.6 5.6Z" fill="currentColor"/></svg></span>Seguridad</span><input placeholder="NDA, privacidad, requerimientos" /></label>
             <label class="wide"
-              >Preferencias<textarea
+              ><span class="profile-field-label"><span class="profile-field-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 21.35 10.55 20C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09A6.02 6.02 0 0 1 16.5 3C19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35Z" fill="currentColor"/></svg></span>Preferencias</span><textarea
                 placeholder="Catering, mascotas, FBO, privacidad, asistencia especial"
               ></textarea>
             </label>
@@ -5969,6 +6012,282 @@ button {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.profile-hero-shell {
+  display: grid;
+  gap: 1rem;
+}
+
+.profile-hero-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) auto;
+  gap: 1rem;
+  align-items: end;
+  padding: 1.4rem;
+  border: 1px solid rgba(181, 138, 60, 0.24);
+  border-radius: 22px;
+  background:
+    linear-gradient(180deg, rgba(17, 17, 17, 0.9), rgba(33, 30, 26, 0.92)),
+    radial-gradient(circle at top right, rgba(181, 138, 60, 0.2), transparent 30%);
+  box-shadow: 0 24px 48px rgba(17, 17, 17, 0.14);
+}
+
+.profile-hero-copy {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.profile-hero-copy h3,
+.profile-concierge-card strong {
+  margin: 0;
+  color: #ffffff;
+  font-size: clamp(1.6rem, 3vw, 2.3rem);
+  line-height: 1;
+}
+
+.profile-hero-copy p,
+.profile-concierge-card p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.8);
+  line-height: 1.6;
+}
+
+.profile-member-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.85rem 1rem;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.profile-member-chip strong,
+.profile-member-chip small {
+  display: block;
+  color: #ffffff;
+}
+
+.profile-member-chip small {
+  opacity: 0.76;
+}
+
+.profile-member-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3rem;
+  height: 3rem;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #f0d39a, #b58a3c);
+  color: #111111;
+  font-weight: 900;
+}
+
+.profile-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.profile-kpi-card,
+.profile-document-card,
+.profile-concierge-card,
+.profile-activity-card {
+  display: grid;
+  gap: 0.35rem;
+  padding: 1rem 1.05rem;
+  border: 1px solid #e5dfd4;
+  border-radius: 20px;
+  background: #ffffff;
+  box-shadow: 0 16px 34px rgba(17, 17, 17, 0.04);
+}
+
+.profile-kpi-card span,
+.profile-document-card small,
+.profile-preferences-box span {
+  color: #8c6a1f;
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.profile-kpi-card strong {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.profile-kpi-card__head,
+.profile-field-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.profile-kpi-icon,
+.profile-field-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 999px;
+  background: #f3ead2;
+  color: #8c6a1f;
+  flex: 0 0 auto;
+}
+
+.profile-kpi-icon svg,
+.profile-field-icon svg {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.profile-kpi-card small {
+  color: #6d665a;
+}
+
+.profile-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+}
+
+.profile-tab-button {
+  min-height: 2.8rem;
+  padding: 0 1rem;
+  border: 1px solid #e1dbcf;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #111111;
+  font-weight: 800;
+}
+
+.profile-tab-button--active {
+  border-color: #b58a3c;
+  background: linear-gradient(180deg, #fff8ec, #f2e1bb);
+  box-shadow: 0 12px 26px rgba(181, 138, 60, 0.14);
+}
+
+.profile-cards--premium {
+  margin-top: 0.25rem;
+}
+
+.profile-highlight-card--premium {
+  padding: 1.25rem;
+  border-radius: 20px;
+}
+
+.profile-form--premium {
+  padding: 1.25rem;
+  border-radius: 20px;
+  box-shadow: 0 18px 38px rgba(17, 17, 17, 0.04);
+}
+
+.profile-preferences-shell {
+  display: grid;
+  gap: 1rem;
+}
+
+.profile-chip-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+}
+
+.profile-chip {
+  min-height: 2.8rem;
+  padding: 0 1rem;
+  border: 1px solid #e1dbcf;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #111111;
+  font-weight: 700;
+}
+
+.profile-preferences-box {
+  display: grid;
+  gap: 0.55rem;
+  padding: 1rem;
+  border: 1px solid #e5dfd4;
+  border-radius: 20px;
+  background: #ffffff;
+}
+
+.profile-preferences-box textarea {
+  min-height: 180px;
+  width: 100%;
+  border: 1px solid #d8d2c4;
+  border-radius: 16px;
+  padding: 0.9rem;
+  background: #fbfaf7;
+  font: inherit;
+  resize: vertical;
+}
+
+.profile-document-grid,
+.profile-activity-shell {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.profile-document-card {
+  align-content: start;
+}
+
+.profile-document-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 14px;
+  background: #f2e6cd;
+  color: #111111;
+  font-size: 0.75rem;
+  font-weight: 900;
+}
+
+.profile-document-card p,
+.profile-activity-item p {
+  margin: 0;
+  color: #6b6458;
+  line-height: 1.55;
+}
+
+.profile-activity-card {
+  grid-column: span 2;
+}
+
+.profile-activity-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.profile-activity-item {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.9rem;
+  border-radius: 16px;
+  background: #f8f5ef;
+}
+
+.profile-activity-item strong {
+  font-size: 0.98rem;
+}
+
+.profile-activity-item small {
+  color: #7a7469;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.profile-concierge-card {
+  align-content: start;
+  background: linear-gradient(180deg, #111111, #24211b);
+}
+
 .profile-highlight-card,
 .confirmation-box {
   padding: 1rem;
@@ -6218,6 +6537,9 @@ button {
 }
 
 @media (max-width: 1080px) {
+  .profile-kpi-grid,
+  .profile-document-grid,
+  .profile-activity-shell,
   .results-search-bar,
   .aircraft-card,
   .aircraft-detail,
@@ -6227,6 +6549,14 @@ button {
   .support-grid,
   .summary-band,
   .profile-form {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-activity-card {
+    grid-column: auto;
+  }
+
+  .profile-hero-card {
     grid-template-columns: 1fr;
   }
 
@@ -6443,8 +6773,29 @@ button {
   .reservation-summary,
   .summary-band,
   .aircraft-detail,
-  .profile-form {
+  .profile-form,
+  .profile-kpi-card,
+  .profile-document-card,
+  .profile-concierge-card,
+  .profile-activity-card {
     padding: 0.72rem;
+  }
+
+  .profile-hero-card,
+  .profile-form--premium,
+  .profile-highlight-card--premium,
+  .profile-preferences-box {
+    padding: 0.85rem;
+  }
+
+  .profile-tabs {
+    gap: 0.45rem;
+  }
+
+  .profile-tab-button,
+  .profile-chip {
+    width: 100%;
+    justify-content: center;
   }
 
   .aircraft-card {
