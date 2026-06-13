@@ -1206,6 +1206,289 @@
   margin-top: 1rem;
 }
 
+.operator-incidents-dashboard {
+  gap: 1.1rem;
+}
+
+.operator-section-loading-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 2600;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background:
+    radial-gradient(circle at top, rgba(200, 169, 107, 0.18), transparent 34%),
+    rgba(247, 242, 233, 0.74);
+  backdrop-filter: blur(12px);
+}
+
+.operator-section-loading-surface {
+  display: grid;
+  gap: 0.85rem;
+  width: min(420px, 100%);
+  padding: 2rem 1.8rem;
+  border: 1px solid rgba(234, 223, 203, 0.95);
+  border-radius: 28px;
+  background: linear-gradient(180deg, rgba(255, 253, 248, 0.98) 0%, rgba(246, 238, 225, 0.96) 100%);
+  text-align: center;
+  box-shadow:
+    0 28px 70px rgba(80, 56, 22, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  transform: translateY(-2vh);
+}
+
+.operator-section-loading-surface h3,
+.operator-section-loading-surface .muted {
+  margin: 0;
+}
+
+.operator-section-loading-orb {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 4.2rem;
+  height: 4.2rem;
+  margin: 0 auto 0.2rem;
+  border-radius: 999px;
+  background: radial-gradient(circle at 30% 30%, #fff9ed 0%, #ead7ab 42%, #c8a96b 100%);
+  box-shadow: 0 18px 32px rgba(145, 108, 36, 0.22);
+}
+
+.operator-section-loading-orb span {
+  position: absolute;
+  width: 4.2rem;
+  height: 4.2rem;
+  border-radius: inherit;
+  border: 1px solid rgba(145, 108, 36, 0.22);
+  animation: operator-section-loading-pulse 1.7s ease-out infinite;
+}
+
+.operator-section-loading-orb span:nth-child(2) {
+  animation-delay: 0.22s;
+}
+
+.operator-section-loading-orb span:nth-child(3) {
+  animation-delay: 0.44s;
+}
+
+@keyframes operator-section-loading-pulse {
+  0% {
+    transform: scale(0.84);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(1.28);
+    opacity: 0;
+  }
+}
+
+.operator-incidents-overview {
+  background: linear-gradient(135deg, #fffaf2 0%, #f8f1e4 100%);
+}
+
+.operator-incidents-overview__head {
+  align-items: center;
+}
+
+.operator-incidents-metrics {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.operator-incidents-metric-card small {
+  display: block;
+  margin-top: 0.45rem;
+  color: #75684e;
+  line-height: 1.4;
+}
+
+.operator-incidents-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(20rem, 0.95fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.operator-incidents-feed,
+.operator-incidents-sidebar,
+.operator-side-card {
+  display: grid;
+  gap: 1rem;
+}
+
+.operator-incident-form {
+  margin-top: 0;
+}
+
+.operator-incidents-list {
+  gap: 1rem;
+}
+
+.operator-incident-card {
+  gap: 1rem;
+}
+
+.operator-incident-card__top {
+  align-items: flex-start;
+}
+
+.operator-incident-card__kicker {
+  display: inline-block;
+  margin-bottom: 0.35rem;
+  color: #8f6919;
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.operator-incident-card__title {
+  display: block;
+  line-height: 1.45;
+}
+
+.operator-incident-card__meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+  padding: 0.95rem 1rem;
+  border: 1px solid #efe2ca;
+  border-radius: 16px;
+  background: #fff8ee;
+}
+
+.operator-incident-card__meta span,
+.operator-summary-row__value small {
+  display: block;
+  color: #75684e;
+  font-size: 0.82rem;
+}
+
+.operator-incident-card__meta strong {
+  display: block;
+  margin-top: 0.22rem;
+  word-break: break-word;
+}
+
+.operator-incident-evidence {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.operator-incident-evidence__item {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid #efe2ca;
+  border-radius: 16px;
+  background: #fffdfa;
+}
+
+.operator-incident-evidence__preview {
+  width: 100%;
+  max-height: 16rem;
+  object-fit: contain;
+  border: 1px solid #efe2ca;
+  border-radius: 14px;
+  background: #f8f1e4;
+}
+
+.operator-incident-evidence__link {
+  color: #8f6919;
+  font-weight: 700;
+  text-decoration: none;
+  word-break: break-word;
+}
+
+.operator-incident-evidence__button {
+  text-decoration: none;
+}
+
+.operator-incident-evidence__link:hover,
+.operator-incident-evidence__link:focus-visible {
+  text-decoration: underline;
+}
+
+.operator-incident-modal {
+  height: auto;
+  max-height: min(90vh, 760px);
+}
+
+.operator-incident-modal__body {
+  display: grid;
+  gap: 1rem;
+  overflow: auto;
+}
+
+.operator-incident-modal__summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.operator-incident-modal__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.operator-incident-modal__panel {
+  display: grid;
+  gap: 0.55rem;
+  padding: 1rem;
+  border: 1px solid #efe2ca;
+  border-radius: 18px;
+  background: #fff8ee;
+}
+
+.operator-incident-timeline {
+  gap: 0.75rem;
+}
+
+.operator-incident-timeline__item {
+  gap: 0.3rem;
+}
+
+.operator-incident-timeline__item p,
+.operator-incident-timeline__item small {
+  margin: 0;
+}
+
+.operator-incidents-empty,
+.operator-upcoming-item--empty {
+  text-align: left;
+}
+
+.operator-summary-list,
+.operator-upcoming-list,
+.operator-actions-list {
+  gap: 0.8rem;
+}
+
+.operator-summary-row {
+  align-items: center;
+}
+
+.operator-summary-row__value {
+  display: grid;
+  justify-items: end;
+  gap: 0.15rem;
+  text-align: right;
+}
+
+.operator-action-item {
+  gap: 0.75rem;
+}
+
+.operator-action-item .ghost-button {
+  justify-self: start;
+}
+
+.operator-upcoming-item {
+  display: grid;
+  gap: 0.45rem;
+}
+
 .metric-card {
   border: 1px solid #efe2ca;
   border-radius: 18px;
@@ -2330,6 +2613,12 @@ textarea {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .operator-incidents-metrics,
+  .operator-incidents-content,
+  .operator-incident-modal__grid {
+    grid-template-columns: 1fr;
+  }
+
   .two-columns {
     grid-template-columns: 1fr;
   }
@@ -2400,6 +2689,7 @@ textarea {
 
   .form-grid,
   .metrics-grid,
+  .operator-incident-card__meta,
   .provider-release-status-strip,
   .provider-release-summary--compact,
   .provider-release-list--two-columns {
@@ -2415,6 +2705,11 @@ textarea {
   .wizard-footer {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .operator-summary-row__value {
+    justify-items: start;
+    text-align: left;
   }
 
   .span-2 {

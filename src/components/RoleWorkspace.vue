@@ -45,7 +45,11 @@ const usesWorkspaceMenu = computed(
 )
 const isSessionReady = computed(() => auth.initialized && auth.isAuthenticated)
 const showPortalHeader = computed(
-  () => !(props.activeRole === 'crew' && props.section === 'perfil'),
+  () => {
+    if (props.activeRole === 'crew' && props.section === 'perfil') return false
+    if (props.section === 'incidencias') return false
+    return true
+  },
 )
 
 const roleInsights = {

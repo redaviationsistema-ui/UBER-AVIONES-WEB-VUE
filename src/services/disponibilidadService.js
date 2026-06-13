@@ -173,17 +173,69 @@ function getAuditCandidates(scope = 'crew', body = {}, crewId = null) {
 
 function getAvailableCrewCandidates({ from = '', to = '', base = '' } = {}) {
   const query = {
-    fecha_inicio: from || undefined,
-    fecha_fin: to || undefined,
     from: from || undefined,
     to: to || undefined,
+    include_statuses: 0,
     base: base || undefined,
   }
 
   return [
-    { method: 'get', path: '/admin/sobrecargos/disponibles', query },
-    { method: 'get', path: '/admin/sobrecargos/available', query },
+    { method: 'get', path: '/admin/sobrecargos/disponibilidad', query },
   ]
+}
+
+function shouldIgnoreAvailableCrewLookupError(error) {
+  const status = Number(error?.status || 0)
+  const message = String(error?.message || '').toLowerCase()
+
+  return (
+    status === 404 ||
+    status === 405 ||
+    message.includes('/admin/sobrecargos/available') ||
+    message.includes('/admin/sobrecargos/disponibles')
+  )
+}
+
+function availabilityBlocksAssignment(entry = {}) {
+  const normalized = normalizeAvailabilityStatusKey(
+    entry.statusKey ||
+      entry.clave ||
+      entry.status ||
+      entry.state ||
+      entry.nombre ||
+      '',
+  )
+
+  return ['NO_DISPONIBLE', 'DESCANSO', 'BLOQUEO_SOLICITADO', 'BLOQUEO_APROBADO', 'EN_OPERACION'].includes(normalized)
+}
+
+function adminAvailabilityMemberMatchesBase(member = {}, base = '') {
+  if (!base) return true
+  const normalizedBase = String(base || '').trim().toLowerCase()
+  const memberBase = String(member.base || member.base_airport || member.city || '').trim().toLowerCase()
+  return !normalizedBase || !memberBase || memberBase.includes(normalizedBase) || normalizedBase.includes(memberBase)
+}
+
+function normalizeAdminAvailableCrewMember(raw = {}) {
+  const availability = pickCollection(raw, ['availability', 'disponibilidad', 'items']).map((item) =>
+    normalizeAvailabilityRecord(item),
+  )
+
+  return {
+    id: raw.id || raw.user_id || raw.sobrecargo_id || raw.crew_id || null,
+    name: raw.name || raw.full_name || raw.nombre || 'Sobrecargo',
+    base: raw.base || raw.base_airport || raw.base_code || raw.city || raw.profile?.base_airport || '',
+    providerName:
+      raw.provider_name || raw.company_name || raw.operator_name || raw.provider?.commercial_name || raw.provider?.company_name || '',
+    status: raw.current_status || raw.status || raw.state || 'Disponible',
+    availability,
+    raw,
+  }
+}
+
+function isAdminAvailableCrewMemberAssignable(member = {}) {
+  if (!Array.isArray(member.availability) || !member.availability.length) return true
+  return member.availability.every((entry) => !availabilityBlocksAssignment(entry))
 }
 
 export function normalizeAvailableCrewMember(raw = {}) {
@@ -267,9 +319,19 @@ export async function fetchAvailabilityCalendar({ scope = 'crew', from = '', to 
 }
 
 export async function fetchAvailableCrewByRange({ from = '', to = '', base = '' } = {}) {
-  const response = await requestWithCandidates(getAvailableCrewCandidates({ from, to, base }))
-  const collection = pickCollection(response, ['crew_members', 'sobrecargos', 'crew', 'users', 'data', 'items'])
-  return collection.map(normalizeAvailableCrewMember).filter((item) => item.id)
+  try {
+    const response = await requestWithCandidates(getAvailableCrewCandidates({ from, to, base }))
+    return pickCollection(response, ['crew_members', 'sobrecargos', 'crew', 'users', 'data', 'items'])
+      .map(normalizeAdminAvailableCrewMember)
+      .filter((item) => item.id)
+      .filter((item) => adminAvailabilityMemberMatchesBase(item, base))
+      .filter((item) => isAdminAvailableCrewMemberAssignable(item))
+  } catch (error) {
+    if (shouldIgnoreAvailableCrewLookupError(error)) {
+      return []
+    }
+    throw error
+  }
 }
 
 export async function saveAvailabilityRange({

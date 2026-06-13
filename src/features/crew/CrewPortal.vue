@@ -108,6 +108,7 @@ const documentItems = ref([])
 
 const incidents = ref([])
 const incidentApiErrors = ref({})
+const incidentSubmissionInFlight = ref(false)
 
 const historyEntries = ref([])
 
@@ -117,6 +118,45 @@ const assignmentResponseForm = reactive({
   comment: '',
   eta: '',
 })
+const assignmentActionState = reactive({
+  active: false,
+  title: '',
+  detail: '',
+  tone: 'success',
+})
+
+function openAssignmentActionState({
+  title = 'Sincronizando operacion',
+  detail = 'Estamos registrando tu respuesta con Admin / Red Sky.',
+} = {}) {
+  assignmentActionState.active = true
+  assignmentActionState.title = title
+  assignmentActionState.detail = detail
+  assignmentActionState.tone = 'success'
+}
+
+async function showAssignmentActionSuccess({
+  title = 'Movimiento confirmado',
+  detail = 'La operacion ya se actualizo.',
+  duration = 1700,
+} = {}) {
+  assignmentActionState.active = true
+  assignmentActionState.title = title
+  assignmentActionState.detail = detail
+  assignmentActionState.tone = 'success'
+  await new Promise((resolve) => window.setTimeout(resolve, duration))
+  assignmentActionState.active = false
+  assignmentActionState.title = ''
+  assignmentActionState.detail = ''
+  assignmentActionState.tone = 'success'
+}
+
+function closeAssignmentActionState() {
+  assignmentActionState.active = false
+  assignmentActionState.title = ''
+  assignmentActionState.detail = ''
+  assignmentActionState.tone = 'success'
+}
 
 const agendaBlockForm = reactive({
   state: 'No disponible',
@@ -144,6 +184,10 @@ const incidentForm = reactive({
   actionTaken: '',
   phase: 'Pre-vuelo',
 })
+
+const maxCrewIncidentFileBytes = 10 * 1024 * 1024
+const maxCrewIncidentTotalBytes = 25 * 1024 * 1024
+const maxCrewIncidentFiles = 5
 
 const documentForm = reactive({
   name: '',
@@ -738,6 +782,7 @@ function resolveAssignmentResponsePayload(response = '') {
 
 function deriveCrewStatusFromAssignments() {
   if (assignments.value.some((item) => item.missionStatus === 'En servicio')) return 'En vuelo'
+  if (assignments.value.some((item) => item.missionStatus === 'Incidencia')) return 'Incidencia'
   if (
     assignments.value.some((item) =>
       ['Confirmado', 'Preparacion', 'En aeropuerto/base', 'Cabina revisada', 'Pasajeros recibidos', 'En escala / siguiente tramo', 'Reporte enviado'].includes(item.missionStatus),
@@ -757,6 +802,11 @@ function normalizeAssignment(raw = {}, detail = {}, index = 0) {
   const operationStatus = latestTimelineStatus || detail.status || raw.status || ''
   const crewLifecycleStatus =
     detail.crew_status || raw.crew_status || raw.crewStatus || raw.crew_status_label || ''
+  const normalizedOperationStatus = String(operationStatus || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+  const normalizedCrewLifecycleStatus = String(crewLifecycleStatus || '').toLowerCase()
   const timelineStatuses = buildTimelineStatusSet(detail)
   const hasCheckin =
     Boolean(raw.crew_checkin_at || detail.crew_checkin_at) ||
@@ -771,10 +821,16 @@ function normalizeAssignment(raw = {}, detail = {}, index = 0) {
   const hasServiceCompleted =
     Boolean(raw.crew_service_completed_at || detail.crew_service_completed_at) ||
     timelineStatuses.has('servicio finalizado') ||
-    String(crewLifecycleStatus || '').toLowerCase() === 'crew_completed' ||
-    String(operationStatus || '').toLowerCase() === 'completed'
+    normalizedCrewLifecycleStatus === 'crew_completed' ||
+    normalizedOperationStatus === 'completed'
+  const hasIncidentReported =
+    normalizedCrewLifecycleStatus === 'crew_incident_reported' ||
+    normalizedOperationStatus === 'incidencia' ||
+    timelineStatuses.has('incidencia')
   const missionStatus =
-    hasServiceCompleted
+    hasIncidentReported
+      ? 'Incidencia'
+      : hasServiceCompleted
       ? 'Finalizado'
       : hasServiceStarted
         ? 'En servicio'
@@ -805,7 +861,6 @@ function normalizeAssignment(raw = {}, detail = {}, index = 0) {
     detail.destination_label ||
     ''
   const route = origin && destination ? `${origin} -> ${destination}` : origin || destination || ''
-  const normalizedCrewLifecycleStatus = String(crewLifecycleStatus || '').toLowerCase()
   const responseLocked = [
     'crew_confirmed',
     'crew_declined',
@@ -813,15 +868,17 @@ function normalizeAssignment(raw = {}, detail = {}, index = 0) {
     'crew_enroute',
     'crew_active',
     'crew_completed',
+    'crew_incident_reported',
   ].includes(normalizedCrewLifecycleStatus)
   const canRespondToAssignment = !responseLocked
   const canCheckin =
     ['crew_confirmed', 'crew_enroute', 'crew_active', 'crew_completed'].includes(normalizedCrewLifecycleStatus) &&
-    !hasCheckin
-  const canMarkCabinReady = hasCheckin && !hasCabinReady && !hasServiceStarted
-  const canReceivePassengers = hasCabinReady && !hasPassengersReady && !hasServiceStarted
-  const canStartService = hasPassengersReady && !hasServiceStarted
-  const canFinalizeService = hasServiceStarted && !hasServiceCompleted
+    !hasCheckin &&
+    !hasIncidentReported
+  const canMarkCabinReady = hasCheckin && !hasCabinReady && !hasServiceStarted && !hasIncidentReported
+  const canReceivePassengers = hasCabinReady && !hasPassengersReady && !hasServiceStarted && !hasIncidentReported
+  const canStartService = hasPassengersReady && !hasServiceStarted && !hasIncidentReported
+  const canFinalizeService = hasServiceStarted && !hasServiceCompleted && !hasIncidentReported
 
   return {
     id: raw.id || index + 1,
@@ -1001,7 +1058,44 @@ function normalizeCrewIncidentRecord(raw = {}, index = 0) {
     actionTaken: raw.action_taken || raw.actionTaken || '',
     timeline: Array.isArray(raw.timeline) ? raw.timeline : [],
     operationId: raw.crew_operation_id || raw.operation_id || null,
+    createdAt: raw.reported_at || raw.created_at || '',
   }
+}
+
+function dedupeCrewIncidentRecords(records = []) {
+  const sortedRecords = [...records].sort((left, right) => {
+    const leftTime = Date.parse(left.createdAt || left.time || '')
+    const rightTime = Date.parse(right.createdAt || right.time || '')
+    return (Number.isFinite(rightTime) ? rightTime : 0) - (Number.isFinite(leftTime) ? leftTime : 0)
+  })
+  const seen = new Map()
+
+  return sortedRecords.filter((record) => {
+    const signature = [
+      String(record.operationId || '').trim(),
+      String(record.flight || '').trim().toLowerCase(),
+      String(record.type || '').trim().toLowerCase(),
+      String(record.priority || '').trim().toLowerCase(),
+      String(record.phase || '').trim().toLowerCase(),
+      String(record.description || '').trim().toLowerCase(),
+      String(record.evidence || '').trim().toLowerCase(),
+      String(record.state || '').trim().toLowerCase(),
+    ].join('|')
+
+    const recordTime = Date.parse(record.createdAt || record.time || '')
+    const previousTime = seen.get(signature)
+
+    if (
+      Number.isFinite(recordTime) &&
+      Number.isFinite(previousTime) &&
+      Math.abs(previousTime - recordTime) <= 120000
+    ) {
+      return false
+    }
+
+    seen.set(signature, Number.isFinite(recordTime) ? recordTime : Number.POSITIVE_INFINITY)
+    return true
+  })
 }
 
 function syncDocumentSummary() {
@@ -1121,6 +1215,42 @@ function updateField({ form, field, value }) {
     config: configForm,
   }
 
+  if (form === 'incident' && field === 'files') {
+    const nextFiles = Array.isArray(value) ? value.filter((file) => file instanceof File) : []
+    const acceptedFiles = []
+    const errors = []
+    let totalBytes = 0
+
+    if (nextFiles.length > maxCrewIncidentFiles) {
+      errors.push(`Maximo ${maxCrewIncidentFiles} archivos por incidencia.`)
+    }
+
+    nextFiles.slice(0, maxCrewIncidentFiles).forEach((file) => {
+      if (file.size > maxCrewIncidentFileBytes) {
+        errors.push(`${file.name}: supera ${formatFileSize(maxCrewIncidentFileBytes)} por archivo.`)
+        return
+      }
+
+      if (totalBytes + file.size > maxCrewIncidentTotalBytes) {
+        errors.push(`El total adjunto supera ${formatFileSize(maxCrewIncidentTotalBytes)}.`)
+        return
+      }
+
+      acceptedFiles.push(file)
+      totalBytes += file.size
+    })
+
+    forms[form][field] = acceptedFiles
+    forms[form].evidence = acceptedFiles.map((file) => file.name).join(', ')
+    incidentApiErrors.value = {
+      ...Object.fromEntries(
+        Object.entries(incidentApiErrors.value).filter(([key]) => key !== field && key !== 'evidence' && key !== '_form'),
+      ),
+      ...(errors.length ? { evidence: errors.join(' ') } : {}),
+    }
+    return
+  }
+
   forms[form][field] = value
 
   if (form === 'incident') {
@@ -1128,6 +1258,24 @@ function updateField({ form, field, value }) {
       Object.entries(incidentApiErrors.value).filter(([key]) => key !== field && key !== '_form'),
     )
   }
+}
+
+function formatFileSize(bytes = 0) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(bytes % (1024 * 1024) === 0 ? 0 : 1)} MB`
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${Math.round(bytes)} B`
+}
+
+function firstIncidentErrorMessage(errors = {}) {
+  const priority = ['type', 'priority', 'flight', 'description', 'evidence', '_form']
+  for (const key of priority) {
+    const message = errors?.[key]
+    if (typeof message === 'string' && message.trim()) return message
+  }
+
+  const fallback = Object.values(errors || {}).find((value) => typeof value === 'string' && value.trim())
+  return fallback || 'Revisa los datos de la incidencia.'
 }
 
 function buildApiErrorMessage(error, fallbackMessage) {
@@ -1295,6 +1443,23 @@ async function respondAssignment(id, response) {
     eta: assignmentResponseForm.eta || '',
   }
 
+  const actionLabel =
+    response === 'Confirmado'
+      ? 'Confirmando al Admin'
+      : response === 'Rechazado'
+        ? 'Registrando rechazo'
+        : 'Solicitando cambio'
+
+  openAssignmentActionState({
+    title: actionLabel,
+    detail:
+      response === 'Confirmado'
+        ? 'Estamos notificando tu disponibilidad y sincronizando la mision operativa.'
+        : response === 'Rechazado'
+          ? 'Estamos registrando tu respuesta y actualizando el seguimiento con Admin / Red Sky.'
+          : 'Estamos enviando tu solicitud para que Admin / Red Sky revise el cambio.',
+  })
+
   try {
     await requestWithCandidates([
       {
@@ -1314,6 +1479,7 @@ async function respondAssignment(id, response) {
       },
     ])
   } catch (error) {
+    closeAssignmentActionState()
     return ui.pushToast({
       tone: 'error',
       title: 'No se pudo responder',
@@ -1326,89 +1492,118 @@ async function respondAssignment(id, response) {
   assignmentResponseForm.rejectReason = ''
   assignmentResponseForm.comment = ''
   assignmentResponseForm.eta = ''
-  ui.pushToast({
-    tone: response === 'Confirmado' ? 'success' : 'info',
-    title: `Asignacion ${response.toLowerCase()}`,
-    message: 'La respuesta ya quedo registrada en backend operativo.',
+
+  await showAssignmentActionSuccess({
+    title: response === 'Confirmado' ? 'Confirmado al Admin' : response === 'Rechazado' ? 'Respuesta registrada' : 'Cambio solicitado',
+    detail:
+      response === 'Confirmado'
+        ? 'Tu disponibilidad ya quedo confirmada con Admin / Red Sky.'
+        : response === 'Rechazado'
+          ? 'Tu rechazo ya quedo registrado en la operacion.'
+          : 'La solicitud de cambio ya quedo enviada a Admin / Red Sky.',
+  })
+}
+
+async function runAssignmentWorkflowAction(
+  id,
+  {
+    loadingTitle,
+    loadingDetail,
+    successTitle,
+    successDetail,
+    errorTitle,
+    errorMessage,
+    request,
+  },
+) {
+  const assignment = assignments.value.find((item) => item.id === id)
+  if (!assignment) return
+
+  openAssignmentActionState({
+    title: loadingTitle,
+    detail: loadingDetail,
+  })
+
+  try {
+    await request(assignment)
+  } catch (error) {
+    closeAssignmentActionState()
+    return ui.pushToast({
+      tone: 'error',
+      title: errorTitle,
+      message: error.message || errorMessage,
+    })
+  }
+
+  await loadPortal()
+  goToSection('asignaciones')
+  await showAssignmentActionSuccess({
+    title: successTitle,
+    detail: successDetail,
   })
 }
 
 async function confirmBriefing(id) {
-  const assignment = assignments.value.find((item) => item.id === id)
-  if (!assignment) return
-
-  try {
-    await requestWithCandidates([
-      {
-        method: 'post',
-        path: `/sobrecargo/operations/${assignment.operationId || id}/checkin`,
-        body: {
-          note: assignmentResponseForm.comment || 'Check-in operativo confirmado por sobrecargo.',
+  await runAssignmentWorkflowAction(id, {
+    loadingTitle: 'Confirmando llegada',
+    loadingDetail: 'Estamos registrando tu check-in y sincronizando el avance operativo.',
+    successTitle: 'Llegada confirmada',
+    successDetail: 'Tu llegada a aeropuerto/base ya quedo registrada con Admin / Red Sky.',
+    errorTitle: 'No se pudo confirmar check-in',
+    errorMessage: 'El check-in operativo no pudo registrarse en backend.',
+    request: (assignment) =>
+      requestWithCandidates([
+        {
+          method: 'post',
+          path: `/sobrecargo/operations/${assignment.operationId || id}/checkin`,
+          body: {
+            note: assignmentResponseForm.comment || 'Check-in operativo confirmado por sobrecargo.',
+          },
         },
-      },
-    ])
-  } catch (error) {
-    return ui.pushToast({
-      tone: 'error',
-      title: 'No se pudo confirmar check-in',
-      message: error.message || 'El check-in operativo no pudo registrarse en backend.',
-    })
-  }
-
-  await loadPortal()
-  goToSection('asignaciones')
+      ]),
+  })
 }
 
 async function markCabinReady(id) {
-  const assignment = assignments.value.find((item) => item.id === id)
-  if (!assignment) return
-
-  try {
-    await requestWithCandidates([
-      {
-        method: 'post',
-        path: `/sobrecargo/operations/${assignment.operationId || id}/cabin-ready`,
-        body: {
-          note: assignmentResponseForm.comment || 'Cabina, catering e insumos revisados por sobrecargo.',
+  await runAssignmentWorkflowAction(id, {
+    loadingTitle: 'Registrando cabina',
+    loadingDetail: 'Estamos guardando la revision de cabina, catering e insumos.',
+    successTitle: 'Cabina registrada',
+    successDetail: 'La revision de cabina y catering ya quedo sincronizada.',
+    errorTitle: 'No se pudo registrar cabina',
+    errorMessage: 'La revision de cabina no pudo registrarse en backend.',
+    request: (assignment) =>
+      requestWithCandidates([
+        {
+          method: 'post',
+          path: `/sobrecargo/operations/${assignment.operationId || id}/cabin-ready`,
+          body: {
+            note: assignmentResponseForm.comment || 'Cabina, catering e insumos revisados por sobrecargo.',
+          },
         },
-      },
-    ])
-  } catch (error) {
-    return ui.pushToast({
-      tone: 'error',
-      title: 'No se pudo registrar cabina',
-      message: error.message || 'La revision de cabina no pudo registrarse en backend.',
-    })
-  }
-
-  await loadPortal()
-  goToSection('asignaciones')
+      ]),
+  })
 }
 
 async function markPassengersReceived(id) {
-  const assignment = assignments.value.find((item) => item.id === id)
-  if (!assignment) return
-
-  try {
-    await requestWithCandidates([
-      {
-        method: 'post',
-        path: `/sobrecargo/operations/${assignment.operationId || id}/passengers-ready`,
-        body: {
-          note: assignmentResponseForm.comment || 'Pasajeros recibidos por sobrecargo antes del vuelo.',
+  await runAssignmentWorkflowAction(id, {
+    loadingTitle: 'Registrando pasajeros',
+    loadingDetail: 'Estamos notificando la recepcion de pasajeros y actualizando la mision.',
+    successTitle: 'Pasajeros recibidos',
+    successDetail: 'La recepcion de pasajeros ya quedo registrada en la operacion.',
+    errorTitle: 'No se pudo registrar recepcion',
+    errorMessage: 'La recepcion de pasajeros no pudo registrarse en backend.',
+    request: (assignment) =>
+      requestWithCandidates([
+        {
+          method: 'post',
+          path: `/sobrecargo/operations/${assignment.operationId || id}/passengers-ready`,
+          body: {
+            note: assignmentResponseForm.comment || 'Pasajeros recibidos por sobrecargo antes del vuelo.',
+          },
         },
-      },
-    ])
-  } catch (error) {
-    return ui.pushToast({
-      tone: 'error',
-      title: 'No se pudo registrar recepcion',
-      message: error.message || 'La recepcion de pasajeros no pudo registrarse en backend.',
-    })
-  }
-
-  await loadPortal()
-  goToSection('asignaciones')
+      ]),
+  })
 }
 
 async function createAvailabilityBlock() {
@@ -1527,51 +1722,44 @@ async function removeAvailabilityBlock(id) {
 }
 
 async function startAssignedService(id) {
-  const assignment = assignments.value.find((item) => item.id === id)
-  if (!assignment) return
-
-  try {
-    await requestWithCandidates([
-      { method: 'post', path: `/sobrecargo/operations/${assignment.operationId}/start-service`, body: {} },
-    ])
-  } catch (error) {
-    return ui.pushToast({
-      tone: 'error',
-      title: 'No se pudo iniciar',
-      message: error.message || 'El servicio no pudo iniciarse en backend.',
-    })
-  }
-
-  await loadPortal()
+  await runAssignmentWorkflowAction(id, {
+    loadingTitle: 'Iniciando servicio',
+    loadingDetail: 'Estamos marcando el inicio del servicio a bordo y sincronizando el seguimiento.',
+    successTitle: 'Servicio iniciado',
+    successDetail: 'El inicio del servicio ya quedo registrado con Admin / Red Sky.',
+    errorTitle: 'No se pudo iniciar',
+    errorMessage: 'El servicio no pudo iniciarse en backend.',
+    request: (assignment) =>
+      requestWithCandidates([
+        { method: 'post', path: `/sobrecargo/operations/${assignment.operationId}/start-service`, body: {} },
+      ]),
+  })
 }
 
 async function finalizeAssignedService(id) {
-  const assignment = assignments.value.find((item) => item.id === id)
-  if (!assignment) return
-
-  try {
-    await requestWithCandidates([
-      { method: 'post', path: `/sobrecargo/operations/${assignment.operationId}/complete-service`, body: {} },
-    ])
-  } catch (error) {
-    return ui.pushToast({
-      tone: 'error',
-      title: 'No se pudo finalizar',
-      message: error.message || 'El cierre del servicio no pudo registrarse en backend.',
-    })
-  }
-
-  await loadPortal()
+  await runAssignmentWorkflowAction(id, {
+    loadingTitle: 'Cerrando servicio',
+    loadingDetail: 'Estamos registrando el cierre del servicio y enviando la trazabilidad final.',
+    successTitle: 'Servicio finalizado',
+    successDetail: 'El cierre del servicio ya quedo registrado en la operacion.',
+    errorTitle: 'No se pudo finalizar',
+    errorMessage: 'El cierre del servicio no pudo registrarse en backend.',
+    request: (assignment) =>
+      requestWithCandidates([
+        { method: 'post', path: `/sobrecargo/operations/${assignment.operationId}/complete-service`, body: {} },
+      ]),
+  })
 }
 
 async function createIncident() {
+  if (incidentSubmissionInFlight.value) return
   incidentApiErrors.value = {}
 
   if (Object.keys(incidentErrors.value).length) {
     return ui.pushToast({
       tone: 'error',
       title: 'Incidencia invalida',
-      message: 'Revisa descripcion, prioridad, evidencia y resolucion.',
+      message: firstIncidentErrorMessage(incidentErrors.value),
     })
   }
 
@@ -1598,6 +1786,7 @@ async function createIncident() {
   })
 
   try {
+    incidentSubmissionInFlight.value = true
     await api.postForm('/crew-operation-incidents', formData)
     await loadPortal({ force: true, resources: ['incidents'] })
     ui.pushToast({
@@ -1622,6 +1811,8 @@ async function createIncident() {
       title: 'No se pudo crear',
       message,
     })
+  } finally {
+    incidentSubmissionInFlight.value = false
   }
 }
 
@@ -1997,7 +2188,7 @@ async function loadPortal(options = {}) {
 
       if (key === 'incidents') {
         const collection = pickCollection(result.value, ['incidents', 'incidencias', 'data', 'items'])
-        incidents.value = collection.map(normalizeCrewIncidentRecord)
+        incidents.value = dedupeCrewIncidentRecords(collection.map(normalizeCrewIncidentRecord))
         portalDataLoaded.incidents = true
       }
     })
@@ -2115,6 +2306,7 @@ onBeforeUnmount(() => {
       v-else-if="resolvedSection === 'asignaciones'"
       :assignments="assignments"
       :is-loading="isAssignmentsLoading"
+      :action-state="assignmentActionState"
       @confirm="(id) => respondAssignment(id, 'Confirmado')"
       @reject="(id) => respondAssignment(id, 'Rechazado')"
       @request-change="(id) => respondAssignment(id, 'Solicitar revision')"
@@ -2368,6 +2560,7 @@ onBeforeUnmount(() => {
       :incident-priorities="incidentPriorities"
       :incident-states="incidentStates"
       :incident-flight-options="incidentFlightOptions"
+      :is-submitting="incidentSubmissionInFlight"
       @update-field="updateField"
       @create="createIncident"
       @add-evidence="addEvidence"

@@ -9,11 +9,9 @@ import { emitWorkflowSync, subscribeWorkflowSync } from '../../lib/workflowSync'
 import {
   delayAdminReservation,
   getAdminReservations,
-  persistAdminReservationPatch,
   resumeAdminReservation,
   updateAdminReservationStage,
 } from './adminReservationsApi'
-import { saveAvailabilityRange } from '../../services/disponibilidadService'
 
 const AdminAlertsSection = defineAsyncComponent(() => import('./AdminAlertsSection.vue'))
 const AdminAircraftSubscriptionsSection = defineAsyncComponent(() => import('./AdminAircraftSubscriptionsSection.vue'))
@@ -40,6 +38,7 @@ const IS_LOCAL_ADMIN_DEV =
   /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname || '')
 const kpis = ref({})
 const users = ref([])
+const clients = ref([])
 const flags = ref([])
 const providers = ref([])
 const aircraft = ref([])
@@ -52,6 +51,7 @@ const auditEntries = ref([])
 const reservationAuditEntries = ref([])
 const rawSectionRecords = reactive({
   usuarios: [],
+  clientes: [],
   alertas: [],
   proveedores: [],
   aeronaves: [],
@@ -88,7 +88,12 @@ const ADMIN_SECTION_REFRESH_THROTTLE_MS = Number(
   import.meta.env.VITE_ADMIN_SECTION_REFRESH_THROTTLE_MS || (IS_LOCAL_ADMIN_DEV ? 12000 : 5000),
 )
 const adminReservationsLoadWarningShown = ref(false)
-const adminCrewAvailabilityWarningShown = ref(false)
+const clientUsers = computed(() =>
+  (clients.value.length ? clients.value : users.value).filter((user) => {
+    const role = String(user?.effective_role || user?.role || '').toLowerCase()
+    return role.includes('client') || role.includes('cliente')
+  }),
+)
 
 function getReservationRefreshTimestamp(section = props.section) {
   return section === 'liberaciones' ? lastReleasesRefreshAt : lastReservationsRefreshAt
@@ -113,12 +118,6 @@ function markCrewRefresh() {
 
 function isCrewRefreshCoolingDown() {
   return Date.now() - lastCrewRefreshAt < ADMIN_CREW_REFRESH_COOLDOWN_MS
-}
-
-function shouldFallbackAssignmentRoute(error) {
-  const status = Number(error?.status || 0)
-  const message = String(error?.message || '').toLowerCase()
-  return status === 0 || status === 404 || status === 405 || (message.includes('route') && message.includes('found'))
 }
 
 function extractOperationRange(operation = {}) {
@@ -795,6 +794,164 @@ function normalizeAdminAircraft(item = {}) {
   }
 }
 
+function normalizeAdminProvider(item = {}) {
+  const provider = item && typeof item === 'object' ? item : {}
+  const user = provider.user && typeof provider.user === 'object' ? provider.user : {}
+  const profile = user.profile && typeof user.profile === 'object' ? user.profile : {}
+
+  return {
+    ...provider,
+    id: Number(provider.id || provider.provider_id || user.provider_id || 0),
+    company_name:
+      provider.company_name ||
+      provider.razon_social ||
+      profile.company_name ||
+      user.company_name ||
+      user.name ||
+      'Proveedor',
+    commercial_name:
+      provider.commercial_name ||
+      provider.display_name ||
+      provider.trade_name ||
+      provider.nombre_comercial ||
+      provider.company_name ||
+      profile.company_name ||
+      user.name ||
+      'Proveedor',
+    contact_name:
+      provider.contact_name ||
+      provider.contact ||
+      provider.owner_name ||
+      user.name ||
+      profile.legal_representative ||
+      'Sin contacto',
+    base_airport:
+      provider.base_airport ||
+      provider.base ||
+      provider.airport ||
+      provider.location ||
+      profile.base_airport ||
+      'Base pendiente',
+    status:
+      provider.status ||
+      provider.state ||
+      provider.approval_status ||
+      provider.validation_status ||
+      user.status ||
+      'pending',
+    approval_status:
+      provider.approval_status ||
+      provider.status ||
+      provider.state ||
+      provider.validation_status ||
+      user.status ||
+      'pending',
+    user,
+  }
+}
+
+function isProviderRecord(item = {}) {
+  const roleCandidates = resolveRoleCandidates(item)
+  const providerLikeRole = roleCandidates.some((roleValue) => {
+    const roleKey = normalizeToken(roleValue)
+    return roleKey.includes('provider') || roleKey.includes('proveedor') || roleKey.includes('operador')
+  })
+
+  const providerObjectPresent =
+    (item.provider && typeof item.provider === 'object') ||
+    (item.proveedor && typeof item.proveedor === 'object') ||
+    (item.ownedProvider && typeof item.ownedProvider === 'object') ||
+    (item.owned_provider && typeof item.owned_provider === 'object')
+
+  const hasProviderMarkers = Boolean(
+    item.provider_id ||
+    item.proveedor_id ||
+    item.company_name ||
+    item.commercial_name ||
+    item.trade_name ||
+    item.nombre_comercial ||
+    item.base_airport,
+  )
+
+  return providerLikeRole || providerObjectPresent || hasProviderMarkers
+}
+
+function providerCatalogKey(item = {}) {
+  const normalized = normalizeAdminProvider(item)
+  const companyKey = normalizeToken(normalized.commercial_name || normalized.company_name)
+  return normalized.id > 0 ? `id:${normalized.id}` : companyKey ? `name:${companyKey}` : ''
+}
+
+function mergeProviderCatalog(records = []) {
+  const catalog = new Map()
+
+  records
+    .filter(Boolean)
+    .filter((item) => isProviderRecord(item))
+    .map((item) => normalizeAdminProvider(item))
+    .filter((item) => item.id || item.commercial_name || item.company_name)
+    .forEach((item) => {
+      const key = providerCatalogKey(item)
+      if (!key) return
+
+      const current = catalog.get(key)
+      if (!current) {
+        catalog.set(key, item)
+        return
+      }
+
+      catalog.set(key, {
+        ...current,
+        ...item,
+        commercial_name:
+          item.commercial_name && item.commercial_name !== 'Proveedor' ? item.commercial_name : current.commercial_name,
+        company_name:
+          item.company_name && item.company_name !== 'Proveedor' ? item.company_name : current.company_name,
+        contact_name:
+          item.contact_name && item.contact_name !== 'Sin contacto' ? item.contact_name : current.contact_name,
+        base_airport:
+          item.base_airport && item.base_airport !== 'Base pendiente' ? item.base_airport : current.base_airport,
+      })
+    })
+
+  return [...catalog.values()]
+}
+
+function deriveProvidersFromAircraft(records = []) {
+  const catalog = new Map()
+
+  records.forEach((item) => {
+    const embeddedProvider = item?.provider && typeof item.provider === 'object' ? item.provider : null
+    const fallbackId = item?.provider_id || item?.proveedor_id || embeddedProvider?.id || 0
+    const normalized = normalizeAdminProvider({
+      ...(embeddedProvider || {}),
+      id: fallbackId,
+      company_name:
+        embeddedProvider?.company_name ||
+        item?.provider_company_name ||
+        item?.provider_name ||
+        item?.provider_display_name,
+      commercial_name:
+        embeddedProvider?.commercial_name ||
+        embeddedProvider?.display_name ||
+        item?.provider_display_name ||
+        item?.provider_name ||
+        item?.provider_company_name,
+      base_airport: embeddedProvider?.base_airport || item?.base_airport || item?.base,
+      status: embeddedProvider?.status || embeddedProvider?.approval_status || 'active',
+    })
+
+    if (!normalized.id && !normalized.commercial_name && !normalized.company_name) return
+
+    const key = normalized.id || normalized.commercial_name || normalized.company_name
+    if (!catalog.has(key)) {
+      catalog.set(key, normalized)
+    }
+  })
+
+  return [...catalog.values()]
+}
+
 function resolveRoleCandidates(item = {}) {
   const directRoles = Array.isArray(item.roles)
     ? item.roles.map((role) => role?.code || role?.key || role?.name || role).filter(Boolean)
@@ -1039,6 +1196,21 @@ async function loadUsers() {
   }
 }
 
+async function loadClients() {
+  try {
+    const response = await requestWithCandidates([
+      { method: 'get', path: '/admin/clientes', timeoutMs: ADMIN_USERS_TIMEOUT_MS },
+      { method: 'get', path: '/admin/users', timeoutMs: ADMIN_USERS_TIMEOUT_MS },
+    ])
+    const collection = pickCollection(response, ['clients', 'clientes', 'users', 'usuarios'])
+    rawSectionRecords.clientes = collection
+    clients.value = collection
+  } catch {
+    rawSectionRecords.clientes = []
+    clients.value = []
+  }
+}
+
 async function loadFlags() {
   try {
     const response = await api.get('/admin/anti-broker-flags')
@@ -1053,7 +1225,10 @@ async function loadFlags() {
 
 async function loadAircraft() {
   try {
-    const response = await requestWithCandidates([{ method: 'get', path: '/admin/fleet/aircraft' }])
+    const response = await requestWithCandidates([
+      { method: 'get', path: '/admin/fleet/aircraft' },
+      { method: 'get', path: '/admin/aeronaves' },
+    ])
     const collection = pickCollection(response, ['aircraft'])
     rawSectionRecords.aeronaves = collection
     aircraft.value = collection.map(normalizeAdminAircraft)
@@ -1077,13 +1252,24 @@ async function loadSubscriptions() {
 
 async function loadProviders() {
   try {
-    const response = await requestWithCandidates([{ method: 'get', path: '/admin/operators' }])
-    const collection = pickCollection(response, ['operators', 'proveedores'])
+    const response = await requestWithCandidates([
+      { method: 'get', path: '/admin/operators' },
+      { method: 'get', path: '/admin/providers' },
+      { method: 'get', path: '/admin/proveedores' },
+    ])
+    const collection = pickCollection(response, ['operators', 'proveedores', 'providers'])
     rawSectionRecords.proveedores = collection
-    providers.value = collection
+    providers.value = mergeProviderCatalog(collection)
   } catch {
-    rawSectionRecords.proveedores = []
-    providers.value = []
+    const fallbackProviders = deriveProvidersFromAircraft(aircraft.value)
+    rawSectionRecords.proveedores = fallbackProviders
+    providers.value = fallbackProviders
+  }
+
+  if (!providers.value.length && aircraft.value.length) {
+    const fallbackProviders = deriveProvidersFromAircraft(aircraft.value)
+    rawSectionRecords.proveedores = fallbackProviders
+    providers.value = fallbackProviders
   }
 }
 
@@ -1124,60 +1310,6 @@ async function loadCrewMembers(options = {}) {
     await crewMembersRequestPromise
   } finally {
     crewMembersRequestPromise = null
-  }
-}
-
-async function loadCrewAvailability(options = {}) {
-  const timeoutMs = options.timeoutMs || ADMIN_CREW_TIMEOUT_MS
-  const from = options.from || new Date().toISOString().slice(0, 10)
-  const to = options.to || new Date(Date.now() + 6 * 86400000).toISOString().slice(0, 10)
-
-  try {
-    const response = await requestWithCandidates([
-      {
-        method: 'get',
-        path: '/admin/sobrecargos/disponibilidad',
-        query: { from, to },
-        timeoutMs,
-      },
-    ])
-
-    const records = pickCollection(response, ['crew_members', 'sobrecargos', 'crew', 'users', 'data'])
-    crewAvailabilityStatuses.value = pickCollection(response, ['statuses', 'estatuses', 'data'])
-    rawSectionRecords.disponibilidad = records
-    const normalizedRecords = records.map(normalizeAdminCrewMember).filter(Boolean)
-    if (normalizedRecords.length) {
-      crewMembers.value = normalizedRecords
-    } else {
-      await loadCrewMembers({
-        timeoutMs,
-        allowUsersFallback: true,
-      })
-      rawSectionRecords.disponibilidad = rawSectionRecords.sobrecargos || []
-    }
-    adminCrewAvailabilityWarningShown.value = false
-    markCrewRefresh()
-  } catch (error) {
-    if (isTimeoutLikeError(error)) {
-      await loadCrewMembers({
-        timeoutMs,
-        allowUsersFallback: true,
-      })
-      rawSectionRecords.disponibilidad = crewMembers.value.length ? rawSectionRecords.sobrecargos || [] : rawSectionRecords.disponibilidad || []
-      crewAvailabilityStatuses.value = crewAvailabilityStatuses.value.length ? crewAvailabilityStatuses.value : []
-      if (!adminCrewAvailabilityWarningShown.value) {
-        adminCrewAvailabilityWarningShown.value = true
-        ui.pushToast({
-          tone: 'warning',
-          title: 'Disponibilidad sin respuesta',
-          message:
-            'El backend de disponibilidad tardó demasiado. Conservamos la vista actual mientras vuelve a responder.',
-        })
-      }
-      return
-    }
-
-    throw error
   }
 }
 
@@ -1341,13 +1473,19 @@ async function loadPortalSection(section) {
     return
   }
 
+  if (section === 'clientes') {
+    await loadClients()
+    return
+  }
+
   if (section === 'alertas') {
     await loadFlags()
     return
   }
 
   if (section === 'proveedores') {
-    await Promise.all([loadAircraft(), loadProviders()])
+    await loadAircraft()
+    await loadProviders()
     return
   }
 
@@ -1596,11 +1734,24 @@ function auditCrew({ member, note }) {
   })
 }
 
-async function assignCrewToOperation({ operationId, crewId, note }) {
-  const operation = operations.value.find((item) => item.id === operationId)
-  const member = crewMembers.value.find((item) => item.id === crewId)
+async function assignCrewToOperation({
+  operationId,
+  crewId,
+  note,
+  presentationTime,
+  presentationPlace,
+  presentationPlaceType,
+  presentationPlaceDetail,
+  onSuccess,
+  onError,
+}) {
+  const normalizedOperationId = Number(operationId || 0)
+  const normalizedCrewId = Number(crewId || 0)
+  const operation = operations.value.find((item) => Number(item.id || 0) === normalizedOperationId)
+  const member = crewMembers.value.find((item) => Number(item.id || 0) === normalizedCrewId)
 
   if (!operation || !member) {
+    onError?.({ message: 'Selecciona una operacion y un sobrecargo valido antes de asignar.' })
     ui.pushToast({
       tone: 'error',
       title: 'Asignacion incompleta',
@@ -1615,6 +1766,7 @@ async function assignCrewToOperation({ operationId, crewId, note }) {
     normalizedOperationStatus.includes('finaliz') ||
     normalizedOperationStatus.includes('cerrad')
   ) {
+    onError?.({ message: 'La operacion ya esta cerrada, cancelada o finalizada.' })
     ui.pushToast({
       tone: 'warning',
       title: 'Operacion no asignable',
@@ -1625,6 +1777,7 @@ async function assignCrewToOperation({ operationId, crewId, note }) {
 
   const currentWorkflowId = resolveWorkflowState(operation.workflowStatus || operation.status || '').id
   if (currentWorkflowId !== 'tracking_live') {
+    onError?.({ message: 'La seccion de asignar sobrecargo se habilita cuando la operacion entra a tracking en vivo.' })
     ui.pushToast({
       tone: 'warning',
       title: 'Asignacion bloqueada',
@@ -1637,7 +1790,7 @@ async function assignCrewToOperation({ operationId, crewId, note }) {
   const normalizedCrewProfileStatus = normalizeToken(member.profileState || member.validationState || '')
   const memberAssignedToCurrentOperation = operations.value.some(
     (item) =>
-      Number(item.id || 0) === Number(operationId) &&
+      Number(item.id || 0) === normalizedOperationId &&
       Number(item.crewId || 0) === Number(member.id || 0),
   )
 
@@ -1647,6 +1800,7 @@ async function assignCrewToOperation({ operationId, crewId, note }) {
     normalizedCrewProfileStatus.includes('suspend')
 
   if (crewHasBlockedValidationState) {
+    onError?.({ message: `${member.name} todavia no cuenta con validacion operativa para asignarse.` })
     ui.pushToast({
       tone: 'warning',
       title: 'Sobrecargo no elegible',
@@ -1659,6 +1813,7 @@ async function assignCrewToOperation({ operationId, crewId, note }) {
     !['disponible', 'active', 'activo', 'assigned', 'asignado'].includes(normalizedCrewStatus) &&
     !memberAssignedToCurrentOperation
   ) {
+    onError?.({ message: `${member.name} no esta disponible para una nueva asignacion.` })
     ui.pushToast({
       tone: 'warning',
       title: 'Sobrecargo no disponible',
@@ -1669,7 +1824,7 @@ async function assignCrewToOperation({ operationId, crewId, note }) {
 
   const duplicateAssignment = operations.value.find(
     (item) =>
-      Number(item.id || 0) !== Number(operationId) &&
+      Number(item.id || 0) !== normalizedOperationId &&
       Number(item.crewId || 0) === Number(member.id || 0) &&
       !['cancelada', 'finalizada', 'cerrada'].some((token) =>
         normalizeToken(item.workflowStatus || item.status || '').includes(token),
@@ -1677,6 +1832,7 @@ async function assignCrewToOperation({ operationId, crewId, note }) {
   )
 
   if (duplicateAssignment) {
+    onError?.({ message: `${member.name} ya tiene una operacion activa ligada al folio ${duplicateAssignment.folio || `RA-${duplicateAssignment.id}`}.` })
     ui.pushToast({
       tone: 'error',
       title: 'Asignacion duplicada',
@@ -1687,6 +1843,7 @@ async function assignCrewToOperation({ operationId, crewId, note }) {
 
   const operationRange = extractOperationRange(operation)
   if (!operationRange.from) {
+    onError?.({ message: 'No pudimos identificar el rango operativo del vuelo para asignar.' })
     ui.pushToast({
       tone: 'error',
       title: 'Operacion sin fechas',
@@ -1695,6 +1852,15 @@ async function assignCrewToOperation({ operationId, crewId, note }) {
     return
   }
 
+  const nextPresentationTime = String(presentationTime || operation.briefingTime || '').trim()
+  const nextPresentationPlace = String(
+    presentationPlace ||
+      operation.presentationPlace ||
+      operation.origin ||
+      [presentationPlaceType, presentationPlaceDetail].filter(Boolean).join(' · '),
+  ).trim()
+  const nextOperationalNote = String(note || '').trim()
+
   const payload = {
     provider_id: operation.providerId || undefined,
     aircraft_id: operation.aircraftId || undefined,
@@ -1702,61 +1868,14 @@ async function assignCrewToOperation({ operationId, crewId, note }) {
     crew_id: member.id,
     sobrecargo_id: member.id,
     crew_name: member.name,
-    note: note || '',
-    briefing_time: operation.briefingTime || undefined,
-    presentation_place: operation.presentationPlace || operation.origin || undefined,
+    note: nextOperationalNote || undefined,
+    briefing_time: nextPresentationTime || undefined,
+    presentation_time: nextPresentationTime || undefined,
+    presentation_place: nextPresentationPlace || undefined,
+    presentation_location: nextPresentationPlace || undefined,
   }
 
   let dedicatedAssignmentResponse = null
-  let usedAvailabilityFallback = false
-
-  try {
-    dedicatedAssignmentResponse = await requestWithCandidates([
-      {
-        method: 'post',
-        path: '/admin/sobrecargos/asignar-vuelo',
-        body: {
-          vuelo_id: operation.raw?.operation?.id || operation.id,
-          operacion_id: operation.raw?.operation?.id || operation.id,
-          sobrecargo_id: member.id,
-          sobrecargo_user_id: member.id,
-        },
-      },
-    ])
-  } catch (error) {
-    if (!shouldFallbackAssignmentRoute(error)) {
-      ui.pushToast({
-        tone: 'error',
-        title: 'Asignacion rechazada',
-        message: error?.message || 'El backend no permitio asignar la sobrecargo a este vuelo.',
-      })
-      return
-    }
-
-    try {
-      await saveAvailabilityRange({
-        scope: 'admin',
-        crewId: member.id,
-        from: operationRange.from,
-        to: operationRange.to,
-        statusKey: 'EN_OPERACION',
-        comment: `Asignacion automatica al vuelo ${operation.folio || `RA-${operation.id}`}`,
-        reason: 'En operacion',
-        base: member.base || '',
-        audit: true,
-      })
-      usedAvailabilityFallback = true
-    } catch (availabilityError) {
-      ui.pushToast({
-        tone: 'error',
-        title: 'Disponibilidad no sincronizada',
-        message:
-          availabilityError?.message ||
-          'No fue posible registrar el rango del vuelo como disponibilidad En operacion.',
-      })
-      return
-    }
-  }
 
   const persistentAssignmentPatch = {
     sobrecargo_user_id: member.id,
@@ -1765,40 +1884,36 @@ async function assignCrewToOperation({ operationId, crewId, note }) {
     crew_member_id: member.id,
     crew_name: member.name,
     crew_status: 'pending_crew_response',
-    briefing_time: operation.briefingTime || undefined,
-    presentation_time: operation.briefingTime || undefined,
-    presentation_place: operation.presentationPlace || operation.origin || undefined,
-    presentation_location: operation.presentationPlace || operation.origin || undefined,
-    notes: note ? `${operation.notes || ''} · ${note}`.replace(/^ · /, '') : operation.notes,
+    briefing_time: nextPresentationTime || undefined,
+    presentation_time: nextPresentationTime || undefined,
+    presentation_place: nextPresentationPlace || undefined,
+    presentation_location: nextPresentationPlace || undefined,
+    notes: nextOperationalNote ? `${operation.notes || ''} · ${nextOperationalNote}`.replace(/^ · /, '') : operation.notes,
   }
 
   try {
-    await requestWithCandidates([
+    dedicatedAssignmentResponse = await requestWithCandidates([
       { method: 'post', path: `/admin/requests/${operation.requestId || operationId}/assign`, body: payload },
     ])
-  } catch {
-    // Fall back to local synchronization until every backend route is available.
-  }
-
-  let persistentReservation = null
-
-  try {
-    persistentReservation = await persistAdminReservationPatch(
-      operation,
-      persistentAssignmentPatch,
-      { timeoutMs: ADMIN_FLOW_UPDATE_TIMEOUT_MS },
-    )
-    updateReservationLocalState(operation.id, persistentReservation)
-  } catch {
-    updateReservationLocalState(operation.id, {
-      crew: member.name,
-      crewId: member.id,
-      crewOperationalState: 'pending_crew_response',
-      briefingTime: operation.briefingTime || '',
-      presentationPlace: operation.presentationPlace || operation.origin || '',
-      notes: persistentAssignmentPatch.notes,
+  } catch (error) {
+    onError?.({ message: error?.message || 'El backend no permitio asignar la sobrecargo a este vuelo.' })
+    ui.pushToast({
+      tone: 'error',
+      title: 'Asignacion rechazada',
+      message: error?.message || 'El backend no permitio asignar la sobrecargo a este vuelo.',
     })
+    return
   }
+
+  const persistentReservation = null
+  updateReservationLocalState(operation.id, {
+    crew: member.name,
+    crewId: member.id,
+    crewOperationalState: 'pending_crew_response',
+    briefingTime: nextPresentationTime || '',
+    presentationPlace: nextPresentationPlace || '',
+    notes: persistentAssignmentPatch.notes,
+  })
 
   const promotedWorkflowStage = ''
   const visibleWorkflowStage = currentWorkflowId === 'tracking_live' ? 'tracking_live' : promotedWorkflowStage
@@ -1808,7 +1923,7 @@ async function assignCrewToOperation({ operationId, crewId, note }) {
       const updatedReservation = await updateAdminReservationStage(
         operation,
         promotedWorkflowStage,
-        note || `Sobrecargo asignado: ${member.name}`,
+        nextOperationalNote || `Sobrecargo asignado: ${member.name}`,
         { timeoutMs: ADMIN_FLOW_UPDATE_TIMEOUT_MS },
       )
       updateReservationLocalState(operation.id, updatedReservation)
@@ -1830,7 +1945,7 @@ async function assignCrewToOperation({ operationId, crewId, note }) {
   }
 
   operations.value = operations.value.map((item) =>
-    item.id === operationId
+    Number(item.id || 0) === normalizedOperationId
       ? {
           ...item,
           ...(persistentReservation || {}),
@@ -1840,9 +1955,11 @@ async function assignCrewToOperation({ operationId, crewId, note }) {
             persistentReservation?.crewOperationalState ||
             dedicatedAssignmentResponse?.crew_status ||
             'en_operacion',
+          briefingTime: nextPresentationTime || item.briefingTime,
+          presentationPlace: nextPresentationPlace || item.presentationPlace || item.origin || '',
           status: visibleWorkflowStage || item.status,
           workflowStatus: visibleWorkflowStage || item.workflowStatus,
-          notes: note ? `${item.notes} · ${note}` : item.notes,
+          notes: nextOperationalNote ? `${item.notes || ''} · ${nextOperationalNote}`.replace(/^ · /, '') : item.notes,
         }
       : item,
   )
@@ -1855,15 +1972,23 @@ async function assignCrewToOperation({ operationId, crewId, note }) {
 
   pushAuditEntry(
     `Asignacion confirmada: ${member.name}`,
-    `Operacion #${operationId} asignada a ${member.name}. Rango ${operationRange.from}${operationRange.to !== operationRange.from ? ` a ${operationRange.to}` : ''} marcado como En operacion.${note ? ` ${note}` : ''}`,
+    `Operacion #${operationId} asignada a ${member.name}. Rango ${operationRange.from}${operationRange.to !== operationRange.from ? ` a ${operationRange.to}` : ''} marcado como En operacion.${nextOperationalNote ? ` ${nextOperationalNote}` : ''}`,
   )
-  ui.pushToast({
-    tone: 'success',
+  const successMessage = promotedWorkflowStage
+    ? `${member.name} ya quedo ligada a la operacion #${operationId}, y su disponibilidad operativa se actualizo.`
+    : `${member.name} ya quedo ligada a la operacion #${operationId}.`
+  onSuccess?.({
     title: 'Sobrecargo asignado',
-    message: promotedWorkflowStage
-      ? `${member.name} ya quedo ligado a la operacion #${operationId}, y su disponibilidad operativa se actualizo.`
-      : `${member.name} ya quedo ligado a la operacion #${operationId}${usedAvailabilityFallback ? ' y se marco En operacion en disponibilidad.' : '.'}`,
+    message: successMessage,
   })
+
+  if (!onSuccess) {
+    ui.pushToast({
+      tone: 'success',
+      title: 'Sobrecargo asignado',
+      message: successMessage,
+    })
+  }
 }
 
 async function refreshNetworkState(title, message) {
@@ -2166,6 +2291,15 @@ watch(
   />
   <AdminImportsSection v-else-if="section === 'importaciones'" />
   <AdminUsersSection v-else-if="section === 'usuarios'" :users="users" @audit-user="auditUser" />
+  <AdminUsersSection
+    v-else-if="section === 'clientes'"
+    :users="clientUsers"
+    scope="client"
+    title="Clientes"
+    subtitle="Visualiza registros nuevos, prueba gratuita consumida y pagos activos desde una sola tabla."
+    :hide-role-panel="true"
+    @audit-user="auditUser"
+  />
   <AdminAlertsSection v-else-if="section === 'alertas'" :flags="flags" />
   <AdminProvidersNetworkSection
     v-else-if="section === 'proveedores'"

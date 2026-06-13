@@ -75,10 +75,10 @@ const REQUESTS_ROUTE_CANDIDATES = [
 ]
 
 const AIRCRAFT_LIST_ROUTE_CANDIDATES = [
-  '/operator/aircraft',
-  '/operator/my-aircraft',
   '/proveedor/mis-aeronaves',
   '/proveedor/aeronaves',
+  '/operator/aircraft',
+  '/operator/my-aircraft',
 ]
 
 const AIRCRAFT_DETAIL_ROUTE_TEMPLATES = [
@@ -256,6 +256,11 @@ const documentPreview = reactive({
   url: '',
 })
 
+const incidentDetailModal = reactive({
+  open: false,
+  incident: null,
+})
+
 const availabilityForm = reactive({
   aircraftId: null,
   from: '',
@@ -272,6 +277,7 @@ const incidentForm = reactive({
   priority: 'Media',
   responsible: '',
   evidence: '',
+  files: [],
   comment: '',
   actionTaken: '',
 })
@@ -455,6 +461,10 @@ const maxImageDocumentBytes = 8 * 1024 * 1024
 
 const maxPdfDocumentBytes = 25 * 1024 * 1024
 
+const maxIncidentEvidenceFiles = 5
+
+const maxIncidentEvidenceTotalBytes = 25 * 1024 * 1024
+
 const providerId = computed(() =>
   Number(auth.providerId || resolveProviderIdForUser(auth.user) || 0),
 )
@@ -487,6 +497,77 @@ const openIncidents = computed(
 const paymentsPending = computed(
   () => payments.value.filter((item) => item.status === 'Pendiente').length,
 )
+
+const providerOpenIncidents = computed(() =>
+  incidents.value.filter((item) => !['Resuelta', 'Cerrada'].includes(item.status)),
+)
+
+const isIncidentsSectionLoading = computed(
+  () => props.section === 'incidencias' && loading.value && !sectionLoadState.incidencias,
+)
+
+const providerPendingRequestRecords = computed(() =>
+  requests.value.filter((item) => getRequestStatusMeta(item).queue === 'new'),
+)
+
+const providerUpcomingOperations = computed(() =>
+  [...operations.value]
+    .filter((item) => !['Finalizada', 'Cancelada'].includes(item.status))
+    .sort((left, right) => {
+      const leftDate = parseOperationalDate(left.departure) || parseOperationalDate(left.arrival)
+      const rightDate = parseOperationalDate(right.departure) || parseOperationalDate(right.arrival)
+
+      if (leftDate && rightDate) return leftDate.getTime() - rightDate.getTime()
+      if (leftDate) return -1
+      if (rightDate) return 1
+      return Number(left.id || 0) - Number(right.id || 0)
+    })
+    .slice(0, 4),
+)
+
+const providerNextOperation = computed(() => providerUpcomingOperations.value[0] || null)
+
+const providerIncidentOperationOptions = computed(() =>
+  operations.value.map((item) => ({
+    id: String(item.id || ''),
+    requestId: String(item.requestId || ''),
+    route: item.route || item.flight || '',
+    label: `${item.route || item.flight || `Operacion #${item.id}`} · ${item.status || 'Pendiente'}`,
+  })),
+)
+
+const providerOperationalSummary = computed(() => {
+  const nextPendingRequest = providerPendingRequestRecords.value[0] || null
+
+  return [
+    {
+      label: 'Aeronaves activas',
+      value: String(activeAircraft.value),
+      detail: `${aircraft.value.length} registradas en el portal proveedor.`,
+    },
+    {
+      label: 'Solicitudes pendientes',
+      value: String(pendingRequests.value),
+      detail: nextPendingRequest
+        ? getRequestRouteLabel(nextPendingRequest)
+        : 'Sin solicitudes nuevas por atender.',
+    },
+    {
+      label: 'Operaciones proximas',
+      value: String(providerUpcomingOperations.value.length),
+      detail: providerNextOperation.value
+        ? `${providerNextOperation.value.route} · ${formatDateTimeDisplay(providerNextOperation.value.departure)}`
+        : 'Sin operaciones confirmadas visibles.',
+    },
+    {
+      label: 'Incidencias abiertas',
+      value: String(providerOpenIncidents.value.length),
+      detail: providerOpenIncidents.value.length
+        ? 'Requieren respuesta operativa coordinada con Red Aviation.'
+        : 'No hay incidencias activas en seguimiento.',
+    },
+  ]
+})
 
 const aircraftOptions = computed(() =>
   aircraft.value.map((item) => ({
@@ -1090,6 +1171,10 @@ const availabilityReadyCount = computed(
       .length,
 )
 
+const providerAvailabilityUpdatesPending = computed(() =>
+  Math.max(activeAircraft.value - availabilityReadyCount.value, 0),
+)
+
 const availabilityImmediatePercent = computed(() =>
   aircraft.value.length
     ? Math.round((availabilityReadyCount.value / aircraft.value.length) * 100)
@@ -1155,6 +1240,102 @@ const availabilitySummaryCards = computed(() => [
     tone: 'warning',
   },
 ])
+
+const providerIncidentDashboardCards = computed(() => [
+  {
+    label: 'Aeronaves registradas',
+    value: String(aircraft.value.length),
+    detail: activeAircraft.value
+      ? `${activeAircraft.value} activas para publicar y operar.`
+      : 'Aun no hay flota activa en el portal.',
+  },
+  {
+    label: 'Disponibles hoy',
+    value: String(aircraftAvailableToday.value),
+    detail: `${availabilityReadyCount.value} listas para respuesta inmediata.`,
+  },
+  {
+    label: 'Solicitudes pendientes',
+    value: String(pendingRequests.value),
+    detail: providerPendingRequestRecords.value[0]
+      ? getRequestRouteLabel(providerPendingRequestRecords.value[0])
+      : 'Sin cola pendiente por confirmar.',
+  },
+  {
+    label: 'Incidencias abiertas',
+    value: String(providerOpenIncidents.value.length),
+    detail: providerOpenIncidents.value.length
+      ? 'Atencion operativa requerida.'
+      : 'Sin incidencias activas.',
+  },
+  {
+    label: 'Proxima operacion',
+    value: providerNextOperation.value?.route || 'Sin programar',
+    detail: providerNextOperation.value
+      ? formatDateTimeDisplay(providerNextOperation.value.departure)
+      : 'No hay salida inmediata registrada.',
+  },
+])
+
+const providerPendingActions = computed(() => {
+  const actions = []
+  const nextPendingRequest = providerPendingRequestRecords.value[0] || null
+  const nextOpenIncident = providerOpenIncidents.value[0] || null
+
+  if (!aircraft.value.length) {
+    actions.push({
+      title: 'Registrar aeronaves',
+      detail: 'Activa la flota para poder responder solicitudes.',
+      section: 'aeronaves',
+    })
+  }
+
+  if (!availability.value.length || providerAvailabilityUpdatesPending.value > 0) {
+    actions.push({
+      title: 'Actualizar disponibilidad de aeronaves',
+      detail: providerAvailabilityUpdatesPending.value
+        ? `${providerAvailabilityUpdatesPending.value} aeronave(s) requieren confirmacion operativa.`
+        : 'Configura bloques y ventanas disponibles para la flota.',
+      section: 'disponibilidad',
+    })
+  }
+
+  if (nextPendingRequest) {
+    actions.push({
+      title: `Confirmar solicitud ${getRequestRouteLabel(nextPendingRequest)}`,
+      detail: 'Revisa matching, tiempos y respuesta operativa.',
+      section: 'solicitudes',
+      requestId: String(nextPendingRequest.id || nextPendingRequest.requestId || ''),
+    })
+  }
+
+  if (nextOpenIncident) {
+    actions.push({
+      title: 'Responder incidencia abierta',
+      detail: `${nextOpenIncident.type} · ${nextOpenIncident.route || nextOpenIncident.flight}`,
+      section: 'incidencias',
+      incidentId: nextOpenIncident.id,
+    })
+  }
+
+  if (!company.legalName || !company.rfc || !company.reviewStatus) {
+    actions.push({
+      title: 'Completar datos de empresa',
+      detail: 'Mantiene la cuenta lista para revision y aprobacion.',
+      section: 'empresa',
+    })
+  }
+
+  if (aircraftDueDocuments.value > 0) {
+    actions.push({
+      title: 'Revisar documentos por vencer',
+      detail: `${aircraftDueDocuments.value} documento(s) vencen dentro de 30 dias.`,
+      section: 'aeronaves',
+    })
+  }
+
+  return actions.slice(0, 4)
+})
 
 const availabilityFormSteps = computed(() => [
   { id: 1, label: 'Aeronave', complete: Boolean(availabilityForm.aircraftId) },
@@ -2706,6 +2887,28 @@ function normalizeCompanyDocument(raw = {}, index = 0) {
   }
 }
 
+const minimumAircraftYear = 1900
+const maximumAircraftYear = new Date().getFullYear() + 1
+
+function normalizeAircraftYear(value) {
+  const rawValue = String(value ?? '').trim()
+  if (!/^\d{4}$/.test(rawValue)) return ''
+
+  const year = Number(rawValue)
+  if (year < minimumAircraftYear || year > maximumAircraftYear) return ''
+
+  return String(year)
+}
+
+function resolveAircraftYearNumber(value) {
+  const normalizedYear = normalizeAircraftYear(value)
+  return normalizedYear ? Number(normalizedYear) : null
+}
+
+function aircraftYearValidationMessage() {
+  return `Ingresa un ano valido entre ${minimumAircraftYear} y ${maximumAircraftYear}.`
+}
+
 function normalizeAircraft(raw = {}, index = 0) {
   const statusRaw = String(raw.status || raw.aircraft_status || 'draft').toLowerCase()
   const statusMap = {
@@ -2756,7 +2959,7 @@ function normalizeAircraft(raw = {}, index = 0) {
       }),
     engineClass: raw.engine_class || raw.engineClass || raw.motor_clase || '',
     registration: raw.registration || raw.matricula || '',
-    year: raw.year || raw.model_year || '',
+    year: normalizeAircraftYear(raw.year || raw.model_year || raw.ano || raw.anio),
     capacity: Number(raw.capacity || raw.passenger_capacity || 0),
     rangeKm: Number(raw.range_km || raw.rangeKm || 0),
     speedKmh: Number(raw.speed_kmh || raw.speedKmh || 0),
@@ -3175,7 +3378,112 @@ function findLinkedOperationForRequest(request = {}) {
   )
 }
 
+function normalizeIncidentFile(raw = {}, index = 0) {
+  return {
+    id: raw.id || index + 1,
+    name:
+      raw.original_name ||
+      raw.document_name ||
+      raw.file_name ||
+      raw.name ||
+      raw.file_path ||
+      `Evidencia ${index + 1}`,
+    // Solo aceptamos URLs reales devueltas por backend/AWS; no armamos rutas locales de Render.
+    fileUrl: normalizeMediaUrl(raw.file_url || raw.document_url || raw.url || ''),
+    fileType: raw.file_type || raw.mime_type || '',
+  }
+}
+
+function getIncidentEvidenceKind(file = {}) {
+  const mimeType = String(file?.fileType || '').toLowerCase()
+  const fileUrl = String(file?.fileUrl || '').toLowerCase()
+  const fileName = String(file?.name || '').toLowerCase()
+
+  if (mimeType.startsWith('image/')) return 'image'
+  if (mimeType === 'application/pdf' || fileName.endsWith('.pdf') || fileUrl.endsWith('.pdf')) return 'pdf'
+  if (/\.(png|jpg|jpeg|webp|gif|bmp|svg)(\?|$)/i.test(fileUrl || fileName)) return 'image'
+
+  return 'other'
+}
+
+function extractIncidentLabeledValue(text = '', label = '') {
+  const source = String(text || '')
+  const normalizedLabel = String(label || '').trim()
+  if (!source || !normalizedLabel) return ''
+
+  const escapedLabel = normalizedLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const match = source.match(new RegExp(`${escapedLabel}:\\s*([^|]+)`, 'i'))
+  return String(match?.[1] || '').trim()
+}
+
+function buildIncidentSourceText(raw = {}) {
+  return [
+    raw.title,
+    raw.type,
+    raw.category,
+    raw.comment,
+    raw.description,
+    raw.evidence,
+    raw.attachment,
+  ]
+    .filter(Boolean)
+    .join(' | ')
+}
+
+function resolveIncidentPhase(raw = {}) {
+  return (
+    raw.phase ||
+    raw.flight_phase ||
+    raw.operation_phase ||
+    extractIncidentLabeledValue(buildIncidentSourceText(raw), 'Fase') ||
+    'Por definir'
+  )
+}
+
+function resolveIncidentCategory(raw = {}) {
+  const embedded = extractIncidentLabeledValue(buildIncidentSourceText(raw), 'Categoria')
+  return normalizeIncidentType(embedded || raw.category || raw.type || raw.title)
+}
+
+function resolveIncidentSourceLabel(raw = {}) {
+  const embedded = extractIncidentLabeledValue(buildIncidentSourceText(raw), 'Origen')
+  if (embedded) return embedded
+  return normalizeIncidentSource(raw)
+}
+
+function resolveIncidentReporter(raw = {}) {
+  return (
+    raw.reported_by ||
+    raw.reported_by_name ||
+    raw.created_by_name ||
+    raw.user_name ||
+    raw.crew_name ||
+    raw.crew?.name ||
+    extractIncidentLabeledValue(buildIncidentSourceText(raw), 'Sobrecargo') ||
+    extractIncidentLabeledValue(buildIncidentSourceText(raw), 'Usuario que reporto') ||
+    ''
+  )
+}
+
+function resolveIncidentDescription(raw = {}) {
+  const explicit = String(raw.comment || raw.description || '').trim()
+  const embedded = extractIncidentLabeledValue(buildIncidentSourceText(raw), 'Descripcion')
+  const candidate = explicit || embedded
+  if (!candidate) return 'Sin descripcion visible.'
+  if (candidate.includes('|')) return embedded || 'Sin descripcion visible.'
+  return candidate
+}
+
+function buildIncidentFolio(raw = {}, normalizedId = 0, createdAt = '') {
+  const sourceYear = String(createdAt || '').slice(0, 4)
+  const year = /^\d{4}$/.test(sourceYear) ? sourceYear : String(new Date().getFullYear())
+  const numericId = Number(raw.folio_id || raw.incident_number || normalizedId || raw.id || 0)
+  const suffix = String(Math.max(numericId, 0)).padStart(5, '0')
+  return `INC-${year}-${suffix}`
+}
+
 function normalizeIncident(raw = {}, index = 0) {
+  const normalizedId = raw.id || index + 1
   const fallbackFlight =
     raw.flight ||
     raw.route ||
@@ -3184,30 +3492,45 @@ function normalizeIncident(raw = {}, index = 0) {
     (raw.crew_operation_id || raw.operation_id != null
       ? `Operacion #${raw.crew_operation_id || raw.operation_id}`
       : 'Sin vuelo')
+  const evidenceFiles = Array.isArray(raw.files)
+    ? raw.files.map((file, fileIndex) => normalizeIncidentFile(file, fileIndex))
+    : []
+  const evidenceLabel =
+    raw.evidence ||
+    raw.attachment ||
+    evidenceFiles.map((file) => file.name).filter(Boolean).join(', ') ||
+    'Pendiente'
+  const createdAt = raw.created_at || raw.reported_at || null
+  const sourceText = buildIncidentSourceText(raw)
 
   return {
-    id: raw.id || index + 1,
+    id: normalizedId,
     requestId: raw.request_id || raw.flight_request_id || raw.reservation_id || null,
-    type: normalizeIncidentType(raw.type || raw.category || raw.title),
+    type: normalizeIncidentType(raw.type || raw.category || raw.title, raw),
     flight: fallbackFlight,
     route: raw.route || raw.flight || raw.operation_route || raw.operation || fallbackFlight,
     status: normalizeIncidentStatus(raw.status || raw.state),
     priority: normalizeIncidentPriority(raw.priority),
-    evidence:
-      raw.evidence ||
-      raw.attachment ||
-      (Array.isArray(raw.files)
-        ? raw.files.map((file) => file.original_name || file.file_path).filter(Boolean).join(', ')
-        : '') ||
-      'Pendiente',
-    comment: raw.comment || raw.description || '',
+    phase: resolveIncidentPhase(raw),
+    category: resolveIncidentCategory(raw),
+    folio: buildIncidentFolio(raw, normalizedId, createdAt),
+    evidence: evidenceLabel,
+    evidenceFiles,
+    comment: resolveIncidentDescription(raw),
     responsible: raw.responsible || raw.assigned_to || raw.owner || 'Por asignar',
-    source: normalizeIncidentSource(raw),
-    crewName: raw.crew_name || raw.crew?.name || '',
+    source: resolveIncidentSourceLabel(raw),
+    crewName: raw.crew_name || raw.crew?.name || extractIncidentLabeledValue(sourceText, 'Sobrecargo') || '',
+    reporterName: resolveIncidentReporter(raw),
     providerId: raw.provider_id || raw.provider?.id || null,
-    providerName: raw.provider_name || raw.provider?.name || '',
+    providerName:
+      raw.provider_name ||
+      raw.provider?.name ||
+      extractIncidentLabeledValue(sourceText, 'Empresa') ||
+      '',
     operationId: raw.operation_id || raw.crew_operation_id || null,
-    createdAt: raw.created_at || raw.reported_at || null,
+    createdAt,
+    updatedAt: raw.updated_at || raw.modified_at || createdAt,
+    raw,
   }
 }
 
@@ -3217,6 +3540,8 @@ function normalizeIncidentStatus(value = '') {
   if (!normalized) return 'Abierta'
   if (['open', 'abierta'].includes(normalized)) return 'Abierta'
   if (['in_review', 'en revision', 'en revisión', 'review'].includes(normalized)) return 'En revision'
+  if (['answered', 'respondida', 'respondido'].includes(normalized)) return 'Respondida'
+  if (['escalated', 'escalada', 'escalado'].includes(normalized)) return 'Escalada'
   if (['resolved', 'resuelta'].includes(normalized)) return 'Resuelta'
   if (['closed', 'cerrada'].includes(normalized)) return 'Cerrada'
 
@@ -3249,13 +3574,98 @@ function normalizeIncidentType(value = '') {
   }
 
   if (!normalized) return 'Problema operativo'
+  const embeddedCategory = extractIncidentLabeledValue(value, 'Categoria')
+  if (embeddedCategory) {
+    const normalizedCategory = String(embeddedCategory).trim().toLowerCase()
+    return labels[normalizedCategory] || embeddedCategory
+  }
+
+  if (normalized.includes('|')) {
+    const compactSegment = String(value)
+      .split('|')[0]
+      .split('·')
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .find((item) => {
+        const candidate = item.toLowerCase()
+        return candidate && !candidate.includes('mmto') && !candidate.includes('mmmy')
+      })
+
+    if (compactSegment) return compactSegment
+  }
+
   return labels[normalized] || value
 }
 
 function normalizeIncidentSource(raw = {}) {
   if (raw.source) return raw.source
-  if (raw.crew_operation_id || raw.crew_id || raw.crew_name) return 'Sobrecargo'
+  if (raw.crew_operation_id || raw.crew_id || raw.crew_name) return 'Tripulacion / Sobrecargo'
   return 'Proveedor'
+}
+
+function validateIncidentEvidenceFile(file) {
+  const kind = getDocumentKind(file)
+
+  if (!['image', 'pdf'].includes(kind)) {
+    return `${file.name}: solo se permiten imagenes o PDF.`
+  }
+
+  if (kind === 'image' && file.size > maxImageDocumentBytes) {
+    return `${file.name}: la imagen supera ${formatFileSize(maxImageDocumentBytes)}.`
+  }
+
+  if (kind === 'pdf' && file.size > maxPdfDocumentBytes) {
+    return `${file.name}: el PDF supera ${formatFileSize(maxPdfDocumentBytes)}.`
+  }
+
+  return ''
+}
+
+function setIncidentEvidenceFiles(fileList) {
+  const incomingFiles = Array.from(fileList || []).filter((file) => file instanceof File)
+  const acceptedFiles = []
+  const errors = []
+  let totalBytes = 0
+
+  if (incomingFiles.length > maxIncidentEvidenceFiles) {
+    errors.push(`Maximo ${maxIncidentEvidenceFiles} archivos por incidencia.`)
+  }
+
+  incomingFiles.slice(0, maxIncidentEvidenceFiles).forEach((file) => {
+    const validationError = validateIncidentEvidenceFile(file)
+    if (validationError) {
+      errors.push(validationError)
+      return
+    }
+
+    if (totalBytes + file.size > maxIncidentEvidenceTotalBytes) {
+      errors.push(
+        `${file.name}: el total adjunto supera ${formatFileSize(maxIncidentEvidenceTotalBytes)}.`,
+      )
+      return
+    }
+
+    acceptedFiles.push(file)
+    totalBytes += file.size
+  })
+
+  incidentForm.files = acceptedFiles
+  incidentForm.evidence = acceptedFiles.map((file) => file.name).join(', ')
+  formErrors.incident.evidence = errors.join(' ')
+}
+
+function selectIncidentOperation(operationId = '') {
+  const selectedOperation =
+    operations.value.find((item) => String(item.id || '') === String(operationId || '')) || null
+
+  if (!selectedOperation) {
+    incidentForm.requestId = null
+    incidentForm.flight = ''
+    return
+  }
+
+  incidentForm.requestId = selectedOperation.requestId || null
+  incidentForm.flight = selectedOperation.route || selectedOperation.flight || ''
 }
 
 function normalizeComparableId(value) {
@@ -3352,28 +3762,68 @@ function isCrewIncidentForCurrentProvider(raw = {}) {
   return incidentOperationCandidates.some((value) => operationReferences.has(value))
 }
 
+function buildNormalizedIncidentDedupKey(incident = {}) {
+  return [
+    normalizeComparableId(incident.operationId || incident.requestId),
+    String(incident.category || incident.type || '').trim().toLowerCase(),
+    String(incident.priority || '').trim().toLowerCase(),
+    String(incident.route || incident.flight || '').trim().toLowerCase(),
+    String(incident.comment || '').trim().toLowerCase(),
+    String(incident.evidence || '').trim().toLowerCase(),
+  ]
+    .filter(Boolean)
+    .join('::')
+}
+
+function scoreNormalizedIncident(incident = {}) {
+  return [
+    incident.providerId,
+    incident.providerName,
+    incident.reporterName,
+    incident.crewName,
+    incident.evidenceFiles?.length,
+    incident.updatedAt,
+    incident.raw?.admin_response,
+  ].filter(Boolean).length
+}
+
 function mergeIncidentCollections(...collections) {
   const merged = []
-  const seenKeys = new Set()
+  const dedupedBySignature = new Map()
 
   collections.flat().forEach((raw) => {
     if (!raw || typeof raw !== 'object') return
 
-    const key =
-      normalizeComparableId(raw.id) ||
-      [
-        normalizeComparableId(raw.operation_id || raw.crew_operation_id),
-        normalizeComparableId(raw.request_id || raw.flight_request_id || raw.reservation_id),
-        String(raw.description || raw.comment || '').trim().toLowerCase(),
-        String(raw.created_at || raw.reported_at || '').trim(),
-      ]
-        .filter(Boolean)
-        .join('::')
+    const normalizedIncident = normalizeIncident(raw, merged.length)
+    const signature = buildNormalizedIncidentDedupKey(normalizedIncident)
+    const normalizedTime = Date.parse(normalizedIncident.createdAt || normalizedIncident.updatedAt || '') || 0
+    const existing = dedupedBySignature.get(signature)
 
-    if (key && seenKeys.has(key)) return
-    if (key) seenKeys.add(key)
+    if (existing) {
+      const existingTime = Date.parse(existing.createdAt || existing.updatedAt || '') || 0
+      const looksDuplicated =
+        signature &&
+        normalizedTime &&
+        existingTime &&
+        Math.abs(normalizedTime - existingTime) <= 120000
 
-    merged.push(normalizeIncident(raw, merged.length))
+      if (looksDuplicated) {
+        if (scoreNormalizedIncident(normalizedIncident) > scoreNormalizedIncident(existing)) {
+          const targetIndex = merged.findIndex((item) => item.id === existing.id)
+          if (targetIndex >= 0) {
+            merged.splice(targetIndex, 1, normalizedIncident)
+          }
+          dedupedBySignature.set(signature, normalizedIncident)
+        }
+        return
+      }
+    }
+
+    if (signature) {
+      dedupedBySignature.set(signature, normalizedIncident)
+    }
+
+    merged.push(normalizedIncident)
   })
 
   return merged.sort((left, right) => {
@@ -3386,11 +3836,11 @@ function mergeIncidentCollections(...collections) {
 
 async function fetchProviderIncidentCollection(timeoutMs) {
   const shouldLoadOperations = operations.value.length === 0
+  const shouldLoadAircraft = aircraft.value.length === 0
+  const shouldLoadRequests = requests.value.length === 0
+  const shouldLoadAvailability = availability.value.length === 0
 
-  const [providerPayload, crewPayload, operationsPayload] = await Promise.all([
-    fetchOptionalIncidentsPayload(() =>
-      requestWithCandidates([{ method: 'get', path: '/proveedor/incidencias', timeoutMs }]),
-    ),
+  const [crewPayload, operationsPayload, aircraftPayload, requestsPayload, availabilityPayload] = await Promise.all([
     fetchOptionalIncidentsPayload(() =>
       api.get('/crew-operation-incidents', {
         timeoutMs,
@@ -3399,6 +3849,17 @@ async function fetchProviderIncidentCollection(timeoutMs) {
     shouldLoadOperations
       ? fetchOptionalIncidentsPayload(() =>
           requestWithCandidates([{ method: 'get', path: '/proveedor/operaciones', timeoutMs }]),
+        )
+      : Promise.resolve(null),
+    shouldLoadAircraft
+      ? fetchOptionalIncidentsPayload(() => fetchAircraftListPayload(timeoutMs))
+      : Promise.resolve(null),
+    shouldLoadRequests
+      ? fetchOptionalIncidentsPayload(() => fetchRequestsPayload(timeoutMs))
+      : Promise.resolve(null),
+    shouldLoadAvailability
+      ? fetchOptionalIncidentsPayload(() =>
+          requestWithCandidates([{ method: 'get', path: '/proveedor/disponibilidad', timeoutMs }]),
         )
       : Promise.resolve(null),
   ])
@@ -3410,16 +3871,27 @@ async function fetchProviderIncidentCollection(timeoutMs) {
     }
   }
 
-  const providerIncidents = providerPayload
-    ? pickCollection(providerPayload, ['incidents', 'data', 'items'])
-    : []
+  if (aircraftPayload) {
+    applyAircraftResponse(aircraftPayload)
+  }
+
+  if (requestsPayload) {
+    applyRequestsResponse(requestsPayload)
+  }
+
+  if (availabilityPayload) {
+    applyAvailabilityResponse(availabilityPayload)
+  }
+
   const crewIncidents = crewPayload
     ? pickCollection(crewPayload, ['incidents', 'incidencias', 'data', 'items']).filter(
         isCrewIncidentForCurrentProvider,
       )
     : []
 
-  return mergeIncidentCollections(providerIncidents, crewIncidents)
+  // Esta vista debe reflejar solo incidencias persistidas en la BD operativa
+  // que consume Admin, sin mezclar colecciones auxiliares del portal proveedor.
+  return mergeIncidentCollections(crewIncidents)
 }
 
 function normalizePayment(raw = {}, index = 0) {
@@ -3782,7 +4254,7 @@ function startEditingAircraft(item) {
       }),
     engineClass: item.engineClass || item.engine_class || item.motor_clase || categoryRule?.engineClass || '',
     registration: uppercaseText(item.registration),
-    year: item.year || '',
+    year: normalizeAircraftYear(item.year),
     capacity: item.capacity || 1,
     speedKnots: item.speedKnots || '',
     amenities: uppercaseText(item.amenities),
@@ -5558,6 +6030,12 @@ async function createAircraft() {
     )
   }
 
+  const aircraftYear = resolveAircraftYearNumber(aircraftForm.year)
+  if (aircraftYear == null) {
+    setFormErrors('aircraft', { year: aircraftYearValidationMessage() })
+    return showError('Ano invalido', aircraftYearValidationMessage())
+  }
+
   const payload = {
     provider_id: providerId.value || undefined,
     model: aircraftForm.name,
@@ -5572,7 +6050,7 @@ async function createAircraft() {
     engine_class: aircraftForm.engineClass,
     motor_clase: aircraftForm.engineClass,
     registration: nullableText(aircraftForm.registration),
-    year: Number(aircraftForm.year || 0),
+    year: aircraftYear,
     capacity: Number(aircraftForm.capacity || 1),
     speed_kmh: knotsToKmh(aircraftForm.speedKnots),
     amenities: aircraftForm.amenities
@@ -5598,8 +6076,8 @@ async function createAircraft() {
 
   try {
     const response = await requestWithCandidates([
-      { method: 'post', path: '/operator/aircraft', body: payload },
       { method: 'post', path: '/proveedor/aeronaves', body: payload },
+      { method: 'post', path: '/operator/aircraft', body: payload },
     ])
 
     const record = pickRecord(response, ['aircraft', 'data'])
@@ -5905,6 +6383,12 @@ async function saveAircraftEdits(id) {
     )
   }
 
+  const aircraftYear = resolveAircraftYearNumber(aircraftForm.year)
+  if (aircraftYear == null) {
+    setFormErrors('aircraft', { year: aircraftYearValidationMessage() })
+    return showError('Ano invalido', aircraftYearValidationMessage())
+  }
+
   const payload = {
     model: aircraftForm.name,
     manufacturer: aircraftForm.manufacturer,
@@ -5918,7 +6402,7 @@ async function saveAircraftEdits(id) {
     engine_class: aircraftForm.engineClass,
     motor_clase: aircraftForm.engineClass,
     registration: nullableText(aircraftForm.registration),
-    year: Number(aircraftForm.year || 0),
+    year: aircraftYear,
     capacity: Number(aircraftForm.capacity || 1),
     speed_kmh: knotsToKmh(aircraftForm.speedKnots),
     amenities: aircraftForm.amenities
@@ -6948,6 +7432,14 @@ async function assignCrewToOperation(operationId) {
 
 async function createIncident() {
   clearFormFeedback('incident')
+
+  if (formErrors.incident.evidence) {
+    return showError(
+      'Evidencia invalida',
+      'Ajusta los archivos adjuntos antes de enviar la incidencia al backend en AWS.',
+    )
+  }
+
   if (!incidentForm.flight || !incidentForm.comment) {
     setFormErrors('incident', {
       ...(!incidentForm.flight ? { flight: 'Captura el vuelo.' } : {}),
@@ -6978,24 +7470,37 @@ async function createIncident() {
     )
   }
 
-  const payload = {
-    operation_id: linkedOperation.id,
-    type: incidentForm.type,
-    flight: incidentForm.flight,
-    status: incidentForm.status,
-    priority: incidentForm.priority,
-    responsible: incidentForm.responsible || undefined,
-    evidence: incidentForm.evidence,
-    comment: incidentForm.comment,
-    action_taken: incidentForm.actionTaken || undefined,
-  }
+  const formData = new FormData()
+  formData.append('operation_id', linkedOperation.id)
+  formData.append('type', incidentForm.type)
+  formData.append('flight', incidentForm.flight)
+  formData.append('status', incidentForm.status)
+  formData.append('priority', incidentForm.priority)
+  if (incidentForm.responsible) formData.append('responsible', incidentForm.responsible)
+  if (incidentForm.evidence) formData.append('evidence', incidentForm.evidence)
+  formData.append('comment', incidentForm.comment)
+  if (incidentForm.actionTaken) formData.append('action_taken', incidentForm.actionTaken)
+  ;(incidentForm.files || []).forEach((file) => {
+    if (file instanceof File) {
+      formData.append('files[]', file)
+    }
+  })
 
   try {
     const incidentFlight = incidentForm.flight
     const response = await requestWithCandidates([
-      { method: 'post', path: '/proveedor/incidencias', body: payload },
+      { method: 'postForm', path: '/proveedor/incidencias', formData },
     ])
-    incidents.value.unshift(normalizeIncident(pickRecord(response, ['incident', 'data'])))
+    const createdIncident = pickRecord(response, ['incident', 'data'])
+    if ((!Array.isArray(createdIncident?.files) || !createdIncident.files.length) && incidentForm.files.length) {
+      createdIncident.files = incidentForm.files.map((file, index) => ({
+        id: `local-${Date.now()}-${index}`,
+        original_name: file.name,
+        file_name: file.name,
+        mime_type: file.type || '',
+      }))
+    }
+    incidents.value.unshift(normalizeIncident(createdIncident))
     Object.assign(incidentForm, {
       requestId: null,
       type: 'Problema operativo',
@@ -7004,6 +7509,7 @@ async function createIncident() {
       priority: 'Media',
       responsible: '',
       evidence: '',
+      files: [],
       comment: '',
       actionTaken: '',
     })
@@ -7027,6 +7533,7 @@ async function createIncident() {
         priority: 'priority',
         responsible: 'responsible',
         evidence: 'evidence',
+        files: 'evidence',
         comment: 'comment',
         description: 'comment',
         action_taken: 'actionTaken',
@@ -7051,6 +7558,86 @@ async function updateIncidentStatus(id, status) {
 
   incidents.value = incidents.value.map((item) => (item.id === id ? { ...item, status } : item))
   pushHistory('Incidencias', `Incidencia #${id} movida a ${status}`)
+}
+
+async function respondToIncident(incident) {
+  if (!incident || isIncidentResolved(incident.status)) return
+  await updateIncidentStatus(incident.id, 'En revision')
+}
+
+function viewIncidentDetail(incident) {
+  if (!incident) return
+  incidentDetailModal.incident = incident
+  incidentDetailModal.open = true
+}
+
+function closeIncidentDetail() {
+  incidentDetailModal.open = false
+  incidentDetailModal.incident = null
+}
+
+async function markIncidentInReview(incident) {
+  if (!incident) return
+  await updateIncidentStatus(incident.id, 'En revision')
+  if (incidentDetailModal.incident?.id === incident.id) {
+    incidentDetailModal.incident = {
+      ...incidentDetailModal.incident,
+      status: 'En revision',
+    }
+  }
+}
+
+function buildIncidentTimeline(incident = {}) {
+  if (!incident) return []
+
+  const timeline = [
+    {
+      id: `${incident.id}-created`,
+      at: incident.createdAt,
+      title: 'Incidencia creada',
+      detail: incident.reporterName
+        ? `Reportada por ${incident.reporterName}.`
+        : 'Registro inicial de la incidencia operativa.',
+    },
+  ]
+
+  if (incident.evidenceFiles?.length || (incident.evidence && incident.evidence !== 'Pendiente')) {
+    timeline.push({
+      id: `${incident.id}-evidence`,
+      at: incident.createdAt,
+      title: 'Evidencia adjunta',
+      detail: incident.evidenceFiles?.length
+        ? incident.evidenceFiles.map((file) => file.name).join(', ')
+        : incident.evidence,
+    })
+  }
+
+  timeline.push({
+    id: `${incident.id}-status`,
+    at: incident.updatedAt || incident.createdAt,
+    title: `Estado actual: ${incident.status}`,
+    detail: incident.responsible
+      ? `Responsable visible: ${incident.responsible}.`
+      : 'Pendiente de asignacion operativa.',
+  })
+
+  return timeline.filter((item) => item.at || item.title)
+}
+
+function openPendingAction(action = {}) {
+  if (action.incidentId) {
+    const incident = providerOpenIncidents.value.find((item) => item.id === action.incidentId)
+    if (incident) {
+      void respondToIncident(incident)
+      return
+    }
+  }
+
+  if (action.requestId) {
+    selectedRequestId.value = action.requestId
+  }
+
+  goToSection(action.section || 'incidencias')
 }
 
 async function saveSettings() {
@@ -7254,6 +7841,7 @@ watch(
       imageForm,
       documentForm,
       documentPreview,
+      incidentDetailModal,
       availabilityForm,
       incidentForm,
       crewForm,
@@ -7298,6 +7886,8 @@ watch(
       maxAircraftDocumentFiles,
       maxImageDocumentBytes,
       maxPdfDocumentBytes,
+      maxIncidentEvidenceFiles,
+      maxIncidentEvidenceTotalBytes,
       providerId,
       canLoadProviderData,
       providerName,
@@ -7306,6 +7896,13 @@ watch(
       activeOperations,
       openIncidents,
       paymentsPending,
+      providerOpenIncidents,
+      isIncidentsSectionLoading,
+      providerPendingRequestRecords,
+      providerUpcomingOperations,
+      providerNextOperation,
+      providerIncidentOperationOptions,
+      providerOperationalSummary,
       aircraftOptions,
       selectedAvailabilityAircraft,
       availabilityCalendarAircraftOptions,
@@ -7345,9 +7942,12 @@ watch(
       dashboardRecentActivity,
       availabilityStatusCatalog,
       availabilityReadyCount,
+      providerAvailabilityUpdatesPending,
       availabilityImmediatePercent,
       availabilityGlobalStatus,
       availabilitySummaryCards,
+      providerIncidentDashboardCards,
+      providerPendingActions,
       availabilityFormSteps,
       requestKpis,
       requestStatusTabs,
@@ -7494,6 +8094,7 @@ watch(
       openDocumentPreview,
       openStoredDocumentPreview,
       getStoredDocumentKind,
+      getIncidentEvidenceKind,
       closeDocumentPreview,
       selectDocumentType,
       optimizeImageDocumentFile,
@@ -7604,8 +8205,16 @@ watch(
       submitProviderOperationalIssue,
       updateOperationStatus,
       assignCrewToOperation,
+      setIncidentEvidenceFiles,
+      selectIncidentOperation,
       createIncident,
       updateIncidentStatus,
+      respondToIncident,
+      viewIncidentDetail,
+      closeIncidentDetail,
+      markIncidentInReview,
+      buildIncidentTimeline,
+      openPendingAction,
       saveSettings
     }
   },

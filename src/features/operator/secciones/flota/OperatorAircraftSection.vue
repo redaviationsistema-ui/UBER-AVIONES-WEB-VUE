@@ -92,7 +92,7 @@ function onImageSelected(field, event) {
           </label>
           <label>
             <span>Ano</span>
-            <input :value="aircraftForm.year" type="number" min="1990" @input="$emit('update-aircraft-field', { field: 'year', value: $event.target.value })" />
+            <input :value="aircraftForm.year" type="number" min="1900" @input="$emit('update-aircraft-field', { field: 'year', value: $event.target.value })" />
           </label>
           <label>
             <span>Capacidad</span>

@@ -9,7 +9,7 @@ const props = defineProps({
   mode: { type: String, default: 'aircraft' },
 })
 
-defineEmits(['approve-aircraft', 'reject-aircraft', 'suspend-aircraft'])
+const emit = defineEmits(['approve-aircraft', 'reject-aircraft', 'suspend-aircraft'])
 
 const companyFilter = ref('Todas')
 const approvalFilter = ref('Todas')
@@ -18,7 +18,10 @@ const documentsFilter = ref('Todos')
 const trialFilter = ref('Todos')
 const searchTerm = ref('')
 const sortMode = ref('recent')
+const showAdvancedFilters = ref(false)
+const openActionMenuId = ref(null)
 const selectedAircraft = ref(null)
+const detailTab = ref('general')
 const downloadingDocumentId = ref('')
 const documentDownloadError = ref('')
 const previewDocument = ref(null)
@@ -33,9 +36,24 @@ const sortOptions = [
   { label: 'Nombre A-Z', value: 'az' },
   { label: 'Aprobadas primero', value: 'approved' },
 ]
+const detailTabs = [
+  { id: 'general', label: 'General' },
+  { id: 'documents', label: 'Documentacion' },
+  { id: 'operations', label: 'Operacion' },
+  { id: 'pricing', label: 'Pricing' },
+  { id: 'media', label: 'Multimedia' },
+]
 
 function providerName(item) {
-  return item.provider?.commercial_name || item.provider?.company_name || item.provider_name || 'Proveedor sin ligar'
+  return (
+    item.provider_display_name ||
+    item.provider?.display_name ||
+    item.provider?.commercial_name ||
+    item.provider?.user?.profile?.company_name ||
+    item.provider?.company_name ||
+    item.provider_name ||
+    'Proveedor sin ligar'
+  )
 }
 
 function aircraftName(item) {
@@ -163,6 +181,51 @@ function formatMoney(value) {
 function formatList(value) {
   if (Array.isArray(value)) return value.filter(Boolean).join(', ') || 'Por completar'
   return value || 'Por completar'
+}
+
+function documentCompletion(item = {}) {
+  const summary = documentSummaryItems(item)
+  const completed = summary.filter((entry) => entry.complete).length
+  const total = summary.length || 1
+
+  return {
+    completed,
+    total,
+    percent: Math.round((completed / total) * 100),
+  }
+}
+
+function formatHours(value) {
+  const amount = Number(value || 0)
+  if (!amount) return 'Pendiente'
+  return `${new Intl.NumberFormat('es-MX').format(amount)} hrs`
+}
+
+function documentSummaryItems(item = {}) {
+  const documents = aircraftDocuments(item)
+  const requiredDocuments = [
+    { key: 'airworthiness', label: 'Certificado de aeronavegabilidad' },
+    { key: 'registration', label: 'Matricula' },
+    { key: 'insurance', label: 'Seguro' },
+    { key: 'maintenance', label: 'Mantenimiento' },
+  ]
+
+  const summary = requiredDocuments.map((requirement) => {
+    const match = documents.find((document) => normalizeStatus(document.type).includes(requirement.key))
+    return {
+      label: requirement.label,
+      complete: Boolean(match),
+      detail: match?.name || 'Pendiente',
+    }
+  })
+
+  summary.push({
+    label: 'Fotografias',
+    complete: aircraftImages(item).length > 0,
+    detail: aircraftImages(item).length ? `${aircraftImages(item).length} archivo(s)` : 'Pendiente',
+  })
+
+  return summary
 }
 
 function normalizeDocumentCollection(value) {
@@ -426,10 +489,11 @@ const companyCounts = computed(() =>
 const activeFilters = computed(() =>
   [
     companyFilter.value !== 'Todas' ? `Empresa: ${companyFilter.value}` : '',
-    approvalFilter.value !== 'Todas' ? approvalFilter.value : '',
-    matchingFilter.value !== 'Todos' ? `Matching ${matchingFilter.value.toLowerCase()}` : '',
-    documentsFilter.value !== 'Todos' ? `Docs ${documentsFilter.value.toLowerCase()}` : '',
-    trialFilter.value !== 'Todos' ? trialFilter.value : '',
+    approvalFilter.value !== 'Todas' ? `Estado: ${approvalFilter.value}` : '',
+    documentsFilter.value !== 'Todos' ? `Docs: ${documentsFilter.value}` : '',
+    matchingFilter.value !== 'Todos' ? `Matching: ${matchingFilter.value}` : '',
+    trialFilter.value !== 'Todos' ? `Trial: ${trialFilter.value}` : '',
+    sortMode.value !== 'recent' ? `Orden: ${sortOptions.find((item) => item.value === sortMode.value)?.label || sortMode.value}` : '',
   ].filter(Boolean),
 )
 
@@ -461,13 +525,21 @@ const filteredAircraft = computed(() => {
   })
 })
 
-const kpis = computed(() => [
-  { label: 'Aeronaves totales', value: companyFilteredAircraft.value.length, tone: 'default' },
-  { label: 'Aprobadas', value: companyFilteredAircraft.value.filter(isApproved).length, tone: 'success' },
-  { label: 'Pendientes', value: companyFilteredAircraft.value.filter((item) => approvalState(item) === 'Pendientes').length, tone: 'warning' },
-  { label: 'Suspendidas', value: companyFilteredAircraft.value.filter(isSuspended).length, tone: 'danger' },
-  { label: 'Matching visible', value: companyFilteredAircraft.value.filter(matchingVisible).length, tone: 'info' },
-])
+const kpis = computed(() => {
+  const total = companyFilteredAircraft.value.length || 1
+  const items = [
+    { label: 'Aeronaves', value: companyFilteredAircraft.value.length, tone: 'default' },
+    { label: 'Aprobadas', value: companyFilteredAircraft.value.filter(isApproved).length, tone: 'success' },
+    { label: 'Pendientes', value: companyFilteredAircraft.value.filter((item) => approvalState(item) === 'Pendientes').length, tone: 'warning' },
+    { label: 'Suspendidas', value: companyFilteredAircraft.value.filter(isSuspended).length, tone: 'danger' },
+    { label: 'Matching visible', value: companyFilteredAircraft.value.filter(matchingVisible).length, tone: 'info' },
+  ]
+
+  return items.map((item) => ({
+    ...item,
+    progress: Math.round((item.value / total) * 100),
+  }))
+})
 
 const companyGroups = computed(() => {
   const groups = new Map()
@@ -493,14 +565,64 @@ function clearFilters() {
   trialFilter.value = 'Todos'
   searchTerm.value = ''
   sortMode.value = 'recent'
+  showAdvancedFilters.value = false
+  openActionMenuId.value = null
 }
 
 function selectAircraft(item) {
   selectedAircraft.value = item
+  detailTab.value = 'general'
+  openActionMenuId.value = null
 }
 
 function closeDrawer() {
   selectedAircraft.value = null
+  detailTab.value = 'general'
+}
+
+function toggleActionMenu(id) {
+  openActionMenuId.value = openActionMenuId.value === id ? null : id
+}
+
+function closeActionMenu() {
+  openActionMenuId.value = null
+}
+
+function runCardAction(action, item) {
+  if (!item) return
+  if (action === 'view') {
+    selectAircraft(item)
+  } else if (action === 'approve') {
+    emit('approve-aircraft', item.id)
+  } else if (action === 'reject') {
+    emit('reject-aircraft', item.id)
+  } else if (action === 'suspend') {
+    emit('suspend-aircraft', item.id)
+  }
+  closeActionMenu()
+}
+
+const selectedAircraftIndex = computed(() =>
+  selectedAircraft.value ? filteredAircraft.value.findIndex((item) => item.id === selectedAircraft.value.id) : -1,
+)
+
+const selectedAircraftDocuments = computed(() =>
+  selectedAircraft.value ? aircraftDocuments(selectedAircraft.value) : [],
+)
+
+const selectedAircraftImages = computed(() =>
+  selectedAircraft.value ? aircraftImages(selectedAircraft.value) : [],
+)
+
+const selectedAircraftDocumentSummary = computed(() =>
+  selectedAircraft.value ? documentSummaryItems(selectedAircraft.value) : [],
+)
+
+function selectRelativeAircraft(direction = 1) {
+  if (!filteredAircraft.value.length || selectedAircraftIndex.value < 0) return
+  const nextIndex = (selectedAircraftIndex.value + direction + filteredAircraft.value.length) % filteredAircraft.value.length
+  selectedAircraft.value = filteredAircraft.value[nextIndex]
+  detailTab.value = 'general'
 }
 
 watch(
@@ -508,6 +630,9 @@ watch(
   () => {
     if (selectedAircraft.value && !props.aircraft.some((item) => item.id === selectedAircraft.value.id)) {
       selectedAircraft.value = null
+    }
+    if (openActionMenuId.value && !props.aircraft.some((item) => item.id === openActionMenuId.value)) {
+      openActionMenuId.value = null
     }
   },
 )
@@ -570,6 +695,10 @@ watch(
         <article v-for="item in kpis" :key="item.label" :class="['kpi-card', `tone-${item.tone}`]">
           <span>{{ item.label }}</span>
           <strong>{{ item.value }}</strong>
+          <small>{{ item.progress }}%</small>
+          <div class="kpi-progress-track">
+            <div class="kpi-progress-fill" :style="{ width: `${item.progress}%` }"></div>
+          </div>
         </article>
       </div>
 
@@ -577,85 +706,80 @@ watch(
         <div class="search-row">
           <label>
             <span>Buscar</span>
-            <input v-model="searchTerm" type="search" placeholder="Gulfstream, Hawker, Cessna..." />
+            <input v-model="searchTerm" type="search" placeholder="Buscar matricula, modelo o empresa..." />
           </label>
-          <div class="sort-control">
-            <span>Ordenar por</span>
-            <div>
-              <button
-                v-for="item in sortOptions"
-                :key="item.value"
-                type="button"
-                :class="{ active: sortMode === item.value }"
-                @click="sortMode = item.value"
-              >
-                {{ item.label }}
-              </button>
-            </div>
-          </div>
         </div>
 
-        <div class="company-strip" aria-label="Filtro por empresa">
-          <button
-            v-for="company in companyOptions"
-            :key="company"
-            type="button"
-            :class="{ active: companyFilter === company }"
-            @click="companyFilter = company"
-          >
-            <span>{{ companyInitials(company) }}</span>
-            {{ company }} <small>{{ companyCounts[company] || 0 }}</small>
-          </button>
-        </div>
+        <div class="primary-filters">
+          <div class="toolbar-select-grid">
+            <label class="toolbar-field">
+              <span>Empresa</span>
+              <select v-model="companyFilter">
+                <option v-for="company in companyOptions" :key="company" :value="company">
+                  {{ company }} ({{ companyCounts[company] || 0 }})
+                </option>
+              </select>
+            </label>
 
-        <div class="filter-groups">
-          <div>
-            <span>Aprobacion</span>
-            <button
-              v-for="option in approvalOptions"
-              :key="option"
-              type="button"
-              :class="{ active: approvalFilter === option }"
-              @click="approvalFilter = option"
-            >
-              {{ option }}
+            <label class="toolbar-field">
+              <span>Estado</span>
+              <select v-model="approvalFilter">
+                <option v-for="option in approvalOptions" :key="option" :value="option">
+                  {{ option }}
+                </option>
+              </select>
+            </label>
+
+            <label class="toolbar-field">
+              <span>Documentacion</span>
+              <select v-model="documentsFilter">
+                <option v-for="option in documentOptions" :key="option" :value="option">
+                  {{ option }}
+                </option>
+              </select>
+            </label>
+
+            <button type="button" class="more-filters-toggle" :class="{ active: showAdvancedFilters }" @click="showAdvancedFilters = !showAdvancedFilters">
+              Mas filtros {{ showAdvancedFilters ? '▲' : '▼' }}
             </button>
           </div>
-          <div>
+        </div>
+
+        <div v-if="showAdvancedFilters" class="filter-groups filter-groups-advanced">
+          <label class="toolbar-field">
             <span>Matching</span>
-            <button
-              v-for="option in matchingOptions"
-              :key="option"
-              type="button"
-              :class="{ active: matchingFilter === option }"
-              @click="matchingFilter = option"
-            >
-              {{ option }}
-            </button>
-          </div>
-          <div>
-            <span>Documentos</span>
-            <button
-              v-for="option in documentOptions"
-              :key="option"
-              type="button"
-              :class="{ active: documentsFilter === option }"
-              @click="documentsFilter = option"
-            >
-              {{ option }}
-            </button>
-          </div>
-          <div>
+            <select v-model="matchingFilter">
+              <option v-for="option in matchingOptions" :key="option" :value="option">
+                {{ option }}
+              </option>
+            </select>
+          </label>
+          <label class="toolbar-field">
             <span>Trial</span>
-            <button
-              v-for="option in trialOptions"
-              :key="option"
-              type="button"
-              :class="{ active: trialFilter === option }"
-              @click="trialFilter = option"
-            >
-              {{ option }}
-            </button>
+            <select v-model="trialFilter">
+              <option v-for="option in trialOptions" :key="option" :value="option">
+                {{ option }}
+              </option>
+            </select>
+          </label>
+          <label class="toolbar-field sort-control">
+            <span>Orden</span>
+            <select v-model="sortMode">
+              <option v-for="item in sortOptions" :key="item.value" :value="item.value">
+                {{ item.label }}
+              </option>
+            </select>
+          </label>
+        </div>
+
+        <div class="results-toolbar">
+          <div class="results-copy">
+            <strong>{{ filteredAircraft.length }} aeronaves visibles</strong>
+            <small>Vista operativa compacta para revision, documentos y estado comercial.</small>
+          </div>
+          <div class="results-chips">
+            <span>Empresa: {{ companyFilter }}</span>
+            <span>Estado: {{ approvalFilter }}</span>
           </div>
         </div>
 
@@ -673,9 +797,13 @@ watch(
       <section v-for="group in companyGroups" :key="group.name" class="company-group">
         <div class="company-head">
           <div class="company-avatar">{{ companyInitials(group.name) }}</div>
-          <div>
+          <div class="company-head-copy">
             <h3>{{ group.name }}</h3>
-            <p>{{ group.items.length }} aeronaves · {{ group.approved }} activas · {{ group.pending }} pendientes · {{ group.visible }} visibles</p>
+            <p>{{ group.items.length }} aeronaves activas · {{ group.approved }} aprobadas · {{ group.pending }} pendientes · {{ group.visible }} en matching</p>
+          </div>
+          <div class="company-head-metrics">
+            <span>{{ group.items.length }} total</span>
+            <span>{{ group.approved }} aprobadas</span>
           </div>
         </div>
 
@@ -696,52 +824,71 @@ watch(
               <span v-else>Imagen pendiente</span>
             </div>
 
-            <div class="aircraft-topline">
-              <span class="aircraft-icon">✈</span>
-              <span :class="['chip', `chip-${statusChip(item).tone}`]">
-                {{ statusChip(item).icon }} {{ statusChip(item).label }}
-              </span>
+            <div class="aircraft-card-body">
+              <div class="aircraft-topline">
+                <div class="aircraft-topline-left">
+                  <span class="aircraft-icon">✈</span>
+                  <span :class="['chip', `chip-${statusChip(item).tone}`]">
+                    {{ statusChip(item).icon }} {{ statusChip(item).label }}
+                  </span>
+                </div>
+                <button type="button" class="card-menu-trigger" @click.stop="toggleActionMenu(item.id)">⋮</button>
+              </div>
+
+              <div class="aircraft-title">
+                <span>{{ item.registration || 'Sin matricula' }}</span>
+                <h4>{{ aircraftName(item) }}</h4>
+                <p>{{ providerName(item) }}</p>
+              </div>
+
+              <div class="aircraft-core-metrics">
+                <div>
+                  <span>Horas</span>
+                  <strong>{{ formatHours(item.flight_hours || item.hours) }}</strong>
+                </div>
+                <div>
+                  <span>Documentos</span>
+                  <strong>{{ documentCompletion(item).completed }}/{{ documentCompletion(item).total }}</strong>
+                </div>
+                <div>
+                  <span>Base</span>
+                  <strong>{{ baseLabel(item) }}</strong>
+                </div>
+              </div>
+
+              <div class="status-list compact-status-list">
+                <span :class="['chip', `chip-${docsChip(item).tone}`]">
+                  {{ docsChip(item).icon }} {{ docsChip(item).label }}
+                </span>
+                <span :class="['chip', `chip-${matchingChip(item).tone}`]">
+                  {{ matchingChip(item).icon }} {{ matchingChip(item).label }}
+                </span>
+                <span :class="['chip', `chip-${trialChip(item).tone}`]">
+                  {{ trialChip(item).icon }} {{ trialChip(item).label }}
+                </span>
+              </div>
+
+              <div class="document-progress">
+                <div class="document-progress-copy">
+                  <small>Completitud documental</small>
+                  <strong>{{ documentCompletion(item).percent }}%</strong>
+                </div>
+                <div class="document-progress-track">
+                  <div class="document-progress-fill" :style="{ width: `${documentCompletion(item).percent}%` }"></div>
+                </div>
+              </div>
+
+              <div class="card-foot compact-card-foot">
+                <small>Trial vence: {{ formatDate(item.trial_ends_at) }}</small>
+                <button type="button" @click.stop="selectAircraft(item)">Ver</button>
+              </div>
             </div>
 
-            <div class="aircraft-title">
-              <span>{{ item.registration || 'Sin matricula' }}</span>
-              <h4>{{ aircraftName(item) }}</h4>
-              <p>{{ baseLabel(item) }} · {{ providerName(item) }}</p>
-            </div>
-
-            <div class="aircraft-specs">
-              <span>{{ item.manufacturer || 'Fabricante pendiente' }}</span>
-              <span>{{ formatNumber(item.capacity || item.passenger_capacity, ' pax') }}</span>
-              <span>{{ formatNumber(item.range_km || item.rangeKm, ' km') }}</span>
-            </div>
-
-            <div class="status-list">
-              <span :class="['chip', `chip-${docsChip(item).tone}`]">
-                {{ docsChip(item).icon }} {{ docsChip(item).label }}
-              </span>
-              <span :class="['chip', `chip-${matchingChip(item).tone}`]">
-                {{ matchingChip(item).icon }} {{ matchingChip(item).label }}
-              </span>
-              <span :class="['chip', `chip-${trialChip(item).tone}`]">
-                {{ trialChip(item).icon }} {{ trialChip(item).label }}
-              </span>
-            </div>
-
-            <div class="card-foot">
-              <small>Trial vence: {{ formatDate(item.trial_ends_at) }}</small>
-              <button type="button" @click.stop="selectAircraft(item)">Ver</button>
-            </div>
-
-            <div class="actions-row">
-              <button class="action-approve" type="button" @click.stop="$emit('approve-aircraft', item.id)">
-                ✓ Aprobar
-              </button>
-              <button class="action-reject" type="button" @click.stop="$emit('reject-aircraft', item.id)">
-                × Rechazar
-              </button>
-              <button class="action-suspend" type="button" @click.stop="$emit('suspend-aircraft', item.id)">
-                ! Suspender
-              </button>
+            <div v-if="openActionMenuId === item.id" class="card-action-menu" @click.stop>
+              <button type="button" @click="runCardAction('view', item)">Ver detalle</button>
+              <button type="button" @click="runCardAction('approve', item)">Aprobar</button>
+              <button type="button" @click="runCardAction('reject', item)">Rechazar</button>
+              <button type="button" @click="runCardAction('suspend', item)">Suspender</button>
             </div>
           </article>
         </div>
@@ -749,150 +896,278 @@ watch(
     </div>
 
     <Transition name="drawer-fade">
-      <div v-if="selectedAircraft" class="drawer-scrim" @click="closeDrawer"></div>
-    </Transition>
-    <Transition name="drawer-slide">
-      <aside v-if="selectedAircraft" class="detail-drawer" aria-label="Detalle de aeronave">
-        <div :class="['drawer-media', { 'drawer-media-empty': !primaryAircraftImage(selectedAircraft) }]">
-          <img
-            v-if="primaryAircraftImage(selectedAircraft)"
-            :src="primaryAircraftImage(selectedAircraft)"
-            :alt="`Imagen de ${aircraftName(selectedAircraft)}`"
-          />
-          <span v-else>✈</span>
-        </div>
-        <div class="drawer-head">
-          <div>
-            <span class="mini-label">{{ selectedAircraft.registration || 'Sin matricula' }}</span>
-            <h3>{{ aircraftName(selectedAircraft) }}</h3>
-            <p>{{ providerName(selectedAircraft) }} · {{ baseLabel(selectedAircraft) }}</p>
+      <section v-if="selectedAircraft" class="detail-fullscreen" aria-label="Detalle de aeronave">
+        <header class="detail-header">
+          <div class="detail-header-left">
+            <button type="button" class="detail-back" @click="closeDrawer">← Regresar</button>
+            <div>
+              <span class="mini-label">{{ selectedAircraft.registration || 'Sin matricula' }}</span>
+              <h3>{{ aircraftName(selectedAircraft) }}</h3>
+              <p>{{ providerName(selectedAircraft) }} · {{ baseLabel(selectedAircraft) }}</p>
+            </div>
           </div>
-          <button type="button" @click="closeDrawer">Cerrar</button>
-        </div>
+          <div class="detail-header-right">
+            <button type="button" class="detail-nav" @click="selectRelativeAircraft(-1)">Anterior</button>
+            <button type="button" class="detail-nav" @click="selectRelativeAircraft(1)">Siguiente</button>
+            <span :class="['chip', `chip-${statusChip(selectedAircraft).tone}`]">{{ statusChip(selectedAircraft).label }}</span>
+          </div>
+        </header>
 
-        <div class="drawer-chips">
-          <span :class="['chip', `chip-${statusChip(selectedAircraft).tone}`]">{{ statusChip(selectedAircraft).label }}</span>
-          <span :class="['chip', `chip-${docsChip(selectedAircraft).tone}`]">{{ docsChip(selectedAircraft).label }}</span>
-          <span :class="['chip', `chip-${matchingChip(selectedAircraft).tone}`]">{{ matchingChip(selectedAircraft).label }}</span>
-        </div>
-
-        <div v-if="aircraftImages(selectedAircraft).length > 1" class="drawer-gallery">
-          <img
-            v-for="image in aircraftImages(selectedAircraft).slice(0, 6)"
-            :key="image.id"
-            :src="image.imageUrl"
-            :alt="image.title"
-            loading="lazy"
-          />
-        </div>
-
-        <div class="drawer-section">
-          <h4>Operational status</h4>
-          <dl>
-            <div>
-              <dt>Estado backend</dt>
-              <dd>{{ selectedAircraft.status || 'Pendiente' }}</dd>
+        <div class="detail-body">
+          <section class="detail-hero">
+            <div :class="['detail-hero-media', { 'drawer-media-empty': !primaryAircraftImage(selectedAircraft) }]">
+              <img
+                v-if="primaryAircraftImage(selectedAircraft)"
+                :src="primaryAircraftImage(selectedAircraft)"
+                :alt="`Imagen de ${aircraftName(selectedAircraft)}`"
+                class="hero-image"
+              />
+              <span v-else>✈</span>
             </div>
-            <div>
-              <dt>Trial vence</dt>
-              <dd>{{ formatDate(selectedAircraft.trial_ends_at) }}</dd>
-            </div>
-            <div>
-              <dt>Actualizacion</dt>
-              <dd>{{ formatDate(selectedAircraft.updated_at || selectedAircraft.created_at) }}</dd>
-            </div>
-          </dl>
-        </div>
-
-        <div class="drawer-section">
-          <h4>Documentos y certificados</h4>
-          <dl>
-            <div>
-              <dt>Documentos</dt>
-              <dd>{{ aircraftDocuments(selectedAircraft).length }} archivo(s) · {{ documentsState(selectedAircraft) }}</dd>
-            </div>
-            <div>
-              <dt>Marketplace</dt>
-              <dd>{{ matchingVisible(selectedAircraft) ? 'Visible para clientes' : 'Oculto hasta completar validacion' }}</dd>
-            </div>
-          </dl>
-
-          <div v-if="aircraftDocuments(selectedAircraft).length" class="document-list">
-            <article
-              v-for="document in aircraftDocuments(selectedAircraft)"
-              :key="document.id"
-              class="document-item"
-            >
-              <div>
-                <span :class="['chip', `chip-${documentTone(document)}`]">{{ document.status }}</span>
-                <strong>{{ document.name }}</strong>
-                <small>{{ documentTypeLabel(document.type) }} · Vence: {{ formatDate(document.expiresAt) }}</small>
-                <p v-if="document.notes">{{ document.notes }}</p>
+            <aside class="detail-hero-side">
+              <div class="detail-hero-card">
+                <span class="mini-label">Resumen ejecutivo</span>
+                <div class="drawer-chips">
+                  <span :class="['chip', `chip-${statusChip(selectedAircraft).tone}`]">{{ statusChip(selectedAircraft).label }}</span>
+                  <span :class="['chip', `chip-${docsChip(selectedAircraft).tone}`]">{{ docsChip(selectedAircraft).label }}</span>
+                  <span :class="['chip', `chip-${matchingChip(selectedAircraft).tone}`]">{{ matchingChip(selectedAircraft).label }}</span>
+                  <span :class="['chip', `chip-${trialChip(selectedAircraft).tone}`]">{{ trialChip(selectedAircraft).label }}</span>
+                </div>
+                <dl class="hero-kpi-list">
+                  <div>
+                    <dt>Capacidad</dt>
+                    <dd>{{ formatNumber(selectedAircraft.capacity || selectedAircraft.passenger_capacity, ' pax') }}</dd>
+                  </div>
+                  <div>
+                    <dt>Rango</dt>
+                    <dd>{{ formatNumber(selectedAircraft.range_km || selectedAircraft.rangeKm, ' km') }}</dd>
+                  </div>
+                  <div>
+                    <dt>Tarifa hora</dt>
+                    <dd>{{ formatMoney(selectedAircraft.hourly_rate || selectedAircraft.hourlyPrice || selectedAircraft.price_per_hour) }}</dd>
+                  </div>
+                  <div>
+                    <dt>Actualizacion</dt>
+                    <dd>{{ formatDate(selectedAircraft.updated_at || selectedAircraft.created_at) }}</dd>
+                  </div>
+                </dl>
               </div>
-              <button
-                v-if="document.fileUrl || document.id"
-                type="button"
-                class="document-open"
-                :disabled="downloadingDocumentId === document.id"
-                @click="openAircraftDocument(document)"
-              >
-                {{ downloadingDocumentId === document.id ? 'Abriendo...' : 'Abrir' }}
-              </button>
-              <span v-else class="document-missing">Sin archivo</span>
+            </aside>
+          </section>
+
+          <nav class="detail-tabs" aria-label="Navegacion de detalle">
+            <button
+              v-for="tab in detailTabs"
+              :key="tab.id"
+              type="button"
+              :class="{ active: detailTab === tab.id }"
+              @click="detailTab = tab.id"
+            >
+              {{ tab.label }}
+            </button>
+          </nav>
+
+          <section v-if="detailTab === 'general'" class="detail-panel-grid">
+            <article class="detail-panel">
+              <h4>Datos de la aeronave</h4>
+              <dl class="detail-definition-grid">
+                <div>
+                  <dt>Matricula</dt>
+                  <dd>{{ selectedAircraft.registration || 'Pendiente' }}</dd>
+                </div>
+                <div>
+                  <dt>Fabricante</dt>
+                  <dd>{{ selectedAircraft.manufacturer || 'Pendiente' }}</dd>
+                </div>
+                <div>
+                  <dt>Modelo</dt>
+                  <dd>{{ aircraftName(selectedAircraft) }}</dd>
+                </div>
+                <div>
+                  <dt>Año</dt>
+                  <dd>{{ selectedAircraft.model_year || selectedAircraft.year || 'Pendiente' }}</dd>
+                </div>
+                <div>
+                  <dt>Horas totales</dt>
+                  <dd>{{ selectedAircraft.flight_hours || selectedAircraft.hours || 'Pendiente' }}</dd>
+                </div>
+                <div>
+                  <dt>Ubicacion</dt>
+                  <dd>{{ baseLabel(selectedAircraft) }}</dd>
+                </div>
+                <div>
+                  <dt>Tipo</dt>
+                  <dd>{{ selectedAircraft.type || selectedAircraft.category || 'Jet ejecutivo' }}</dd>
+                </div>
+                <div>
+                  <dt>Proveedor</dt>
+                  <dd>{{ providerName(selectedAircraft) }}</dd>
+                </div>
+              </dl>
             </article>
-          </div>
-          <p v-if="documentDownloadError" class="document-error">{{ documentDownloadError }}</p>
-          <p v-if="!aircraftDocuments(selectedAircraft).length" class="documents-empty">
-            No hay documentos cargados para esta aeronave.
-          </p>
+
+            <article class="detail-panel">
+              <h4>Observaciones</h4>
+              <p class="detail-copy">
+                {{ selectedAircraft.notes || selectedAircraft.admin_notes || 'Sin observaciones registradas para esta aeronave.' }}
+              </p>
+              <h4>Disponibilidad comercial</h4>
+              <p class="detail-copy">
+                {{ matchingVisible(selectedAircraft) ? 'Visible para clientes en marketplace.' : 'Oculta hasta completar documentos y aprobacion.' }}
+              </p>
+            </article>
+          </section>
+
+          <section v-else-if="detailTab === 'documents'" class="detail-panel-grid">
+            <article class="detail-panel">
+              <h4>Checklist documental</h4>
+              <div class="document-summary-grid">
+                <div
+                  v-for="item in selectedAircraftDocumentSummary"
+                  :key="item.label"
+                  :class="['document-summary-card', { complete: item.complete }]"
+                >
+                  <strong>{{ item.complete ? '✓' : '!' }} {{ item.label }}</strong>
+                  <small>{{ item.detail }}</small>
+                </div>
+              </div>
+            </article>
+
+            <article class="detail-panel detail-panel-wide">
+              <h4>Documentos cargados</h4>
+              <div v-if="selectedAircraftDocuments.length" class="document-list">
+                <article
+                  v-for="document in selectedAircraftDocuments"
+                  :key="document.id"
+                  class="document-item"
+                >
+                  <div>
+                    <span :class="['chip', `chip-${documentTone(document)}`]">{{ document.status }}</span>
+                    <strong>{{ document.name }}</strong>
+                    <small>{{ documentTypeLabel(document.type) }} · Vence: {{ formatDate(document.expiresAt) }}</small>
+                    <p v-if="document.notes">{{ document.notes }}</p>
+                  </div>
+                  <button
+                    v-if="document.fileUrl || document.id"
+                    type="button"
+                    class="document-open"
+                    :disabled="downloadingDocumentId === document.id"
+                    @click="openAircraftDocument(document)"
+                  >
+                    {{ downloadingDocumentId === document.id ? 'Abriendo...' : 'Abrir' }}
+                  </button>
+                  <span v-else class="document-missing">Sin archivo</span>
+                </article>
+              </div>
+              <p v-if="documentDownloadError" class="document-error">{{ documentDownloadError }}</p>
+              <p v-if="!selectedAircraftDocuments.length" class="documents-empty">No hay documentos cargados para esta aeronave.</p>
+            </article>
+          </section>
+
+          <section v-else-if="detailTab === 'operations'" class="detail-panel-grid">
+            <article class="detail-panel">
+              <h4>Operacion</h4>
+              <dl class="detail-definition-grid">
+                <div>
+                  <dt>Estado backend</dt>
+                  <dd>{{ selectedAircraft.status || 'Pendiente' }}</dd>
+                </div>
+                <div>
+                  <dt>Trial vence</dt>
+                  <dd>{{ formatDate(selectedAircraft.trial_ends_at) }}</dd>
+                </div>
+                <div>
+                  <dt>Documentos</dt>
+                  <dd>{{ selectedAircraftDocuments.length }} archivo(s)</dd>
+                </div>
+                <div>
+                  <dt>Marketplace</dt>
+                  <dd>{{ matchingVisible(selectedAircraft) ? 'Visible' : 'Bloqueado' }}</dd>
+                </div>
+              </dl>
+            </article>
+
+            <article class="detail-panel">
+              <h4>Historial rapido</h4>
+              <div class="timeline-list">
+                <div class="timeline-item">
+                  <strong>Registro creado</strong>
+                  <small>{{ formatDate(selectedAircraft.created_at) }}</small>
+                </div>
+                <div class="timeline-item">
+                  <strong>Ultima actualizacion</strong>
+                  <small>{{ formatDate(selectedAircraft.updated_at || selectedAircraft.created_at) }}</small>
+                </div>
+                <div class="timeline-item">
+                  <strong>Estatus actual</strong>
+                  <small>{{ statusChip(selectedAircraft).label }}</small>
+                </div>
+              </div>
+            </article>
+          </section>
+
+          <section v-else-if="detailTab === 'pricing'" class="detail-panel-grid">
+            <article class="detail-panel detail-panel-wide">
+              <h4>Pricing y disponibilidad</h4>
+              <dl class="detail-definition-grid">
+                <div>
+                  <dt>Tarifa hora</dt>
+                  <dd>{{ formatMoney(selectedAircraft.hourly_rate || selectedAircraft.hourlyPrice || selectedAircraft.price_per_hour) }}</dd>
+                </div>
+                <div>
+                  <dt>Minimo</dt>
+                  <dd>{{ formatNumber(selectedAircraft.minimum_hours || selectedAircraft.min_hours, ' h') }}</dd>
+                </div>
+                <div>
+                  <dt>Rango</dt>
+                  <dd>{{ formatNumber(selectedAircraft.range_km || selectedAircraft.rangeKm, ' km') }}</dd>
+                </div>
+                <div>
+                  <dt>Capacidad</dt>
+                  <dd>{{ formatNumber(selectedAircraft.capacity || selectedAircraft.passenger_capacity, ' pasajeros') }}</dd>
+                </div>
+                <div>
+                  <dt>Cobertura</dt>
+                  <dd>{{ formatList(selectedAircraft.coverage) }}</dd>
+                </div>
+                <div>
+                  <dt>Amenidades</dt>
+                  <dd>{{ formatList(selectedAircraft.amenities) }}</dd>
+                </div>
+              </dl>
+            </article>
+          </section>
+
+          <section v-else class="detail-panel-grid">
+            <article class="detail-panel detail-panel-wide">
+              <h4>Multimedia</h4>
+              <div v-if="selectedAircraftImages.length" class="detail-media-grid">
+                <img
+                  v-for="image in selectedAircraftImages"
+                  :key="image.id"
+                  :src="image.imageUrl"
+                  :alt="image.title"
+                  loading="lazy"
+                />
+              </div>
+              <p v-else class="documents-empty">No hay imagenes cargadas para esta aeronave.</p>
+            </article>
+          </section>
         </div>
 
-        <div class="drawer-section">
-          <h4>Pricing y disponibilidad</h4>
-          <dl>
-            <div>
-              <dt>Fabricante</dt>
-              <dd>{{ selectedAircraft.manufacturer || 'Pendiente' }}</dd>
-            </div>
-            <div>
-              <dt>Año</dt>
-              <dd>{{ selectedAircraft.model_year || selectedAircraft.year || 'Pendiente' }}</dd>
-            </div>
-            <div>
-              <dt>Tipo</dt>
-              <dd>{{ selectedAircraft.type || selectedAircraft.category || 'Jet ejecutivo' }}</dd>
-            </div>
-            <div>
-              <dt>Capacidad</dt>
-              <dd>{{ formatNumber(selectedAircraft.capacity || selectedAircraft.passenger_capacity, ' pasajeros') }}</dd>
-            </div>
-            <div>
-              <dt>Rango</dt>
-              <dd>{{ formatNumber(selectedAircraft.range_km || selectedAircraft.rangeKm, ' km') }}</dd>
-            </div>
-            <div>
-              <dt>Horas vuelo</dt>
-              <dd>{{ selectedAircraft.flight_hours || selectedAircraft.hours || 'Pendiente' }}</dd>
-            </div>
-            <div>
-              <dt>Tarifa hora</dt>
-              <dd>{{ formatMoney(selectedAircraft.hourly_rate || selectedAircraft.hourlyPrice || selectedAircraft.price_per_hour) }}</dd>
-            </div>
-            <div>
-              <dt>Minimo</dt>
-              <dd>{{ formatNumber(selectedAircraft.minimum_hours || selectedAircraft.min_hours, ' h') }}</dd>
-            </div>
-            <div>
-              <dt>Cobertura</dt>
-              <dd>{{ formatList(selectedAircraft.coverage) }}</dd>
-            </div>
-            <div>
-              <dt>Amenidades</dt>
-              <dd>{{ formatList(selectedAircraft.amenities) }}</dd>
-            </div>
-          </dl>
-        </div>
-      </aside>
+        <footer class="detail-footer">
+          <div class="detail-footer-copy">
+            <strong>{{ aircraftName(selectedAircraft) }}</strong>
+            <small>{{ providerName(selectedAircraft) }} · {{ baseLabel(selectedAircraft) }}</small>
+          </div>
+          <div class="detail-footer-actions">
+            <button class="action-approve" type="button" @click="$emit('approve-aircraft', selectedAircraft.id)">✓ Aprobar</button>
+            <button class="action-reject" type="button" @click="$emit('reject-aircraft', selectedAircraft.id)">× Rechazar</button>
+            <button class="action-suspend" type="button" @click="$emit('suspend-aircraft', selectedAircraft.id)">! Suspender</button>
+            <button type="button" class="export-button">Descargar PDF</button>
+          </div>
+        </footer>
+      </section>
     </Transition>
 
     <Transition name="drawer-fade">
@@ -1019,11 +1294,12 @@ watch(
 .export-button,
 .card-foot button,
 .filter-panel button,
-.drawer-head button,
 .empty-state button,
-.actions-row button {
+.detail-footer-actions button,
+.detail-back,
+.detail-nav {
   border: 0;
-  border-radius: 8px;
+  border-radius: 999px;
   font-weight: 800;
   transition:
     transform 0.2s ease,
@@ -1066,6 +1342,28 @@ watch(
   font-size: 2rem;
 }
 
+.kpi-card small {
+  color: #64748b;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.kpi-progress-track,
+.document-progress-track {
+  width: 100%;
+  height: 0.42rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e2e8f0;
+}
+
+.kpi-progress-fill,
+.document-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2563eb, #38bdf8);
+}
+
 .tone-success {
   border-color: rgba(34, 197, 94, 0.3);
 }
@@ -1089,9 +1387,54 @@ watch(
   padding: 1rem;
 }
 
+.primary-filters,
+.filter-block,
+.compact-actions {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.toolbar-select-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.toolbar-field {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.filter-block > span,
+.compact-actions > div > span,
+.sort-control > span,
+.toolbar-field > span {
+  color: #64748b;
+  font-size: 0.74rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.filter-row-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.more-filters-toggle {
+  justify-self: start;
+  border: 1px dashed #cbd5e1;
+  border-radius: 999px;
+  color: #0f172a;
+  background: #f8fafc;
+  padding: 0.75rem 1rem;
+  font-weight: 900;
+}
+
 .search-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.55fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.75rem;
 }
 
@@ -1111,13 +1454,66 @@ watch(
 
 .search-row input {
   width: 100%;
-  min-height: 2.8rem;
+  min-height: 3.4rem;
   border: 1px solid #dbe3ef;
-  border-radius: 8px;
+  border-radius: 18px;
   color: #0f172a;
   background: #f8fafc;
-  padding: 0 0.85rem;
+  padding: 0 1rem;
+  font-size: 1rem;
   outline: none;
+}
+
+.toolbar-field select {
+  width: 100%;
+  min-height: 3rem;
+  border: 1px solid #dbe3ef;
+  border-radius: 14px;
+  color: #0f172a;
+  background: #ffffff;
+  padding: 0 0.95rem;
+  font-size: 0.94rem;
+  outline: none;
+}
+
+.results-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 0.95rem;
+}
+
+.results-copy {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.results-copy strong {
+  color: #0f172a;
+  font-size: 0.96rem;
+}
+
+.results-copy small {
+  color: #64748b;
+}
+
+.results-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.45rem;
+}
+
+.results-chips span {
+  border: 1px solid #dbe3ef;
+  border-radius: 999px;
+  color: #334155;
+  background: #f8fafc;
+  padding: 0.5rem 0.7rem;
+  font-size: 0.72rem;
+  font-weight: 800;
 }
 
 .sort-control > div {
@@ -1126,16 +1522,12 @@ watch(
   gap: 0.45rem;
 }
 
-.company-strip,
 .active-filter-row {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
 }
 
-.company-strip button,
-.sort-control button,
-.filter-groups button,
 .active-filter-row span,
 .active-filter-row button {
   display: inline-flex;
@@ -1147,44 +1539,25 @@ watch(
   padding: 0.5rem 0.68rem;
 }
 
-.company-strip button span {
-  display: grid;
-  width: 1.45rem;
-  height: 1.45rem;
-  place-items: center;
-  border-radius: 999px;
-  color: #075985;
-  background: #e0f2fe;
-  font-size: 0.62rem;
-}
-
-.company-strip small {
-  color: #2563eb;
-}
-
-.company-strip button.active,
-.sort-control button.active,
-.filter-groups button.active {
-  border-color: rgba(96, 165, 250, 0.65);
-  color: #ffffff;
-  background: #2563eb;
-}
-
 .filter-groups {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.75rem;
 }
 
 .filter-groups > div {
-  display: flex;
-  flex-wrap: wrap;
-  align-content: flex-start;
+  display: grid;
   gap: 0.45rem;
+  align-content: flex-start;
 }
 
 .filter-groups > div > span {
   width: 100%;
+}
+
+.filter-groups-advanced {
+  border-top: 1px solid #e5e7eb;
+  padding-top: 0.9rem;
 }
 
 .active-filter-row span {
@@ -1205,8 +1578,12 @@ watch(
 .company-head {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 0.75rem;
-  padding: 0.25rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 18px;
+  background: #f8fafc;
+  padding: 1rem 1.1rem;
 }
 
 .company-head h3,
@@ -1218,6 +1595,27 @@ watch(
   color: #0f172a;
 }
 
+.company-head-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.company-head-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.company-head-metrics span {
+  border: 1px solid #dbe3ef;
+  border-radius: 999px;
+  color: #334155;
+  background: #ffffff;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
 .aircraft-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1225,11 +1623,13 @@ watch(
 }
 
 .aircraft-card {
+  position: relative;
   display: grid;
+  grid-template-columns: 148px minmax(0, 1fr);
   min-height: 260px;
-  align-content: start;
-  gap: 0.65rem;
-  border-radius: 8px;
+  align-items: stretch;
+  gap: 0.85rem;
+  border-radius: 18px;
   padding: 0.85rem;
   cursor: pointer;
   transition:
@@ -1247,10 +1647,10 @@ watch(
 .aircraft-photo {
   position: relative;
   display: grid;
-  min-height: 128px;
+  min-height: 100%;
   overflow: hidden;
   place-items: center;
-  border-radius: 8px;
+  border-radius: 14px;
   background: #f1f5f9;
 }
 
@@ -1274,22 +1674,40 @@ watch(
   border: 1px dashed #cbd5e1;
 }
 
+.aircraft-card-body {
+  display: grid;
+  align-content: start;
+  gap: 0.7rem;
+  min-width: 0;
+}
+
 .aircraft-topline,
-.card-foot,
-.drawer-head {
+.card-foot {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 0.75rem;
+}
+
+.aircraft-topline {
+  justify-content: space-between;
+}
+
+.aircraft-topline-left {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
 }
 
 .aircraft-icon {
   display: grid;
-  width: 2rem;
-  height: 2rem;
+  width: 1.85rem;
+  height: 1.85rem;
   place-items: center;
   border-radius: 8px;
   background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 0.86rem;
 }
 
 .aircraft-title span,
@@ -1312,21 +1730,32 @@ watch(
   font-size: 0.84rem;
 }
 
-.aircraft-specs {
+.aircraft-core-metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.35rem;
+  gap: 0.5rem;
 }
 
-.aircraft-specs span {
+.aircraft-core-metrics div {
+  display: grid;
+  gap: 0.22rem;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 0.55rem 0.6rem;
+}
+
+.aircraft-core-metrics span {
+  color: #64748b;
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.aircraft-core-metrics strong {
   min-width: 0;
   overflow: hidden;
-  border-radius: 8px;
-  padding: 0.42rem 0.5rem;
-  color: #334155;
-  background: #f8fafc;
-  font-size: 0.72rem;
-  font-weight: 800;
+  color: #0f172a;
+  font-size: 0.82rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1382,16 +1811,77 @@ watch(
   padding: 0.45rem 0.65rem;
 }
 
-.actions-row {
+.compact-card-foot {
+  justify-content: space-between;
+  margin-top: auto;
+}
+
+.compact-status-list .chip {
+  font-size: 0.66rem;
+}
+
+.document-progress {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.45rem;
 }
 
-.actions-row button {
-  min-height: 2.2rem;
-  color: #ffffff;
-  font-size: 0.74rem;
+.document-progress-copy {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.document-progress-copy small {
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.document-progress-copy strong {
+  color: #0f172a;
+  font-size: 0.8rem;
+}
+
+.card-menu-trigger {
+  border: 1px solid #dbe3ef;
+  border-radius: 999px;
+  color: #334155;
+  background: #ffffff;
+  padding: 0.38rem 0.68rem;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.card-action-menu {
+  position: absolute;
+  top: 3.6rem;
+  right: 0.85rem;
+  z-index: 5;
+  display: grid;
+  gap: 0.35rem;
+  min-width: 180px;
+  border: 1px solid #dbe3ef;
+  border-radius: 14px;
+  background: #ffffff;
+  padding: 0.45rem;
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.18);
+}
+
+.card-action-menu button {
+  justify-content: flex-start;
+  border: 0;
+  border-radius: 10px;
+  color: #0f172a;
+  background: #f8fafc;
+  padding: 0.72rem 0.85rem;
+  font-weight: 800;
+  text-align: left;
+}
+
+.card-action-menu button:hover {
+  color: #0f172a;
+  background: #eef4ff;
 }
 
 .action-approve {
@@ -1408,10 +1898,13 @@ watch(
 
 .export-button:hover,
 .card-foot button:hover,
+.card-menu-trigger:hover,
+.card-action-menu button:hover,
 .filter-panel button:hover,
-.drawer-head button:hover,
 .empty-state button:hover,
-.actions-row button:hover {
+.detail-footer-actions button:hover,
+.detail-back:hover,
+.detail-nav:hover {
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
   transform: translateY(-1px);
 }
@@ -1431,13 +1924,6 @@ watch(
   padding: 0.7rem 0.9rem;
 }
 
-.drawer-scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  background: rgba(15, 23, 42, 0.32);
-}
-
 .document-preview-scrim {
   position: fixed;
   inset: 0;
@@ -1445,22 +1931,291 @@ watch(
   background: rgba(15, 23, 42, 0.55);
 }
 
-.detail-drawer {
+.detail-fullscreen {
   position: fixed;
-  top: 0;
-  right: 0;
   z-index: 41;
   display: grid;
-  width: min(440px, 100vw);
-  height: 100vh;
-  align-content: start;
-  gap: 1rem;
-  overflow-y: auto;
-  border-left: 1px solid #e5e7eb;
+  inset: 0;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   color: #0f172a;
   background: #ffffff;
+}
+
+.detail-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 80px;
+  border-bottom: 1px solid #e5e7eb;
+  background: rgba(255, 255, 255, 0.96);
+  padding: 1rem 1.5rem;
+  backdrop-filter: blur(14px);
+}
+
+.detail-header-left,
+.detail-header-right,
+.detail-footer-actions,
+.detail-tabs,
+.hero-kpi-list div,
+.timeline-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.detail-header-left {
+  min-width: 0;
+}
+
+.detail-header-left > div {
+  min-width: 0;
+}
+
+.detail-header h3,
+.detail-header p,
+.detail-footer-copy strong,
+.detail-footer-copy small {
+  margin: 0;
+}
+
+.detail-back,
+.detail-nav {
+  border: 1px solid #dbe3ef;
+  border-radius: 999px;
+  color: #0f172a;
+  background: #ffffff;
+  padding: 0.72rem 0.95rem;
+  font-weight: 800;
+}
+
+.detail-body {
+  height: calc(100vh - 160px);
+  overflow-y: auto;
+  padding: 1.25rem 1.5rem 7rem;
+}
+
+.detail-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.9fr) minmax(320px, 0.9fr);
+  gap: 1rem;
+}
+
+.detail-hero-media {
+  position: relative;
+  min-height: 500px;
+  overflow: hidden;
+  border-radius: 24px;
+  background:
+    linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(15, 118, 110, 0.1)),
+    #f8fafc;
+}
+
+.hero-image {
+  width: 100%;
+  height: 500px;
+  object-fit: cover;
+}
+
+.detail-hero-side {
+  display: grid;
+}
+
+.detail-hero-card,
+.detail-panel {
+  display: grid;
+  gap: 1rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 24px;
+  background: #ffffff;
+  padding: 1.25rem;
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.06);
+}
+
+.hero-kpi-list {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.hero-kpi-list div {
+  justify-content: space-between;
+  border-bottom: 1px solid #eef2f7;
+  padding-bottom: 0.75rem;
+}
+
+.hero-kpi-list dt,
+.detail-definition-grid dt {
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.hero-kpi-list dd,
+.detail-definition-grid dd {
+  margin: 0;
+  color: #0f172a;
+  font-weight: 800;
+  text-align: right;
+}
+
+.detail-tabs {
+  position: sticky;
+  top: 0;
+  z-index: 15;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  border-bottom: 1px solid #e5e7eb;
+  background: rgba(255, 255, 255, 0.98);
+  padding: 1rem 0 0.85rem;
+  margin-top: 1.2rem;
+}
+
+.detail-tabs button {
+  border: 1px solid #dbe3ef;
+  border-radius: 999px;
+  color: #334155;
+  background: #ffffff;
+  padding: 0.7rem 0.95rem;
+  font-weight: 800;
+}
+
+.detail-tabs button.active {
+  border-color: rgba(96, 165, 250, 0.65);
+  color: #ffffff;
+  background: #2563eb;
+}
+
+.detail-panel-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  padding-top: 1.2rem;
+}
+
+.detail-panel-wide {
+  grid-column: 1 / -1;
+}
+
+.detail-panel h4,
+.detail-copy {
+  margin: 0;
+}
+
+.detail-copy {
+  color: #475569;
+  line-height: 1.7;
+}
+
+.detail-definition-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem 1rem;
+  margin: 0;
+}
+
+.detail-definition-grid div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid #eef2f7;
+  padding-bottom: 0.85rem;
+}
+
+.document-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.document-summary-card {
+  display: grid;
+  gap: 0.35rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 18px;
+  background: #f8fafc;
   padding: 1rem;
-  box-shadow: -22px 0 70px rgba(0, 0, 0, 0.35);
+}
+
+.document-summary-card.complete {
+  border-color: rgba(34, 197, 94, 0.32);
+  background: rgba(34, 197, 94, 0.08);
+}
+
+.document-summary-card strong,
+.timeline-item strong {
+  color: #0f172a;
+}
+
+.document-summary-card small,
+.timeline-item small {
+  color: #64748b;
+}
+
+.detail-media-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.detail-media-grid img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 18px;
+  object-fit: cover;
+  background: #f1f5f9;
+}
+
+.timeline-list {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.timeline-item {
+  justify-content: space-between;
+  border: 1px solid #e5e7eb;
+  border-radius: 18px;
+  background: #f8fafc;
+  padding: 1rem;
+}
+
+.detail-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-top: 1px solid #e5e7eb;
+  background: rgba(255, 255, 255, 0.97);
+  padding: 1rem 1.5rem;
+  backdrop-filter: blur(14px);
+}
+
+.detail-footer-actions button {
+  min-height: 3rem;
+  border-radius: 999px;
+  padding: 0 1.2rem;
+  font-size: 0.92rem;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+}
+
+.detail-footer-actions .export-button {
+  background: #eef2ff;
+}
+
+.detail-footer-copy {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.detail-footer-copy small {
+  color: #64748b;
 }
 
 .document-preview {
@@ -1505,75 +2260,6 @@ watch(
   height: 100%;
   border: 0;
   background: #f8fafc;
-}
-
-.drawer-media {
-  display: grid;
-  min-height: 150px;
-  overflow: hidden;
-  place-items: center;
-  border-radius: 8px;
-  background:
-    linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(15, 118, 110, 0.1)),
-    #f8fafc;
-  color: #2563eb;
-  font-size: 3rem;
-}
-
-.drawer-gallery {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.5rem;
-}
-
-.drawer-gallery img {
-  aspect-ratio: 4 / 3;
-  border-radius: 8px;
-  background: #f1f5f9;
-}
-
-.drawer-head h3,
-.drawer-head p,
-.drawer-section h4,
-.drawer-section dl {
-  margin: 0;
-}
-
-.drawer-head button {
-  color: #0f172a;
-  background: #f1f5f9;
-  padding: 0.62rem 0.8rem;
-}
-
-.drawer-section {
-  display: grid;
-  gap: 0.7rem;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 0.9rem;
-  background: #ffffff;
-}
-
-.drawer-section h4 {
-  color: #0f172a;
-}
-
-.drawer-section dl {
-  display: grid;
-  gap: 0.65rem;
-}
-
-.drawer-section div {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.drawer-section dd {
-  margin: 0;
-  color: #0f172a;
-  font-weight: 800;
-  text-align: right;
 }
 
 .document-list {
@@ -1670,17 +2356,30 @@ watch(
 
 .drawer-slide-enter-from,
 .drawer-slide-leave-to {
-  transform: translateX(100%);
+  opacity: 0;
+  transform: scale(0.985);
 }
 
 @media (max-width: 1180px) {
-  .kpi-grid,
+  .kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .aircraft-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .toolbar-select-grid,
   .filter-groups {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .detail-hero,
+  .detail-panel-grid,
+  .document-summary-grid,
+  .detail-definition-grid,
+  .detail-media-grid {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -1698,15 +2397,20 @@ watch(
 
   .kpi-grid,
   .aircraft-grid,
+  .toolbar-select-grid,
   .filter-groups,
   .subscription-grid,
   .meta-grid,
-  .actions-row {
+  .aircraft-core-metrics {
     grid-template-columns: 1fr;
   }
 
-  .detail-drawer {
-    width: 100vw;
+  .aircraft-card {
+    grid-template-columns: 1fr;
+  }
+
+  .aircraft-photo {
+    min-height: 160px;
   }
 
   .document-preview {
@@ -1714,9 +2418,45 @@ watch(
     border-radius: 0;
   }
 
-  .aircraft-specs,
-  .drawer-gallery {
+  .results-toolbar,
+  .company-head,
+  .aircraft-core-metrics,
+  .detail-footer,
+  .detail-header,
+  .detail-header-left,
+  .detail-header-right,
+  .detail-footer-actions {
     grid-template-columns: 1fr;
+  }
+
+  .detail-header,
+  .detail-footer {
+    display: grid;
+  }
+
+  .detail-body {
+    padding: 1rem 1rem 8rem;
+  }
+
+  .detail-hero-media,
+  .hero-image {
+    min-height: 260px;
+    height: 260px;
+  }
+
+  .detail-media-grid,
+  .detail-definition-grid,
+  .document-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .results-chips {
+    justify-content: flex-start;
+  }
+
+  .company-head {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .document-item {

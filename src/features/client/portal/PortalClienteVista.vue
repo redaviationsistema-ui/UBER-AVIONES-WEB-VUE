@@ -657,6 +657,38 @@ const accountAccessCopy = computed(() => {
   return 'Sin demo ni suscripcion'
 })
 const activePlan = computed(() => accountAccessCopy.value)
+const commercialAccessSnapshot = computed(() => {
+  const access = auth.access || {}
+  const user = auth.user || {}
+  const commercial = access.commercial_access || access.commercialAccess || {}
+
+  return {
+    status: String(
+      commercial.status || access.access_status || user.access_status || 'trial_active',
+    )
+      .trim()
+      .toLowerCase(),
+    hasPaidAccess: Boolean(
+      commercial.has_paid_access ?? access.has_paid_access ?? user.has_paid_access ?? false,
+    ),
+    freeQuoteLimit: Number(
+      commercial.free_quote_limit ?? access.free_quote_limit ?? user.free_quote_limit ?? 1,
+    ),
+    freeQuotesUsed: Number(
+      commercial.free_quotes_used ?? access.free_quotes_used ?? user.free_quotes_used ?? 0,
+    ),
+  }
+})
+const hasCommercialTrialQuoteAvailable = computed(() => {
+  const commercial = commercialAccessSnapshot.value
+  const eligibleStatuses = new Set(['trial_active', 'registered', 'payment_failed', 'trial_used'])
+
+  return (
+    !commercial.hasPaidAccess &&
+    eligibleStatuses.has(commercial.status) &&
+    commercial.freeQuotesUsed < Math.max(1, commercial.freeQuoteLimit)
+  )
+})
 const canQuoteFlights = computed(() => {
   const access = auth.access || {}
   const user = auth.user || {}
@@ -709,10 +741,86 @@ const canQuoteFlights = computed(() => {
   return (
     activeStatuses.has(normalizedSubscriptionStatus) ||
     demoStatuses.has(normalizedSubscriptionStatus) ||
-    normalizedFlags.some((value) => truthyStates.has(value) || demoStatuses.has(value))
+    normalizedFlags.some((value) => truthyStates.has(value) || demoStatuses.has(value)) ||
+    commercialAccessSnapshot.value.hasPaidAccess ||
+    hasCommercialTrialQuoteAvailable.value
   )
 })
 const hasActiveClientAccess = computed(() => canQuoteFlights.value)
+
+function buildCommercialAccessUiState(accessSource = null) {
+  const fallback = commercialAccessSnapshot.value
+  const source = accessSource && typeof accessSource === 'object' ? accessSource : {}
+  const commercial = source.commercial_access || source.commercialAccess || source
+  const status = String(commercial.status || fallback.status || 'trial_active')
+    .trim()
+    .toLowerCase()
+  const hasPaidAccess = Boolean(commercial.has_paid_access ?? fallback.hasPaidAccess ?? false)
+  const freeQuoteLimit = Math.max(1, Number(commercial.free_quote_limit ?? fallback.freeQuoteLimit ?? 1))
+  const freeQuotesUsed = Math.max(0, Number(commercial.free_quotes_used ?? fallback.freeQuotesUsed ?? 0))
+  const remainingFreeQuotes = Math.max(
+    0,
+    Number(commercial.remaining_free_quotes ?? freeQuoteLimit - freeQuotesUsed),
+  )
+
+  return {
+    status,
+    hasPaidAccess,
+    freeQuoteLimit,
+    freeQuotesUsed,
+    remainingFreeQuotes,
+  }
+}
+
+function buildCommercialAccessMessage(accessSource = null) {
+  const state = buildCommercialAccessUiState(accessSource)
+
+  if (state.hasPaidAccess) {
+    return 'Tu acceso comercial ya esta activo.'
+  }
+
+  if (state.status === 'payment_pending') {
+    return 'Tu pago de acceso esta en validacion. En cuanto se confirme, podras continuar.'
+  }
+
+  if (state.status === 'payment_failed') {
+    return 'No pudimos validar el pago anterior. Intenta de nuevo para reactivar tu acceso comercial.'
+  }
+
+  if (state.remainingFreeQuotes > 0) {
+    return `Tienes ${state.remainingFreeQuotes} cotizacion${state.remainingFreeQuotes === 1 ? '' : 'es'} de prueba disponible${state.remainingFreeQuotes === 1 ? '' : 's'}.`
+  }
+
+  return 'Tu cotizacion de prueba ya fue utilizada. Activa tu acceso comercial para continuar.'
+}
+
+function syncCommercialAccessState(accessSource = null) {
+  const state = buildCommercialAccessUiState(accessSource)
+
+  auth.syncUserContext({
+    accessPatch: {
+      commercial_access: {
+        ...(auth.access?.commercial_access || {}),
+        status: state.status,
+        has_paid_access: state.hasPaidAccess,
+        free_quote_limit: state.freeQuoteLimit,
+        free_quotes_used: state.freeQuotesUsed,
+        remaining_free_quotes: state.remainingFreeQuotes,
+      },
+      access_status: state.status,
+      has_paid_access: state.hasPaidAccess,
+      free_quote_limit: state.freeQuoteLimit,
+      free_quotes_used: state.freeQuotesUsed,
+    },
+    userPatch: {
+      access_status: state.status,
+      has_paid_access: state.hasPaidAccess,
+      free_quote_limit: state.freeQuoteLimit,
+      free_quotes_used: state.freeQuotesUsed,
+    },
+  })
+}
+
 const activeSection = computed(() => {
   if (
     ['viajes', 'mis-vuelos', 'historial', 'contrato', 'pago', 'reserva-confirmada'].includes(
@@ -2085,65 +2193,6 @@ function goToConcierge(reservationId = '') {
   go('soporte', reservationId || reservationContextId.value)
 }
 
-function clearInlineContractPrintMode() {
-  if (typeof document === 'undefined') return
-  document.body.classList.remove('contract-print-mode')
-}
-
-function buildPrintableContractFileName() {
-  if (typeof document === 'undefined') return 'contrato'
-
-  const routeLabel = document.querySelector('.contract-cover__route')?.textContent || ''
-  const reservationLabel = document.querySelector('.contract-cover .eyebrow')?.textContent || ''
-  const rawName = [routeLabel, reservationLabel]
-    .map((value) => String(value || '').trim())
-    .filter(Boolean)
-    .join(' - ')
-
-  const normalizedName = rawName
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[<>:"/\\|?*\x00-\x1F]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-
-  return normalizedName || 'contrato'
-}
-
-function openInlineContractPrint(onAfterPrint = null) {
-  if (typeof window === 'undefined' || typeof document === 'undefined') return false
-
-  const contractPanel = document.querySelector('.document-panel')
-  const contractPreview = document.querySelector('.contract-preview')
-
-  if (!(contractPanel instanceof HTMLElement) || !(contractPreview instanceof HTMLElement)) {
-    return false
-  }
-
-  clearInlineContractPrintMode()
-  document.body.classList.add('contract-print-mode')
-  const previousTitle = document.title
-  document.title = buildPrintableContractFileName()
-
-  const handleAfterPrint = () => {
-    document.title = previousTitle
-    clearInlineContractPrintMode()
-    if (typeof onAfterPrint === 'function') {
-      onAfterPrint()
-    }
-  }
-
-  window.addEventListener('afterprint', handleAfterPrint, { once: true })
-  window.setTimeout(() => {
-    window.print()
-    window.setTimeout(() => {
-      document.title = previousTitle
-    }, 1000)
-  }, 80)
-
-  return true
-}
-
 function mergeReservationUpdate(updatedReservation = null) {
   const normalizedReservationId = String(updatedReservation?.id || '').trim()
   if (!normalizedReservationId) return
@@ -2924,40 +2973,6 @@ watch(
   { immediate: true },
 )
 
-function selectDestination(destination) {
-  if (submittedItinerary.value || aircraftOptions.value.length) {
-    clearQuotePreviewState()
-  }
-  const resolvedAirport = resolveAirportSelection(destination?.code, destination)
-
-  if (tripType.value === 'Multi-destino') {
-    const lastLeg = searchForm.legs[searchForm.legs.length - 1]
-    const hasEmptyLastDestination = lastLeg && !lastLeg.destination
-
-    if (hasEmptyLastDestination) {
-      lastLeg.destination = destination.code
-      lastLeg.destinationAirport = resolvedAirport
-      syncMultiDestinationChain(searchForm.legs.length)
-      return
-    }
-
-    searchForm.legs.push(
-      createEmptyLeg({
-        origin: lastLeg?.destination || searchForm.destination,
-        originAirport: lastLeg?.destinationAirport || searchForm.destinationAirport,
-        destination: destination.code,
-        destinationAirport: resolvedAirport,
-        date: lastLeg?.date || searchForm.departureDate,
-        time: lastLeg?.time || searchForm.departureTime || '09:00',
-      }),
-    )
-    return
-  }
-
-  searchForm.destination = destination.code
-  searchForm.destinationAirport = resolvedAirport
-}
-
 function updateSearchField({ field, value }) {
   if (!Object.prototype.hasOwnProperty.call(searchForm, field)) return
   if (submittedItinerary.value || aircraftOptions.value.length) {
@@ -3203,7 +3218,7 @@ function validateSearchForm() {
 async function submitSearch() {
   serverSearchError.value = ''
   if (!canQuoteFlights.value) {
-    const blockedMessage = 'Necesitas demo activa o suscripcion vigente.'
+    const blockedMessage = buildCommercialAccessMessage(auth.access?.commercial_access || auth.access)
     console.log('[bloqueo-cotizador-cliente]', {
       source: 'submitSearch',
       reason: 'canQuoteFlights=false',
@@ -3287,6 +3302,17 @@ async function requestReservation(aircraft = selectedAircraft.value) {
   if (!aircraft || reservingAircraftId.value) return
 
   try {
+    if (!canQuoteFlights.value) {
+      const blockedMessage = buildCommercialAccessMessage(auth.access?.commercial_access || auth.access)
+      serverSearchError.value = blockedMessage
+      ui.pushToast({
+        tone: 'error',
+        title: 'No se pudo solicitar la reserva',
+        message: blockedMessage,
+      })
+      return
+    }
+
     reservingAircraftId.value = aircraftReservationKey(aircraft)
     const selectedAircraftModel =
       aircraft.aircraft || aircraft.model || aircraft.registration || aircraft.cabin || ''
@@ -3377,7 +3403,12 @@ async function requestReservation(aircraft = selectedAircraft.value) {
       source_table: aircraft.source_table || null,
       legs: activeItinerarySummary.value.legs.map((leg) => ({ ...leg })),
     }
+    const previousCommercialState = buildCommercialAccessUiState(auth.access?.commercial_access || auth.access)
     const reservation = await createClientFlightRequest(reservationPayload, { timeoutMs: 60000 })
+    if (reservation?.access) {
+      syncCommercialAccessState(reservation.access?.commercial_access || reservation.access)
+    }
+    const nextCommercialState = buildCommercialAccessUiState(reservation?.access?.commercial_access || reservation?.access)
     if (typeof console !== 'undefined') {
       const storedFlightRequest =
         reservation?.flight_request ||
@@ -3453,9 +3484,29 @@ async function requestReservation(aircraft = selectedAircraft.value) {
       title: 'Tu vuelo esta siendo confirmado',
       message: 'Tu reserva ya entro al flujo comercial y operativo.',
     })
+    if (
+      !previousCommercialState.hasPaidAccess &&
+      previousCommercialState.remainingFreeQuotes > 0 &&
+      nextCommercialState.remainingFreeQuotes === 0
+    ) {
+      ui.pushToast({
+        tone: 'info',
+        title: 'Cotizacion de prueba utilizada',
+        message: 'Ya consumiste tu cotizacion de prueba. La siguiente solicitud requerira acceso comercial.',
+      })
+    }
     go('reserva-confirmada', targetReservationId)
   } catch (error) {
-    const message = error?.message || 'Intenta de nuevo o contacta a tu asesor privado.'
+    if (error?.payload?.access) {
+      syncCommercialAccessState(error.payload.access?.commercial_access || error.payload.access)
+    } else if (Number(error?.status || 0) === 402) {
+      await auth.refreshSession()
+    }
+
+    const message =
+      Number(error?.status || 0) === 402
+        ? buildCommercialAccessMessage(error?.payload?.access?.commercial_access || error?.payload?.access)
+        : error?.message || 'Intenta de nuevo o contacta a tu asesor privado.'
     console.log('[error-reserva-cliente]', {
       source: 'requestReservation',
       message,

@@ -28,6 +28,12 @@ const interactionLoading = reactive({
   title: '',
   detail: '',
 })
+const interactionFeedback = reactive({
+  active: false,
+  title: '',
+  detail: '',
+  tone: 'success',
+})
 const searchTerm = ref('')
 const statusFilter = ref('all')
 const baseFilter = ref('all')
@@ -625,6 +631,26 @@ function getDraft(operationId) {
   return assignmentDrafts[operationId]
 }
 
+function clearAssignmentError(operationId) {
+  assignmentErrors[operationId] = ''
+}
+
+function assignmentFieldIsEmpty(operationId, field) {
+  const draft = getDraft(operationId)
+
+  if (field === 'crewId') return !draft.crewId
+  if (field === 'presentationTime') return !String(draft.presentationTime || '').trim()
+  if (field === 'presentationPlaceType') return !String(draft.presentationPlaceType || '').trim()
+  if (field === 'presentationPlaceDetail') return !String(draft.presentationPlaceDetail || '').trim()
+  if (field === 'note') return !String(draft.note || '').trim()
+
+  return false
+}
+
+function showAssignmentFieldError(operationId, field) {
+  return Boolean(assignmentErrors[operationId]) && assignmentFieldIsEmpty(operationId, field)
+}
+
 function selectCrew(memberId) {
   selectedCrewId.value = memberId
 }
@@ -671,13 +697,14 @@ async function runWithInteractionLoading(
   task = null,
 ) {
   const startedAt = Date.now()
+  let result = null
   interactionLoading.active = true
   interactionLoading.title = title
   interactionLoading.detail = detail
 
   try {
     if (typeof task === 'function') {
-      await task()
+      result = await task()
     }
 
     await nextTick()
@@ -691,6 +718,25 @@ async function runWithInteractionLoading(
     interactionLoading.title = ''
     interactionLoading.detail = ''
   }
+
+  return result
+}
+
+async function showInteractionFeedback({
+  title = 'Movimiento completado',
+  detail = 'La operacion ya se actualizo.',
+  tone = 'success',
+  duration = 1800,
+} = {}) {
+  interactionFeedback.active = true
+  interactionFeedback.title = title
+  interactionFeedback.detail = detail
+  interactionFeedback.tone = tone
+  await wait(duration)
+  interactionFeedback.active = false
+  interactionFeedback.title = ''
+  interactionFeedback.detail = ''
+  interactionFeedback.tone = 'success'
 }
 
 function handlePrimaryAction(mode) {
@@ -757,36 +803,57 @@ function submitAssignment(operationId) {
   const operation = props.operations.find((item) => item.id === operationId)
   const selectedCrewMember = normalizedCrewMembers.value.find((item) => Number(item.id) === Number(draft.crewId || 0))
 
-  if (!operation || isOperationClosed(operation)) return
+  if (!operation || isOperationClosed(operation)) return false
 
   const validationMessage = validateAssignmentDraft(operation)
   assignmentErrors[operationId] = validationMessage
-  if (validationMessage) return
+  if (validationMessage) return false
 
-  emit('assign-crew', {
-    operationId,
-    crewId: Number(draft.crewId || 0),
-    note: [
-      draft.presentationTime ? `Presentacion ${draft.presentationTime}` : '',
-      buildPresentationPlace(operationId) ? `Lugar ${buildPresentationPlace(operationId)}` : '',
-      draft.note || '',
-    ].filter(Boolean).join(' · '),
+  const presentationPlace = buildPresentationPlace(operationId)
+
+  return new Promise((resolve) => {
+    emit('assign-crew', {
+      operationId,
+      crewId: Number(draft.crewId || 0),
+      presentationTime: String(draft.presentationTime || '').trim(),
+      presentationPlaceType: String(draft.presentationPlaceType || '').trim(),
+      presentationPlaceDetail: String(draft.presentationPlaceDetail || '').trim(),
+      presentationPlace,
+      note: String(draft.note || '').trim(),
+      onSuccess: ({ title, message } = {}) =>
+        resolve({
+          success: true,
+          title: title || 'Sobrecargo asignado',
+          detail: message || `${selectedCrewMember?.name || 'La sobrecargo'} ya quedo ligada a la operacion.`,
+        }),
+      onError: ({ message } = {}) => {
+        assignmentErrors[operationId] = message || 'No fue posible completar la asignacion.'
+        resolve({ success: false })
+      },
+    })
   })
 }
 
 async function handleAssignment(operationId, { closeAfter = false } = {}) {
-  await runWithInteractionLoading(
+  const result = await runWithInteractionLoading(
     {
       title: 'Asignando sobrecargo',
       detail: 'Estamos vinculando el vuelo, la presentacion y las notas operativas.',
     },
-    async () => {
-      submitAssignment(operationId)
-      if (closeAfter) {
-        closeDetailModal()
-      }
-    },
+    async () => submitAssignment(operationId),
   )
+
+  if (result?.success) {
+    await showInteractionFeedback({
+      title: result.title,
+      detail: result.detail,
+      tone: 'success',
+    })
+
+    if (closeAfter) {
+      closeDetailModal()
+    }
+  }
 }
 
 async function handleCrewDetailOpen(memberId) {
@@ -1021,6 +1088,9 @@ function validateAssignmentDraft(operation = {}) {
   }
   if (!String(draft.presentationPlaceType || '').trim() || !String(draft.presentationPlaceDetail || '').trim()) {
     return 'Completa el tipo y detalle del lugar de presentacion antes de asignar.'
+  }
+  if (!String(draft.note || '').trim()) {
+    return 'Completa la nota operativa antes de asignar.'
   }
   if (!isCrewAssignableToOperation(selectedCrewMember, operation)) {
     return 'La sobrecargo seleccionada no esta disponible para este rango operativo.'
@@ -1434,12 +1504,13 @@ function auditEntryTone(entry = {}) {
               <p>Completa los datos operativos para asignar o reasignar esta operacion.</p>
             </div>
 
-            <label class="field">
+            <label class="field" :class="{ 'field--error': showAssignmentFieldError(selectedOperation.id, 'crewId') }">
               <span>Sobrecargo</span>
               <select
                 v-model="getDraft(selectedOperation.id).crewId"
                 :disabled="isOperationClosed(selectedOperation) || !canAssignCrew(selectedOperation)"
                 @focus="ensureAvailableCrewForOperation(selectedOperation)"
+                @change="clearAssignmentError(selectedOperation.id)"
               >
                 <option value="">Selecciona</option>
                 <option v-for="member in assignableCrewMembers(selectedOperation)" :key="member.id" :value="member.id">
@@ -1456,20 +1527,22 @@ function auditEntryTone(entry = {}) {
             </article>
 
             <div class="record-grid">
-              <label class="field">
+              <label class="field" :class="{ 'field--error': showAssignmentFieldError(selectedOperation.id, 'presentationTime') }">
                 <span>Hora de presentacion</span>
                 <input
                   v-model="getDraft(selectedOperation.id).presentationTime"
                   type="text"
                   :disabled="!canAssignCrew(selectedOperation)"
                   placeholder="08:30"
+                  @input="clearAssignmentError(selectedOperation.id)"
                 />
               </label>
-              <label class="field">
+              <label class="field" :class="{ 'field--error': showAssignmentFieldError(selectedOperation.id, 'presentationPlaceType') }">
                 <span>Tipo de lugar</span>
                 <select
                   v-model="getDraft(selectedOperation.id).presentationPlaceType"
                   :disabled="!canAssignCrew(selectedOperation)"
+                  @change="clearAssignmentError(selectedOperation.id)"
                 >
                   <option value="">Selecciona</option>
                   <option value="FBO">FBO</option>
@@ -1481,23 +1554,25 @@ function auditEntryTone(entry = {}) {
               </label>
             </div>
 
-            <label class="field">
+            <label class="field" :class="{ 'field--error': showAssignmentFieldError(selectedOperation.id, 'presentationPlaceDetail') }">
               <span>Detalle del lugar</span>
               <input
                 v-model="getDraft(selectedOperation.id).presentationPlaceDetail"
                 type="text"
                 :disabled="!canAssignCrew(selectedOperation)"
                 placeholder="Ej. FBO Toluca / Hangar 3 / Sala VIP"
+                @input="clearAssignmentError(selectedOperation.id)"
               />
             </label>
 
-            <label class="field">
+            <label class="field" :class="{ 'field--error': showAssignmentFieldError(selectedOperation.id, 'note') }">
               <span>Nota operativa</span>
               <textarea
                 v-model="getDraft(selectedOperation.id).note"
                 rows="4"
                 :disabled="!canAssignCrew(selectedOperation)"
                 placeholder="VIP, briefing, horarios, alerta de cabina o seguimiento"
+                @input="clearAssignmentError(selectedOperation.id)"
               ></textarea>
             </label>
 
@@ -2014,6 +2089,23 @@ function auditEntryTone(entry = {}) {
           <p class="muted">{{ interactionLoading.detail }}</p>
         </div>
       </div>
+
+      <div
+        v-if="interactionFeedback.active"
+        class="interaction-feedback-modal"
+        role="status"
+        aria-live="polite"
+      >
+        <div class="interaction-feedback-surface" :class="`interaction-feedback-surface--${interactionFeedback.tone}`">
+          <div class="interaction-feedback-seal" aria-hidden="true">
+            <span v-if="interactionFeedback.tone === 'success'">✓</span>
+            <span v-else>!</span>
+          </div>
+          <p class="eyebrow">Centro de despacho</p>
+          <h3>{{ interactionFeedback.title }}</h3>
+          <p class="muted">{{ interactionFeedback.detail }}</p>
+        </div>
+      </div>
     </article>
   </section>
 </template>
@@ -2351,6 +2443,57 @@ function auditEntryTone(entry = {}) {
 
 .interaction-loading-orb span:nth-child(3) {
   animation-delay: 0.6s;
+}
+
+.interaction-feedback-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 85;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  pointer-events: none;
+  background: rgba(16, 14, 11, 0.18);
+  backdrop-filter: blur(8px);
+}
+
+.interaction-feedback-surface {
+  display: grid;
+  gap: 0.8rem;
+  width: min(440px, 100%);
+  padding: 2rem 1.8rem;
+  border-radius: 30px;
+  text-align: center;
+  border: 1px solid rgba(236, 223, 197, 0.74);
+  background: linear-gradient(180deg, rgba(255, 253, 249, 0.98) 0%, rgba(247, 241, 230, 0.96) 100%);
+  box-shadow:
+    0 28px 70px rgba(18, 16, 12, 0.26),
+    inset 0 1px 0 rgba(255, 255, 255, 0.76);
+}
+
+.interaction-feedback-surface--success {
+  border-color: rgba(124, 170, 132, 0.48);
+}
+
+.interaction-feedback-surface h3,
+.interaction-feedback-surface .muted {
+  margin: 0;
+}
+
+.interaction-feedback-seal {
+  display: grid;
+  place-items: center;
+  width: 4.25rem;
+  height: 4.25rem;
+  margin: 0 auto 0.15rem;
+  border-radius: 999px;
+  background: radial-gradient(circle at 30% 30%, #fffdf3 0%, #d9efd8 42%, #6c9f72 100%);
+  color: #12311a;
+  font-size: 1.85rem;
+  font-weight: 800;
+  box-shadow:
+    0 18px 34px rgba(76, 128, 85, 0.24),
+    inset 0 1px 10px rgba(255, 255, 255, 0.56);
 }
 
 @keyframes crew-loading-pulse {
@@ -2967,6 +3110,17 @@ textarea {
   color: #a13030;
   font-size: 0.84rem;
   font-weight: 600;
+}
+
+.field--error input,
+.field--error select,
+.field--error textarea {
+  border-color: #c95b5b;
+  box-shadow: 0 0 0 1px rgba(201, 91, 91, 0.16);
+}
+
+.field--error span {
+  color: #a13030;
 }
 
 .detail-actions-menu {

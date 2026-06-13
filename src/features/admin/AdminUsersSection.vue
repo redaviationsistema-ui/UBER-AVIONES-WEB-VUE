@@ -7,6 +7,10 @@ import { useUiStore } from '../../stores/ui'
 
 const props = defineProps({
   users: { type: Array, required: true },
+  scope: { type: String, default: 'all' },
+  title: { type: String, default: 'Usuarios y roles' },
+  subtitle: { type: String, default: 'Administra accesos, permisos y perfiles del equipo desde una operacion mas clara y rapida.' },
+  hideRolePanel: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['audit-user'])
@@ -68,6 +72,7 @@ const ADMIN_USERS_TIMEOUT_MS = 45000
 
 const userForm = ref(buildEmptyUser())
 const roleForm = ref(buildEmptyRole())
+const isClientScope = computed(() => props.scope === 'client')
 
 watch(
   () => props.users,
@@ -92,6 +97,17 @@ onBeforeUnmount(() => {
   document.removeEventListener('click', handleDocumentClick)
 })
 
+watch(
+  () => props.scope,
+  (scope) => {
+    if (scope === 'client') {
+      roleFilter.value = 'client'
+      activePanel.value = 'users'
+    }
+  },
+  { immediate: true },
+)
+
 const roleSummaries = computed(() =>
   localRoles.value.map((role) => ({
     ...role,
@@ -101,6 +117,7 @@ const roleSummaries = computed(() =>
 
 const filteredUsers = computed(() =>
   localUsers.value.filter((user) => {
+    const matchesScope = !isClientScope.value || isClientUser(user)
     const matchesSearch =
       !searchTerm.value ||
       [user.name, user.email, user.role, user.status, user.phone].some((field) =>
@@ -113,18 +130,80 @@ const filteredUsers = computed(() =>
       commercialAccessFilter.value === 'todos' ||
       (commercialAccessFilter.value === 'no-aplica' && !isClientUser(user)) ||
       (isClientUser(user) &&
-        ((commercialAccessFilter.value === 'habilitado' && commercialAccessTone(user) === 'success') ||
-          (commercialAccessFilter.value === 'bloqueado' && commercialAccessTone(user) === 'blocked')))
+        ((commercialAccessFilter.value === 'habilitado' && commercialAccessTone(user) !== 'blocked') ||
+          (commercialAccessFilter.value === 'bloqueado' &&
+            ['blocked', 'warn'].includes(commercialAccessTone(user)))))
 
-    return matchesSearch && matchesStatus && matchesRole && matchesCommercialAccess
+    return matchesScope && matchesSearch && matchesStatus && matchesRole && matchesCommercialAccess
   }),
 )
 
+const clientCommercialMetrics = computed(() => {
+  const scopedClients = localUsers.value.filter((user) => isClientUser(user))
+  const paid = scopedClients.filter((user) => {
+    const commercial = user.commercialAccess || user.raw?.commercial_access || {}
+    return commercial.has_paid_access === true
+  }).length
+  const trialAvailable = scopedClients.filter((user) => {
+    const commercial = user.commercialAccess || user.raw?.commercial_access || {}
+    return Number(commercial.remaining_free_quotes || 0) > 0 && commercial.has_paid_access !== true
+  }).length
+  const trialConsumed = scopedClients.filter((user) => {
+    const commercial = user.commercialAccess || user.raw?.commercial_access || {}
+    return commercial.trial_consumed === true && commercial.has_paid_access !== true
+  }).length
+  const newClients = scopedClients.filter((user) => isNewClientRegistration(user)).length
+
+  return {
+    total: scopedClients.length,
+    paid,
+    trialAvailable,
+    trialConsumed,
+    newClients,
+  }
+})
+
 const userSignals = computed(() => {
+  if (isClientScope.value) {
+    return [
+      {
+        label: 'Clientes totales',
+        value: String(clientCommercialMetrics.value.total),
+        detail: 'Base comercial visible en esta ruta.',
+        tone: 'neutral',
+      },
+      {
+        label: 'Registros nuevos',
+        value: String(clientCommercialMetrics.value.newClients),
+        detail: 'Clientes que aun no usan su prueba.',
+        tone: 'accent',
+      },
+      {
+        label: 'Prueba disponible',
+        value: String(clientCommercialMetrics.value.trialAvailable),
+        detail: 'Aun pueden generar su solicitud inicial.',
+        tone: 'info',
+      },
+      {
+        label: 'Prueba consumida',
+        value: String(clientCommercialMetrics.value.trialConsumed),
+        detail: 'Ya requieren acceso comercial para continuar.',
+        tone: 'danger',
+      },
+      {
+        label: 'Pago activo',
+        value: String(clientCommercialMetrics.value.paid),
+        detail: 'Clientes con acceso comercial pagado.',
+        tone: 'success',
+      },
+    ]
+  }
+
   const total = localUsers.value.length
   const active = localUsers.value.filter((user) => isActiveStatus(user.status)).length
   const admins = localUsers.value.filter((user) => normalizeRoleKey(user.role) === 'admin').length
   const clients = localUsers.value.filter((user) => normalizeRoleKey(user.role) === 'client').length
+  const newClients = localUsers.value.filter((user) => isNewClientRegistration(user)).length
   const suspended = localUsers.value.filter((user) => normalizeStatusKey(user.status) === 'suspendido').length
 
   return [
@@ -132,6 +211,7 @@ const userSignals = computed(() => {
     { label: 'Activos', value: String(active), detail: 'Perfiles operativos habilitados.', tone: 'success' },
     { label: 'Administradores', value: String(admins), detail: 'Control ejecutivo o total.', tone: 'accent' },
     { label: 'Clientes', value: String(clients), detail: 'Perfiles comerciales y corporativos.', tone: 'info' },
+    { label: 'Registros nuevos', value: String(newClients), detail: 'Clientes nuevos sin prueba usada ni pago.', tone: 'accent' },
     { label: 'Suspendidos', value: String(suspended), detail: 'Cuentas en pausa o revision.', tone: 'danger' },
   ]
 })
@@ -225,6 +305,7 @@ function normalizeUserRecord(user = {}, index = 0) {
   const primaryRole = user.effective_role || user.role?.code || user.role?.name || user.operational_role || user.role
   const provider = user.provider || user.proveedor || user.ownedProvider || user.owned_provider || null
   const access = user.access || {}
+  const commercialAccess = user.commercial_access || user.commercialAccess || access.commercial_access || {}
   const demo = user.demo || access.demo || null
   const subscription =
     user.active_suscripcion ||
@@ -243,6 +324,7 @@ function normalizeUserRecord(user = {}, index = 0) {
     provider: provider ? normalizeProviderRecord(provider) : null,
     profile: user.profile || null,
     access,
+    commercialAccess,
     demo,
     subscription,
     raw: user,
@@ -252,6 +334,7 @@ function normalizeUserRecord(user = {}, index = 0) {
         ? user.permissions.join(', ')
         : user.permissions || 'Sin permisos especiales',
     invitationSent: user.invitationSent ?? user.invitation_sent ?? true,
+    createdAt: user.created_at || null,
     lastAudit: user.lastAudit || user.updated_at || buildAuditStamp(index),
   }
 }
@@ -353,6 +436,8 @@ function userDetailRows(detail = {}) {
     {
       label: 'Acceso comercial',
       paths: [
+        'user.commercialAccess.label',
+        'user.raw.commercial_access.label',
         'user.subscription.status',
         'user.raw.active_suscripcion.status',
         'user.raw.activeSuscripcion.status',
@@ -367,6 +452,30 @@ function userDetailRows(detail = {}) {
         'user.subscription_status',
         'user.membership_status',
       ],
+    },
+    {
+      label: 'Estado comercial',
+      paths: ['user.commercialAccess.status', 'user.raw.commercial_access.status', 'user.raw.access_status'],
+    },
+    {
+      label: 'Cotizacion de prueba',
+      paths: [
+        'user.commercialAccess.free_quotes_used',
+        'user.raw.commercial_access.free_quotes_used',
+        'user.raw.free_quotes_used',
+      ],
+    },
+    {
+      label: 'Limite prueba',
+      paths: [
+        'user.commercialAccess.free_quote_limit',
+        'user.raw.commercial_access.free_quote_limit',
+        'user.raw.free_quote_limit',
+      ],
+    },
+    {
+      label: 'Pago acceso',
+      paths: ['user.commercialAccess.paid_access_at', 'user.raw.commercial_access.paid_access_at', 'user.raw.paid_access_at'],
     },
     {
       label: 'Demo activa',
@@ -558,6 +667,24 @@ function biometricDetailRows(detail = {}) {
 function resolveCommercialAccessState(detail = {}) {
   const user = detail?.user || {}
   const access = user.access || user.raw?.access || {}
+  const commercial = user.commercialAccess || user.raw?.commercial_access || access.commercial_access || {}
+
+  if (commercial.has_paid_access === true) {
+    return 'Pago activo'
+  }
+
+  if (commercial.trial_consumed === true) {
+    return 'Prueba consumida'
+  }
+
+  if (commercial.is_new_registration === true) {
+    return 'Registro nuevo'
+  }
+
+  if (Number(commercial.remaining_free_quotes || 0) > 0) {
+    return 'Prueba disponible'
+  }
+
   const subscriptionStatus = String(
     user.subscription?.status ||
       user.access?.subscription_status ||
@@ -620,14 +747,77 @@ function resolveCommercialAccessForUser(user = {}) {
 }
 
 function commercialAccessTone(user = {}) {
-  return resolveCommercialAccessForUser(user) === 'Habilitado' ? 'success' : 'blocked'
+  const label = resolveCommercialAccessForUser(user)
+  if (label === 'Pago activo') return 'success'
+  if (label === 'Prueba disponible' || label === 'Registro nuevo') return 'info'
+  if (label === 'Prueba consumida') return 'warn'
+  return label === 'Habilitado' ? 'success' : 'blocked'
 }
 
 function commercialAccessLabel(user = {}) {
   if (!isClientUser(user)) return 'Acceso no aplica'
-  return resolveCommercialAccessForUser(user) === 'Habilitado'
-    ? 'Acceso comercial habilitado'
-    : 'Acceso comercial bloqueado'
+  return resolveCommercialAccessForUser(user)
+}
+
+function commercialAccessMeta(user = {}) {
+  if (!isClientUser(user)) return 'Sin seguimiento comercial'
+
+  const commercial = user.commercialAccess || user.raw?.commercial_access || user.access?.commercial_access || {}
+  const used = Number(commercial.free_quotes_used ?? user.raw?.free_quotes_used ?? 0)
+  const limit = Math.max(1, Number(commercial.free_quote_limit ?? user.raw?.free_quote_limit ?? 1))
+  const remaining = Math.max(0, Number(commercial.remaining_free_quotes ?? limit - used))
+  const paidAt = commercial.paid_access_at || user.raw?.paid_access_at || ''
+
+  if (commercial.has_paid_access === true) {
+    return paidAt ? `Pago confirmado ${String(paidAt).slice(0, 10)}` : 'Cliente con acceso pagado'
+  }
+
+  if (used <= 0) {
+    return `Pendiente de usar prueba ${used}/${limit}`
+  }
+
+  if (remaining > 0) {
+    return `Prueba usada ${used}/${limit} · quedan ${remaining}`
+  }
+
+  return `Prueba usada ${used}/${limit} · requiere pago`
+}
+
+function commercialLifecycleLabel(user = {}) {
+  if (!isClientUser(user)) return 'No aplica'
+
+  const commercial = user.commercialAccess || user.raw?.commercial_access || user.access?.commercial_access || {}
+  const label = String(commercial.label || '').trim()
+
+  return label || commercialAccessLabel(user)
+}
+
+function trialUsageLabel(user = {}) {
+  const commercial = user.commercialAccess || user.raw?.commercial_access || user.access?.commercial_access || {}
+  const used = Number(commercial.free_quotes_used ?? user.raw?.free_quotes_used ?? 0)
+  const limit = Math.max(1, Number(commercial.free_quote_limit ?? user.raw?.free_quote_limit ?? 1))
+
+  return `${used}/${limit}`
+}
+
+function paymentStatusLabel(user = {}) {
+  const commercial = user.commercialAccess || user.raw?.commercial_access || user.access?.commercial_access || {}
+
+  if (commercial.has_paid_access === true) {
+    return 'Pagado'
+  }
+
+  if (String(commercial.status || '').trim().toLowerCase() === 'payment_pending') {
+    return 'Validando pago'
+  }
+
+  return 'Sin pago'
+}
+
+function isNewClientRegistration(user = {}) {
+  if (!isClientUser(user)) return false
+  const commercial = user.commercialAccess || user.raw?.commercial_access || user.access?.commercial_access || {}
+  return commercial.is_new_registration === true
 }
 
 function shouldShowCommercialAccessAction(user = {}) {
@@ -635,6 +825,8 @@ function shouldShowCommercialAccessAction(user = {}) {
 }
 
 function commercialAccessActionLabel(user = {}) {
+  const commercial = user.commercialAccess || user.raw?.commercial_access || user.access?.commercial_access || {}
+  if (commercial.has_paid_access === true) return 'Revocar acceso'
   return commercialAccessTone(user) === 'success' ? 'Desactivar demo' : 'Activar demo'
 }
 
@@ -1175,19 +1367,24 @@ function auditUser(user) {
     <section class="dashboard-hero">
       <div class="hero-center hero-compact">
         <p class="eyebrow dark-eyebrow">Usuarios y roles</p>
-        <h1>Usuarios y roles</h1>
-        <p class="hero-subtitle">
-          Administra accesos, permisos y perfiles del equipo desde una operacion mas clara y rapida.
-        </p>
+        <h1>{{ title }}</h1>
+        <p class="hero-subtitle">{{ subtitle }}</p>
         <div class="hero-actions">
           <button type="button" class="admin-btn admin-btn-primary" @click="openCreateUser">+ Nuevo usuario</button>
-          <button type="button" class="admin-btn admin-btn-secondary" @click="openCreateRole">Sincronizar roles</button>
+          <button
+            v-if="!hideRolePanel"
+            type="button"
+            class="admin-btn admin-btn-secondary"
+            @click="openCreateRole"
+          >
+            Sincronizar roles
+          </button>
           <button type="button" class="admin-btn admin-btn-ghost" @click="exportUsers">Exportar</button>
           <button type="button" class="admin-btn admin-btn-ghost" @click="toggleFilters">
             {{ filtersOpen ? 'Ocultar filtros' : 'Filtros' }}
           </button>
         </div>
-        <div class="panel-switch" role="tablist" aria-label="Vista de usuarios y roles">
+        <div v-if="!hideRolePanel" class="panel-switch" role="tablist" aria-label="Vista de usuarios y roles">
           <button
             type="button"
             class="panel-switch-btn"
@@ -1233,7 +1430,7 @@ function auditUser(user) {
 
       <label class="field">
         <span>Rol</span>
-        <select v-model="roleFilter">
+        <select v-model="roleFilter" :disabled="isClientScope">
           <option value="todos">Todos</option>
           <option v-for="role in roleSummaries" :key="role.key" :value="role.key">{{ role.name }}</option>
         </select>
@@ -1280,12 +1477,18 @@ function auditUser(user) {
     <section v-else class="editorial-section">
       <div class="section-heading split-heading">
         <div>
-          <h2>Directorio de usuarios</h2>
-          <p>{{ filteredUsers.length }} registros listos para consulta, edicion, suspension y cambio de rol.</p>
+          <h2>{{ isClientScope ? 'Panel comercial de clientes' : 'Directorio de usuarios' }}</h2>
+          <p>
+            {{
+              isClientScope
+                ? `${filteredUsers.length} clientes con lectura clara de prueba, pago y estado comercial.`
+                : `${filteredUsers.length} registros listos para consulta, edicion, suspension y cambio de rol.`
+            }}
+          </p>
         </div>
         <div class="hero-actions">
           <button type="button" class="admin-btn admin-btn-primary" @click="openCreateUser">+ Nuevo usuario</button>
-          <button type="button" class="admin-btn admin-btn-secondary" @click="openRolesPanel">Ver roles</button>
+          <button v-if="!hideRolePanel" type="button" class="admin-btn admin-btn-secondary" @click="openRolesPanel">Ver roles</button>
         </div>
       </div>
 
@@ -1293,9 +1496,9 @@ function auditUser(user) {
         <div class="table-row table-head-row">
           <span>Usuario</span>
           <span>Correo</span>
-          <span>Rol</span>
+          <span>{{ isClientScope ? 'Estado comercial' : 'Rol' }}</span>
           <span>Estado</span>
-          <span>Acceso comercial</span>
+          <span>{{ isClientScope ? 'Prueba y pago' : 'Acceso comercial' }}</span>
           <span>Acciones</span>
         </div>
 
@@ -1309,7 +1512,20 @@ function auditUser(user) {
           </div>
 
           <span>{{ user.email }}</span>
-          <span>{{ formatRoleName(user.role) }}</span>
+          <span v-if="isClientScope" class="commercial-column">
+            <span
+              class="status-pill status-pill-commercial"
+              :class="{
+                'status-pill-success': commercialAccessTone(user) === 'success',
+                'status-pill-info': commercialAccessTone(user) === 'info',
+                'status-pill-warn': commercialAccessTone(user) === 'warn',
+                'status-pill-danger': commercialAccessTone(user) === 'blocked',
+              }"
+            >
+              {{ commercialLifecycleLabel(user) }}
+            </span>
+          </span>
+          <span v-else>{{ formatRoleName(user.role) }}</span>
           <span>
             <span
               class="status-pill"
@@ -1324,15 +1540,28 @@ function auditUser(user) {
 
           <span class="commercial-access-cell">
             <template v-if="isClientUser(user)">
-              <span
-                class="status-pill status-pill-commercial"
-                :class="{
-                  'status-pill-success': commercialAccessTone(user) === 'success',
-                  'status-pill-danger': commercialAccessTone(user) === 'blocked',
-                }"
-              >
-                {{ commercialAccessLabel(user) }}
-              </span>
+              <template v-if="isClientScope">
+                <div class="commercial-stack">
+                  <strong class="commercial-kpi">{{ trialUsageLabel(user) }}</strong>
+                  <small class="commercial-caption">Uso de prueba</small>
+                  <small class="commercial-access-meta">{{ paymentStatusLabel(user) }}</small>
+                  <small class="commercial-access-meta">{{ commercialAccessMeta(user) }}</small>
+                </div>
+              </template>
+              <template v-else>
+                <span
+                  class="status-pill status-pill-commercial"
+                  :class="{
+                    'status-pill-success': commercialAccessTone(user) === 'success',
+                    'status-pill-info': commercialAccessTone(user) === 'info',
+                    'status-pill-warn': commercialAccessTone(user) === 'warn',
+                    'status-pill-danger': commercialAccessTone(user) === 'blocked',
+                  }"
+                >
+                  {{ commercialAccessLabel(user) }}
+                </span>
+                <small class="commercial-access-meta">{{ commercialAccessMeta(user) }}</small>
+              </template>
               <button
                 v-if="shouldShowCommercialAccessAction(user)"
                 type="button"
@@ -1521,6 +1750,20 @@ function auditUser(user) {
                   <span>{{ row.label }}</span>
                   <strong>{{ row.value }}</strong>
                 </article>
+              </div>
+              <div v-if="isClientUser(selectedUserDetail?.user)" class="detail-access-highlight">
+                <span
+                  class="status-pill status-pill-commercial"
+                  :class="{
+                    'status-pill-success': commercialAccessTone(selectedUserDetail.user) === 'success',
+                    'status-pill-info': commercialAccessTone(selectedUserDetail.user) === 'info',
+                    'status-pill-warn': commercialAccessTone(selectedUserDetail.user) === 'warn',
+                    'status-pill-danger': commercialAccessTone(selectedUserDetail.user) === 'blocked',
+                  }"
+                >
+                  {{ commercialLifecycleLabel(selectedUserDetail.user) }}
+                </span>
+                <strong>{{ commercialAccessMeta(selectedUserDetail.user) }}</strong>
               </div>
               <p
                 class="detail-note"
@@ -1840,7 +2083,7 @@ function auditUser(user) {
 
 .status-strip {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 1rem;
   padding: 0 clamp(1.25rem, 5vw, 4.5rem) 1.2rem;
   margin-top: -1.2rem;
@@ -2048,6 +2291,11 @@ function auditUser(user) {
   background: #dceee5;
 }
 
+.status-pill-info {
+  color: #1d4ed8;
+  background: #dbeafe;
+}
+
 .status-pill-commercial {
   text-transform: none;
   letter-spacing: 0.01em;
@@ -2116,6 +2364,37 @@ function auditUser(user) {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.45rem;
+}
+
+.commercial-column {
+  display: flex;
+  align-items: center;
+}
+
+.commercial-stack {
+  display: grid;
+  gap: 0.12rem;
+}
+
+.commercial-kpi {
+  color: #111827;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.commercial-caption {
+  color: #6b7280;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.commercial-access-meta {
+  display: block;
+  color: #6b7280;
+  font-size: 0.78rem;
+  line-height: 1.4;
 }
 
 .admin-mini-btn {
@@ -2313,6 +2592,18 @@ function auditUser(user) {
   color: #6b7280;
   font-size: 0.9rem;
   line-height: 1.5;
+}
+
+.detail-access-highlight {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid #ece7da;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #ffffff 0%, #faf8f2 100%);
 }
 
 .overlay-head {

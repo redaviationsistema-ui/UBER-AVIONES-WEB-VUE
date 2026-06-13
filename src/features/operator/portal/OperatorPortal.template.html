@@ -1,23 +1,5 @@
   <div class="operator-portal-page">
-    <section class="hero surface">
-      <div>
-        <p class="eyebrow">Portal proveedor</p>
-        <h1>{{ providerName }}</h1>
-        <p class="muted">
-          Administra empresa, aeronaves, disponibilidad y respuesta operativa bajo la capa comercial de Red Aviation.
-        </p>
-      </div>
-
-      <div class="hero-actions">
-        <span v-if="loading" class="badge">Sincronizando backend...</span>
-        <button type="button" class="ghost-button" @click="goToSection('empresa')">
-          Mi empresa
-        </button>
-        <button type="button" class="primary-action" @click="goToSection('aeronaves')">
-          Crear / gestionar aeronaves
-        </button>
-      </div>
-    </section>
+  
 
     <section v-if="section === 'dashboard'" class="page-grid">
       <article class="surface dashboard-hero-premium">
@@ -2665,190 +2647,332 @@
       </article>
     </section>
 
-    <section v-else-if="section === 'incidencias'" class="page-grid two-columns">
-      <article class="surface">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">Incidencias</p>
-            <h2>Registrar nueva incidencia</h2>
+    <section v-else-if="section === 'incidencias'" class="page-grid operator-incidents-dashboard">
+      <div
+        v-if="isIncidentsSectionLoading"
+        class="operator-section-loading-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="operator-incidents-loading-title"
+      >
+        <div class="operator-section-loading-surface">
+          <div class="operator-section-loading-orb" aria-hidden="true">
+            <span></span>
+            <span></span>
+            <span></span>
           </div>
+          <p class="eyebrow">Portal proveedor</p>
+          <h3 id="operator-incidents-loading-title">Cargando incidencias</h3>
+          <p class="muted">Estamos reuniendo reportes, prioridades, responsables y seguimiento operativo.</p>
         </div>
+      </div>
 
-        <div class="form-grid">
-          <label>
-            <span>Solicitud</span>
-            <select
-              v-model="incidentForm.requestId"
-              :class="{ 'input-error': formErrors.incident.requestId }"
-            >
-              <option :value="null">Sin solicitud ligada</option>
-              <option v-for="request in requests" :key="request.id" :value="request.id">
-                #{{ request.id }} - {{ request.client }}
-              </option>
-            </select>
-            <small v-if="formErrors.incident.requestId" class="field-error">{{
-              formErrors.incident.requestId
-            }}</small>
-          </label>
-          <label>
-            <span>Tipo</span>
-            <select
-              v-model="incidentForm.type"
-              :class="{ 'input-error': formErrors.incident.type }"
-            >
-              <option v-for="type in incidentTypeOptions" :key="type" :value="type">
-                {{ type }}
-              </option>
-            </select>
-            <small v-if="formErrors.incident.type" class="field-error">{{
-              formErrors.incident.type
-            }}</small>
-          </label>
-          <label>
-            <span>Estado</span>
-            <select
-              v-model="incidentForm.status"
-              :class="{ 'input-error': formErrors.incident.status }"
-            >
-              <option v-for="status in incidentStatusOptions" :key="status" :value="status">
-                {{ status }}
-              </option>
-            </select>
-            <small v-if="formErrors.incident.status" class="field-error">{{
-              formErrors.incident.status
-            }}</small>
-          </label>
-          <label>
-            <span>Vuelo</span>
-            <input
-              v-model="incidentForm.flight"
-              type="text"
-              :class="{ 'input-error': formErrors.incident.flight }"
-            />
-            <small v-if="formErrors.incident.flight" class="field-error">{{
-              formErrors.incident.flight
-            }}</small>
-          </label>
-          <label>
-            <span>Prioridad</span>
-            <input
-              v-model="incidentForm.priority"
-              type="text"
-              :class="{ 'input-error': formErrors.incident.priority }"
-            />
-            <small v-if="formErrors.incident.priority" class="field-error">{{
-              formErrors.incident.priority
-            }}</small>
-          </label>
-          <label>
-            <span>Responsable</span>
-            <input
-              v-model="incidentForm.responsible"
-              type="text"
-              placeholder="Coordinacion, mantenimiento..."
-              :class="{ 'input-error': formErrors.incident.responsible }"
-            />
-            <small v-if="formErrors.incident.responsible" class="field-error">{{
-              formErrors.incident.responsible
-            }}</small>
-          </label>
-          <label>
-            <span>Evidencia</span>
-            <input
-              v-model="incidentForm.evidence"
-              type="text"
-              :class="{ 'input-error': formErrors.incident.evidence }"
-            />
-            <small v-if="formErrors.incident.evidence" class="field-error">{{
-              formErrors.incident.evidence
-            }}</small>
-          </label>
-          <label class="span-2">
-            <span>Comentario</span>
-            <textarea
-              v-model="incidentForm.comment"
-              rows="4"
-              :class="{ 'input-error': formErrors.incident.comment }"
-            ></textarea>
-            <small v-if="formErrors.incident.comment" class="field-error">{{
-              formErrors.incident.comment
-            }}</small>
-          </label>
-          <label class="span-2">
-            <span>Accion tomada</span>
-            <textarea
-              v-model="incidentForm.actionTaken"
-              rows="3"
-              :class="{ 'input-error': formErrors.incident.actionTaken }"
-            ></textarea>
-            <small v-if="formErrors.incident.actionTaken" class="field-error">{{
-              formErrors.incident.actionTaken
-            }}</small>
-          </label>
-        </div>
-
-        <p v-if="formErrors.incident._form" class="form-feedback form-feedback-error">
-          {{ formErrors.incident._form }}
-        </p>
-        <p v-if="formSuccess.incident" class="form-feedback form-feedback-success">
-          {{ formSuccess.incident }}
-        </p>
-        <div class="inline-actions">
-          <button type="button" class="primary-action" @click="createIncident">
-            Crear incidencia
-          </button>
-        </div>
-      </article>
-
-      <article class="surface">
-        <div class="section-head">
+      <article class="surface operator-incidents-overview">
+        <div class="section-head operator-incidents-overview__head">
           <div>
-            <p class="eyebrow">Seguimiento</p>
-            <h2>Incidencias abiertas</h2>
-          </div>
-        </div>
-
-        <div class="list-grid">
-          <article v-for="incident in incidents" :key="incident.id" class="list-card">
-            <div class="card-top">
-              <div>
-                <strong>{{ incident.type }} - {{ incident.flight }}</strong>
-                <p class="muted">{{ incident.comment }}</p>
-              </div>
-              <span class="badge">{{ incident.status }}</span>
-            </div>
-            <div class="fleet-summary">
-              <span class="badge">{{ mapIncidentTone(incident.priority) }}</span>
-              <span class="badge">Responsable: {{ incident.responsible }}</span>
-              <span class="badge">Solicitud: {{ incident.requestId || 'N/D' }}</span>
-              <span class="badge">Origen: {{ incident.source }}</span>
-              <span v-if="incident.crewName" class="badge">Sobrecargo: {{ incident.crewName }}</span>
-            </div>
+            <p class="eyebrow">Portal proveedor</p>
+            <h2>Panel operativo de incidencias</h2>
             <p class="muted">
-              Prioridad: {{ incident.priority }} - Evidencia: {{ incident.evidence }} - Alta:
-              {{ formatDateTimeRange(incident.createdAt) }}
+              Responde incidencias, valida disponibilidad y atiende solicitudes sin salir del flujo operativo.
             </p>
-            <div class="inline-actions">
-              <button
-                type="button"
-                class="ghost-button"
-                :disabled="isIncidentResolved(incident.status)"
-                @click="updateIncidentStatus(incident.id, 'Resuelta')"
-              >
-                Resolver
-              </button>
-              <button
-                type="button"
-                class="ghost-button"
-                :disabled="incident.status === 'Cerrada'"
-                @click="updateIncidentStatus(incident.id, 'Cerrada')"
-              >
-                Cerrar
-              </button>
-            </div>
+          </div>
+
+          <div class="hero-actions">
+            <button type="button" class="ghost-button" @click="goToSection('empresa')">
+              Mi empresa
+            </button>
+            <button type="button" class="primary-action" @click="goToSection('aeronaves')">
+              Crear / gestionar aeronaves
+            </button>
+          </div>
+        </div>
+
+        <div class="metrics-grid operator-incidents-metrics">
+          <article
+            v-for="card in providerIncidentDashboardCards"
+            :key="card.label"
+            class="metric-card operator-incidents-metric-card"
+          >
+            <span>{{ card.label }}</span>
+            <strong>{{ card.value }}</strong>
+            <small>{{ card.detail }}</small>
           </article>
         </div>
       </article>
+
+      <div class="operator-incidents-content">
+        <article class="surface operator-incidents-feed">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Seguimiento</p>
+              <h2>Incidencias abiertas</h2>
+            </div>
+            <span class="badge">{{ providerOpenIncidents.length }} activas</span>
+          </div>
+
+          <div v-if="providerOpenIncidents.length" class="list-grid operator-incidents-list">
+            <article
+              v-for="incident in providerOpenIncidents"
+              :key="incident.id"
+              class="list-card operator-incident-card"
+            >
+              <div class="card-top operator-incident-card__top">
+                <div>
+                  <span class="operator-incident-card__kicker">
+                    {{ incident.category || incident.type }} · {{ incident.route || incident.flight }}
+                  </span>
+                  <strong class="operator-incident-card__title">{{
+                    incident.comment || 'Incidencia operativa en seguimiento.'
+                  }}</strong>
+                </div>
+                <span class="badge">{{ incident.status }}</span>
+              </div>
+
+              <div class="operator-incident-card__meta">
+                <div>
+                  <span>Prioridad</span>
+                  <strong>{{ incident.priority }}</strong>
+                </div>
+                <div>
+                  <span>Origen</span>
+                  <strong>{{ incident.source }}</strong>
+                </div>
+                <div>
+                  <span>Evidencia</span>
+                  <div class="operator-incident-evidence">
+                    <template v-if="incident.evidenceFiles?.length">
+                      <a
+                        v-for="file in incident.evidenceFiles"
+                        :key="file.id"
+                        class="operator-incident-evidence__link"
+                        :href="file.fileUrl || undefined"
+                        :target="file.fileUrl ? '_blank' : undefined"
+                        :rel="file.fileUrl ? 'noreferrer' : undefined"
+                      >
+                        {{ file.name }}
+                      </a>
+                    </template>
+                    <strong v-else>{{ incident.evidence }}</strong>
+                  </div>
+                </div>
+                <div>
+                  <span>Alta</span>
+                  <strong>{{ formatDateTimeDisplay(incident.createdAt) }}</strong>
+                </div>
+              </div>
+
+              <div class="inline-actions operator-incident-card__actions">
+                <button
+                  type="button"
+                  class="primary-action"
+                  :disabled="isIncidentResolved(incident.status)"
+                  @click="respondToIncident(incident)"
+                >
+                  Responder incidencia
+                </button>
+                <button
+                  type="button"
+                  class="ghost-button"
+                  @click="viewIncidentDetail(incident)"
+                >
+                  Ver detalle
+                </button>
+              </div>
+            </article>
+          </div>
+
+          <article v-else class="list-card operator-incidents-empty">
+            <strong>No hay incidencias abiertas</strong>
+            <p class="muted">
+              La operacion del proveedor no tiene reportes activos por atender en este momento.
+            </p>
+          </article>
+        </article>
+
+        <aside class="operator-incidents-sidebar">
+
+         
+
+          
+
+          <article class="surface operator-side-card">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">Operaciones proximas</p>
+                <h2>Salidas visibles</h2>
+              </div>
+            </div>
+
+            <div v-if="providerUpcomingOperations.length" class="timeline operator-upcoming-list">
+              <article
+                v-for="operation in providerUpcomingOperations"
+                :key="operation.id"
+                class="timeline-item operator-upcoming-item"
+              >
+                <strong>{{ operation.route }}</strong>
+                <p class="muted">
+                  {{ formatDateTimeDisplay(operation.departure) }} · {{ operation.aircraft || 'Aeronave por definir' }}
+                </p>
+                <span class="badge">{{ operation.status }}</span>
+              </article>
+            </div>
+
+            <article v-else class="timeline-item operator-upcoming-item operator-upcoming-item--empty">
+              <strong>Sin operaciones proximas</strong>
+              <p class="muted">Cuando el proveedor tenga vuelos confirmados apareceran aqui para seguimiento rapido.</p>
+            </article>
+          </article>
+        </aside>
+      </div>
+
+      <div
+        v-if="incidentDetailModal.open && incidentDetailModal.incident"
+        class="document-preview-overlay"
+        @click.self="closeIncidentDetail"
+      >
+        <article class="document-preview-modal operator-incident-modal">
+          <div class="document-preview-head">
+            <div>
+              <span class="mini-label">{{ incidentDetailModal.incident.folio }}</span>
+              <h3>{{ incidentDetailModal.incident.type }}</h3>
+              <p class="muted">
+                {{ incidentDetailModal.incident.route || incidentDetailModal.incident.flight }} ·
+                {{ incidentDetailModal.incident.phase }}
+              </p>
+            </div>
+            <button type="button" class="ghost-button" @click="closeIncidentDetail">Cerrar</button>
+          </div>
+
+          <div class="operator-incident-modal__body">
+            <div class="operator-incident-modal__summary">
+              <span class="badge">{{ incidentDetailModal.incident.status }}</span>
+              <span class="badge">Prioridad: {{ incidentDetailModal.incident.priority }}</span>
+              <span class="badge">{{ incidentDetailModal.incident.category }}</span>
+              <span class="badge">{{ incidentDetailModal.incident.source }}</span>
+            </div>
+
+            <div class="operator-incident-modal__grid">
+              <article class="operator-incident-modal__panel">
+                <span class="mini-label">Informacion operativa</span>
+                <div class="status-list">
+                  <div class="status-row">
+                    <span>Folio</span>
+                    <strong>{{ incidentDetailModal.incident.folio }}</strong>
+                  </div>
+                  <div class="status-row">
+                    <span>Estado</span>
+                    <strong>{{ incidentDetailModal.incident.status }}</strong>
+                  </div>
+                  <div class="status-row">
+                    <span>Prioridad</span>
+                    <strong>{{ incidentDetailModal.incident.priority }}</strong>
+                  </div>
+                  <div class="status-row">
+                    <span>Categoria</span>
+                    <strong>{{ incidentDetailModal.incident.category }}</strong>
+                  </div>
+                  <div class="status-row">
+                    <span>Fase</span>
+                    <strong>{{ incidentDetailModal.incident.phase }}</strong>
+                  </div>
+                  <div class="status-row">
+                    <span>Ruta</span>
+                    <strong>{{ incidentDetailModal.incident.route || incidentDetailModal.incident.flight }}</strong>
+                  </div>
+                  <div class="status-row">
+                    <span>Origen</span>
+                    <strong>{{ incidentDetailModal.incident.source }}</strong>
+                  </div>
+                </div>
+              </article>
+            </div>
+
+            <article class="operator-incident-modal__panel">
+              <span class="mini-label">Descripcion</span>
+              <strong>{{ incidentDetailModal.incident.comment || 'Sin descripcion visible.' }}</strong>
+            </article>
+
+            <article class="operator-incident-modal__panel">
+              <span class="mini-label">Evidencia</span>
+              <div class="operator-incident-evidence">
+                <template v-if="incidentDetailModal.incident.evidenceFiles?.length">
+                  <article
+                    v-for="file in incidentDetailModal.incident.evidenceFiles"
+                    :key="file.id"
+                    class="operator-incident-evidence__item"
+                  >
+                    <img
+                      v-if="file.fileUrl && getIncidentEvidenceKind(file) === 'image'"
+                      :src="file.fileUrl"
+                      :alt="file.name"
+                      class="operator-incident-evidence__preview"
+                    />
+                    <strong>{{ file.name }}</strong>
+                    <div v-if="file.fileUrl" class="inline-actions">
+                      <a
+                        class="ghost-button operator-incident-evidence__button"
+                        :href="file.fileUrl"
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Ver archivo
+                      </a>
+                      <a
+                        class="ghost-button operator-incident-evidence__button"
+                        :href="file.fileUrl"
+                        :download="file.name"
+                      >
+                        Descargar
+                      </a>
+                    </div>
+                    <small v-else class="muted">
+                      El backend aun no expone una URL publica para este archivo.
+                    </small>
+                  </article>
+                </template>
+                <strong v-else>{{ incidentDetailModal.incident.evidence }}</strong>
+              </div>
+            </article>
+
+            <article class="operator-incident-modal__panel">
+              <span class="mini-label">Seguimiento</span>
+              <div class="timeline operator-incident-timeline">
+                <article
+                  v-for="item in buildIncidentTimeline(incidentDetailModal.incident)"
+                  :key="item.id"
+                  class="timeline-item operator-incident-timeline__item"
+                >
+                  <strong>{{ formatDateTimeDisplay(item.at) }}</strong>
+                  <p>{{ item.title }}</p>
+                  <small>{{ item.detail }}</small>
+                </article>
+              </div>
+            </article>
+
+            <div class="inline-actions">
+              <button
+                type="button"
+                class="primary-action"
+                :disabled="isIncidentResolved(incidentDetailModal.incident.status)"
+                @click="respondToIncident(incidentDetailModal.incident)"
+              >
+                Responder incidencia
+              </button>
+              <button
+                type="button"
+                class="ghost-button"
+                :disabled="incidentDetailModal.incident.status === 'En revision'"
+                @click="markIncidentInReview(incidentDetailModal.incident)"
+              >
+                Marcar en revision
+              </button>
+              <button type="button" class="ghost-button" @click="closeIncidentDetail">
+                Cerrar detalle
+              </button>
+            </div>
+          </div>
+        </article>
+      </div>
     </section>
 
     <section v-else-if="section === 'pagos'" class="page-grid">

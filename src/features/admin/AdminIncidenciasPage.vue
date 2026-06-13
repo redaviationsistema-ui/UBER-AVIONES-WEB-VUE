@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { api } from '../../lib/api'
+import { api, resolveMediaUrl } from '../../lib/api'
 
 const incidents = ref([])
 const isLoading = ref(false)
@@ -46,6 +46,9 @@ const filteredIncidents = computed(() => {
         incident.id,
         incident.crew_operation_id,
         incident.operation_route,
+        incident.crew_provider_company_name,
+        incident.crew_provider_name,
+        incident.provider_company_name,
         incident.provider_name,
         incident.crew_id,
         incident.crew_name,
@@ -118,13 +121,29 @@ function labelFor(value = '') {
 }
 
 function resolveProviderKey(incident = {}) {
-  return String(incident.provider_id || incident.provider_name || '')
+  return String(
+    incident.crew_provider_id ||
+      incident.provider_id ||
+      incident.crew_provider_company_name ||
+      incident.crew_provider_name ||
+      incident.provider_company_name ||
+      incident.provider_name ||
+      '',
+  )
     .trim()
     .toLowerCase()
 }
 
 function resolveProviderLabel(incident = {}) {
-  return String(incident.provider_name || '').trim() || 'Proveedor por definir'
+  return (
+    String(
+      incident.crew_provider_company_name ||
+        incident.crew_provider_name ||
+        incident.provider_company_name ||
+        incident.provider_name ||
+        '',
+    ).trim() || 'Proveedor por definir'
+  )
 }
 
 function resolveCrewKey(incident = {}) {
@@ -137,13 +156,37 @@ function resolveCrewLabel(incident = {}) {
   return String(incident.crew_name || '').trim() || (incident.crew_id ? `Sobrecargo #${incident.crew_id}` : 'Sobrecargo por definir')
 }
 
-function filesLabel(incident = {}) {
-  return (
-    (incident.files || [])
-      .map((file) => file.original_name || file.file_path)
-      .filter(Boolean)
-      .join(', ') || 'Sin evidencia'
-  )
+function normalizedIncidentFiles(incident = {}) {
+  return (incident.files || [])
+    .map((file, index) => {
+      const filePath = String(file?.file_path || '').trim()
+      const fileUrl = resolveMediaUrl(file?.file_url || file?.url || '')
+      const name =
+        file?.original_name ||
+        file?.file_name ||
+        file?.name ||
+        filePath ||
+        `Evidencia ${index + 1}`
+
+      return {
+        id: file?.id || `incident-file-${index}`,
+        name,
+        fileUrl,
+        fileType: String(file?.file_type || file?.mime_type || '').trim().toLowerCase(),
+      }
+    })
+    .filter((file) => file.fileUrl)
+}
+
+function incidentFileKind(file = {}) {
+  const fileUrl = String(file.fileUrl || '').toLowerCase()
+  const fileName = String(file.name || '').toLowerCase()
+  const mimeType = String(file.fileType || '').toLowerCase()
+
+  if (mimeType === 'application/pdf' || fileUrl.endsWith('.pdf') || fileName.endsWith('.pdf')) return 'pdf'
+  if (mimeType.startsWith('image/') || /\.(png|jpg|jpeg|webp|gif|bmp|svg)(\?|$)/i.test(fileUrl || fileName)) return 'image'
+
+  return 'other'
 }
 
 function draftFor(incident) {
@@ -270,7 +313,6 @@ onMounted(fetchIncidents)
           <table>
             <thead>
               <tr>
-                <th>Folio</th>
                 <th>Categoria</th>
                 <th>Prioridad</th>
                 <th>Estado</th>
@@ -287,12 +329,17 @@ onMounted(fetchIncidents)
                 :class="{ selected: selectedIncident?.id === incident.id }"
                 @click="selectedIncidentId = incident.id"
               >
-                <td>#{{ incident.id }}</td>
                 <td>{{ labelFor(incident.category) }}</td>
                 <td><span class="pill">{{ labelFor(incident.priority) }}</span></td>
                 <td><span class="pill pill-status">{{ labelFor(incident.status) }}</span></td>
                 <td>{{ incident.operation_route || `Operacion #${incident.crew_operation_id}` }}</td>
-                <td>{{ incident.provider_name || 'Proveedor por definir' }}</td>
+                <td>{{
+                  incident.crew_provider_company_name ||
+                  incident.crew_provider_name ||
+                  incident.provider_company_name ||
+                  incident.provider_name ||
+                  'Proveedor por definir'
+                }}</td>
                 <td>{{ incident.crew_name || `Sobrecargo #${incident.crew_id}` }}</td>
                 <td class="description-cell">{{ incident.description }}</td>
               </tr>
@@ -327,7 +374,13 @@ onMounted(fetchIncidents)
             </article>
             <article>
               <span>Empresa</span>
-              <strong>{{ selectedIncident.provider_name || 'Proveedor por definir' }}</strong>
+              <strong>{{
+                selectedIncident.crew_provider_company_name ||
+                selectedIncident.crew_provider_name ||
+                selectedIncident.provider_company_name ||
+                selectedIncident.provider_name ||
+                'Proveedor por definir'
+              }}</strong>
             </article>
             <article>
               <span>Sobrecargo</span>
@@ -339,7 +392,31 @@ onMounted(fetchIncidents)
             </article>
             <article>
               <span>Evidencia</span>
-              <strong>{{ filesLabel(selectedIncident) }}</strong>
+              <div class="incident-evidence" v-if="normalizedIncidentFiles(selectedIncident).length">
+                <article
+                  v-for="file in normalizedIncidentFiles(selectedIncident)"
+                  :key="file.id"
+                  class="incident-evidence__item"
+                >
+                  <img
+                    v-if="file.fileUrl && incidentFileKind(file) === 'image'"
+                    :src="file.fileUrl"
+                    :alt="file.name"
+                    class="incident-evidence__preview"
+                  />
+                  <strong>{{ file.name }}</strong>
+                  <a
+                    v-if="file.fileUrl"
+                    class="incident-evidence__link"
+                    :href="file.fileUrl"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Ver archivo
+                  </a>
+                </article>
+              </div>
+              <strong v-else>Evidencia AWS no disponible.</strong>
             </article>
           </div>
 
@@ -599,6 +676,36 @@ tbody tr.selected {
 .detail-grid strong,
 .detail-block p {
   overflow-wrap: anywhere;
+}
+
+.incident-evidence {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.incident-evidence__item {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.incident-evidence__preview {
+  width: 100%;
+  max-width: 220px;
+  border-radius: 12px;
+  border: 1px solid #eee6da;
+  object-fit: cover;
+}
+
+.incident-evidence__link {
+  color: #0f766e;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.incident-evidence__link:hover,
+.incident-evidence__link:focus-visible {
+  text-decoration: underline;
 }
 
 .button-row {

@@ -5,6 +5,15 @@ import CrewUiIcon from './CrewUiIcon.vue'
 const props = defineProps({
   assignments: { type: Array, required: true },
   isLoading: { type: Boolean, default: false },
+  actionState: {
+    type: Object,
+    default: () => ({
+      active: false,
+      title: '',
+      detail: '',
+      tone: 'success',
+    }),
+  },
 })
 
 const emit = defineEmits([
@@ -465,10 +474,11 @@ function stageTone(state = '') {
                 v-if="nextAction.cta"
                 class="primary-action action-button next-action-button"
                 type="button"
+                :disabled="props.actionState?.active"
                 @click="triggerPrimaryAction"
               >
                 <CrewUiIcon name="checklist" :size="16" />
-                {{ nextAction.cta }}
+                {{ props.actionState?.active ? 'Procesando...' : nextAction.cta }}
               </button>
               <div v-if="secondaryActions.length" class="secondary-actions">
                 <button
@@ -476,6 +486,7 @@ function stageTone(state = '') {
                   :key="action.id"
                   class="ghost-button action-button secondary-action-button"
                   type="button"
+                  :disabled="props.actionState?.active"
                   @click="triggerSecondaryAction(action.id)"
                 >
                   <CrewUiIcon :name="action.icon" :size="15" />
@@ -569,9 +580,32 @@ function stageTone(state = '') {
           </div>
         </article>
         </template>
+
       </section>
     </div>
   </section>
+  <Teleport to="body">
+    <div
+      v-if="props.actionState?.active"
+      class="assignment-action-modal"
+      role="status"
+      aria-live="polite"
+    >
+      <div class="assignment-action-surface" :class="`assignment-action-surface--${props.actionState.tone || 'success'}`">
+        <div class="assignment-action-orb" aria-hidden="true">
+          <span v-if="props.actionState.tone === 'success' && props.actionState.title?.includes('Confirmado')">✓</span>
+          <template v-else>
+            <i></i>
+            <i></i>
+            <i></i>
+          </template>
+        </div>
+        <p class="eyebrow">Operacion</p>
+        <h3>{{ props.actionState.title }}</h3>
+        <p class="muted">{{ props.actionState.detail }}</p>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -621,6 +655,82 @@ function stageTone(state = '') {
   align-items: center;
   justify-content: center;
   color: #0a8f5b;
+}
+
+.assignment-action-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background:
+    radial-gradient(circle at top, rgba(194, 138, 18, 0.14), transparent 34%),
+    rgba(248, 246, 241, 0.76);
+  backdrop-filter: blur(12px);
+}
+
+.assignment-action-surface {
+  display: grid;
+  gap: 0.8rem;
+  width: min(420px, 100%);
+  padding: 2rem 1.8rem;
+  border-radius: 28px;
+  border: 1px solid rgba(214, 199, 173, 0.8);
+  background: linear-gradient(180deg, rgba(255, 253, 248, 0.98) 0%, rgba(245, 239, 228, 0.96) 100%);
+  text-align: center;
+  box-shadow:
+    0 28px 70px rgba(24, 20, 14, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.76);
+  transform: translateY(-2vh);
+}
+
+.assignment-action-surface h3,
+.assignment-action-surface .muted {
+  margin: 0;
+}
+
+.assignment-action-orb {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 4.2rem;
+  height: 4.2rem;
+  margin: 0 auto 0.2rem;
+  border-radius: 999px;
+  background: radial-gradient(circle at 30% 30%, #fffaf0 0%, #e8d5a6 42%, #c28a12 100%);
+  box-shadow: 0 18px 32px rgba(194, 138, 18, 0.22);
+  color: #1d1a14;
+  font-size: 1.8rem;
+  font-weight: 800;
+}
+
+.assignment-action-orb i {
+  position: absolute;
+  width: 4.2rem;
+  height: 4.2rem;
+  border-radius: inherit;
+  border: 1px solid rgba(194, 138, 18, 0.24);
+  animation: assignment-action-pulse 1.7s ease-out infinite;
+}
+
+.assignment-action-orb i:nth-child(2) {
+  animation-delay: 0.22s;
+}
+
+.assignment-action-orb i:nth-child(3) {
+  animation-delay: 0.44s;
+}
+
+@keyframes assignment-action-pulse {
+  0% {
+    transform: scale(0.84);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(1.28);
+    opacity: 0;
+  }
 }
 
 .icon-badge {

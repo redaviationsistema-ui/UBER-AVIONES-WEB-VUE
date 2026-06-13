@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue'
+import { resolveMediaUrl } from '../../lib/api'
 import CrewUiIcon from './CrewUiIcon.vue'
 
 const props = defineProps({
@@ -10,6 +11,7 @@ const props = defineProps({
   incidentPriorities: { type: Array, required: true },
   incidentStates: { type: Array, required: true },
   incidentFlightOptions: { type: Array, required: true },
+  isSubmitting: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['update-field', 'create'])
@@ -81,6 +83,39 @@ function statusTone(value = '') {
 
 function labelFor(value = '') {
   return labels[value] || value || 'Sin dato'
+}
+
+function normalizedIncidentFiles(incident = {}) {
+  return (incident.files || [])
+    .map((file, index) => {
+      const filePath = String(file?.file_path || '').trim()
+      const fileUrl = resolveMediaUrl(file?.file_url || file?.url || '')
+      const name =
+        file?.original_name ||
+        file?.file_name ||
+        file?.name ||
+        filePath ||
+        `Evidencia ${index + 1}`
+
+      return {
+        id: file?.id || `crew-incident-file-${index}`,
+        name,
+        fileUrl,
+        fileType: String(file?.file_type || file?.mime_type || '').trim().toLowerCase(),
+      }
+    })
+    .filter((file) => file.fileUrl)
+}
+
+function incidentFileKind(file = {}) {
+  const fileUrl = String(file.fileUrl || '').toLowerCase()
+  const fileName = String(file.name || '').toLowerCase()
+  const mimeType = String(file.fileType || '').toLowerCase()
+
+  if (mimeType === 'application/pdf' || fileUrl.endsWith('.pdf') || fileName.endsWith('.pdf')) return 'pdf'
+  if (mimeType.startsWith('image/') || /\.(png|jpg|jpeg|webp|gif|bmp|svg)(\?|$)/i.test(fileUrl || fileName)) return 'image'
+
+  return 'other'
 }
 
 function submitIncident() {
@@ -236,6 +271,14 @@ function submitIncident() {
               <strong>{{ labelFor(incidentForm.type) || 'Categoria por definir' }}</strong>
               <p>{{ incidentForm.flight || 'Vuelo sin seleccionar' }} · {{ incidentForm.phase }} · {{ labelFor(incidentForm.priority) }}</p>
               <small>{{ incidentForm.description || 'Sin descripcion' }}</small>
+              <small>
+                Evidencia:
+                {{
+                  incidentForm.files?.length
+                    ? incidentForm.files.map((file) => file.name).join(', ')
+                    : 'Sin archivos adjuntos'
+                }}
+              </small>
             </div>
 
             <div class="status-preview">
@@ -252,8 +295,8 @@ function submitIncident() {
             <button v-if="currentStep < 5" type="button" class="primary-action" @click="nextStep">
               Siguiente
             </button>
-            <button v-else type="button" class="primary-action" @click="submitIncident">
-              Reportar incidencia
+            <button v-else type="button" class="primary-action" :disabled="props.isSubmitting" @click="submitIncident">
+              {{ props.isSubmitting ? 'Enviando incidencia...' : 'Reportar incidencia' }}
             </button>
           </div>
         </div>
@@ -284,7 +327,31 @@ function submitIncident() {
               <small>{{ item.phase }} · {{ item.time }}</small>
               <small>Empresa del vuelo: {{ item.providerName || 'Por definir' }}</small>
               <small>Respuesta del Admin: {{ item.adminResponse || 'Pendiente' }}</small>
-              <small>Evidencia: {{ item.evidence || 'Sin evidencia' }}</small>
+              <div v-if="normalizedIncidentFiles(item).length" class="incident-evidence">
+                <article
+                  v-for="file in normalizedIncidentFiles(item)"
+                  :key="file.id"
+                  class="incident-evidence__item"
+                >
+                  <img
+                    v-if="file.fileUrl && incidentFileKind(file) === 'image'"
+                    :src="file.fileUrl"
+                    :alt="file.name"
+                    class="incident-evidence__preview"
+                  />
+                  <small>Evidencia: {{ file.name }}</small>
+                  <a
+                    v-if="file.fileUrl"
+                    class="incident-evidence__link"
+                    :href="file.fileUrl"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Ver archivo
+                  </a>
+                </article>
+              </div>
+              <small v-else>Evidencia AWS no disponible.</small>
 
               <div class="timeline">
                 <article v-for="entry in item.timeline || []" :key="entry.id" class="timeline-item">
@@ -604,6 +671,36 @@ textarea {
 
 .timeline-item p {
   margin: 0;
+}
+
+.incident-evidence {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.incident-evidence__item {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.incident-evidence__preview {
+  width: 100%;
+  max-width: 220px;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  object-fit: cover;
+}
+
+.incident-evidence__link {
+  color: #0f766e;
+  font-size: 0.84rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.incident-evidence__link:hover,
+.incident-evidence__link:focus-visible {
+  text-decoration: underline;
 }
 
 .floating-report {
