@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { searchAirports } from '../../../lib/airportSearch'
 import { normalizeWorkflowLabel } from '../../../utils/flightWorkflow'
 import { formatAirportLabel, formatAirportOption, formatAirportRoute } from '../../../utils/airports'
@@ -32,6 +33,7 @@ const props = defineProps({
 
 const showAdvanced = ref(false)
 const activeProfileTab = ref('dashboard')
+const route = useRoute()
 const activeAirportField = ref('')
 const profileMenuOpen = ref(false)
 const conciergeDraft = ref('')
@@ -95,6 +97,21 @@ const emit = defineEmits([
   'remove-client-document',
   'download-client-document',
 ])
+
+watch(
+  () => route.query.profileTab,
+  (nextTab) => {
+    const normalizedTab = String(nextTab || '').trim()
+    if (!normalizedTab) {
+      activeProfileTab.value = 'dashboard'
+      return
+    }
+
+    const tabExists = profileTabs.some((tab) => tab.id === normalizedTab)
+    activeProfileTab.value = tabExists ? normalizedTab : 'dashboard'
+  },
+  { immediate: true },
+)
 
 const currentRouteLabel = computed(() =>
   props.latestRequest

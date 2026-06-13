@@ -14,6 +14,8 @@ import {
   normalizePackageCode,
 } from '../../../utils/flightPricing'
 import {
+  confirmClientAccessPayment,
+  createClientAccessPaymentIntent,
   createClientFlightRequest,
   createClientPaymentIntent,
   ensureClientReservation,
@@ -50,6 +52,7 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const ui = useUiStore()
+const COMMERCIAL_ACCESS_AMOUNT_LABEL = 'USD $115 / mes'
 
 const tripType = ref('Ida')
 const selectedPriorityType = ref('essential')
@@ -345,6 +348,9 @@ const selectedReservation = computed(() => {
 const selectedReservationFrontendState = computed(() =>
   normalizeContractFrontendState(selectedReservation.value || {}),
 )
+const commercialAccessPaymentMode = computed(
+  () => props.section === 'pago' && isTruthyQueryFlag(route.query.accessPayment),
+)
 const paymentReadyForCheckout = computed(
   () => selectedReservationFrontendState.value.ready_for_payment === true,
 )
@@ -411,6 +417,9 @@ const selectedReservationPriceValue = computed(() => {
   )
 })
 const paymentSummaryAmountLabel = computed(() => {
+  if (commercialAccessPaymentMode.value) {
+    return COMMERCIAL_ACCESS_AMOUNT_LABEL
+  }
   if (selectedReservationPriceValue.value > 0) {
     return formatCurrency(selectedReservationPriceValue.value)
   }
@@ -444,10 +453,14 @@ const customerPhone = computed(() => {
   return String(rawPhone || '').trim()
 })
 const paymentHeroTitle = computed(() => {
+  if (commercialAccessPaymentMode.value) return 'Activa tu acceso comercial'
   if (!selectedReservation.value) return 'Checkout seguro'
   return paymentReadyForCheckout.value ? 'Configura tu pago' : 'Pago bloqueado hasta firma'
 })
 const paymentHeroCopy = computed(() => {
+  if (commercialAccessPaymentMode.value) {
+    return 'Usa esta misma cabina de pago para habilitar tu acceso comercial y seguir cotizando vuelos privados.'
+  }
   if (selectedReservation.value) {
     if (!paymentReadyForCheckout.value) {
       return (
@@ -459,20 +472,63 @@ const paymentHeroCopy = computed(() => {
   }
   return 'Pago protegido con tarjeta, transferencia, wire o wallet corporativa.'
 })
-const paymentRouteHeadline = computed(() => itineraryHeadline(activeItinerarySummary.value))
-const paymentDateLabel = computed(() => itineraryDateLine(activeItinerarySummary.value))
-const paymentFeatureList = [
-  {
-    icon: 'shield',
-    title: 'Pago protegido',
-    copy: 'Cobro seguro con trazabilidad operativa en tiempo real.',
-  },
-  {
-    icon: 'route',
-    title: 'Reserva priorizada',
-    copy: 'Resumen final antes de liberar la operacion al proveedor.',
-  },
-]
+const paymentRouteHeadline = computed(() =>
+  commercialAccessPaymentMode.value
+    ? 'Acceso comercial SKY Group'
+    : itineraryHeadline(activeItinerarySummary.value),
+)
+const paymentDateLabel = computed(() =>
+  commercialAccessPaymentMode.value ? 'Activacion mensual inmediata' : itineraryDateLine(activeItinerarySummary.value),
+)
+const paymentFeatureList = computed(() =>
+  commercialAccessPaymentMode.value
+    ? [
+        {
+          icon: 'shield',
+          title: 'Acceso protegido',
+          copy: 'Activa tu cuenta comercial dentro del mismo portal del cliente.',
+        },
+        {
+          icon: 'route',
+          title: 'Cotizaciones ilimitadas',
+          copy: 'Despues de la activacion podras volver a cotizar y solicitar reservas.',
+        },
+      ]
+    : [
+        {
+          icon: 'shield',
+          title: 'Pago protegido',
+          copy: 'Cobro seguro con trazabilidad operativa en tiempo real.',
+        },
+        {
+          icon: 'route',
+          title: 'Reserva priorizada',
+          copy: 'Resumen final antes de liberar la operacion al proveedor.',
+        },
+      ],
+)
+const commercialAccessCheckoutFacts = computed(() => {
+  const state = buildCommercialAccessUiState(auth.access?.commercial_access || auth.access)
+  const trialLabel =
+    state.freeQuotesUsed >= state.freeQuoteLimit
+      ? 'Prueba consumida'
+      : `${state.freeQuotesUsed}/${state.freeQuoteLimit} pruebas usadas`
+
+  let paymentLabel = 'Sin pago'
+  if (state.hasPaidAccess) paymentLabel = 'Pagado'
+  else if (state.status === 'payment_pending') paymentLabel = 'Pago en validacion'
+  else if (state.status === 'payment_failed') paymentLabel = 'Pago rechazado'
+
+  const accessLabel = state.hasPaidAccess ? 'Acceso activo' : 'Requiere activacion'
+  const usageLabel = `${state.freeQuotesUsed}/${state.freeQuoteLimit} uso${state.freeQuoteLimit === 1 ? '' : 's'} de prueba`
+
+  return [
+    { label: 'Estado comercial', value: trialLabel, tone: 'warning' },
+    { label: 'Estado de pago', value: paymentLabel, tone: state.hasPaidAccess ? 'success' : 'neutral' },
+    { label: 'Plan actual', value: COMMERCIAL_ACCESS_AMOUNT_LABEL, tone: 'premium' },
+    { label: 'Lectura operativa', value: `${usageLabel} · ${accessLabel}`, tone: 'neutral' },
+  ]
+})
 const paymentMethodCards = [
   {
     id: 'card',
@@ -510,6 +566,7 @@ let stripeCardExpiryElement = null
 let stripeCardCvcElement = null
 let stripeIntentSecret = ''
 let stripePublishableKey = ''
+let stripeIntentContext = ''
 
 function normalizeCardBrand(value = '') {
   const normalized = String(value || '')
@@ -791,7 +848,7 @@ function buildCommercialAccessMessage(accessSource = null) {
     return `Tienes ${state.remainingFreeQuotes} cotizacion${state.remainingFreeQuotes === 1 ? '' : 'es'} de prueba disponible${state.remainingFreeQuotes === 1 ? '' : 's'}.`
   }
 
-  return 'Tu cotizacion de prueba ya fue utilizada. Activa tu acceso comercial para continuar.'
+  return 'Tu cotizacion de prueba ya fue utilizada. Pantalla de pago para proceder.'
 }
 
 function syncCommercialAccessState(accessSource = null) {
@@ -837,9 +894,10 @@ const tripsInitialTab = computed(() => {
   if (props.section === 'historial') return 'historial'
   return 'proximos'
 })
-const needsReservationContext = computed(() =>
-  ['contrato', 'pago', 'reserva-confirmada', 'soporte'].includes(props.section),
-)
+const needsReservationContext = computed(() => {
+  if (commercialAccessPaymentMode.value) return false
+  return ['contrato', 'pago', 'reserva-confirmada', 'soporte'].includes(props.section)
+})
 const hasReservationsLoaded = computed(
   () =>
     !loadingServerData.value && !refreshingReservations.value && Array.isArray(reservations.value),
@@ -850,6 +908,7 @@ const canRenderReservationWorkflow = computed(() => {
     return Boolean(selectedReservation.value?.is_reservation)
   }
   if (props.section === 'pago') {
+    if (commercialAccessPaymentMode.value) return true
     return Boolean(selectedReservation.value?.is_reservation) && paymentReadyForCheckout.value
   }
   return Boolean(selectedReservation.value)
@@ -1158,7 +1217,7 @@ function resolveStripePublishableKey(preferredKey = '') {
   )
 }
 
-function cacheStripePaymentIntent(payload = {}) {
+function cacheStripePaymentIntent(payload = {}, context = 'reservation') {
   const nextClientSecret = String(payload?.client_secret || '').trim()
   const nextPublishableKey = resolveStripePublishableKey(payload?.publishable_key)
   const nextPaymentIntentId = String(payload?.payment_intent_id || '').trim()
@@ -1174,6 +1233,8 @@ function cacheStripePaymentIntent(payload = {}) {
   if (nextPaymentIntentId) {
     paymentLastReference.value = nextPaymentIntentId
   }
+
+  stripeIntentContext = context
 }
 
 async function ensureStripePaymentElement(publishableKeyOverride = '') {
@@ -1182,7 +1243,7 @@ async function ensureStripePaymentElement(publishableKeyOverride = '') {
   if (
     selectedPaymentMethod.value !== 'card' ||
     props.section !== 'pago' ||
-    !flightRequestId ||
+    (!flightRequestId && !commercialAccessPaymentMode.value) ||
     !paymentCardNumberHost.value ||
     !paymentCardExpiryHost.value ||
     !paymentCardCvcHost.value
@@ -1311,6 +1372,7 @@ function destroyStripePaymentElement() {
   stripeClient = null
   stripeIntentSecret = ''
   stripePublishableKey = ''
+  stripeIntentContext = ''
   paymentCardBrand.value = ''
   paymentCardComplete.value = false
   paymentElementReady.value = false
@@ -2130,7 +2192,17 @@ function go(section, id = '') {
   )
 }
 
+function goToCommercialAccessPayment() {
+  profileMenuOpen.value = false
+  router.push({
+    name: 'cliente',
+    params: { section: 'pago' },
+    query: { accessPayment: '1' },
+  })
+}
+
 function alignReservationWorkflowRoute() {
+  if (commercialAccessPaymentMode.value) return
   if (!needsReservationContext.value) return
   if (!hasReservationsLoaded.value) return
 
@@ -2627,6 +2699,105 @@ async function handleContractConfirm(contractPayload = {}) {
 }
 
 async function handlePaymentSubmit() {
+  if (commercialAccessPaymentMode.value) {
+    paymentInlineError.value = ''
+
+    if (!paymentForm.contactEmail.trim()) {
+      paymentInlineError.value = 'Agrega un correo electronico de contacto para continuar.'
+      return
+    }
+
+    if (selectedPaymentMethod.value === 'card' && !paymentCardComplete.value) {
+      paymentInlineError.value = 'Completa correctamente los datos de la tarjeta antes de continuar.'
+      return
+    }
+
+    paymentSubmitting.value = true
+
+    try {
+      if (selectedPaymentMethod.value !== 'card') {
+        throw new Error('Por ahora el acceso comercial solo admite pago con tarjeta en esta vista.')
+      }
+
+      let paymentIntentPayload = null
+
+      if (!stripeIntentSecret || !resolveStripePublishableKey() || stripeIntentContext !== 'client_access') {
+        paymentIntentPayload = await createClientAccessPaymentIntent(
+          {
+            contact_email: paymentForm.contactEmail.trim() || customerEmail.value,
+          },
+          { timeoutMs: 30000 },
+        )
+
+        cacheStripePaymentIntent(paymentIntentPayload, 'client_access')
+      }
+
+      if (!stripeClient || !stripeElements || !stripeCardNumberElement) {
+        await ensureStripePaymentElement(paymentIntentPayload?.publishable_key || '')
+      }
+
+      if (!stripeClient || !stripeCardNumberElement) {
+        throw new Error('El formulario de tarjeta segura todavia no esta listo.')
+      }
+
+      const result = await stripeClient.confirmCardPayment(stripeIntentSecret, {
+        payment_method: {
+          card: stripeCardNumberElement,
+          billing_details: {
+            name: customerDisplayName.value,
+            email: paymentForm.contactEmail.trim(),
+          },
+        },
+        receipt_email: paymentForm.contactEmail.trim(),
+      })
+
+      if (result.error) {
+        throw new Error(result.error.message || 'Stripe no pudo confirmar el pago del acceso comercial.')
+      }
+
+      paymentLastReference.value = result.paymentIntent?.id || paymentLastReference.value
+
+      if (result.paymentIntent?.status === 'succeeded') {
+        const payload = await confirmClientAccessPayment(
+          { payment_intent_id: result.paymentIntent.id },
+          { timeoutMs: 30000 },
+        )
+
+        if (payload?.access) {
+          syncCommercialAccessState(payload.access)
+        }
+
+        await auth.refreshSession()
+
+        ui.pushToast({
+          tone: 'success',
+          title: 'Acceso comercial activado',
+          message: 'El pago se confirmo y tu cuenta ya puede volver a cotizar y reservar.',
+        })
+        go('reservar')
+        return
+      }
+
+      ui.pushToast({
+        tone: 'success',
+        title: 'Pago enviado',
+        message: 'Stripe recibio la autorizacion. Estamos esperando la confirmacion final del acceso comercial.',
+      })
+      return
+    } catch (error) {
+      paymentInlineError.value =
+        error?.message || 'No fue posible iniciar el flujo de pago del acceso comercial.'
+      ui.pushToast({
+        tone: 'error',
+        title: 'No se pudo activar el acceso comercial',
+        message: paymentInlineError.value,
+      })
+      return
+    } finally {
+      paymentSubmitting.value = false
+    }
+  }
+
   const flightRequestId = flightRequestContextId.value
   const reservationId = reservationContextId.value
 
@@ -2695,7 +2866,7 @@ async function handlePaymentSubmit() {
         { timeoutMs: 30000 },
       )
 
-      cacheStripePaymentIntent(paymentIntentPayload)
+      cacheStripePaymentIntent(paymentIntentPayload, 'reservation')
     }
 
     if (!stripeClient || !stripeElements || !stripeCardNumberElement) {
@@ -2715,7 +2886,7 @@ async function handlePaymentSubmit() {
         { timeoutMs: 30000 },
       )
 
-      cacheStripePaymentIntent(payload)
+      cacheStripePaymentIntent(payload, 'reservation')
 
       if (!stripeIntentSecret) {
         throw new Error('El backend no devolvio client_secret para confirmar el pago.')
@@ -2940,11 +3111,48 @@ watch(
 )
 
 watch(
-  () => [props.section, selectedPaymentMethod.value, routeId.value],
+  () => [props.section, selectedPaymentMethod.value, routeId.value, route.query.accessPayment],
   async ([section, method]) => {
+    if (commercialAccessPaymentMode.value) {
+      wireInstructions.value = null
+      if (section === 'pago' && method === 'card') {
+        if (stripeIntentContext !== 'client_access') {
+          destroyStripePaymentElement()
+        }
+
+        await nextTick()
+        if (!resolveStripePublishableKey() || !stripeIntentSecret || stripeIntentContext !== 'client_access') {
+          try {
+            const payload = await createClientAccessPaymentIntent(
+              {
+                contact_email: paymentForm.contactEmail.trim() || customerEmail.value,
+              },
+              { timeoutMs: 30000 },
+            )
+            cacheStripePaymentIntent(payload, 'client_access')
+          } catch (error) {
+            paymentInlineError.value =
+              error?.message || 'No se pudo preparar el pago seguro del acceso comercial.'
+            return
+          }
+        }
+
+        await ensureStripePaymentElement()
+        return
+      }
+
+      if (method !== 'card') {
+        destroyStripePaymentElement()
+      }
+      return
+    }
+
     if (section === 'pago' && method === 'card') {
       wireInstructions.value = null
       await nextTick()
+      if (stripeIntentContext && stripeIntentContext !== 'reservation') {
+        destroyStripePaymentElement()
+      }
       if (!resolveStripePublishableKey() && flightRequestContextId.value) {
         try {
           const payload = await createClientPaymentIntent(
@@ -2954,7 +3162,7 @@ watch(
             },
             { timeoutMs: 30000 },
           )
-          cacheStripePaymentIntent(payload)
+          cacheStripePaymentIntent(payload, 'reservation')
         } catch (error) {
           paymentInlineError.value =
             error?.message || 'No se pudo preparar el pago seguro con Stripe.'
@@ -3232,6 +3440,7 @@ async function submitSearch() {
       title: 'No se pudo solicitar la reserva',
       message: blockedMessage,
     })
+    goToCommercialAccessPayment()
     return
   }
 
@@ -3310,6 +3519,7 @@ async function requestReservation(aircraft = selectedAircraft.value) {
         title: 'No se pudo solicitar la reserva',
         message: blockedMessage,
       })
+      goToCommercialAccessPayment()
       return
     }
 
@@ -3519,6 +3729,9 @@ async function requestReservation(aircraft = selectedAircraft.value) {
       title: 'No se pudo solicitar la reserva',
       message,
     })
+    if (Number(error?.status || 0) === 402) {
+      goToCommercialAccessPayment()
+    }
   } finally {
     reservingAircraftId.value = ''
   }
@@ -4004,20 +4217,37 @@ watch(
             <button
               class="payment-back"
               type="button"
-              @click="go('contrato', reservationContextId)"
+              @click="commercialAccessPaymentMode ? go('reservar') : go('contrato', reservationContextId)"
             >
               <span aria-hidden="true">←</span>
-              <span>Volver al contrato</span>
+              <span>{{ commercialAccessPaymentMode ? 'Volver a reservar' : 'Volver al contrato' }}</span>
             </button>
 
             <div class="payment-checkout__hero">
-              <span class="eyebrow">Pago {{ reservationContextId }}</span>
+              <span class="eyebrow">{{
+                commercialAccessPaymentMode ? 'Pago de acceso comercial' : `Pago ${reservationContextId}`
+              }}</span>
               <h2>{{ paymentHeroTitle }}</h2>
               <p>{{ paymentHeroCopy }}</p>
               <div class="payment-trust-strip">
-               
+                <template v-if="commercialAccessPaymentMode">
+                  <span v-for="item in commercialAccessCheckoutFacts.slice(0, 3)" :key="item.label">
+                    {{ item.label }}: {{ item.value }}
+                  </span>
+                </template>
               </div>
             </div>
+
+            <section v-if="commercialAccessPaymentMode" class="commercial-payment-brief">
+              <article
+                v-for="item in commercialAccessCheckoutFacts"
+                :key="item.label"
+                :class="['commercial-payment-brief__card', `commercial-payment-brief__card--${item.tone}`]"
+              >
+                <span>{{ item.label }}</span>
+                <strong>{{ item.value }}</strong>
+              </article>
+            </section>
 
             <section class="payment-section">
               <h3>Informacion de contacto</h3>
@@ -4184,7 +4414,9 @@ watch(
           </div>
 
           <aside class="payment-summary-card">
-            <span class="payment-summary-card__eyebrow">Resumen de reserva</span>
+            <span class="payment-summary-card__eyebrow">{{
+              commercialAccessPaymentMode ? 'Resumen de acceso' : 'Resumen de reserva'
+            }}</span>
             <h3>{{ customerDisplayName }}</h3>
             <p class="payment-summary-card__route">{{ paymentRouteHeadline }}</p>
             <div class="payment-summary-flight">
@@ -4197,13 +4429,13 @@ watch(
                 </svg>
               </div>
               <div>
-                <span>Vuelo privado protegido</span>
+                <span>{{ commercialAccessPaymentMode ? 'Cuenta comercial protegida' : 'Vuelo privado protegido' }}</span>
                 <strong>{{ paymentDateLabel }}</strong>
               </div>
             </div>
 
             <div class="payment-feature-list">
-              <article v-for="feature in paymentFeatureList" :key="feature">
+              <article v-for="feature in paymentFeatureList" :key="feature.title">
                 <span class="payment-feature-list__icon" aria-hidden="true">
                   <svg v-if="feature.icon === 'shield'" viewBox="0 0 24 24">
                     <path
@@ -4285,6 +4517,12 @@ watch(
             </div>
 
             <div class="payment-summary-meta">
+              <template v-if="commercialAccessPaymentMode">
+                <p v-for="item in commercialAccessCheckoutFacts.slice(0, 2)" :key="item.label">
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.value }}</strong>
+                </p>
+              </template>
               <p>
                 <span>Fecha estimada</span>
                 <strong>{{ paymentDateLabel }}</strong>
@@ -4319,6 +4557,8 @@ watch(
               {{
                 paymentSubmitting
                   ? 'Procesando...'
+                  : commercialAccessPaymentMode
+                    ? 'Continuar con activacion'
                   : selectedPaymentMethod === 'wire'
                     ? 'Generar instrucciones bancarias'
                     : 'Pagar ahora'
@@ -5546,6 +5786,55 @@ button {
 .payment-section {
   display: grid;
   gap: 0.8rem;
+}
+
+.commercial-payment-brief {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.commercial-payment-brief__card {
+  display: grid;
+  gap: 0.35rem;
+  padding: 1rem 1.05rem;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  border-radius: 22px;
+  background: #ffffff;
+  box-shadow: 0 12px 28px rgba(17, 17, 17, 0.04);
+}
+
+.commercial-payment-brief__card span {
+  color: #746b5f;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.commercial-payment-brief__card strong {
+  color: #111111;
+  font-size: 1rem;
+  line-height: 1.25;
+}
+
+.commercial-payment-brief__card--warning {
+  background: linear-gradient(180deg, #fffaf2, #fff4e8);
+  border-color: rgba(196, 124, 48, 0.2);
+}
+
+.commercial-payment-brief__card--success {
+  background: linear-gradient(180deg, #f4fbf6, #eaf7ee);
+  border-color: rgba(40, 142, 88, 0.18);
+}
+
+.commercial-payment-brief__card--premium {
+  background: linear-gradient(135deg, #f8f4eb 0%, #efe4c9 100%);
+  border-color: rgba(191, 151, 65, 0.32);
+}
+
+.commercial-payment-brief__card--neutral {
+  background: linear-gradient(180deg, #ffffff, #f8f5ee);
 }
 
 .payment-section h3,
@@ -7101,6 +7390,12 @@ button {
   .mobile-bottom-nav button.active {
     background: #111111;
     color: #ffffff;
+  }
+}
+
+@media (max-width: 720px) {
+  .commercial-payment-brief {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

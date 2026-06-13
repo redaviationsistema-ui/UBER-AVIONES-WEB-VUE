@@ -113,6 +113,20 @@ const CLIENT_PAYMENT_CONFIRM_PATHS = [
     ].filter(Boolean),
   ),
 ]
+const CLIENT_ACCESS_PAYMENT_INTENT_PATHS = [
+  ...new Set(
+    [
+      '/client/access-payment/payment-intent',
+    ].filter(Boolean),
+  ),
+]
+const CLIENT_ACCESS_PAYMENT_CONFIRM_PATHS = [
+  ...new Set(
+    [
+      '/client/access-payment/confirm',
+    ].filter(Boolean),
+  ),
+]
 const FALLBACK_DESTINATIONS = [
   {
     code: 'CUN',
@@ -3068,6 +3082,46 @@ export async function createClientWireIntent(flightRequestId, payload = {}, opti
   }
 
   throw lastError || new Error('No se pudieron generar las instrucciones bancarias.')
+}
+
+export async function createClientAccessPaymentIntent(payload = {}, options = {}) {
+  let lastError = null
+
+  for (const path of CLIENT_ACCESS_PAYMENT_INTENT_PATHS) {
+    try {
+      return await api.post(path, payload, options)
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  throw lastError || new Error('No se pudo crear el PaymentIntent del acceso comercial.')
+}
+
+export async function confirmClientAccessPayment(payload = {}, options = {}) {
+  const paymentIntentId = String(payload?.payment_intent_id || payload?.paymentIntentId || '').trim()
+
+  if (!paymentIntentId) {
+    throw new Error('No encontramos el PaymentIntent del acceso comercial.')
+  }
+
+  let lastError = null
+
+  for (const path of CLIENT_ACCESS_PAYMENT_CONFIRM_PATHS) {
+    try {
+      return await api.post(
+        path,
+        {
+          payment_intent_id: paymentIntentId,
+        },
+        options,
+      )
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  throw lastError || new Error('No se pudo confirmar el pago del acceso comercial.')
 }
 
 export async function requestConcierge(message) {

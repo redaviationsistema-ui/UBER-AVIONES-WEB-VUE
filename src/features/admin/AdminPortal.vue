@@ -26,6 +26,7 @@ const AdminIncidenciasPage = defineAsyncComponent(() => import('./AdminIncidenci
 const AdminProvidersNetworkSection = defineAsyncComponent(() => import('./AdminProvidersNetworkSection.vue'))
 const AdminReleasesSection = defineAsyncComponent(() => import('./AdminReleasesSection.vue'))
 const AdminReservationsSection = defineAsyncComponent(() => import('./AdminReservationsSection.vue'))
+const AdminSubscriptionsSection = defineAsyncComponent(() => import('./AdminSubscriptionsSection.vue'))
 const AdminUsersSection = defineAsyncComponent(() => import('./AdminUsersSection.vue'))
 
 const props = defineProps({
@@ -43,6 +44,8 @@ const flags = ref([])
 const providers = ref([])
 const aircraft = ref([])
 const subscriptions = ref([])
+const accessPayments = ref([])
+const subscriptionPayments = ref([])
 const contracts = ref([])
 const crewMembers = ref([])
 const crewAvailabilityStatuses = ref([])
@@ -56,6 +59,8 @@ const rawSectionRecords = reactive({
   proveedores: [],
   aeronaves: [],
   suscripciones: [],
+  pagos_acceso: [],
+  pagos_suscripcion: [],
   contratos: [],
   sobrecargos: [],
   reservas: [],
@@ -1250,6 +1255,30 @@ async function loadSubscriptions() {
   }
 }
 
+async function loadAccessPayments() {
+  try {
+    const response = await requestWithCandidates([{ method: 'get', path: '/admin/client-access-payments' }])
+    const collection = pickCollection(response, ['access_payments'])
+    rawSectionRecords.pagos_acceso = collection
+    accessPayments.value = collection
+  } catch {
+    rawSectionRecords.pagos_acceso = []
+    accessPayments.value = []
+  }
+}
+
+async function loadSubscriptionPayments() {
+  try {
+    const response = await requestWithCandidates([{ method: 'get', path: '/admin/subscription-payments' }])
+    const collection = pickCollection(response, ['subscription_payments'])
+    rawSectionRecords.pagos_suscripcion = collection
+    subscriptionPayments.value = collection
+  } catch {
+    rawSectionRecords.pagos_suscripcion = []
+    subscriptionPayments.value = []
+  }
+}
+
 async function loadProviders() {
   try {
     const response = await requestWithCandidates([
@@ -1495,7 +1524,7 @@ async function loadPortalSection(section) {
   }
 
   if (section === 'suscripciones') {
-    await Promise.all([loadAircraft(), loadSubscriptions()])
+    await Promise.all([loadAircraft(), loadSubscriptions(), loadClients(), loadAccessPayments(), loadSubscriptionPayments()])
     return
   }
 
@@ -1996,6 +2025,17 @@ async function refreshNetworkState(title, message) {
   ui.pushToast({ tone: 'success', title, message })
 }
 
+async function refreshSubscriptionsPanel() {
+  await requestPortalSectionLoad('suscripciones', { force: true })
+  if (props.section === 'suscripciones') {
+    ui.pushToast({
+      tone: 'success',
+      title: 'Suscripciones actualizadas',
+      message: 'La vista comercial se sincronizo con los datos mas recientes.',
+    })
+  }
+}
+
 async function refreshReservationContent() {
   if (!['reservas', 'liberaciones'].includes(props.section) || reservationContentRefreshing.value) return
 
@@ -2315,11 +2355,13 @@ watch(
     @reject-aircraft="handleRejectAircraft"
     @suspend-aircraft="handleSuspendAircraft"
   />
-  <AdminAircraftSubscriptionsSection
+  <AdminSubscriptionsSection
     v-else-if="section === 'suscripciones'"
-    :aircraft="aircraft"
-    :subscriptions="subscriptions"
-    mode="subscriptions"
+    :clients="clientUsers"
+    :aircraft-subscriptions="subscriptions"
+    :access-payments="accessPayments"
+    :subscription-payments="subscriptionPayments"
+    @refresh="refreshSubscriptionsPanel"
   />
   <AdminCrewDirectorySection
     v-else-if="section === 'sobrecargos'"
