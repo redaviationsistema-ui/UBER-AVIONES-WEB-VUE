@@ -14,9 +14,12 @@ import {
   normalizePackageCode,
 } from '../../../utils/flightPricing'
 import {
+  cancelClientAccessPayment,
   confirmClientAccessPayment,
-  createClientAccessPaymentIntent,
+  createClientAccessCheckout,
   createClientFlightRequest,
+  getClientAccessPaymentSuccess,
+  getClientAccessStatus,
   createClientPaymentIntent,
   ensureClientReservation,
   createClientWireIntent,
@@ -79,6 +82,8 @@ let reservationsRequestPromise = null
 const reservationDetailRequestIds = new Set()
 let signedContractSyncTimer = null
 const appliedSignedContractReturnKey = ref('')
+const appliedCommercialAccessCheckoutKey = ref('')
+let commercialAccessStatusRequestPromise = null
 const CLIENT_TRIPS_TIMEOUT_MS = Number(import.meta.env.VITE_CLIENT_TRIPS_TIMEOUT_MS || 45000)
 const CLIENT_QUOTES_TIMEOUT_MS = Number(import.meta.env.VITE_CLIENT_QUOTES_TIMEOUT_MS || 45000)
 const externalContractFlowEnabled = String(
@@ -567,6 +572,7 @@ let stripeCardCvcElement = null
 let stripeIntentSecret = ''
 let stripePublishableKey = ''
 let stripeIntentContext = ''
+let stripeViewContext = ''
 
 function normalizeCardBrand(value = '') {
   const normalized = String(value || '')
@@ -637,87 +643,68 @@ const paymentCardVisualLabel = computed(() => {
 
 const paymentCardVisualLogo = computed(() => CARD_BRAND_LOGOS[paymentCardVisualLabel.value] || '')
 
-const accountAccessCopy = computed(() => {
-  const access = auth.access || {}
-  const user = auth.user || {}
-  const subscription = access.subscription || access.membership || {}
-  const normalizedSubscriptionStatus = String(
-    subscription.status ||
-      access.subscription_status ||
-      access.membership_status ||
-      user.subscription_status ||
-      user.membership_status ||
-      '',
-  )
-    .trim()
-    .toLowerCase()
-  const normalizedPlanName = String(
-    subscription.plan_name ||
-      subscription.plan ||
-      subscription.name ||
-      access.plan_name ||
-      access.plan ||
-      '',
-  ).trim()
-  const truthyStates = new Set([
-    '1',
-    'true',
-    'yes',
-    'si',
-    'active',
-    'activa',
-    'vigente',
-    'approved',
-    'trial_active',
-    'demo_activa',
-  ])
-  const activeStatuses = new Set(['active', 'activa', 'vigente', 'approved'])
-  const demoStatuses = new Set(['trial_active', 'demo_active', 'demo_activa', 'trial', 'demo'])
-  const flags = [
-    access.has_access,
-    access.active,
-    access.is_active,
-    access.subscription_active,
-    access.demo_active,
-    access.demo?.status,
-    access.has_demo,
-    access.can_book,
-    access.can_request_flights,
-    user.has_access,
-    user.demo_active,
-    user.demo?.status,
-    user.has_demo,
-  ]
-  const normalizedFlags = flags.map((value) =>
-    String(value ?? '')
-      .trim()
-      .toLowerCase(),
-  )
-  const hasTruthyFlag = normalizedFlags.some((value) => truthyStates.has(value))
-  const hasActiveSubscription = activeStatuses.has(normalizedSubscriptionStatus)
-  const hasDemo =
-    demoStatuses.has(normalizedSubscriptionStatus) ||
-    normalizedFlags.some((value) => demoStatuses.has(value))
+function isPlainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
 
-  if (normalizedPlanName) {
-    return normalizedPlanName
+function extractCommercialAccessFields(source = null) {
+  const candidates = [
+    source,
+    source?.access,
+    source?.data,
+    source?.data?.access,
+    source?.user,
+    source?.data?.user,
+    source?.commercial_access,
+    source?.commercialAccess,
+    source?.access?.commercial_access,
+    source?.access?.commercialAccess,
+    source?.data?.commercial_access,
+    source?.data?.commercialAccess,
+  ].filter(isPlainObject)
+
+  for (const candidate of candidates) {
+    const commercial = isPlainObject(candidate.commercial_access)
+      ? candidate.commercial_access
+      : isPlainObject(candidate.commercialAccess)
+        ? candidate.commercialAccess
+        : {}
+
+    const status = commercial.status ?? candidate.access_status ?? candidate.status
+    const hasPaidAccess = commercial.has_paid_access ?? candidate.has_paid_access
+    const freeQuoteLimit = commercial.free_quote_limit ?? candidate.free_quote_limit
+    const freeQuotesUsed = commercial.free_quotes_used ?? candidate.free_quotes_used
+    const remainingFreeQuotes =
+      commercial.remaining_free_quotes ?? candidate.remaining_free_quotes
+
+    if (
+      status !== undefined ||
+      hasPaidAccess !== undefined ||
+      freeQuoteLimit !== undefined ||
+      freeQuotesUsed !== undefined ||
+      remainingFreeQuotes !== undefined
+    ) {
+      return {
+        status,
+        has_paid_access: hasPaidAccess,
+        free_quote_limit: freeQuoteLimit,
+        free_quotes_used: freeQuotesUsed,
+        remaining_free_quotes: remainingFreeQuotes,
+      }
+    }
   }
 
-  if (hasActiveSubscription || hasTruthyFlag) {
-    return 'Acceso activo'
-  }
+  return {}
+}
 
-  if (hasDemo) {
-    return 'Demo activa'
-  }
-
-  return 'Sin demo ni suscripcion'
-})
 const activePlan = computed(() => accountAccessCopy.value)
 const commercialAccessSnapshot = computed(() => {
   const access = auth.access || {}
   const user = auth.user || {}
-  const commercial = access.commercial_access || access.commercialAccess || {}
+  const commercial = extractCommercialAccessFields({
+    access,
+    user,
+  })
 
   return {
     status: String(
@@ -738,7 +725,16 @@ const commercialAccessSnapshot = computed(() => {
 })
 const hasCommercialTrialQuoteAvailable = computed(() => {
   const commercial = commercialAccessSnapshot.value
-  const eligibleStatuses = new Set(['trial_active', 'registered', 'payment_failed', 'trial_used'])
+  const eligibleStatuses = new Set([
+    'trial_active',
+    'registered',
+    'active',
+    'activo',
+    'activa',
+    'payment_failed',
+    'trial_used',
+    'payment_pending',
+  ])
 
   return (
     !commercial.hasPaidAccess &&
@@ -749,6 +745,7 @@ const hasCommercialTrialQuoteAvailable = computed(() => {
 const canQuoteFlights = computed(() => {
   const access = auth.access || {}
   const user = auth.user || {}
+  const commercial = access.commercial_access || access.commercialAccess || {}
   const subscription = access.subscription || access.membership || {}
   const normalizedSubscriptionStatus = String(
     subscription.status ||
@@ -760,55 +757,110 @@ const canQuoteFlights = computed(() => {
   )
     .trim()
     .toLowerCase()
-  const truthyStates = new Set([
-    '1',
-    'true',
-    'yes',
-    'si',
-    'active',
-    'activa',
-    'vigente',
-    'approved',
-    'trial_active',
-    'demo_activa',
-  ])
+  const normalizedCommercialStatus = String(
+    commercial.status || access.access_status || user.access_status || '',
+  )
+    .trim()
+    .toLowerCase()
   const activeStatuses = new Set(['active', 'activa', 'vigente', 'approved'])
   const demoStatuses = new Set(['trial_active', 'demo_active', 'demo_activa', 'trial', 'demo'])
-  const flags = [
-    access.has_access,
-    access.active,
-    access.is_active,
-    access.subscription_active,
+  const normalizedDemoStatuses = [
     access.demo_active,
     access.demo?.status,
     access.has_demo,
-    access.can_book,
-    access.can_request_flights,
-    user.has_access,
     user.demo_active,
     user.demo?.status,
     user.has_demo,
   ]
-  const normalizedFlags = flags.map((value) =>
-    String(value ?? '')
-      .trim()
-      .toLowerCase(),
-  )
+    .map((value) =>
+      String(value ?? '')
+        .trim()
+        .toLowerCase(),
+    )
+    .filter(Boolean)
 
   return (
     activeStatuses.has(normalizedSubscriptionStatus) ||
     demoStatuses.has(normalizedSubscriptionStatus) ||
-    normalizedFlags.some((value) => truthyStates.has(value) || demoStatuses.has(value)) ||
+    demoStatuses.has(normalizedCommercialStatus) ||
+    normalizedDemoStatuses.some((value) => demoStatuses.has(value)) ||
     commercialAccessSnapshot.value.hasPaidAccess ||
     hasCommercialTrialQuoteAvailable.value
   )
 })
+const canReserveFlights = computed(() => {
+  const access = auth.access || {}
+  const user = auth.user || {}
+  const commercial = access.commercial_access || access.commercialAccess || {}
+  const subscription = access.subscription || access.membership || {}
+  const normalizedSubscriptionStatus = String(
+    subscription.status ||
+      access.subscription_status ||
+      access.membership_status ||
+      user.subscription_status ||
+      user.membership_status ||
+      '',
+  )
+    .trim()
+    .toLowerCase()
+  const normalizedCommercialStatus = String(
+    commercial.status || access.access_status || user.access_status || '',
+  )
+    .trim()
+    .toLowerCase()
+  const activeStatuses = new Set(['active', 'activa', 'vigente', 'approved'])
+
+  return (
+    commercialAccessSnapshot.value.hasPaidAccess ||
+    activeStatuses.has(normalizedCommercialStatus) ||
+    activeStatuses.has(normalizedSubscriptionStatus) ||
+    String(access.subscription_active ?? '')
+      .trim()
+      .toLowerCase() === 'true'
+  )
+})
 const hasActiveClientAccess = computed(() => canQuoteFlights.value)
+const commercialTrialNotice = computed(() => {
+  const state = buildCommercialAccessUiState(auth.access?.commercial_access || auth.access)
+
+  if (state.hasPaidAccess) {
+    return {
+      tone: 'success',
+      title: 'Acceso comercial activo',
+      message: 'Tu cuenta ya puede cotizar, reservar, firmar contrato y pagar vuelos.',
+    }
+  }
+
+  if (state.remainingFreeQuotes > 0) {
+    return {
+      tone: 'info',
+      title: `${state.remainingFreeQuotes} cotizacion gratis disponible${state.remainingFreeQuotes === 1 ? '' : 's'}`,
+      message: 'Tu prueba gratuita te permite cotizar una vez. Para reservar el vuelo necesitas activar el acceso comercial de USD 115.',
+    }
+  }
+
+  if (state.status === 'payment_pending') {
+    return {
+      tone: 'warn',
+      title: 'Pago de acceso en validacion',
+      message: 'Ya consumiste tu prueba gratuita. En cuanto Stripe confirme el pago de acceso podras reservar.',
+    }
+  }
+
+  return {
+    tone: 'warn',
+    title: 'Prueba gratuita consumida',
+    message: 'Tu siguiente paso es activar el acceso comercial para poder reservar, firmar contrato y pagar el vuelo.',
+  }
+})
+
+const shouldShowCommercialAccessCta = computed(() =>
+  requiresCommercialAccessPayment(auth.access?.commercial_access || auth.access),
+)
 
 function buildCommercialAccessUiState(accessSource = null) {
   const fallback = commercialAccessSnapshot.value
-  const source = accessSource && typeof accessSource === 'object' ? accessSource : {}
-  const commercial = source.commercial_access || source.commercialAccess || source
+  const commercial = extractCommercialAccessFields(accessSource)
   const status = String(commercial.status || fallback.status || 'trial_active')
     .trim()
     .toLowerCase()
@@ -829,11 +881,72 @@ function buildCommercialAccessUiState(accessSource = null) {
   }
 }
 
+function resolveCommercialAccessExpiryDate(accessSource = null) {
+  const access = auth.access || {}
+  const user = auth.user || {}
+  const commercial = extractCommercialAccessFields(accessSource)
+
+  return String(
+    commercial.access_expires_at ||
+      access.commercial_access?.access_expires_at ||
+      access.access_expires_at ||
+      user.access_expires_at ||
+      '',
+  ).trim()
+}
+
+function isCommercialAccessExpired(accessSource = null) {
+  const expiresAt = resolveCommercialAccessExpiryDate(accessSource)
+  if (!expiresAt) return false
+
+  const expiryDate = new Date(expiresAt)
+  if (!Number.isFinite(expiryDate.getTime())) return false
+
+  return expiryDate.getTime() < Date.now()
+}
+
+const accountAccessCopy = computed(() => {
+  const accessSource = auth.access?.commercial_access || auth.access
+  const state = buildCommercialAccessUiState(accessSource)
+  const expiresAt = resolveCommercialAccessExpiryDate(accessSource)
+
+  if (isCommercialAccessExpired(accessSource)) {
+    return expiresAt ? `Acceso vencido ${expiresAt.slice(0, 10)}` : 'Acceso vencido'
+  }
+
+  if (state.hasPaidAccess || state.status === 'active') {
+    return expiresAt ? `Pago activo · vence ${expiresAt.slice(0, 10)}` : 'Pago activo'
+  }
+
+  if (state.status === 'payment_pending') {
+    return 'Pago en validacion'
+  }
+
+  if (state.remainingFreeQuotes > 0) {
+    return `${state.remainingFreeQuotes} cotizacion gratis`
+  }
+
+  if (state.status === 'payment_failed') {
+    return 'Pago rechazado'
+  }
+
+  return 'Prueba consumida'
+})
+
+function requiresCommercialAccessPayment(accessSource = null) {
+  const state = buildCommercialAccessUiState(accessSource)
+  return !state.hasPaidAccess && state.remainingFreeQuotes <= 0
+}
+
 function buildCommercialAccessMessage(accessSource = null) {
   const state = buildCommercialAccessUiState(accessSource)
 
   if (state.hasPaidAccess) {
     return 'Tu acceso comercial ya esta activo.'
+  }
+
+  if (state.remainingFreeQuotes > 0) {
+    return `Tienes ${state.remainingFreeQuotes} cotizacion${state.remainingFreeQuotes === 1 ? '' : 'es'} de prueba disponible${state.remainingFreeQuotes === 1 ? '' : 's'}.`
   }
 
   if (state.status === 'payment_pending') {
@@ -844,11 +957,29 @@ function buildCommercialAccessMessage(accessSource = null) {
     return 'No pudimos validar el pago anterior. Intenta de nuevo para reactivar tu acceso comercial.'
   }
 
-  if (state.remainingFreeQuotes > 0) {
-    return `Tienes ${state.remainingFreeQuotes} cotizacion${state.remainingFreeQuotes === 1 ? '' : 'es'} de prueba disponible${state.remainingFreeQuotes === 1 ? '' : 's'}.`
+  return 'Tu cotizacion de prueba ya fue utilizada. Pantalla de pago para proceder.'
+}
+
+function buildReservationAccessMessage(accessSource = null) {
+  const state = buildCommercialAccessUiState(accessSource)
+
+  if (state.hasPaidAccess) {
+    return 'Tu acceso comercial ya esta activo.'
   }
 
-  return 'Tu cotizacion de prueba ya fue utilizada. Pantalla de pago para proceder.'
+  if (state.remainingFreeQuotes > 0) {
+    return 'Tu prueba gratis cubre la cotizacion inicial. Para reservar este vuelo primero activa el acceso comercial de USD 115.'
+  }
+
+  if (state.status === 'payment_pending') {
+    return 'Tu pago de acceso esta en validacion. En cuanto se confirme, podras reservar.'
+  }
+
+  if (state.status === 'payment_failed') {
+    return 'No pudimos validar el pago anterior. Intenta de nuevo para activar tu acceso comercial.'
+  }
+
+  return 'Necesitas activar el acceso comercial para reservar, firmar contrato y pagar el vuelo.'
 }
 
 function syncCommercialAccessState(accessSource = null) {
@@ -876,6 +1007,109 @@ function syncCommercialAccessState(accessSource = null) {
       free_quotes_used: state.freeQuotesUsed,
     },
   })
+}
+
+function hasRealQuoteResults(results = []) {
+  return Array.isArray(results)
+    ? results.some((item) => String(item?.source_table || '').trim().toLowerCase() !== 'catalog_fallback_quote')
+    : false
+}
+
+function consumeTrialQuoteLocally(accessSource = null) {
+  const currentState = buildCommercialAccessUiState(accessSource)
+
+  if (currentState.hasPaidAccess || currentState.remainingFreeQuotes <= 0) {
+    return currentState
+  }
+
+  const nextFreeQuotesUsed = Math.min(
+    currentState.freeQuoteLimit,
+    currentState.freeQuotesUsed + 1,
+  )
+  const nextRemainingFreeQuotes = Math.max(
+    0,
+    currentState.freeQuoteLimit - nextFreeQuotesUsed,
+  )
+  const nextStatus =
+    nextRemainingFreeQuotes > 0
+      ? currentState.status || 'trial_active'
+      : currentState.status === 'payment_pending'
+        ? 'payment_pending'
+        : 'trial_used'
+
+  syncCommercialAccessState({
+    commercial_access: {
+      ...(auth.access?.commercial_access || {}),
+      status: nextStatus,
+      has_paid_access: false,
+      free_quote_limit: currentState.freeQuoteLimit,
+      free_quotes_used: nextFreeQuotesUsed,
+      remaining_free_quotes: nextRemainingFreeQuotes,
+    },
+    access_status: nextStatus,
+    has_paid_access: false,
+    free_quote_limit: currentState.freeQuoteLimit,
+    free_quotes_used: nextFreeQuotesUsed,
+    remaining_free_quotes: nextRemainingFreeQuotes,
+  })
+
+  return buildCommercialAccessUiState(auth.access?.commercial_access || auth.access)
+}
+
+function normalizeAccessPaymentStatus(value = '') {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+}
+
+function isSuccessfulAccessPaymentStatus(value = '') {
+  return [
+    'paid',
+    'succeeded',
+    'success',
+    'complete',
+    'completed',
+    'pagado',
+    'pagada',
+    'payment_confirmed',
+    'payment confirmed',
+    'pago confirmado',
+    'pago aprobado',
+    'exitoso',
+  ].includes(normalizeAccessPaymentStatus(value))
+}
+
+function resolveAccessPaymentIntentId(payload = null) {
+  const payment = payload?.payment && typeof payload.payment === 'object' ? payload.payment : {}
+
+  return String(
+    payment.payment_intent_id ||
+      payment.provider_payment_id ||
+      payment.stripe_payment_intent_id ||
+      payment.intent_id ||
+      '',
+  ).trim()
+}
+
+async function refreshCommercialAccessStatus({ forceSessionRefresh = false } = {}) {
+  if (!commercialAccessStatusRequestPromise) {
+    commercialAccessStatusRequestPromise = (async () => {
+      const payload = await getClientAccessStatus({ timeoutMs: 30000 })
+      syncCommercialAccessState(payload?.access || payload)
+      return payload
+    })().finally(() => {
+      commercialAccessStatusRequestPromise = null
+    })
+  }
+
+  const payload = await commercialAccessStatusRequestPromise
+
+  if (forceSessionRefresh) {
+    await auth.refreshSession()
+    syncCommercialAccessState(payload?.access || auth.access?.commercial_access || auth.access)
+  }
+
+  return payload
 }
 
 const activeSection = computed(() => {
@@ -1222,6 +1456,10 @@ function cacheStripePaymentIntent(payload = {}, context = 'reservation') {
   const nextPublishableKey = resolveStripePublishableKey(payload?.publishable_key)
   const nextPaymentIntentId = String(payload?.payment_intent_id || '').trim()
 
+  if (!nextClientSecret || !nextPaymentIntentId) {
+    throw new Error('El backend no devolvio un PaymentIntent valido para este flujo.')
+  }
+
   if (nextClientSecret) {
     stripeIntentSecret = nextClientSecret
   }
@@ -1373,6 +1611,7 @@ function destroyStripePaymentElement() {
   stripeIntentSecret = ''
   stripePublishableKey = ''
   stripeIntentContext = ''
+  stripeViewContext = ''
   paymentCardBrand.value = ''
   paymentCardComplete.value = false
   paymentElementReady.value = false
@@ -2201,6 +2440,16 @@ function goToCommercialAccessPayment() {
   })
 }
 
+function ensureCommercialAccessPaymentRouteEligibility() {
+  if (!commercialAccessPaymentMode.value) return
+  if (requiresCommercialAccessPayment(auth.access?.commercial_access || auth.access)) return
+
+  router.replace({
+    name: 'cliente',
+    params: { section: 'reservar' },
+  })
+}
+
 function alignReservationWorkflowRoute() {
   if (commercialAccessPaymentMode.value) return
   if (!needsReservationContext.value) return
@@ -2290,6 +2539,20 @@ function isTruthyQueryFlag(value) {
     .toLowerCase()
 
   return ['1', 'true', 'yes', 'ok'].includes(normalizedValue)
+}
+
+function normalizeRouteQueryValue(value) {
+  if (Array.isArray(value)) {
+    return String(value[0] || '').trim()
+  }
+
+  return String(value || '').trim()
+}
+
+function delay(ms = 1000) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms)
+  })
 }
 
 function findReservationRecordById(reservationId = '') {
@@ -2460,6 +2723,161 @@ async function applySignedContractReturnState() {
     contractId: contractId || pendingContext.contractId || pendingContext.contract_id || '',
   })
   void refreshReservations({ silent: true })
+}
+
+async function finalizeCommercialAccessCheckoutReturn() {
+  if (!commercialAccessPaymentMode.value) return
+
+  const checkoutState = normalizeRouteQueryValue(route.query.checkout).toLowerCase()
+  const sessionId = normalizeRouteQueryValue(route.query.session_id || route.query.checkout_session_id)
+
+  if (!checkoutState) return
+
+  const appliedKey = `${checkoutState}:${sessionId}`
+  if (appliedCommercialAccessCheckoutKey.value === appliedKey) return
+
+  appliedCommercialAccessCheckoutKey.value = appliedKey
+  paymentInlineError.value = ''
+
+  try {
+    if (checkoutState === 'cancelled') {
+      await cancelClientAccessPayment(
+        {
+          session_id: sessionId,
+        },
+        { timeoutMs: 30000 },
+      ).catch(() => null)
+
+      const latestAccessStatus = await getClientAccessStatus({ timeoutMs: 30000 }).catch(() => null)
+
+      await auth.refreshSession()
+      syncCommercialAccessState(latestAccessStatus?.access || auth.access?.commercial_access || auth.access)
+
+      ui.pushToast({
+        tone: 'warning',
+        title: 'Pago cancelado',
+        message: 'La activacion del acceso comercial fue cancelada antes de completarse.',
+      })
+
+      await router.replace({
+        name: 'cliente',
+        params: { section: 'reservar' },
+      })
+      return
+    }
+
+    if (checkoutState !== 'success') return
+
+    let successPayload = null
+
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const payload = await getClientAccessPaymentSuccess(
+        {
+          session_id: sessionId,
+        },
+        { timeoutMs: 30000 },
+      )
+
+      const accessStatus = String(payload?.access?.status || '').trim().toLowerCase()
+      const paymentStatus = normalizeAccessPaymentStatus(payload?.payment?.status)
+
+      successPayload = payload
+
+      if (
+        payload?.access?.has_paid_access === true ||
+        accessStatus === 'active' ||
+        isSuccessfulAccessPaymentStatus(paymentStatus)
+      ) {
+        break
+      }
+
+      if (attempt < 3) {
+        await delay(1500)
+      }
+    }
+
+    await auth.refreshSession()
+    await refreshReservations({ silent: true }).catch(() => null)
+
+    const successAccessStatus = String(successPayload?.access?.status || '').trim().toLowerCase()
+    const successPaymentStatus = normalizeAccessPaymentStatus(successPayload?.payment?.status)
+    const shouldForcePaymentConfirmation =
+      !successPayload?.access?.has_paid_access &&
+      successAccessStatus !== 'active' &&
+      isSuccessfulAccessPaymentStatus(successPaymentStatus)
+
+    if (shouldForcePaymentConfirmation) {
+      const paymentIntentId = resolveAccessPaymentIntentId(successPayload)
+
+      if (paymentIntentId) {
+        await confirmClientAccessPayment(
+          {
+            payment_intent_id: paymentIntentId,
+          },
+          { timeoutMs: 30000 },
+        ).catch(() => null)
+      }
+    }
+
+    let latestAccessStatus =
+      successPayload?.access?.has_paid_access === true || successAccessStatus === 'active'
+        ? successPayload
+        : await getClientAccessStatus({ timeoutMs: 30000 }).catch(() => null)
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const resolvedAccess = latestAccessStatus?.access || auth.access?.commercial_access || auth.access
+      const isActiveAccess =
+        resolvedAccess?.has_paid_access === true ||
+        String(resolvedAccess?.status || auth.user?.access_status || '')
+          .trim()
+          .toLowerCase() === 'active'
+
+      if (isActiveAccess) break
+
+      await delay(1200)
+      latestAccessStatus = await getClientAccessStatus({ timeoutMs: 30000 }).catch(() => latestAccessStatus)
+    }
+
+    const resolvedAccess = latestAccessStatus?.access || auth.access?.commercial_access || auth.access
+    syncCommercialAccessState(resolvedAccess)
+
+    const isActiveAccess =
+      resolvedAccess?.has_paid_access === true ||
+      String(resolvedAccess?.status || auth.user?.access_status || '')
+        .trim()
+        .toLowerCase() === 'active'
+
+    if (isActiveAccess) {
+      ui.pushToast({
+        tone: 'success',
+        title: 'Acceso comercial activado',
+        message: 'Tu pago fue validado y ya puedes reservar automaticamente.',
+      })
+
+      await router.replace({
+        name: 'cliente',
+        params: { section: 'reservar' },
+      })
+      return
+    }
+
+    ui.pushToast({
+      tone: 'info',
+      title: 'Pago en validacion',
+      message:
+        'Stripe recibio el pago, pero seguimos esperando la confirmacion final. Actualizaremos tu acceso en cuanto quede confirmado.',
+    })
+  } catch (error) {
+    appliedCommercialAccessCheckoutKey.value = ''
+    paymentInlineError.value =
+      error?.message || 'No pudimos validar automaticamente el pago del acceso comercial.'
+
+    ui.pushToast({
+      tone: 'error',
+      title: 'No se pudo validar el pago',
+      message: paymentInlineError.value,
+    })
+  }
 }
 
 const signedContractReservationSignature = computed(() =>
@@ -2707,82 +3125,25 @@ async function handlePaymentSubmit() {
       return
     }
 
-    if (selectedPaymentMethod.value === 'card' && !paymentCardComplete.value) {
-      paymentInlineError.value = 'Completa correctamente los datos de la tarjeta antes de continuar.'
-      return
-    }
-
     paymentSubmitting.value = true
 
     try {
-      if (selectedPaymentMethod.value !== 'card') {
-        throw new Error('Por ahora el acceso comercial solo admite pago con tarjeta en esta vista.')
-      }
+      destroyStripePaymentElement()
 
-      let paymentIntentPayload = null
-
-      if (!stripeIntentSecret || !resolveStripePublishableKey() || stripeIntentContext !== 'client_access') {
-        paymentIntentPayload = await createClientAccessPaymentIntent(
-          {
-            contact_email: paymentForm.contactEmail.trim() || customerEmail.value,
-          },
-          { timeoutMs: 30000 },
-        )
-
-        cacheStripePaymentIntent(paymentIntentPayload, 'client_access')
-      }
-
-      if (!stripeClient || !stripeElements || !stripeCardNumberElement) {
-        await ensureStripePaymentElement(paymentIntentPayload?.publishable_key || '')
-      }
-
-      if (!stripeClient || !stripeCardNumberElement) {
-        throw new Error('El formulario de tarjeta segura todavia no esta listo.')
-      }
-
-      const result = await stripeClient.confirmCardPayment(stripeIntentSecret, {
-        payment_method: {
-          card: stripeCardNumberElement,
-          billing_details: {
-            name: customerDisplayName.value,
-            email: paymentForm.contactEmail.trim(),
-          },
+      const payload = await createClientAccessCheckout(
+        {
+          contact_email: paymentForm.contactEmail.trim() || customerEmail.value,
         },
-        receipt_email: paymentForm.contactEmail.trim(),
-      })
+        { timeoutMs: 30000 },
+      )
 
-      if (result.error) {
-        throw new Error(result.error.message || 'Stripe no pudo confirmar el pago del acceso comercial.')
+      const checkoutUrl = String(payload?.checkout_url || '').trim()
+
+      if (!checkoutUrl) {
+        throw new Error('El backend no devolvio la URL segura de Stripe Checkout.')
       }
 
-      paymentLastReference.value = result.paymentIntent?.id || paymentLastReference.value
-
-      if (result.paymentIntent?.status === 'succeeded') {
-        const payload = await confirmClientAccessPayment(
-          { payment_intent_id: result.paymentIntent.id },
-          { timeoutMs: 30000 },
-        )
-
-        if (payload?.access) {
-          syncCommercialAccessState(payload.access)
-        }
-
-        await auth.refreshSession()
-
-        ui.pushToast({
-          tone: 'success',
-          title: 'Acceso comercial activado',
-          message: 'El pago se confirmo y tu cuenta ya puede volver a cotizar y reservar.',
-        })
-        go('reservar')
-        return
-      }
-
-      ui.pushToast({
-        tone: 'success',
-        title: 'Pago enviado',
-        message: 'Stripe recibio la autorizacion. Estamos esperando la confirmacion final del acceso comercial.',
-      })
+      window.location.assign(checkoutUrl)
       return
     } catch (error) {
       paymentInlineError.value =
@@ -3115,43 +3476,20 @@ watch(
   async ([section, method]) => {
     if (commercialAccessPaymentMode.value) {
       wireInstructions.value = null
-      if (section === 'pago' && method === 'card') {
-        if (stripeIntentContext !== 'client_access') {
-          destroyStripePaymentElement()
-        }
-
-        await nextTick()
-        if (!resolveStripePublishableKey() || !stripeIntentSecret || stripeIntentContext !== 'client_access') {
-          try {
-            const payload = await createClientAccessPaymentIntent(
-              {
-                contact_email: paymentForm.contactEmail.trim() || customerEmail.value,
-              },
-              { timeoutMs: 30000 },
-            )
-            cacheStripePaymentIntent(payload, 'client_access')
-          } catch (error) {
-            paymentInlineError.value =
-              error?.message || 'No se pudo preparar el pago seguro del acceso comercial.'
-            return
-          }
-        }
-
-        await ensureStripePaymentElement()
-        return
-      }
-
-      if (method !== 'card') {
+      if (stripeViewContext !== 'client_access_checkout') {
         destroyStripePaymentElement()
+        stripeViewContext = 'client_access_checkout'
       }
+
       return
     }
 
     if (section === 'pago' && method === 'card') {
       wireInstructions.value = null
       await nextTick()
-      if (stripeIntentContext && stripeIntentContext !== 'reservation') {
+      if (stripeViewContext !== 'reservation') {
         destroyStripePaymentElement()
+        stripeViewContext = 'reservation'
       }
       if (!resolveStripePublishableKey() && flightRequestContextId.value) {
         try {
@@ -3425,6 +3763,8 @@ function validateSearchForm() {
 
 async function submitSearch() {
   serverSearchError.value = ''
+  await refreshCommercialAccessStatus({ forceSessionRefresh: false }).catch(() => null)
+
   if (!canQuoteFlights.value) {
     const blockedMessage = buildCommercialAccessMessage(auth.access?.commercial_access || auth.access)
     console.log('[bloqueo-cotizador-cliente]', {
@@ -3437,10 +3777,9 @@ async function submitSearch() {
     serverSearchError.value = blockedMessage
     ui.pushToast({
       tone: 'error',
-      title: 'No se pudo solicitar la reserva',
+      title: 'Acceso comercial requerido',
       message: blockedMessage,
     })
-    goToCommercialAccessPayment()
     return
   }
 
@@ -3456,6 +3795,9 @@ async function submitSearch() {
   searching.value = true
   quoteResultsVisible.value = true
   aircraftOptions.value = []
+  const previousCommercialState = buildCommercialAccessUiState(
+    auth.access?.commercial_access || auth.access,
+  )
   try {
     const normalizedPassengers = Number(searchForm.passengers || 0) || 1
     const pendingMultiDestinationLegs = hasPendingMultiDestinationLegs()
@@ -3488,6 +3830,19 @@ async function submitSearch() {
     })
     persistQuotePreview()
     logRenderedQuoteBreakdown(aircraftOptions.value, quotePayload)
+    const quoteWasConsumed =
+      previousCommercialState.remainingFreeQuotes > 0 &&
+      !previousCommercialState.hasPaidAccess &&
+      hasRealQuoteResults(aircraftOptions.value)
+
+    if (quoteWasConsumed) {
+      await refreshCommercialAccessStatus({ forceSessionRefresh: true }).catch(() => null)
+
+      const refreshedCommercialState = buildCommercialAccessUiState(
+        auth.access?.commercial_access || auth.access,
+      )
+    }
+
     if (!aircraftOptions.value.length) {
       serverSearchError.value =
         'No fue posible generar una cotizacion real para este itinerario con la informacion actual.'
@@ -3511,8 +3866,10 @@ async function requestReservation(aircraft = selectedAircraft.value) {
   if (!aircraft || reservingAircraftId.value) return
 
   try {
-    if (!canQuoteFlights.value) {
-      const blockedMessage = buildCommercialAccessMessage(auth.access?.commercial_access || auth.access)
+    await refreshCommercialAccessStatus({ forceSessionRefresh: false }).catch(() => null)
+
+    if (!canReserveFlights.value) {
+      const blockedMessage = buildReservationAccessMessage(auth.access?.commercial_access || auth.access)
       serverSearchError.value = blockedMessage
       ui.pushToast({
         tone: 'error',
@@ -3615,6 +3972,7 @@ async function requestReservation(aircraft = selectedAircraft.value) {
     }
     const previousCommercialState = buildCommercialAccessUiState(auth.access?.commercial_access || auth.access)
     const reservation = await createClientFlightRequest(reservationPayload, { timeoutMs: 60000 })
+
     if (reservation?.access) {
       syncCommercialAccessState(reservation.access?.commercial_access || reservation.access)
     }
@@ -3893,6 +4251,8 @@ onMounted(async () => {
   if (!auth.user?.id) {
     await auth.refreshSession()
   }
+  await refreshCommercialAccessStatus({ forceSessionRefresh: true }).catch(() => null)
+  ensureCommercialAccessPaymentRouteEligibility()
   await loadServerData()
   void hydrateSelectedReservationDetail()
 
@@ -3901,6 +4261,39 @@ onMounted(async () => {
     scheduleWorkflowSyncRefresh(payload)
   })
 })
+
+watch(
+  () => [
+    props.section,
+    route.query.accessPayment,
+    auth.access?.commercial_access?.free_quotes_used,
+    auth.access?.commercial_access?.remaining_free_quotes,
+    auth.access?.commercial_access?.has_paid_access,
+    auth.access?.free_quotes_used,
+    auth.access?.remaining_free_quotes,
+    auth.access?.has_paid_access,
+    auth.user?.free_quotes_used,
+    auth.user?.has_paid_access,
+  ],
+  () => {
+    ensureCommercialAccessPaymentRouteEligibility()
+  },
+  { immediate: true },
+)
+
+watch(
+  () => [
+    props.section,
+    route.query.checkout,
+    route.query.session_id,
+    route.query.checkout_session_id,
+    commercialAccessPaymentMode.value,
+  ],
+  () => {
+    void finalizeCommercialAccessCheckoutReturn()
+  },
+  { immediate: true },
+)
 
 watch(
   () => [
@@ -4028,6 +4421,22 @@ watch(
       <div v-if="loadingServerData" class="loading-band">Cargando informacion del servidor...</div>
 
       <section v-if="activeSection === 'reservar' && !isResultsSection" class="screen">
+        <article
+          class="commercial-access-banner"
+          :class="`commercial-access-banner--${commercialTrialNotice.tone}`"
+        >
+          <strong>{{ commercialTrialNotice.title }}</strong>
+          <p>{{ commercialTrialNotice.message }}</p>
+          <button
+            v-if="shouldShowCommercialAccessCta"
+            type="button"
+            class="commercial-access-banner__action"
+            @click="goToCommercialAccessPayment()"
+          >
+            Activar acceso comercial
+          </button>
+        </article>
+
         <FlightSearchHero
           :form="searchForm"
           :summary="itinerarySummary"
@@ -4045,6 +4454,22 @@ watch(
       </section>
 
       <section v-else-if="activeSection === 'reservar' && isResultsSection" class="screen">
+          <article
+            class="commercial-access-banner"
+            :class="`commercial-access-banner--${commercialTrialNotice.tone}`"
+          >
+            <strong>{{ commercialTrialNotice.title }}</strong>
+            <p>{{ commercialTrialNotice.message }}</p>
+            <button
+              v-if="shouldShowCommercialAccessCta"
+              type="button"
+              class="commercial-access-banner__action"
+              @click="goToCommercialAccessPayment()"
+            >
+              Activar acceso comercial
+            </button>
+          </article>
+
           <div class="screen-head results-head results-head-premium">
             <span class="eyebrow">Luxury concierge selection</span>
             <h2>{{ itineraryHeadline(activeItinerarySummary) }}</h2>
@@ -4264,7 +4689,15 @@ watch(
             <section class="payment-section">
               <h3>Metodo de pago</h3>
               <div class="payment-mode-panel">
-                <div v-if="selectedPaymentMethod === 'card'" class="payment-mode-panel__copy">
+                <div v-if="commercialAccessPaymentMode" class="payment-mode-panel__copy">
+                  <strong>Stripe Checkout seguro</strong>
+                  <p>
+                    Al continuar te llevaremos a la pagina segura de Stripe para completar la
+                    activacion mensual de tu acceso comercial.
+                  </p>
+                </div>
+
+                <div v-else-if="selectedPaymentMethod === 'card'" class="payment-mode-panel__copy">
                   <strong>Metodo de pago</strong>
                   <div class="payment-card-frame">
                     <label class="payment-card-field payment-card-field--full payment-card-field--dark">
@@ -5015,6 +5448,53 @@ button {
   color: #3a332a;
   font-size: 1rem;
   font-weight: 500;
+}
+
+.commercial-access-banner {
+  display: grid;
+  gap: 0.4rem;
+  padding: 1rem 1.15rem;
+  border: 1px solid #e5e1d8;
+  border-radius: 20px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(248, 245, 238, 0.96));
+}
+
+.commercial-access-banner strong {
+  color: #171717;
+  font-size: 1rem;
+}
+
+.commercial-access-banner p {
+  margin: 0;
+  color: #5d5549;
+  line-height: 1.55;
+}
+
+.commercial-access-banner__action {
+  justify-self: flex-start;
+  margin-top: 0.2rem;
+  padding: 0.75rem 1rem;
+  border: none;
+  border-radius: 999px;
+  background: #171717;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.commercial-access-banner--info {
+  border-color: rgba(191, 151, 65, 0.28);
+  background: linear-gradient(135deg, #fffdf8, #f8f3e6);
+}
+
+.commercial-access-banner--success {
+  border-color: rgba(34, 197, 94, 0.24);
+  background: linear-gradient(135deg, #f6fff8, #eefbf2);
+}
+
+.commercial-access-banner--warn {
+  border-color: rgba(215, 119, 6, 0.22);
+  background: linear-gradient(135deg, #fffaf4, #fdf1e2);
 }
 
 .loading-band {

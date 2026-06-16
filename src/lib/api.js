@@ -1,18 +1,18 @@
-const API_BASE_URL = String(
+const RAW_API_BASE_URL = String(
   import.meta.env.VITE_API_URL ||
     import.meta.env.VITE_API_BASE_URL ||
     'http://127.0.0.1:8000/api/v1',
 ).replace(/\/$/, '')
-const CONFIGURED_BACKEND_ORIGIN = String(import.meta.env.VITE_BACKEND_ORIGIN || '').replace(
+const RAW_CONFIGURED_BACKEND_ORIGIN = String(import.meta.env.VITE_BACKEND_ORIGIN || '').replace(
   /\/$/,
   '',
 )
-const FALLBACK_API_BASE_URL = String(import.meta.env.VITE_FALLBACK_API_BASE_URL || '').replace(
+const RAW_FALLBACK_API_BASE_URL = String(import.meta.env.VITE_FALLBACK_API_BASE_URL || '').replace(
   /\/$/,
   '',
 )
 const APP_BASE_PATH = String(import.meta.env.BASE_URL || '/').trim() || '/'
-const FALLBACK_BACKEND_ORIGIN = String(import.meta.env.VITE_FALLBACK_BACKEND_ORIGIN || '').replace(
+const RAW_FALLBACK_BACKEND_ORIGIN = String(import.meta.env.VITE_FALLBACK_BACKEND_ORIGIN || '').replace(
   /\/$/,
   '',
 )
@@ -45,7 +45,7 @@ function clearLegacyStoredAuth() {
 }
 
 function isLocalOrigin(origin = '') {
-  return /^(http:\/\/)?(localhost|127\.0\.0\.1)(:\d+)?$/i.test(String(origin || '').trim())
+  return /^(https?:\/\/)?(localhost|127\.0\.0\.1)(:\d+)?$/i.test(String(origin || '').trim())
 }
 
 function toOrigin(baseUrl = '') {
@@ -57,6 +57,44 @@ function toOrigin(baseUrl = '') {
     return ''
   }
 }
+
+function toPathname(baseUrl = '') {
+  if (!baseUrl) return ''
+
+  try {
+    return new URL(baseUrl).pathname.replace(/\/$/, '')
+  } catch {
+    return ''
+  }
+}
+
+function shouldUseRelativeLocalApiBase(baseUrl = '') {
+  if (typeof window === 'undefined') return false
+  if (!isLocalOrigin(window.location.origin)) return false
+
+  const targetOrigin = toOrigin(baseUrl)
+
+  return isLocalOrigin(targetOrigin)
+}
+
+function resolveApiBaseUrl(baseUrl = '') {
+  if (!baseUrl) return ''
+
+  if (shouldUseRelativeLocalApiBase(baseUrl)) {
+    return toPathname(baseUrl) || '/api/v1'
+  }
+
+  return baseUrl
+}
+
+const API_BASE_URL = resolveApiBaseUrl(RAW_API_BASE_URL)
+const CONFIGURED_BACKEND_ORIGIN = shouldUseRelativeLocalApiBase(RAW_API_BASE_URL)
+  ? ''
+  : RAW_CONFIGURED_BACKEND_ORIGIN || toOrigin(API_BASE_URL)
+const FALLBACK_API_BASE_URL = resolveApiBaseUrl(RAW_FALLBACK_API_BASE_URL)
+const FALLBACK_BACKEND_ORIGIN = shouldUseRelativeLocalApiBase(RAW_FALLBACK_API_BASE_URL)
+  ? ''
+  : RAW_FALLBACK_BACKEND_ORIGIN || toOrigin(FALLBACK_API_BASE_URL)
 
 function getBackendCandidates() {
   const configuredOrigin = CONFIGURED_BACKEND_ORIGIN || toOrigin(API_BASE_URL)

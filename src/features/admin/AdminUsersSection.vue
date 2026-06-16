@@ -7,13 +7,15 @@ import { useUiStore } from '../../stores/ui'
 
 const props = defineProps({
   users: { type: Array, required: true },
+  accessPayments: { type: Array, default: () => [] },
   scope: { type: String, default: 'all' },
   title: { type: String, default: 'Usuarios y roles' },
   subtitle: { type: String, default: 'Administra accesos, permisos y perfiles del equipo desde una operacion mas clara y rapida.' },
   hideRolePanel: { type: Boolean, default: false },
+  isRefreshing: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['audit-user'])
+const emit = defineEmits(['audit-user', 'refresh'])
 const ui = useUiStore()
 
 const defaultRoleBlueprints = [
@@ -66,13 +68,53 @@ const detailOpen = ref(false)
 const detailLoading = ref(false)
 const detailError = ref('')
 const selectedUserDetail = ref(null)
+const paymentDetailOpen = ref(false)
+const selectedPaymentDetail = ref(null)
 const userFormErrors = ref({})
 const savingUser = ref(false)
+const reconcilingPaymentUserIds = ref([])
 const ADMIN_USERS_TIMEOUT_MS = 45000
 
 const userForm = ref(buildEmptyUser())
 const roleForm = ref(buildEmptyRole())
 const isClientScope = computed(() => props.scope === 'client')
+const latestAccessPaymentByUserId = computed(() => {
+  const map = new Map()
+
+  for (const payment of props.accessPayments || []) {
+    const userId = Number(payment?.user_id || payment?.user?.id || 0)
+    if (!userId) continue
+
+    const current = map.get(userId)
+    if (!current) {
+      map.set(userId, payment)
+      continue
+    }
+
+    const currentIsPriority = Boolean(current?.is_current)
+    const nextIsPriority = Boolean(payment?.is_current)
+
+    if (nextIsPriority && !currentIsPriority) {
+      map.set(userId, payment)
+      continue
+    }
+
+    if (nextIsPriority === currentIsPriority) {
+      const currentTimestamp = Date.parse(
+        String(current?.paid_at || current?.created_at || current?.updated_at || ''),
+      )
+      const nextTimestamp = Date.parse(
+        String(payment?.paid_at || payment?.created_at || payment?.updated_at || ''),
+      )
+
+      if ((Number.isFinite(nextTimestamp) ? nextTimestamp : 0) > (Number.isFinite(currentTimestamp) ? currentTimestamp : 0)) {
+        map.set(userId, payment)
+      }
+    }
+  }
+
+  return map
+})
 
 watch(
   () => props.users,
@@ -668,9 +710,31 @@ function resolveCommercialAccessState(detail = {}) {
   const user = detail?.user || {}
   const access = user.access || user.raw?.access || {}
   const commercial = user.commercialAccess || user.raw?.commercial_access || access.commercial_access || {}
+  const latestPayment = latestAccessPaymentByUserId.value.get(Number(user?.id || 0)) || null
+  const latestPaymentStatus = normalizeAccessPaymentStatus(latestPayment?.status)
+  const accessStatus = normalizeAccessPaymentStatus(
+    commercial.status || user.raw?.access_status || user.access?.access_status || '',
+  )
+  const realPaymentState = resolveRealPaymentState(user)
 
-  if (commercial.has_paid_access === true) {
+  if (isCommercialAccessExpired(user, latestPayment)) {
+    return 'Acceso vencido'
+  }
+
+  if (
+    realPaymentState.label === 'Pago realizado' ||
+    commercial.has_paid_access === true ||
+    isSuccessfulAccessPaymentStatus(latestPaymentStatus)
+  ) {
     return 'Pago activo'
+  }
+
+  if (
+    realPaymentState.label === 'Validando pago' ||
+    (latestPayment && latestPayment?.is_current === true && isPendingAccessPaymentStatus(latestPaymentStatus)) ||
+    accessStatus === 'payment_pending'
+  ) {
+    return 'Pago en validacion'
   }
 
   if (commercial.trial_consumed === true) {
@@ -749,6 +813,8 @@ function resolveCommercialAccessForUser(user = {}) {
 function commercialAccessTone(user = {}) {
   const label = resolveCommercialAccessForUser(user)
   if (label === 'Pago activo') return 'success'
+  if (label === 'Pago en validacion') return 'warn'
+  if (label === 'Acceso vencido') return 'blocked'
   if (label === 'Prueba disponible' || label === 'Registro nuevo') return 'info'
   if (label === 'Prueba consumida') return 'warn'
   return label === 'Habilitado' ? 'success' : 'blocked'
@@ -763,12 +829,24 @@ function commercialAccessMeta(user = {}) {
   if (!isClientUser(user)) return 'Sin seguimiento comercial'
 
   const commercial = user.commercialAccess || user.raw?.commercial_access || user.access?.commercial_access || {}
+  const latestPayment = latestAccessPaymentByUserId.value.get(Number(user?.id || 0)) || null
   const used = Number(commercial.free_quotes_used ?? user.raw?.free_quotes_used ?? 0)
   const limit = Math.max(1, Number(commercial.free_quote_limit ?? user.raw?.free_quote_limit ?? 1))
   const remaining = Math.max(0, Number(commercial.remaining_free_quotes ?? limit - used))
-  const paidAt = commercial.paid_access_at || user.raw?.paid_access_at || ''
+  const paidAt = commercial.paid_access_at || user.raw?.paid_access_at || latestPayment?.paid_at || ''
+  const expiresAt = resolveCommercialAccessExpiryDate(user, latestPayment)
 
-  if (commercial.has_paid_access === true) {
+  if (isCommercialAccessExpired(user, latestPayment)) {
+    return expiresAt ? `Vencio ${expiresAt.slice(0, 10)}` : 'Acceso vencido'
+  }
+
+  if (commercial.has_paid_access === true || isSuccessfulAccessPaymentStatus(latestPayment?.status)) {
+    if (paidAt && expiresAt) {
+      return `Pago confirmado ${String(paidAt).slice(0, 10)} · vence ${String(expiresAt).slice(0, 10)}`
+    }
+    if (expiresAt) {
+      return `Acceso vigente hasta ${String(expiresAt).slice(0, 10)}`
+    }
     return paidAt ? `Pago confirmado ${String(paidAt).slice(0, 10)}` : 'Cliente con acceso pagado'
   }
 
@@ -789,7 +867,33 @@ function commercialLifecycleLabel(user = {}) {
   const commercial = user.commercialAccess || user.raw?.commercial_access || user.access?.commercial_access || {}
   const label = String(commercial.label || '').trim()
 
+  if (resolveCommercialAccessForUser(user) === 'Pago activo') {
+    return 'Pago activo'
+  }
+
   return label || commercialAccessLabel(user)
+}
+
+function resolveCommercialAccessExpiryDate(user = {}, latestPayment = null) {
+  const commercial = user.commercialAccess || user.raw?.commercial_access || user.access?.commercial_access || {}
+  return String(
+    commercial.access_expires_at ||
+      user.access?.access_expires_at ||
+      user.raw?.access_expires_at ||
+      latestPayment?.user?.access_expires_at ||
+      latestPayment?.billing_period_end ||
+      '',
+  ).trim()
+}
+
+function isCommercialAccessExpired(user = {}, latestPayment = null) {
+  const expiresAt = resolveCommercialAccessExpiryDate(user, latestPayment)
+  if (!expiresAt) return false
+
+  const expiryDate = new Date(expiresAt)
+  if (!Number.isFinite(expiryDate.getTime())) return false
+
+  return expiryDate.getTime() < Date.now()
 }
 
 function trialUsageLabel(user = {}) {
@@ -800,18 +904,293 @@ function trialUsageLabel(user = {}) {
   return `${used}/${limit}`
 }
 
-function paymentStatusLabel(user = {}) {
+function normalizeAccessPaymentStatus(value = '') {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+}
+
+function isSuccessfulAccessPaymentStatus(value = '') {
+  return [
+    'paid',
+    'succeeded',
+    'success',
+    'complete',
+    'completed',
+    'pagado',
+    'pagada',
+    'payment_confirmed',
+    'payment confirmed',
+    'pago confirmado',
+    'pago aprobado',
+    'exitoso',
+  ].includes(normalizeAccessPaymentStatus(value))
+}
+
+function isPendingAccessPaymentStatus(value = '') {
+  return [
+    'pending',
+    'processing',
+    'requires_payment_method',
+    'requires_confirmation',
+    'requires_action',
+    'payment_pending',
+    'payment pending',
+    'pago pendiente',
+    'pago en revision',
+    'validando pago',
+  ].includes(normalizeAccessPaymentStatus(value))
+}
+
+function resolveRealPaymentState(user = {}) {
   const commercial = user.commercialAccess || user.raw?.commercial_access || user.access?.commercial_access || {}
+  const latestPayment = latestAccessPaymentByUserId.value.get(Number(user?.id || 0)) || null
+  const latestPaymentStatus = normalizeAccessPaymentStatus(latestPayment?.status)
+  const accessStatus = normalizeAccessPaymentStatus(
+    commercial.status || user.raw?.access_status || user.access?.access_status || '',
+  )
+  const hasPaidAccess = commercial.has_paid_access === true
+  const currentPaymentConfirmed =
+    latestPayment?.is_current === true && isSuccessfulAccessPaymentStatus(latestPaymentStatus)
+  const activeCommercialAccess = hasPaidAccess || accessStatus === 'active'
 
-  if (commercial.has_paid_access === true) {
-    return 'Pagado'
+  if (isCommercialAccessExpired(user, latestPayment)) {
+    return {
+      label: 'Vencido',
+      meta: buildPaidPaymentMeta(latestPayment, user),
+    }
   }
 
-  if (String(commercial.status || '').trim().toLowerCase() === 'payment_pending') {
-    return 'Validando pago'
+  if (currentPaymentConfirmed || activeCommercialAccess) {
+    return {
+      label: 'Pago realizado',
+      meta: buildPaidPaymentMeta(latestPayment, user),
+    }
   }
 
-  return 'Sin pago'
+  if (latestPayment && latestPayment?.is_current === true && isPendingAccessPaymentStatus(latestPaymentStatus)) {
+    return {
+      label: 'Validando pago',
+      meta: '',
+    }
+  }
+
+  if (accessStatus === 'payment_pending') {
+    return {
+      label: 'Validando pago',
+      meta: '',
+    }
+  }
+
+  return {
+    label: 'Sin pago',
+    meta: '',
+  }
+}
+
+function buildPaidPaymentMeta(payment = null, user = {}) {
+  if (!payment && !user) return ''
+
+  const paidAt = String(payment?.paid_at || '').trim()
+  const cardBrand = String(payment?.card_brand || '').trim()
+  const last4 = String(payment?.card_last4 || '').trim()
+  const paymentBits = [cardBrand, last4 ? `**** ${last4}` : ''].filter(Boolean).join(' ')
+  const expiresAt = resolveCommercialAccessExpiryDate(user, payment)
+
+  if (paidAt && expiresAt && paymentBits) {
+    return `Confirmado ${paidAt.slice(0, 10)} · vence ${expiresAt.slice(0, 10)} · ${paymentBits}`
+  }
+  if (paidAt && expiresAt) {
+    return `Confirmado ${paidAt.slice(0, 10)} · vence ${expiresAt.slice(0, 10)}`
+  }
+  if (paidAt && paymentBits) {
+    return `${paidAt.slice(0, 10)} · ${paymentBits}`
+  }
+  if (expiresAt) {
+    return `Vence ${expiresAt.slice(0, 10)}`
+  }
+  if (paidAt) {
+    return `Confirmado ${paidAt.slice(0, 10)}`
+  }
+  if (paymentBits) {
+    return paymentBits
+  }
+
+  return ''
+}
+
+function paymentStatusLabel(user = {}) {
+  return resolveRealPaymentState(user).label
+}
+
+function paymentStatusMeta(user = {}) {
+  return resolveRealPaymentState(user).meta
+}
+
+function paymentStatusTone(user = {}) {
+  const label = paymentStatusLabel(user)
+
+  if (label === 'Pago realizado') return 'success'
+  if (label === 'Validando pago') return 'warn'
+  if (label === 'Vencido') return 'warn'
+  return 'info'
+}
+
+function latestAccessPaymentForUser(user = {}) {
+  return latestAccessPaymentByUserId.value.get(Number(user?.id || 0)) || null
+}
+
+function shouldShowPaymentAction(user = {}) {
+  return isClientUser(user) && Boolean(latestAccessPaymentForUser(user))
+}
+
+function resolveAccessPaymentIntentId(payment = null) {
+  return String(
+    payment?.provider_payment_id ||
+      payment?.payment_intent_id ||
+      payment?.stripe_payment_intent_id ||
+      payment?.intent_id ||
+      '',
+  ).trim()
+}
+
+function resolveAccessCheckoutSessionId(payment = null) {
+  return String(
+    payment?.provider_checkout_id ||
+      payment?.checkout_session_id ||
+      payment?.stripe_checkout_session_id ||
+      '',
+  ).trim()
+}
+
+function isReconcilingPayment(userId = 0) {
+  return reconcilingPaymentUserIds.value.includes(Number(userId || 0))
+}
+
+function shouldShowPaymentReconcileAction(user = {}) {
+  if (!isClientUser(user)) return false
+  if (paymentStatusLabel(user) === 'Pago realizado') return false
+
+  const payment = latestAccessPaymentForUser(user)
+  if (!payment) return false
+
+  return Boolean(resolveAccessPaymentIntentId(payment) || resolveAccessCheckoutSessionId(payment))
+}
+
+async function reconcileAccessPayment(user = {}) {
+  const userId = Number(user?.id || 0)
+  if (!userId || isReconcilingPayment(userId)) return
+
+  const payment = latestAccessPaymentForUser(user)
+  const paymentIntentId = resolveAccessPaymentIntentId(payment)
+  const checkoutSessionId = resolveAccessCheckoutSessionId(payment)
+
+  if (!paymentIntentId && !checkoutSessionId) {
+    ui.pushToast({
+      tone: 'error',
+      title: 'No se pudo validar el pago',
+      message: 'Este registro no trae referencias de Stripe para reconciliar el acceso comercial.',
+    })
+    return
+  }
+
+  reconcilingPaymentUserIds.value = [...reconcilingPaymentUserIds.value, userId]
+
+  try {
+    if (paymentIntentId) {
+      await requestWithCandidates([
+        {
+          method: 'post',
+          path: '/client/access-payment/confirm',
+          body: { payment_intent_id: paymentIntentId },
+          timeoutMs: 30000,
+        },
+      ])
+    } else {
+      await requestWithCandidates([
+        {
+          method: 'get',
+          path: '/client/access-payment/success',
+          query: { session_id: checkoutSessionId },
+          timeoutMs: 30000,
+        },
+      ])
+    }
+
+    await emit('refresh')
+
+    if (detailOpen.value && selectedUserDetail.value?.user?.id === userId) {
+      await openUserDetail(selectedUserDetail.value.user)
+    }
+
+    ui.pushToast({
+      tone: 'success',
+      title: 'Pago validado',
+      message: `El acceso comercial de ${user.name} se sincronizo con el pago confirmado.`,
+    })
+  } catch (error) {
+    ui.pushToast({
+      tone: 'error',
+      title: 'No se pudo validar el pago',
+      message: error?.message || 'El backend no pudo reconciliar este pago de acceso comercial.',
+    })
+  } finally {
+    reconcilingPaymentUserIds.value = reconcilingPaymentUserIds.value.filter((id) => id !== userId)
+  }
+}
+
+function closePaymentDetailModal() {
+  paymentDetailOpen.value = false
+  selectedPaymentDetail.value = null
+}
+
+function openPaymentDetail(user = {}) {
+  closeActionsModal()
+  const payment = latestAccessPaymentForUser(user)
+  if (!payment) return
+
+  selectedPaymentDetail.value = {
+    user,
+    payment,
+  }
+  paymentDetailOpen.value = true
+}
+
+function formatMoneyAmount(amount = 0, currency = 'USD') {
+  const normalizedCurrency = String(currency || 'USD').trim().toUpperCase() || 'USD'
+  const numericAmount = Number(amount || 0)
+
+  return new Intl.NumberFormat('es-MX', {
+    style: 'currency',
+    currency: normalizedCurrency,
+    maximumFractionDigits: 2,
+  }).format(Number.isFinite(numericAmount) ? numericAmount : 0)
+}
+
+function paymentDetailRows(detail = {}) {
+  const payment = detail?.payment || {}
+  const user = detail?.user || {}
+
+  return [
+    { label: 'Estado', value: paymentStatusLabel(user) },
+    { label: 'Monto', value: formatMoneyAmount(payment.amount, payment.currency || 'USD') },
+    { label: 'Fecha de pago', value: payment.paid_at || 'Sin confirmar' },
+    { label: 'Marca', value: payment.card_brand || 'Sin dato' },
+    { label: 'Ultimos 4', value: payment.card_last4 ? `**** ${payment.card_last4}` : 'Sin dato' },
+    { label: 'Payment Intent', value: payment.provider_payment_id || 'Sin dato' },
+    { label: 'Checkout Session', value: payment.provider_checkout_id || 'Sin dato' },
+    { label: 'Periodo inicio', value: payment.billing_period_start || 'Sin dato' },
+    { label: 'Periodo fin', value: payment.billing_period_end || 'Sin dato' },
+    { label: 'Pago actual', value: payment.is_current ? 'Si' : 'No' },
+    { label: 'Acceso usuario', value: user.raw?.access_status || user.commercialAccess?.status || 'Sin dato' },
+    {
+      label: 'Acceso pagado',
+      value:
+        user.commercialAccess?.has_paid_access === true || user.raw?.has_paid_access === true
+          ? 'Si'
+          : 'No',
+    },
+  ]
 }
 
 function isNewClientRegistration(user = {}) {
@@ -821,12 +1200,27 @@ function isNewClientRegistration(user = {}) {
 }
 
 function shouldShowCommercialAccessAction(user = {}) {
-  return isClientUser(user)
+  if (!isClientUser(user)) return false
+
+  const commercialState = resolveCommercialAccessForUser(user)
+  if (commercialState === 'Pago activo' || commercialState === 'Pago en validacion') {
+    return false
+  }
+
+  return true
 }
 
 function commercialAccessActionLabel(user = {}) {
   const commercial = user.commercialAccess || user.raw?.commercial_access || user.access?.commercial_access || {}
-  if (commercial.has_paid_access === true) return 'Revocar acceso'
+  if (resolveCommercialAccessForUser(user) === 'Pago activo' || commercial.has_paid_access === true) {
+    return 'Revocar acceso'
+  }
+  if (resolveCommercialAccessForUser(user) === 'Pago en validacion') {
+    return 'Validando pago'
+  }
+  if (resolveCommercialAccessForUser(user) === 'Acceso vencido') {
+    return 'Reactivar acceso'
+  }
   return commercialAccessTone(user) === 'success' ? 'Desactivar demo' : 'Activar demo'
 }
 
@@ -1487,31 +1881,46 @@ function auditUser(user) {
           </p>
         </div>
         <div class="hero-actions">
+          <button
+            v-if="isClientScope"
+            type="button"
+            class="admin-btn admin-btn-secondary"
+            :disabled="isRefreshing"
+            @click="emit('refresh')"
+          >
+            {{ isRefreshing ? 'Actualizando...' : 'Refrescar tabla' }}
+          </button>
           <button type="button" class="admin-btn admin-btn-primary" @click="openCreateUser">+ Nuevo usuario</button>
           <button v-if="!hideRolePanel" type="button" class="admin-btn admin-btn-secondary" @click="openRolesPanel">Ver roles</button>
         </div>
       </div>
 
-      <div class="table-shell">
-        <div class="table-row table-head-row">
+      <div class="table-shell" :class="{ 'table-shell-clients': isClientScope }">
+        <div class="table-row table-head-row" :class="{ 'table-head-row-clients': isClientScope }">
           <span>Usuario</span>
           <span>Correo</span>
           <span>{{ isClientScope ? 'Estado comercial' : 'Rol' }}</span>
           <span>Estado</span>
-          <span>{{ isClientScope ? 'Prueba y pago' : 'Acceso comercial' }}</span>
+          <span>{{ isClientScope ? 'Prueba' : 'Acceso comercial' }}</span>
+          <span v-if="isClientScope">Pago</span>
           <span>Acciones</span>
         </div>
 
-        <div v-for="user in filteredUsers" :key="user.id" class="table-row">
+        <div
+          v-for="user in filteredUsers"
+          :key="user.id"
+          class="table-row"
+          :class="{ 'table-row-client-card': isClientScope }"
+        >
           <div class="user-cell">
             <div class="avatar-mini">{{ userInitials(user.name) }}</div>
             <div class="cell-stack">
-              <strong>{{ user.name }}</strong>
+              <strong class="user-name">{{ user.name }}</strong>
               <small>{{ user.phone || 'Sin telefono' }}</small>
             </div>
           </div>
 
-          <span>{{ user.email }}</span>
+          <span class="email-cell">{{ user.email }}</span>
           <span v-if="isClientScope" class="commercial-column">
             <span
               class="status-pill status-pill-commercial"
@@ -1541,10 +1950,9 @@ function auditUser(user) {
           <span class="commercial-access-cell">
             <template v-if="isClientUser(user)">
               <template v-if="isClientScope">
-                <div class="commercial-stack">
+                <div class="commercial-stack commercial-stack-panel">
                   <strong class="commercial-kpi">{{ trialUsageLabel(user) }}</strong>
                   <small class="commercial-caption">Uso de prueba</small>
-                  <small class="commercial-access-meta">{{ paymentStatusLabel(user) }}</small>
                   <small class="commercial-access-meta">{{ commercialAccessMeta(user) }}</small>
                 </div>
               </template>
@@ -1574,6 +1982,27 @@ function auditUser(user) {
             <span v-else class="table-muted">No aplica</span>
           </span>
 
+          <span v-if="isClientScope" class="commercial-access-cell">
+            <template v-if="isClientUser(user)">
+              <div class="commercial-stack commercial-stack-panel commercial-stack-panel-payment">
+                <span
+                  class="status-pill status-pill-commercial"
+                  :class="{
+                    'status-pill-success': paymentStatusTone(user) === 'success',
+                    'status-pill-warn': paymentStatusTone(user) === 'warn',
+                    'status-pill-info': paymentStatusTone(user) === 'info',
+                  }"
+                >
+                  {{ paymentStatusLabel(user) }}
+                </span>
+                <small v-if="paymentStatusMeta(user)" class="commercial-access-meta">
+                  {{ paymentStatusMeta(user) }}
+                </small>
+              </div>
+            </template>
+            <span v-else class="table-muted">No aplica</span>
+          </span>
+
           <div class="row-actions">
             <button
               type="button"
@@ -1589,6 +2018,23 @@ function auditUser(user) {
               @click.stop
             >
               <button type="button" class="mini-action-item" @click="handleViewUser(selectedActionUser)">Ver</button>
+              <button
+                v-if="shouldShowPaymentAction(selectedActionUser)"
+                type="button"
+                class="mini-action-item"
+                @click="openPaymentDetail(selectedActionUser)"
+              >
+                Ver pago
+              </button>
+              <button
+                v-if="shouldShowPaymentReconcileAction(selectedActionUser)"
+                type="button"
+                class="mini-action-item"
+                :disabled="isReconcilingPayment(selectedActionUser.id)"
+                @click="reconcileAccessPayment(selectedActionUser)"
+              >
+                {{ isReconcilingPayment(selectedActionUser.id) ? 'Validando...' : 'Validar pago' }}
+              </button>
               <button type="button" class="mini-action-item" @click="handleChangeRole(selectedActionUser)">Cambiar rol</button>
               <button type="button" class="mini-action-item" @click="handleEditUser(selectedActionUser)">Editar</button>
               <button
@@ -1779,6 +2225,15 @@ function auditUser(user) {
                 >
                   {{ commercialAccessActionLabel(selectedUserDetail.user) }} comercial
                 </button>
+                <button
+                  v-if="shouldShowPaymentReconcileAction(selectedUserDetail.user)"
+                  type="button"
+                  class="admin-btn admin-btn-secondary"
+                  :disabled="isReconcilingPayment(selectedUserDetail.user.id)"
+                  @click="reconcileAccessPayment(selectedUserDetail.user)"
+                >
+                  {{ isReconcilingPayment(selectedUserDetail.user.id) ? 'Validando pago...' : 'Validar pago comercial' }}
+                </button>
               </div>
             </section>
 
@@ -1916,6 +2371,45 @@ function auditUser(user) {
             <button type="button" class="admin-btn admin-btn-primary" @click="submitRoleForm">
               {{ roleModalMode === 'create' ? 'Crear rol' : 'Guardar rol' }}
             </button>
+          </div>
+        </div>
+      </div>
+    </transition>
+
+    <transition name="fade">
+      <div v-if="paymentDetailOpen" class="overlay overlay-center" @click.self="closePaymentDetailModal">
+        <div class="modal-panel detail-panel">
+          <div class="overlay-head">
+            <div>
+              <span class="mini-badge">Pago comercial</span>
+              <h3>{{ selectedPaymentDetail?.user?.name || 'Cliente' }}</h3>
+              <p>Detalle del pago actual de acceso comercial registrado en backend.</p>
+            </div>
+            <button type="button" class="admin-btn admin-btn-ghost" @click="closePaymentDetailModal">Cerrar</button>
+          </div>
+
+          <div class="detail-content">
+            <section class="detail-section">
+              <div class="detail-section-head">
+                <h4>Pago</h4>
+                <span
+                  class="status-pill status-pill-commercial"
+                  :class="{
+                    'status-pill-success': paymentStatusTone(selectedPaymentDetail?.user) === 'success',
+                    'status-pill-warn': paymentStatusTone(selectedPaymentDetail?.user) === 'warn',
+                    'status-pill-info': paymentStatusTone(selectedPaymentDetail?.user) === 'info',
+                  }"
+                >
+                  {{ paymentStatusLabel(selectedPaymentDetail?.user) }}
+                </span>
+              </div>
+              <div class="detail-grid">
+                <article v-for="row in paymentDetailRows(selectedPaymentDetail)" :key="row.label" class="detail-card">
+                  <span>{{ row.label }}</span>
+                  <strong>{{ row.value }}</strong>
+                </article>
+              </div>
+            </section>
           </div>
         </div>
       </div>
@@ -2155,6 +2649,11 @@ function auditUser(user) {
   align-items: end;
   justify-content: space-between;
   gap: 1rem;
+  max-width: none;
+}
+
+.split-heading > :first-child {
+  max-width: 760px;
 }
 
 .section-heading h2 {
@@ -2313,6 +2812,16 @@ function auditUser(user) {
 .table-shell {
   overflow: visible;
   margin-top: 0;
+  border: 1px solid #ece3cf;
+  border-radius: 30px;
+  background:
+    radial-gradient(circle at top right, rgba(213, 170, 70, 0.12), transparent 28%),
+    linear-gradient(180deg, #fffdfa 0%, #ffffff 100%);
+  box-shadow: 0 28px 60px rgba(30, 24, 15, 0.08);
+}
+
+.table-shell-clients {
+  padding: 1rem;
 }
 
 .table-row {
@@ -2335,6 +2844,30 @@ function auditUser(user) {
   text-transform: uppercase;
 }
 
+.table-head-row-clients {
+  padding: 0.85rem 1rem 1.1rem;
+  border: 0;
+  border-radius: 22px;
+  background: linear-gradient(180deg, #fffaf0 0%, #fffdf9 100%);
+  box-shadow: inset 0 0 0 1px rgba(214, 192, 141, 0.3);
+}
+
+.table-row-client-card {
+  margin-top: 0.9rem;
+  padding: 1.35rem 1.4rem;
+  border: 1px solid #efe5d3;
+  border-radius: 26px;
+  background:
+    linear-gradient(90deg, rgba(248, 244, 234, 0.8) 0%, rgba(255, 255, 255, 0) 26%),
+    #ffffff;
+  box-shadow: 0 16px 34px rgba(43, 33, 17, 0.05);
+}
+
+.table-row-client-card:hover {
+  border-color: #e6d4ab;
+  box-shadow: 0 22px 42px rgba(43, 33, 17, 0.08);
+}
+
 .user-cell {
   display: flex;
   align-items: center;
@@ -2344,6 +2877,19 @@ function auditUser(user) {
 .cell-stack {
   display: grid;
   gap: 0.15rem;
+}
+
+.user-name {
+  font-size: 0.98rem;
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+}
+
+.email-cell {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+  color: #111827;
 }
 
 .row-actions {
@@ -2376,10 +2922,28 @@ function auditUser(user) {
   gap: 0.12rem;
 }
 
+.commercial-stack-panel {
+  min-width: 0;
+  width: 100%;
+  padding: 0.95rem 1rem;
+  border: 1px solid #ece5d7;
+  border-radius: 20px;
+  background: linear-gradient(180deg, #fffcf7 0%, #ffffff 100%);
+}
+
+.commercial-stack-panel-payment {
+  background: linear-gradient(180deg, #f9fdfb 0%, #ffffff 100%);
+}
+
 .commercial-kpi {
   color: #111827;
-  font-size: 1.1rem;
+  font-size: 1.45rem;
   line-height: 1;
+  letter-spacing: -0.05em;
+}
+
+.commercial-kpi--payment {
+  font-size: 0.98rem;
 }
 
 .commercial-caption {
@@ -2399,12 +2963,25 @@ function auditUser(user) {
 
 .admin-mini-btn {
   appearance: none;
-  min-height: 2rem;
-  padding: 0 0.75rem;
+  min-height: 2.25rem;
+  padding: 0 0.95rem;
   border: 1px solid #d9dde2;
-  border-radius: 10px;
+  border-radius: 14px;
   color: #2d3748;
   background: #ffffff;
+  box-shadow: 0 10px 18px rgba(17, 24, 39, 0.04);
+  transition:
+    transform 0.16s ease,
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    background 0.16s ease;
+}
+
+.admin-mini-btn:hover {
+  transform: translateY(-1px);
+  border-color: #d3b773;
+  background: #fffdf8;
+  box-shadow: 0 14px 24px rgba(17, 24, 39, 0.08);
 }
 
 .commercial-access-btn {
@@ -2416,6 +2993,7 @@ function auditUser(user) {
 .admin-actions-trigger {
   min-width: 7.5rem;
   justify-content: center;
+  font-weight: 800;
 }
 
 .field,
@@ -2627,10 +3205,10 @@ function auditUser(user) {
 
 .mini-action-popover {
   position: absolute;
-  top: 50%;
-  right: calc(100% + 0.65rem);
+  top: calc(100% + 0.5rem);
+  right: 0;
   z-index: 12;
-  transform: translateY(-50%);
+  transform: none;
 }
 
 .mini-action-item,

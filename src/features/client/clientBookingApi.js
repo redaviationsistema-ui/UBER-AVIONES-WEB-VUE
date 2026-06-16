@@ -120,10 +120,38 @@ const CLIENT_ACCESS_PAYMENT_INTENT_PATHS = [
     ].filter(Boolean),
   ),
 ]
+const CLIENT_ACCESS_CHECKOUT_PATHS = [
+  ...new Set(
+    [
+      '/client/access-payment/create',
+    ].filter(Boolean),
+  ),
+]
 const CLIENT_ACCESS_PAYMENT_CONFIRM_PATHS = [
   ...new Set(
     [
       '/client/access-payment/confirm',
+    ].filter(Boolean),
+  ),
+]
+const CLIENT_ACCESS_PAYMENT_SUCCESS_PATHS = [
+  ...new Set(
+    [
+      '/client/access-payment/success',
+    ].filter(Boolean),
+  ),
+]
+const CLIENT_ACCESS_PAYMENT_CANCEL_PATHS = [
+  ...new Set(
+    [
+      '/client/access-payment/cancel',
+    ].filter(Boolean),
+  ),
+]
+const CLIENT_ACCESS_STATUS_PATHS = [
+  ...new Set(
+    [
+      '/client/access-status',
     ].filter(Boolean),
   ),
 ]
@@ -3098,6 +3126,20 @@ export async function createClientAccessPaymentIntent(payload = {}, options = {}
   throw lastError || new Error('No se pudo crear el PaymentIntent del acceso comercial.')
 }
 
+export async function createClientAccessCheckout(payload = {}, options = {}) {
+  let lastError = null
+
+  for (const path of CLIENT_ACCESS_CHECKOUT_PATHS) {
+    try {
+      return await api.post(path, payload, options)
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  throw lastError || new Error('No se pudo iniciar Stripe Checkout para el acceso comercial.')
+}
+
 export async function confirmClientAccessPayment(payload = {}, options = {}) {
   const paymentIntentId = String(payload?.payment_intent_id || payload?.paymentIntentId || '').trim()
 
@@ -3122,6 +3164,64 @@ export async function confirmClientAccessPayment(payload = {}, options = {}) {
   }
 
   throw lastError || new Error('No se pudo confirmar el pago del acceso comercial.')
+}
+
+export async function getClientAccessPaymentSuccess(payload = {}, options = {}) {
+  const sessionId = String(payload?.session_id || payload?.sessionId || payload?.checkout_session_id || payload?.checkoutSessionId || '').trim()
+  let lastError = null
+
+  for (const path of CLIENT_ACCESS_PAYMENT_SUCCESS_PATHS) {
+    try {
+      return await api.get(path, {
+        ...options,
+        query: sessionId
+          ? {
+              session_id: sessionId,
+            }
+          : undefined,
+      })
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  throw lastError || new Error('No se pudo validar el pago del acceso comercial.')
+}
+
+export async function cancelClientAccessPayment(payload = {}, options = {}) {
+  const sessionId = String(payload?.session_id || payload?.sessionId || payload?.checkout_session_id || payload?.checkoutSessionId || '').trim()
+  let lastError = null
+
+  for (const path of CLIENT_ACCESS_PAYMENT_CANCEL_PATHS) {
+    try {
+      return await api.get(path, {
+        ...options,
+        query: sessionId
+          ? {
+              session_id: sessionId,
+            }
+          : undefined,
+      })
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  throw lastError || new Error('No se pudo cancelar el pago del acceso comercial.')
+}
+
+export async function getClientAccessStatus(options = {}) {
+  let lastError = null
+
+  for (const path of CLIENT_ACCESS_STATUS_PATHS) {
+    try {
+      return await api.get(path, options)
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  throw lastError || new Error('No se pudo consultar el estado del acceso comercial.')
 }
 
 export async function requestConcierge(message) {

@@ -379,17 +379,50 @@ function normalizeStatus(value) {
   return String(value || '').toLowerCase()
 }
 
+function hasTextValue(value) {
+  return Boolean(String(value || '').trim())
+}
+
+function numericValue(value) {
+  const normalized = Number(value || 0)
+  return Number.isFinite(normalized) ? normalized : 0
+}
+
+function hasRegisteredBase(item) {
+  return hasTextValue(item.base_airport || item.base || item.airport || item.location || item.base_airport_code)
+}
+
+function hasRegistration(item) {
+  return hasTextValue(item.registration || item.tail_number || item.matricula)
+}
+
+function hasCapacityValue(item) {
+  return numericValue(item.capacity || item.passenger_capacity || item.pax) > 0
+}
+
+function hasHourlyRateValue(item) {
+  return numericValue(item.hourly_rate || item.hourlyPrice || item.hourly_price || item.price_per_hour) > 0
+}
+
+function hasRangeValue(item) {
+  return numericValue(item.range_km || item.rangeKm || item.range || item.max_range_km) > 0
+}
+
 function isApproved(item) {
-  return Boolean(item.approved || normalizeStatus(item.status) === 'active')
+  const status = normalizeStatus(item.status || item.approval_status || item.validation_status)
+  return Boolean(item.approved || ['active', 'approved', 'aprobada', 'aprobado', 'trial_active'].includes(status))
 }
 
 function isSuspended(item) {
-  const status = normalizeStatus(item.status)
+  const status = normalizeStatus(item.status || item.approval_status || item.validation_status)
   return status.includes('suspend') || status.includes('block') || status.includes('reject') || status === 'inactive'
 }
 
 function hasValidDocuments(item) {
-  return Boolean(item.documents_valid)
+  if (item.documents_valid != null) return Boolean(item.documents_valid)
+  const status = normalizeStatus(item.documents_status || item.document_status)
+  if (status.includes('valid') || status.includes('vigent') || status.includes('approved')) return true
+  return aircraftDocuments(item).length >= 4
 }
 
 function documentsState(item) {
@@ -409,8 +442,121 @@ function trialState(item) {
   return trialDate >= new Date() ? 'Trial activo' : 'Trial vencido'
 }
 
+function isExpiredAircraftSubscription(item = {}) {
+  const rawEndsAt = String(item.ends_at || item.subscription_ends_at || '').trim()
+  if (!rawEndsAt) return false
+
+  const normalizedEndsAt = /^\d{4}-\d{2}-\d{2}$/.test(rawEndsAt)
+    ? `${rawEndsAt}T23:59:59`
+    : rawEndsAt
+
+  const endsAt = new Date(normalizedEndsAt)
+  if (Number.isNaN(endsAt.getTime())) return false
+
+  return endsAt.getTime() < Date.now()
+}
+
+function aircraftSubscriptionStatusLabel(item = {}) {
+  if (isExpiredAircraftSubscription(item)) return 'Vencida'
+  return item.status || 'Sin estado'
+}
+
+function matchingVisibilityFlag(item) {
+  const candidate = item.matching_visible ?? item.matchingVisible ?? item.marketplace_visible ?? item.visible_for_matching
+  if (candidate == null) return null
+  if (typeof candidate === 'boolean') return candidate
+  return ['1', 'true', 'visible', 'activo', 'active', 'approved'].includes(normalizeStatus(candidate))
+}
+
 function matchingVisible(item) {
-  return isApproved(item) && hasValidDocuments(item) && ['trial_active', 'active'].includes(normalizeStatus(item.status))
+  const explicitVisibility = matchingVisibilityFlag(item)
+  if (explicitVisibility !== null) return explicitVisibility
+  return isApproved(item) && hasValidDocuments(item) && ['trial_active', 'active', 'approved'].includes(normalizeStatus(item.status))
+}
+
+function aircraftMissingFields(item) {
+  const missing = []
+
+  if (!hasRegistration(item)) missing.push('matricula')
+  if (!hasRegisteredBase(item)) missing.push('base')
+  if (!hasCapacityValue(item)) missing.push('capacidad')
+  if (!hasHourlyRateValue(item)) missing.push('tarifa')
+  if (!hasRangeValue(item)) missing.push('rango')
+  if (!hasValidDocuments(item)) missing.push('documentacion')
+  if (!aircraftImages(item).length) missing.push('fotografias')
+
+  return missing
+}
+
+function aircraftReadiness(item) {
+  const missing = aircraftMissingFields(item)
+  const approved = isApproved(item)
+  const suspended = isSuspended(item)
+  const documented = hasValidDocuments(item)
+  const baseRegistered = hasRegisteredBase(item)
+  const visibleForMatching = matchingVisible(item)
+  const quoteReady = approved && !suspended && documented && baseRegistered && hasCapacityValue(item) && hasHourlyRateValue(item)
+  const reservationReady = quoteReady && visibleForMatching && hasRegistration(item)
+
+  return {
+    approved,
+    suspended,
+    documented,
+    visibleForMatching,
+    baseRegistered,
+    quoteReady,
+    reservationReady,
+    missing,
+  }
+}
+
+function readinessTone(item) {
+  const readiness = aircraftReadiness(item)
+  if (readiness.suspended) return 'danger'
+  if (readiness.reservationReady) return 'success'
+  if (readiness.quoteReady) return 'info'
+  return readiness.missing.length ? 'warning' : 'neutral'
+}
+
+function readinessHeadline(item) {
+  const readiness = aircraftReadiness(item)
+  if (readiness.suspended) return 'Suspendida'
+  if (readiness.reservationReady) return 'Lista para reservar'
+  if (readiness.quoteReady) return 'Lista para cotizar'
+  if (readiness.approved) return 'En integracion comercial'
+  return 'Pendiente de validacion'
+}
+
+function readinessDescription(item) {
+  const readiness = aircraftReadiness(item)
+  if (readiness.suspended) return 'La aeronave esta bloqueada y no debe mostrarse en matching.'
+  if (readiness.reservationReady) return 'Cumple aprobacion, base, documentos y datos comerciales para reservas.'
+  if (readiness.quoteReady) return 'Puede entrar a cotizaciones, pero aun requiere visibilidad final o ajuste operativo.'
+  if (readiness.missing.length) return `Faltan ${readiness.missing.slice(0, 3).join(', ')}${readiness.missing.length > 3 ? '...' : ''}.`
+  return 'Requiere revision administrativa antes de habilitarla comercialmente.'
+}
+
+function readinessChecklist(item) {
+  const readiness = aircraftReadiness(item)
+  return [
+    { label: 'Aprobada', complete: readiness.approved && !readiness.suspended },
+    { label: 'Documentada', complete: readiness.documented },
+    { label: 'Matching', complete: readiness.visibleForMatching },
+    { label: 'Base registrada', complete: readiness.baseRegistered },
+  ]
+}
+
+function missingFieldLabel(field) {
+  const labels = {
+    matricula: 'Sin matricula',
+    base: 'Sin base',
+    capacidad: 'Sin capacidad',
+    tarifa: 'Sin tarifa',
+    rango: 'Sin rango',
+    documentacion: 'Sin documentacion',
+    fotografias: 'Sin fotos',
+  }
+  return labels[field] || field
 }
 
 function approvalState(item) {
@@ -661,7 +807,7 @@ watch(
         <div class="meta-grid">
           <div>
             <span>Estado</span>
-            <strong>{{ item.status }}</strong>
+            <strong>{{ aircraftSubscriptionStatusLabel(item) }}</strong>
           </div>
           <div>
             <span>Periodo</span>
@@ -868,6 +1014,33 @@ watch(
                 </span>
               </div>
 
+              <div :class="['readiness-panel', `readiness-panel-${readinessTone(item)}`]">
+                <div class="readiness-head">
+                  <div>
+                    <small>Estado comercial</small>
+                    <strong>{{ readinessHeadline(item) }}</strong>
+                  </div>
+                  <span :class="['chip', `chip-${readinessTone(item)}`]">
+                    {{ aircraftReadiness(item).reservationReady ? 'Reservable' : aircraftReadiness(item).quoteReady ? 'Cotizable' : 'Pendiente' }}
+                  </span>
+                </div>
+                <p>{{ readinessDescription(item) }}</p>
+                <div class="readiness-checklist">
+                  <span
+                    v-for="entry in readinessChecklist(item)"
+                    :key="entry.label"
+                    :class="['readiness-item', { complete: entry.complete }]"
+                  >
+                    {{ entry.complete ? '✓' : '!' }} {{ entry.label }}
+                  </span>
+                </div>
+                <div v-if="aircraftReadiness(item).missing.length" class="missing-tags">
+                  <span v-for="field in aircraftReadiness(item).missing" :key="field">
+                    {{ missingFieldLabel(field) }}
+                  </span>
+                </div>
+              </div>
+
               <div class="document-progress">
                 <div class="document-progress-copy">
                   <small>Completitud documental</small>
@@ -932,6 +1105,7 @@ watch(
                   <span :class="['chip', `chip-${docsChip(selectedAircraft).tone}`]">{{ docsChip(selectedAircraft).label }}</span>
                   <span :class="['chip', `chip-${matchingChip(selectedAircraft).tone}`]">{{ matchingChip(selectedAircraft).label }}</span>
                   <span :class="['chip', `chip-${trialChip(selectedAircraft).tone}`]">{{ trialChip(selectedAircraft).label }}</span>
+                  <span :class="['chip', `chip-${readinessTone(selectedAircraft)}`]">{{ readinessHeadline(selectedAircraft) }}</span>
                 </div>
                 <dl class="hero-kpi-list">
                   <div>
@@ -951,6 +1125,16 @@ watch(
                     <dd>{{ formatDate(selectedAircraft.updated_at || selectedAircraft.created_at) }}</dd>
                   </div>
                 </dl>
+                <div class="drawer-readiness-block">
+                  <strong>Listo para cotizar: {{ aircraftReadiness(selectedAircraft).quoteReady ? 'Si' : 'No' }}</strong>
+                  <strong>Listo para reservar: {{ aircraftReadiness(selectedAircraft).reservationReady ? 'Si' : 'No' }}</strong>
+                  <p>{{ readinessDescription(selectedAircraft) }}</p>
+                  <div v-if="aircraftReadiness(selectedAircraft).missing.length" class="missing-tags">
+                    <span v-for="field in aircraftReadiness(selectedAircraft).missing" :key="field">
+                      {{ missingFieldLabel(field) }}
+                    </span>
+                  </div>
+                </div>
               </div>
             </aside>
           </section>
@@ -1013,7 +1197,13 @@ watch(
               </p>
               <h4>Disponibilidad comercial</h4>
               <p class="detail-copy">
-                {{ matchingVisible(selectedAircraft) ? 'Visible para clientes en marketplace.' : 'Oculta hasta completar documentos y aprobacion.' }}
+                {{
+                  aircraftReadiness(selectedAircraft).reservationReady
+                    ? 'Visible y lista para entrar a matching, cotizaciones y reservas.'
+                    : aircraftReadiness(selectedAircraft).quoteReady
+                      ? 'Ya puede cotizarse, pero aun requiere cierre comercial para reservas.'
+                      : 'Oculta hasta completar aprobacion, documentos, base y datos comerciales.'
+                }}
               </p>
             </article>
           </section>
@@ -1084,6 +1274,18 @@ watch(
                   <dt>Marketplace</dt>
                   <dd>{{ matchingVisible(selectedAircraft) ? 'Visible' : 'Bloqueado' }}</dd>
                 </div>
+                <div>
+                  <dt>Base registrada</dt>
+                  <dd>{{ aircraftReadiness(selectedAircraft).baseRegistered ? 'Completa' : 'Pendiente' }}</dd>
+                </div>
+                <div>
+                  <dt>Cotizable</dt>
+                  <dd>{{ aircraftReadiness(selectedAircraft).quoteReady ? 'Si' : 'No' }}</dd>
+                </div>
+                <div>
+                  <dt>Reservable</dt>
+                  <dd>{{ aircraftReadiness(selectedAircraft).reservationReady ? 'Si' : 'No' }}</dd>
+                </div>
               </dl>
             </article>
 
@@ -1101,6 +1303,14 @@ watch(
                 <div class="timeline-item">
                   <strong>Estatus actual</strong>
                   <small>{{ statusChip(selectedAircraft).label }}</small>
+                </div>
+                <div class="timeline-item">
+                  <strong>Faltantes criticos</strong>
+                  <small>{{
+                    aircraftReadiness(selectedAircraft).missing.length
+                      ? aircraftReadiness(selectedAircraft).missing.map(missingFieldLabel).join(', ')
+                      : 'Sin faltantes criticos'
+                  }}</small>
                 </div>
               </div>
             </article>
@@ -1805,6 +2015,12 @@ watch(
   background: rgba(59, 130, 246, 0.12);
 }
 
+.chip-neutral {
+  border-color: rgba(148, 163, 184, 0.35);
+  color: #475569;
+  background: rgba(148, 163, 184, 0.12);
+}
+
 .card-foot button {
   color: #1d4ed8;
   background: #eff6ff;
@@ -1823,6 +2039,105 @@ watch(
 .document-progress {
   display: grid;
   gap: 0.45rem;
+}
+
+.readiness-panel {
+  display: grid;
+  gap: 0.6rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  padding: 0.8rem;
+  background: linear-gradient(180deg, #fffdf7, #ffffff);
+}
+
+.readiness-panel-success {
+  border-color: rgba(34, 197, 94, 0.28);
+  background: linear-gradient(180deg, rgba(240, 253, 244, 0.95), #ffffff);
+}
+
+.readiness-panel-warning {
+  border-color: rgba(245, 158, 11, 0.28);
+  background: linear-gradient(180deg, rgba(255, 251, 235, 0.95), #ffffff);
+}
+
+.readiness-panel-danger {
+  border-color: rgba(239, 68, 68, 0.28);
+  background: linear-gradient(180deg, rgba(254, 242, 242, 0.95), #ffffff);
+}
+
+.readiness-panel-info {
+  border-color: rgba(59, 130, 246, 0.24);
+  background: linear-gradient(180deg, rgba(239, 246, 255, 0.95), #ffffff);
+}
+
+.readiness-panel-neutral {
+  border-color: rgba(148, 163, 184, 0.24);
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.98), #ffffff);
+}
+
+.readiness-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.readiness-head small {
+  color: #64748b;
+  font-size: 0.7rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.readiness-head strong {
+  display: block;
+  margin-top: 0.14rem;
+  color: #0f172a;
+  font-size: 0.88rem;
+}
+
+.readiness-panel p,
+.drawer-readiness-block p {
+  margin: 0;
+  color: #475569;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.readiness-checklist,
+.missing-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.readiness-item,
+.missing-tags span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  border-radius: 999px;
+  padding: 0.34rem 0.52rem;
+  font-size: 0.69rem;
+  font-weight: 900;
+}
+
+.readiness-item {
+  border: 1px solid #dbe3ef;
+  color: #64748b;
+  background: rgba(248, 250, 252, 0.92);
+}
+
+.readiness-item.complete {
+  border-color: rgba(34, 197, 94, 0.24);
+  color: #166534;
+  background: rgba(34, 197, 94, 0.12);
+}
+
+.missing-tags span {
+  border: 1px solid rgba(245, 158, 11, 0.24);
+  color: #92400e;
+  background: rgba(254, 243, 199, 0.7);
 }
 
 .document-progress-copy {
@@ -2038,6 +2353,18 @@ watch(
 .hero-kpi-list {
   display: grid;
   gap: 0.85rem;
+}
+
+.drawer-readiness-block {
+  display: grid;
+  gap: 0.55rem;
+  border-top: 1px solid #eef2f7;
+  padding-top: 0.95rem;
+}
+
+.drawer-readiness-block strong {
+  color: #0f172a;
+  font-size: 0.85rem;
 }
 
 .hero-kpi-list div {

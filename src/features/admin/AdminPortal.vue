@@ -69,6 +69,7 @@ const rawSectionRecords = reactive({
 const reservationFlowLoading = ref(false)
 const reservationFlowLoadingLabel = ref('')
 const reservationContentRefreshing = ref(false)
+const clientTableRefreshing = ref(false)
 let removeWorkflowSyncSubscription = null
 let reservationsPollTimer = null
 let reservationsRequestPromise = null
@@ -1267,6 +1268,31 @@ async function loadAccessPayments() {
   }
 }
 
+async function reconcilePendingClientAccessPayments({ silent = true } = {}) {
+  try {
+    const response = await requestWithCandidates([
+      { method: 'post', path: '/admin/client-access-payments/reconcile-pending', body: {}, timeoutMs: 30000 },
+    ])
+
+    const reconciled = Number(response?.reconciled || 0)
+    if (!silent && reconciled > 0) {
+      ui.pushToast({
+        tone: 'success',
+        title: 'Pagos conciliados',
+        message: `Se confirmaron ${reconciled} pago${reconciled === 1 ? '' : 's'} pendientes en Stripe.`,
+      })
+    }
+  } catch (error) {
+    if (!silent) {
+      ui.pushToast({
+        tone: 'warning',
+        title: 'No se pudo conciliar Stripe',
+        message: error?.message || 'La tabla se refrescara con los datos locales disponibles.',
+      })
+    }
+  }
+}
+
 async function loadSubscriptionPayments() {
   try {
     const response = await requestWithCandidates([{ method: 'get', path: '/admin/subscription-payments' }])
@@ -1503,7 +1529,8 @@ async function loadPortalSection(section) {
   }
 
   if (section === 'clientes') {
-    await loadClients()
+    await reconcilePendingClientAccessPayments({ silent: true })
+    await Promise.all([loadClients(), loadAccessPayments()])
     return
   }
 
@@ -1524,6 +1551,7 @@ async function loadPortalSection(section) {
   }
 
   if (section === 'suscripciones') {
+    await reconcilePendingClientAccessPayments({ silent: true })
     await Promise.all([loadAircraft(), loadSubscriptions(), loadClients(), loadAccessPayments(), loadSubscriptionPayments()])
     return
   }
@@ -2036,6 +2064,29 @@ async function refreshSubscriptionsPanel() {
   }
 }
 
+async function refreshClientsTable() {
+  if (clientTableRefreshing.value) return
+
+  try {
+    clientTableRefreshing.value = true
+    await reconcilePendingClientAccessPayments({ silent: false })
+    await Promise.all([loadClients(), loadAccessPayments()])
+    ui.pushToast({
+      tone: 'success',
+      title: 'Tabla actualizada',
+      message: 'La tabla de clientes se sincronizo con los datos mas recientes.',
+    })
+  } catch (error) {
+    ui.pushToast({
+      tone: 'error',
+      title: 'No se pudo refrescar',
+      message: error?.message || 'La tabla de clientes no pudo sincronizarse con el backend.',
+    })
+  } finally {
+    clientTableRefreshing.value = false
+  }
+}
+
 async function refreshReservationContent() {
   if (!['reservas', 'liberaciones'].includes(props.section) || reservationContentRefreshing.value) return
 
@@ -2334,11 +2385,14 @@ watch(
   <AdminUsersSection
     v-else-if="section === 'clientes'"
     :users="clientUsers"
+    :access-payments="accessPayments"
+    :is-refreshing="clientTableRefreshing"
     scope="client"
     title="Clientes"
     subtitle="Visualiza registros nuevos, prueba gratuita consumida y pagos activos desde una sola tabla."
     :hide-role-panel="true"
     @audit-user="auditUser"
+    @refresh="refreshClientsTable"
   />
   <AdminAlertsSection v-else-if="section === 'alertas'" :flags="flags" />
   <AdminProvidersNetworkSection

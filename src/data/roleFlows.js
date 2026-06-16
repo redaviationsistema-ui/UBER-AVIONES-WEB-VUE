@@ -34,7 +34,7 @@ export const roleSections = {
     { id: 'operaciones', label: 'Operaciones', icon: 'jet' },
   /*{ id: 'tripulacion', label: 'Tripulacion', icon: 'crew' },*/ 
     { id: 'incidencias', label: 'Incidencias de sobrecargo', icon: 'alert' },
-  /*{ id: 'pagos', label: 'Pagos', icon: 'wallet' },*/ 
+    { id: 'pagos', label: 'Pagos', icon: 'wallet' },
     { id: 'historial', label: 'Historial', icon: 'history' },
     { id: 'configuracion', label: 'Configuracion', icon: 'grid' },
   ],
