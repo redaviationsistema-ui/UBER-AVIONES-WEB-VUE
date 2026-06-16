@@ -304,16 +304,6 @@ function airportMatchesRoute(baseAirport = '', routeAirport = '', routeAirportDa
   return false
 }
 
-function resolveLastLegAirportForRepositioning(context = {}) {
-  const legs = Array.isArray(context.legs) ? context.legs.filter(Boolean) : []
-  const lastLeg = legs[legs.length - 1] || {}
-
-  return {
-    airport: lastLeg.destination || lastLeg.origin || context.destination || '',
-    airportData: lastLeg.destinationAirport || lastLeg.originAirport || context.destinationAirport || null,
-  }
-}
-
 function resolveClientRouteEndpoints(context = {}) {
   const legs = resolveFlightLegs(context)
   const firstLeg = legs[0] || {}
@@ -374,11 +364,6 @@ function resolveRepositioningPolicy(record = {}, context = {}) {
     chargeFinal,
     totalChargeableLegs: Number(chargeInitial) + Number(chargeFinal),
   }
-}
-
-function resolveRepositioningApplies(record = {}, context = {}) {
-  const policy = resolveRepositioningPolicy(record, context)
-  return policy.chargeInitial || policy.chargeFinal
 }
 
 function resolveRepositioningFactor(record = {}, context = {}) {
@@ -758,24 +743,6 @@ function resolveDynamicMarketFloor(record = {}, billableHours = 0, distanceKm = 
   }
 }
 
-function resolveOperationalCosts(record = {}) {
-  return (
-    asNumber(record.landing_fees || record.landing_fee) +
-    asNumber(record.handling_fee || record.handling_fees || record.fbo_fees || record.fbo) +
-    asNumber(record.trip_support_fee || record.trip_support || record.dispatch_fee) +
-    asNumber(record.crew_cost || record.crew_rate || record.crew_fee) +
-    asNumber(record.permits_fee || record.permits) +
-    asNumber(record.operational_cost)
-  )
-}
-
-function resolveAirportFees(record = {}) {
-  return (
-    asNumber(record.landing_fees || record.landing_fee) +
-    asNumber(record.handling_fee || record.handling_fees || record.fbo_fees || record.fbo)
-  )
-}
-
 function resolveOvernightUnitFee(record = {}) {
   const explicitOvernightFee = asNumber(
     record.crew_overnight_usd ||
@@ -789,15 +756,15 @@ function resolveOvernightUnitFee(record = {}) {
   return hourlyRate > 0 ? hourlyRate / 2 : 0
 }
 
-function resolvePriorityServiceFee(context = {}, record = {}) {
+function resolvePriorityServiceFee(_context = {}, _record = {}) {
   return 0
 }
 
-function resolvePetFee(context = {}, record = {}) {
+function resolvePetFee(_context = {}, _record = {}) {
   return 0
 }
 
-function resolveSpecialBaggageFee(context = {}, record = {}) {
+function resolveSpecialBaggageFee(_context = {}, _record = {}) {
   return 0
 }
 
@@ -859,16 +826,6 @@ function calculateClimbDescentMinutes({
     9,
     baseByCategory[categoryKey] ?? baseByCategory.default,
   )
-}
-
-function resolveVisibleTaxiBufferHours(context = {}) {
-  const explicitHours = asNumber(context.displayTaxiHours || context.display_taxi_hours)
-  if (explicitHours > 0) return explicitHours
-
-  const legs = resolveFlightLegs(context)
-  if (!legs.length) return 0.12
-
-  return Math.min(0.12 + Math.max(legs.length - 1, 0) * 0.04, 0.2)
 }
 
 function resolveVisibleFlightMarginHours(distanceKm = 0, context = {}) {
@@ -944,7 +901,7 @@ function applyRouteFlightTimeAdjustment({
   return Math.max(adjustedMinutes, minimumMinutes) / 60
 }
 
-function resolveClimbDescentMinutes(record = {}, context = {}, distanceKm = 0) {
+function resolveClimbDescentMinutes(record = {}, context = {}, _distanceKm = 0) {
   const explicitMinutes = asNumber(
     record.climb_descent_minutes ||
       record.climbDescentMinutes ||
@@ -955,7 +912,7 @@ function resolveClimbDescentMinutes(record = {}, context = {}, distanceKm = 0) {
 
   const legs = resolveFlightLegs(context)
   if (legs.length) {
-    return legs.reduce((sum, leg) => {
+    return legs.reduce((sum) => {
       return (
         sum +
         calculateClimbDescentMinutes({
@@ -1229,8 +1186,6 @@ export function buildFlightPricingFormula(record = {}, context = {}) {
   const commercialMargin = 1
   const priorityFactor = 1
   const dynamicMarketFloor = resolveDynamicMarketFloor(record, billableHours, distanceKm)
-  const marginMultiplier = 1
-  const totalBeforeTax = subtotalBeforeMultipliers
   const finalPrice = subtotalBeforeMultipliers + ivaAmount
   const hasFormulaInputs = subtotalBeforeMultipliers > 0 && (hourlyRate > 0 || distanceKm > 0 || explicitRealHours > 0)
 

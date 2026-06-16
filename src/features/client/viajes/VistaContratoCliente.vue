@@ -23,11 +23,6 @@ const supportEmail = 'sales@redskyg.com'
 const supportWebsite = 'https://redskyg.com/mx'
 const supportPhonesLabel = supportPhones.join(' | ')
 const clientSignatureAnchor = '/sig_cliente/'
-const externalContractFlowEnabled = String(
-  import.meta.env.VITE_CLIENT_CONTRACT_EXTERNAL_ENABLED || 'true',
-)
-  .trim()
-  .toLowerCase() !== 'false'
 const signatureError = ref('')
 
 function resolvePublicAssetUrl(assetPath = '') {
@@ -1071,7 +1066,6 @@ function escapeHtml(value = '') {
 }
 
 function buildContractHtmlDocument(exportAssets = {}) {
-  const exportLogoSrc = exportAssets.logoSrc || resolvePublicAssetUrl('logo.png')
   const exportContractHeaderSrc =
     exportAssets.headerSrc || resolvePublicAssetUrl('MARGEN/image.png')
   const coverCards = coverSummaryRows.value

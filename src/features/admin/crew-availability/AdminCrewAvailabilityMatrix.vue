@@ -9,7 +9,7 @@ const props = defineProps({
   statusOptions: { type: Array, default: () => [] },
 })
 
-const emit = defineEmits(['select-cell'])
+defineEmits(['select-cell'])
 
 const colorMap = computed(() =>
   Object.fromEntries(

@@ -1,4 +1,5 @@
 <script setup>
+/* eslint-disable vue/no-mutating-props */
 defineProps({
   filters: { type: Object, required: true },
   baseOptions: { type: Array, required: true },

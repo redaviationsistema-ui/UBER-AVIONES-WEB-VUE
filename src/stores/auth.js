@@ -127,7 +127,7 @@ function resolveAuthPayload(payload = {}, options = {}) {
   const loginContext =
     shouldForceCrewContext && (!rawLoginContext || !rawLoginContext.effective_role)
       ? {
-          ...(rawLoginContext || {}),
+          ...rawLoginContext,
           effective_role: 'sobrecargo',
           roles: [...new Set([...(Array.isArray(rawLoginContext?.roles) ? rawLoginContext.roles : []), 'sobrecargo'])],
         }
@@ -235,10 +235,10 @@ export const useAuthStore = defineStore('auth', () => {
     if (user.value) {
       user.value = {
         ...user.value,
-        ...(userPatch || {}),
+        ...userPatch,
         profile: profilePatch
           ? {
-              ...(user.value.profile || {}),
+              ...user.value.profile,
               ...profilePatch,
             }
           : user.value.profile,
@@ -247,14 +247,14 @@ export const useAuthStore = defineStore('auth', () => {
 
     if (accessPatch) {
       access.value = {
-        ...(access.value || {}),
+        ...access.value,
         ...accessPatch,
       }
     }
 
     if (loginContextPatch) {
       loginContext.value = {
-        ...(loginContext.value || {}),
+        ...loginContext.value,
         ...loginContextPatch,
       }
     }

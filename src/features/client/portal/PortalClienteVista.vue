@@ -356,6 +356,20 @@ const selectedReservationFrontendState = computed(() =>
 const commercialAccessPaymentMode = computed(
   () => props.section === 'pago' && isTruthyQueryFlag(route.query.accessPayment),
 )
+const commercialAccessCheckoutReturnMode = computed(() => {
+  if (props.section !== 'pago') return false
+  if (commercialAccessPaymentMode.value) return true
+
+  const checkoutState = normalizeRouteQueryValue(route.query.checkout).toLowerCase()
+  if (!checkoutState) return false
+
+  return !routeId.value
+})
+const commercialAccessCheckoutReturnPending = computed(
+  () =>
+    commercialAccessCheckoutReturnMode.value &&
+    Boolean(normalizeRouteQueryValue(route.query.checkout)),
+)
 const paymentReadyForCheckout = computed(
   () => selectedReservationFrontendState.value.ready_for_payment === true,
 )
@@ -422,7 +436,7 @@ const selectedReservationPriceValue = computed(() => {
   )
 })
 const paymentSummaryAmountLabel = computed(() => {
-  if (commercialAccessPaymentMode.value) {
+  if (commercialAccessCheckoutReturnMode.value) {
     return COMMERCIAL_ACCESS_AMOUNT_LABEL
   }
   if (selectedReservationPriceValue.value > 0) {
@@ -458,12 +472,12 @@ const customerPhone = computed(() => {
   return String(rawPhone || '').trim()
 })
 const paymentHeroTitle = computed(() => {
-  if (commercialAccessPaymentMode.value) return 'Activa tu acceso comercial'
+  if (commercialAccessCheckoutReturnMode.value) return 'Activa tu acceso comercial'
   if (!selectedReservation.value) return 'Checkout seguro'
   return paymentReadyForCheckout.value ? 'Configura tu pago' : 'Pago bloqueado hasta firma'
 })
 const paymentHeroCopy = computed(() => {
-  if (commercialAccessPaymentMode.value) {
+  if (commercialAccessCheckoutReturnMode.value) {
     return 'Usa esta misma cabina de pago para habilitar tu acceso comercial y seguir cotizando vuelos privados.'
   }
   if (selectedReservation.value) {
@@ -478,15 +492,17 @@ const paymentHeroCopy = computed(() => {
   return 'Pago protegido con tarjeta, transferencia, wire o wallet corporativa.'
 })
 const paymentRouteHeadline = computed(() =>
-  commercialAccessPaymentMode.value
+  commercialAccessCheckoutReturnMode.value
     ? 'Acceso comercial SKY Group'
     : itineraryHeadline(activeItinerarySummary.value),
 )
 const paymentDateLabel = computed(() =>
-  commercialAccessPaymentMode.value ? 'Activacion mensual inmediata' : itineraryDateLine(activeItinerarySummary.value),
+  commercialAccessCheckoutReturnMode.value
+    ? 'Activacion mensual inmediata'
+    : itineraryDateLine(activeItinerarySummary.value),
 )
 const paymentFeatureList = computed(() =>
-  commercialAccessPaymentMode.value
+  commercialAccessCheckoutReturnMode.value
     ? [
         {
           icon: 'shield',
@@ -571,7 +587,6 @@ let stripeCardExpiryElement = null
 let stripeCardCvcElement = null
 let stripeIntentSecret = ''
 let stripePublishableKey = ''
-let stripeIntentContext = ''
 let stripeViewContext = ''
 
 function normalizeCardBrand(value = '') {
@@ -676,13 +691,19 @@ function extractCommercialAccessFields(source = null) {
     const freeQuotesUsed = commercial.free_quotes_used ?? candidate.free_quotes_used
     const remainingFreeQuotes =
       commercial.remaining_free_quotes ?? candidate.remaining_free_quotes
+    const accessExpiresAt = commercial.access_expires_at ?? candidate.access_expires_at
+    const paidAccessAt = commercial.paid_access_at ?? candidate.paid_access_at
+    const billingPeriodEnd = commercial.billing_period_end ?? candidate.billing_period_end
 
     if (
       status !== undefined ||
       hasPaidAccess !== undefined ||
       freeQuoteLimit !== undefined ||
       freeQuotesUsed !== undefined ||
-      remainingFreeQuotes !== undefined
+      remainingFreeQuotes !== undefined ||
+      accessExpiresAt !== undefined ||
+      paidAccessAt !== undefined ||
+      billingPeriodEnd !== undefined
     ) {
       return {
         status,
@@ -690,6 +711,9 @@ function extractCommercialAccessFields(source = null) {
         free_quote_limit: freeQuoteLimit,
         free_quotes_used: freeQuotesUsed,
         remaining_free_quotes: remainingFreeQuotes,
+        access_expires_at: accessExpiresAt,
+        paid_access_at: paidAccessAt,
+        billing_period_end: billingPeriodEnd,
       }
     }
   }
@@ -984,27 +1008,53 @@ function buildReservationAccessMessage(accessSource = null) {
 
 function syncCommercialAccessState(accessSource = null) {
   const state = buildCommercialAccessUiState(accessSource)
+  const commercial = extractCommercialAccessFields(accessSource)
+  const currentCommercial = auth.access?.commercial_access || {}
+  const accessExpiresAt =
+    commercial.access_expires_at ??
+    currentCommercial.access_expires_at ??
+    auth.access?.access_expires_at ??
+    auth.user?.access_expires_at
+  const paidAccessAt =
+    commercial.paid_access_at ??
+    currentCommercial.paid_access_at ??
+    auth.access?.paid_access_at ??
+    auth.user?.paid_access_at
+  const billingPeriodEnd =
+    commercial.billing_period_end ??
+    currentCommercial.billing_period_end ??
+    auth.access?.billing_period_end ??
+    auth.user?.billing_period_end
 
   auth.syncUserContext({
     accessPatch: {
       commercial_access: {
-        ...(auth.access?.commercial_access || {}),
+        ...currentCommercial,
         status: state.status,
         has_paid_access: state.hasPaidAccess,
         free_quote_limit: state.freeQuoteLimit,
         free_quotes_used: state.freeQuotesUsed,
         remaining_free_quotes: state.remainingFreeQuotes,
+        access_expires_at: accessExpiresAt,
+        paid_access_at: paidAccessAt,
+        billing_period_end: billingPeriodEnd,
       },
       access_status: state.status,
       has_paid_access: state.hasPaidAccess,
       free_quote_limit: state.freeQuoteLimit,
       free_quotes_used: state.freeQuotesUsed,
+      access_expires_at: accessExpiresAt,
+      paid_access_at: paidAccessAt,
+      billing_period_end: billingPeriodEnd,
     },
     userPatch: {
       access_status: state.status,
       has_paid_access: state.hasPaidAccess,
       free_quote_limit: state.freeQuoteLimit,
       free_quotes_used: state.freeQuotesUsed,
+      access_expires_at: accessExpiresAt,
+      paid_access_at: paidAccessAt,
+      billing_period_end: billingPeriodEnd,
     },
   })
 }
@@ -1039,7 +1089,7 @@ function consumeTrialQuoteLocally(accessSource = null) {
 
   syncCommercialAccessState({
     commercial_access: {
-      ...(auth.access?.commercial_access || {}),
+      ...auth.access?.commercial_access,
       status: nextStatus,
       has_paid_access: false,
       free_quote_limit: currentState.freeQuoteLimit,
@@ -1129,7 +1179,7 @@ const tripsInitialTab = computed(() => {
   return 'proximos'
 })
 const needsReservationContext = computed(() => {
-  if (commercialAccessPaymentMode.value) return false
+  if (commercialAccessCheckoutReturnMode.value) return false
   return ['contrato', 'pago', 'reserva-confirmada', 'soporte'].includes(props.section)
 })
 const hasReservationsLoaded = computed(
@@ -1142,7 +1192,7 @@ const canRenderReservationWorkflow = computed(() => {
     return Boolean(selectedReservation.value?.is_reservation)
   }
   if (props.section === 'pago') {
-    if (commercialAccessPaymentMode.value) return true
+    if (commercialAccessCheckoutReturnMode.value) return true
     return Boolean(selectedReservation.value?.is_reservation) && paymentReadyForCheckout.value
   }
   return Boolean(selectedReservation.value)
@@ -1451,7 +1501,7 @@ function resolveStripePublishableKey(preferredKey = '') {
   )
 }
 
-function cacheStripePaymentIntent(payload = {}, context = 'reservation') {
+function cacheStripePaymentIntent(payload = {}) {
   const nextClientSecret = String(payload?.client_secret || '').trim()
   const nextPublishableKey = resolveStripePublishableKey(payload?.publishable_key)
   const nextPaymentIntentId = String(payload?.payment_intent_id || '').trim()
@@ -1472,7 +1522,6 @@ function cacheStripePaymentIntent(payload = {}, context = 'reservation') {
     paymentLastReference.value = nextPaymentIntentId
   }
 
-  stripeIntentContext = context
 }
 
 async function ensureStripePaymentElement(publishableKeyOverride = '') {
@@ -1481,7 +1530,7 @@ async function ensureStripePaymentElement(publishableKeyOverride = '') {
   if (
     selectedPaymentMethod.value !== 'card' ||
     props.section !== 'pago' ||
-    (!flightRequestId && !commercialAccessPaymentMode.value) ||
+    (!flightRequestId && !commercialAccessCheckoutReturnMode.value) ||
     !paymentCardNumberHost.value ||
     !paymentCardExpiryHost.value ||
     !paymentCardCvcHost.value
@@ -1610,7 +1659,6 @@ function destroyStripePaymentElement() {
   stripeClient = null
   stripeIntentSecret = ''
   stripePublishableKey = ''
-  stripeIntentContext = ''
   stripeViewContext = ''
   paymentCardBrand.value = ''
   paymentCardComplete.value = false
@@ -2451,7 +2499,7 @@ function ensureCommercialAccessPaymentRouteEligibility() {
 }
 
 function alignReservationWorkflowRoute() {
-  if (commercialAccessPaymentMode.value) return
+  if (commercialAccessCheckoutReturnMode.value) return
   if (!needsReservationContext.value) return
   if (!hasReservationsLoaded.value) return
 
@@ -2547,6 +2595,27 @@ function normalizeRouteQueryValue(value) {
   }
 
   return String(value || '').trim()
+}
+
+function buildAbsoluteClientRoute(location = {}) {
+  const resolvedRoute = router.resolve(location)
+  const baseUrl = window.location.origin || ''
+
+  return new URL(resolvedRoute.href, baseUrl).toString()
+}
+
+function buildCommercialAccessCheckoutReturnUrl(checkoutState = '') {
+  const returnUrl = buildAbsoluteClientRoute({
+    name: 'cliente',
+    params: { section: 'pago' },
+    query: {
+      accessPayment: '1',
+      checkout: checkoutState,
+      session_id: '{CHECKOUT_SESSION_ID}',
+    },
+  })
+
+  return returnUrl.replaceAll('%7B', '{').replaceAll('%7D', '}')
 }
 
 function delay(ms = 1000) {
@@ -2726,12 +2795,11 @@ async function applySignedContractReturnState() {
 }
 
 async function finalizeCommercialAccessCheckoutReturn() {
-  if (!commercialAccessPaymentMode.value) return
-
   const checkoutState = normalizeRouteQueryValue(route.query.checkout).toLowerCase()
   const sessionId = normalizeRouteQueryValue(route.query.session_id || route.query.checkout_session_id)
 
   if (!checkoutState) return
+  if (!commercialAccessCheckoutReturnMode.value) return
 
   const appliedKey = `${checkoutState}:${sessionId}`
   if (appliedCommercialAccessCheckoutKey.value === appliedKey) return
@@ -2740,7 +2808,7 @@ async function finalizeCommercialAccessCheckoutReturn() {
   paymentInlineError.value = ''
 
   try {
-    if (checkoutState === 'cancelled') {
+    if (['cancel', 'canceled', 'cancelled'].includes(checkoutState)) {
       await cancelClientAccessPayment(
         {
           session_id: sessionId,
@@ -3117,6 +3185,11 @@ async function handleContractConfirm(contractPayload = {}) {
 }
 
 async function handlePaymentSubmit() {
+  if (commercialAccessCheckoutReturnPending.value) {
+    await finalizeCommercialAccessCheckoutReturn()
+    return
+  }
+
   if (commercialAccessPaymentMode.value) {
     paymentInlineError.value = ''
 
@@ -3129,15 +3202,27 @@ async function handlePaymentSubmit() {
 
     try {
       destroyStripePaymentElement()
+      const successUrl = buildCommercialAccessCheckoutReturnUrl('success')
+      const cancelUrl = buildCommercialAccessCheckoutReturnUrl('cancelled')
 
       const payload = await createClientAccessCheckout(
         {
           contact_email: paymentForm.contactEmail.trim() || customerEmail.value,
+          success_url: successUrl,
+          cancel_url: cancelUrl,
+          successUrl,
+          cancelUrl,
         },
         { timeoutMs: 30000 },
       )
 
-      const checkoutUrl = String(payload?.checkout_url || '').trim()
+      const checkoutUrl = String(
+        payload?.checkout_url ||
+          payload?.checkoutUrl ||
+          payload?.data?.checkout_url ||
+          payload?.data?.checkoutUrl ||
+          '',
+      ).trim()
 
       if (!checkoutUrl) {
         throw new Error('El backend no devolvio la URL segura de Stripe Checkout.')
@@ -3472,9 +3557,16 @@ watch(
 )
 
 watch(
-  () => [props.section, selectedPaymentMethod.value, routeId.value, route.query.accessPayment],
+  () => [
+    props.section,
+    selectedPaymentMethod.value,
+    routeId.value,
+    route.query.accessPayment,
+    route.query.checkout,
+    commercialAccessCheckoutReturnMode.value,
+  ],
   async ([section, method]) => {
-    if (commercialAccessPaymentMode.value) {
+    if (commercialAccessCheckoutReturnMode.value) {
       wireInstructions.value = null
       if (stripeViewContext !== 'client_access_checkout') {
         destroyStripePaymentElement()
@@ -3841,6 +3933,20 @@ async function submitSearch() {
       const refreshedCommercialState = buildCommercialAccessUiState(
         auth.access?.commercial_access || auth.access,
       )
+
+      const nextCommercialState =
+        refreshedCommercialState.freeQuotesUsed > previousCommercialState.freeQuotesUsed ||
+        refreshedCommercialState.remainingFreeQuotes < previousCommercialState.remainingFreeQuotes
+          ? refreshedCommercialState
+          : consumeTrialQuoteLocally(auth.access?.commercial_access || auth.access)
+
+      if (!nextCommercialState.hasPaidAccess && nextCommercialState.remainingFreeQuotes <= 0) {
+        ui.pushToast({
+          tone: 'info',
+          title: 'Cotizacion gratis utilizada',
+          message: buildReservationAccessMessage(auth.access?.commercial_access || auth.access),
+        })
+      }
     }
 
     if (!aircraftOptions.value.length) {
@@ -4287,7 +4393,9 @@ watch(
     route.query.checkout,
     route.query.session_id,
     route.query.checkout_session_id,
+    routeId.value,
     commercialAccessPaymentMode.value,
+    commercialAccessCheckoutReturnMode.value,
   ],
   () => {
     void finalizeCommercialAccessCheckoutReturn()
@@ -4642,20 +4750,20 @@ watch(
             <button
               class="payment-back"
               type="button"
-              @click="commercialAccessPaymentMode ? go('reservar') : go('contrato', reservationContextId)"
+              @click="commercialAccessCheckoutReturnMode ? go('reservar') : go('contrato', reservationContextId)"
             >
               <span aria-hidden="true">←</span>
-              <span>{{ commercialAccessPaymentMode ? 'Volver a reservar' : 'Volver al contrato' }}</span>
+              <span>{{ commercialAccessCheckoutReturnMode ? 'Volver a reservar' : 'Volver al contrato' }}</span>
             </button>
 
             <div class="payment-checkout__hero">
               <span class="eyebrow">{{
-                commercialAccessPaymentMode ? 'Pago de acceso comercial' : `Pago ${reservationContextId}`
+                commercialAccessCheckoutReturnMode ? 'Pago de acceso comercial' : `Pago ${reservationContextId}`
               }}</span>
               <h2>{{ paymentHeroTitle }}</h2>
               <p>{{ paymentHeroCopy }}</p>
               <div class="payment-trust-strip">
-                <template v-if="commercialAccessPaymentMode">
+                <template v-if="commercialAccessCheckoutReturnMode">
                   <span v-for="item in commercialAccessCheckoutFacts.slice(0, 3)" :key="item.label">
                     {{ item.label }}: {{ item.value }}
                   </span>
@@ -4663,7 +4771,7 @@ watch(
               </div>
             </div>
 
-            <section v-if="commercialAccessPaymentMode" class="commercial-payment-brief">
+            <section v-if="commercialAccessCheckoutReturnMode" class="commercial-payment-brief">
               <article
                 v-for="item in commercialAccessCheckoutFacts"
                 :key="item.label"
@@ -4689,7 +4797,7 @@ watch(
             <section class="payment-section">
               <h3>Metodo de pago</h3>
               <div class="payment-mode-panel">
-                <div v-if="commercialAccessPaymentMode" class="payment-mode-panel__copy">
+                <div v-if="commercialAccessCheckoutReturnMode" class="payment-mode-panel__copy">
                   <strong>Stripe Checkout seguro</strong>
                   <p>
                     Al continuar te llevaremos a la pagina segura de Stripe para completar la
@@ -4848,7 +4956,7 @@ watch(
 
           <aside class="payment-summary-card">
             <span class="payment-summary-card__eyebrow">{{
-              commercialAccessPaymentMode ? 'Resumen de acceso' : 'Resumen de reserva'
+              commercialAccessCheckoutReturnMode ? 'Resumen de acceso' : 'Resumen de reserva'
             }}</span>
             <h3>{{ customerDisplayName }}</h3>
             <p class="payment-summary-card__route">{{ paymentRouteHeadline }}</p>
@@ -4862,7 +4970,7 @@ watch(
                 </svg>
               </div>
               <div>
-                <span>{{ commercialAccessPaymentMode ? 'Cuenta comercial protegida' : 'Vuelo privado protegido' }}</span>
+                <span>{{ commercialAccessCheckoutReturnMode ? 'Cuenta comercial protegida' : 'Vuelo privado protegido' }}</span>
                 <strong>{{ paymentDateLabel }}</strong>
               </div>
             </div>
@@ -4950,7 +5058,7 @@ watch(
             </div>
 
             <div class="payment-summary-meta">
-              <template v-if="commercialAccessPaymentMode">
+              <template v-if="commercialAccessCheckoutReturnMode">
                 <p v-for="item in commercialAccessCheckoutFacts.slice(0, 2)" :key="item.label">
                   <span>{{ item.label }}</span>
                   <strong>{{ item.value }}</strong>
@@ -4984,13 +5092,15 @@ watch(
             <button
               class="payment-submit"
               type="button"
-              :disabled="paymentSubmitting"
+              :disabled="paymentSubmitting || commercialAccessCheckoutReturnPending"
               @click="handlePaymentSubmit"
             >
               {{
-                paymentSubmitting
+                commercialAccessCheckoutReturnPending
+                  ? 'Validando pago...'
+                  : paymentSubmitting
                   ? 'Procesando...'
-                  : commercialAccessPaymentMode
+                  : commercialAccessCheckoutReturnMode
                     ? 'Continuar con activacion'
                   : selectedPaymentMethod === 'wire'
                     ? 'Generar instrucciones bancarias'

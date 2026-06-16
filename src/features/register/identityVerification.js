@@ -123,7 +123,7 @@ function buildAverageHash(canvas, hashSize = 12) {
 function buildHistogram(canvas, bins = 16) {
   const context = canvas.getContext('2d', { willReadFrequently: true })
   const { data } = context.getImageData(0, 0, canvas.width, canvas.height)
-  const histogram = new Array(bins).fill(0)
+  const histogram = Array.from({ length: bins }, () => 0)
 
   for (let index = 0; index < data.length; index += 4) {
     const grayscale = data[index] * 0.299 + data[index + 1] * 0.587 + data[index + 2] * 0.114

@@ -125,9 +125,6 @@ const summaryCards = computed(() => {
   ]
 })
 
-const recentPayments = computed(() => (props.accessPayments || []).slice(0, 8))
-const recentSubscriptionPayments = computed(() => props.subscriptionPayments || [])
-
 const activeCollectionLength = computed(() => {
   if (activeTab.value === 'payments') return Math.max(props.accessPayments.length, props.subscriptionPayments.length)
   if (activeTab.value === 'aircraft') return filteredAircraftSubscriptions.value.length
@@ -420,16 +417,6 @@ function exportCurrentView() {
       formatCard(row.latestPayment),
       formatMoney(row.paymentAmount, row.paymentCurrency),
     ]),
-  )
-}
-
-function subscriptionEvidenceLabel(payment = {}) {
-  return (
-    payment.stripe_payment_intent_id ||
-    payment.stripe_checkout_session_id ||
-    payment.transaction_reference ||
-    payment.subscription?.provider_subscription_id ||
-    'Sin evidencia'
   )
 }
 

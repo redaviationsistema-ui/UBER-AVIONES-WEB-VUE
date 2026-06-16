@@ -5,7 +5,7 @@ defineProps({
   summaryCards: { type: Array, required: true },
 })
 
-const emit = defineEmits(['change-view'])
+defineEmits(['change-view'])
 </script>
 
 <template>

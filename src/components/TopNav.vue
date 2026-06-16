@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import BrandLogo from './BrandLogo.vue'
-import { buildMenuGroups, resolveRoleSectionPath, roleBasePaths, roleSections } from '../data/roleFlows'
+import { buildMenuGroups, resolveRoleSectionPath, roleSections } from '../data/roleFlows'
 import { useAuthStore } from '../stores/auth'
 
 const route = useRoute()

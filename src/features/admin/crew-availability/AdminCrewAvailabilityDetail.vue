@@ -8,7 +8,7 @@ defineProps({
   statusOptions: { type: Array, default: () => [] },
 })
 
-const emit = defineEmits(['update:draft-from', 'update:draft-to', 'update:draft-state', 'update:draft-comment', 'save'])
+defineEmits(['update:draft-from', 'update:draft-to', 'update:draft-state', 'update:draft-comment', 'save'])
 </script>
 
 <template>

@@ -86,7 +86,6 @@ const crewStatusOptions = ['Disponible', 'Descanso', 'En vuelo', 'No disponible'
 const incidentTypes = ['catering', 'cabina', 'cliente', 'seguridad', 'horario', 'coordinacion', 'otro']
 const incidentPriorities = ['baja', 'media', 'alta', 'critica']
 const incidentStates = ['open', 'in_review', 'resolved', 'closed']
-const availabilityStates = ['DISPONIBLE', 'DESCANSO', 'NO_DISPONIBLE', 'BLOQUEO_SOLICITADO']
 const blockTypes = ['Descanso', 'Capacitacion', 'Medico', 'Personal', 'Restriccion operativa']
 const bases = []
 const languages = []
@@ -1606,47 +1605,6 @@ async function markPassengersReceived(id) {
   })
 }
 
-async function createAvailabilityBlock() {
-  if (!availabilityForm.from || !availabilityForm.to) {
-    return ui.pushToast({
-      tone: 'error',
-      title: 'Disponibilidad incompleta',
-      message: 'Captura inicio y fin antes de guardar la disponibilidad personal.',
-    })
-  }
-
-  const payload = {
-    ...resolveAvailabilityPayload(
-      availabilityForm.state,
-      availabilityForm.restriction || 'Sin restriccion adicional',
-      '',
-    ),
-    from: availabilityForm.from,
-    to: availabilityForm.to,
-  }
-
-  try {
-    await requestWithCandidates([
-      { method: 'post', path: '/sobrecargo/availability', body: payload },
-    ])
-  } catch (error) {
-    return ui.pushToast({
-      tone: 'error',
-      title: 'No se pudo guardar',
-      message: error.message || 'La disponibilidad no pudo guardarse en backend.',
-    })
-  }
-  await loadPortal()
-  ui.pushToast({
-    tone: 'success',
-    title: 'Disponibilidad guardada',
-    message: 'La disponibilidad personal quedo actualizada en el portal del sobrecargo.',
-  })
-  availabilityForm.from = ''
-  availabilityForm.to = ''
-  availabilityForm.restriction = ''
-}
-
 async function saveAvailabilityDay({ date, state, reason }) {
   if (!date) {
     ui.pushToast({
@@ -1706,19 +1664,6 @@ async function saveAvailabilityDay({ date, state, reason }) {
     title: 'Disponibilidad guardada',
     message: 'El dia seleccionado ya quedo actualizado en tu calendario operativo.',
   })
-}
-
-async function removeAvailabilityBlock(id) {
-  try {
-    await requestWithCandidates([{ method: 'delete', path: `/sobrecargo/availability/${id}` }])
-  } catch (error) {
-    return ui.pushToast({
-      tone: 'error',
-      title: 'No se pudo liberar',
-      message: error.message || 'El bloqueo sigue activo en backend.',
-    })
-  }
-  await loadPortal()
 }
 
 async function startAssignedService(id) {

@@ -1,4 +1,5 @@
 <script setup>
+/* eslint-disable vue/no-mutating-props */
 import { roleLabels } from './registrationSteps'
 
 defineProps({

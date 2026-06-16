@@ -930,7 +930,7 @@ function deriveProvidersFromAircraft(records = []) {
     const embeddedProvider = item?.provider && typeof item.provider === 'object' ? item.provider : null
     const fallbackId = item?.provider_id || item?.proveedor_id || embeddedProvider?.id || 0
     const normalized = normalizeAdminProvider({
-      ...(embeddedProvider || {}),
+      ...embeddedProvider,
       id: fallbackId,
       company_name:
         embeddedProvider?.company_name ||
@@ -2005,7 +2005,7 @@ async function assignCrewToOperation({
     Number(item.id || 0) === normalizedOperationId
       ? {
           ...item,
-          ...(persistentReservation || {}),
+          ...persistentReservation,
           crew: member.name,
           crewId: member.id,
           crewOperationalState:

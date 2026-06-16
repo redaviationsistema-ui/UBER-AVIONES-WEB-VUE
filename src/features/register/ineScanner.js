@@ -362,11 +362,6 @@ function readImage(file) {
   })
 }
 
-async function preprocessImage(file) {
-  const image = await readImage(file)
-  return enhanceImage(image)
-}
-
 async function buildOcrImages(file) {
   const image = await readImage(file)
 

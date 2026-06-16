@@ -353,7 +353,7 @@ function normalizeDistanceUnit(value = '') {
   return ''
 }
 
-export function inferDistanceUnit(raw = {}, sourceTable = '') {
+export function inferDistanceUnit(raw = {}, _sourceTable = '') {
   const explicitUnit = normalizeDistanceUnit(
     raw.distance_unit || raw.distanceUnit || raw.route_distance_unit || raw.routeDistanceUnit,
   )
@@ -2413,7 +2413,7 @@ export const getClientMembershipPlans = getClientFlightPackages
 export async function getClientTrips(options = {}) {
   const mergedQuery = {
     per_page: 10,
-    ...(options.query || {}),
+    ...options.query,
   }
   const candidatePaths = preferredClientTripsPath
     ? [

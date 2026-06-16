@@ -153,11 +153,6 @@ function formatShortDate(value) {
   }).format(date)
 }
 
-function ratingNumber(value = '') {
-  const parsed = Number.parseFloat(String(value || '').replace(/[^\d.]/g, ''))
-  return Number.isFinite(parsed) ? parsed : 0
-}
-
 const normalizedCrewLookup = computed(() => {
   const map = new Map()
   props.crewMembers.forEach((member) => {
@@ -375,17 +370,7 @@ const filteredCrewMembers = computed(() =>
     }),
 )
 
-const validationQueue = computed(() =>
-  filteredCrewMembers.value.filter(
-    (member) => member.isPendingValidation || member.alertsCount > 0 || !member.isApproved,
-  ),
-)
-
 const availableQueue = computed(() =>
-  filteredCrewMembers.value.filter((member) => member.isAvailableToday),
-)
-
-const approvedCrew = computed(() =>
   filteredCrewMembers.value.filter((member) => member.isAvailableToday),
 )
 
@@ -485,14 +470,6 @@ const auditQueue = computed(() =>
 )
 
 const totalAuditEntries = computed(() => props.auditEntries.length)
-
-const summaryCards = computed(() => [
-  { label: 'Pendientes de validar', value: validationQueue.value.length, tone: 'warning' },
-  { label: 'Aprobados activos', value: approvedCrew.value.length, tone: 'success' },
-  { label: 'Asignados a vuelo', value: assignedOperations.value.filter((item) => item.crew || item.crewId).length, tone: 'info' },
-  { label: 'Con alerta', value: normalizedCrewMembers.value.filter((item) => item.alertsCount > 0).length, tone: 'danger' },
-  { label: 'Disponibles hoy', value: availableQueue.value.length, tone: 'neutral' },
-])
 
 const isOperationsView = computed(() => props.viewMode === 'operations')
 const tabs = computed(() =>
@@ -665,11 +642,6 @@ function selectAudit(entryId) {
 
 function openCrewDetail(memberId) {
   selectCrew(memberId)
-  detailModalOpen.value = true
-}
-
-function openOperationDetail(operationId) {
-  selectOperation(operationId)
   detailModalOpen.value = true
 }
 
@@ -910,10 +882,6 @@ async function handleTabSelection(tabId) {
   await runWithInteractionLoading(tabMeta[tabId], async () => {
     activeTab.value = tabId
   })
-}
-
-function assignmentUrgency(operation = {}) {
-  return String(operation.crew || operation.crewId || '').trim() ? 'Confirmado' : 'Urgente'
 }
 
 function formatDisplayDate(value) {

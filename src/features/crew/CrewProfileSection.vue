@@ -68,28 +68,6 @@ const readonlyFields = computed(() =>
   ].filter(Boolean),
 )
 
-const statusChips = computed(() =>
-  [
-    props.profileForm.profileState
-      ? { value: props.profileForm.profileState, tone: 'status-chip-warning' }
-      : null,
-    props.currentStatus
-      ? { value: props.currentStatus, tone: 'status-chip-neutral' }
-      : null,
-  ].filter(Boolean),
-)
-
-const administrativeSummary = computed(() =>
-  [
-    props.documentsValidity
-      ? { label: `Documentos ${props.documentsValidity}% validados` }
-      : null,
-    props.profileForm.profileState
-      ? { label: `Perfil ${props.profileForm.profileState}` }
-      : null,
-  ].filter(Boolean),
-)
-
 function updateProfileField(field, value) {
   emit('update-field', { form: 'profile', field, value })
 }

@@ -8,7 +8,7 @@ defineProps({
   selectedCrewId: { type: [String, Number, null], default: null },
 })
 
-const emit = defineEmits(['select'])
+defineEmits(['select'])
 </script>
 
 <template>

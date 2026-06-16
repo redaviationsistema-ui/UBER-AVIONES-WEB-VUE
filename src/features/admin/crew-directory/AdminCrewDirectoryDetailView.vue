@@ -7,7 +7,7 @@ const props = defineProps({
   note: { type: String, default: '' },
 })
 
-const emit = defineEmits(['update:note', 'approve', 'reject', 'suspend', 'audit'])
+defineEmits(['update:note', 'approve', 'reject', 'suspend', 'audit'])
 
 const ratingLabel = computed(() => {
   if (!props.member?.rating) return 'Sin rating'

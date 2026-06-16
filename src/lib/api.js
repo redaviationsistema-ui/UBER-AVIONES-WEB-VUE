@@ -209,7 +209,7 @@ function shouldLogAircraftRequest(path = '') {
     .includes('aircraft')
 }
 
-function shouldTraceOperationalRequest(path = '', debugTag = '') {
+function shouldTraceOperationalRequest(_path = '', _debugTag = '') {
   return false
 }
 
