@@ -1,26 +1,34 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { api } from '../../lib/api'
+import { useRoute, useRouter } from 'vue-router'
+import { api, resolveMediaUrl } from '../../lib/api'
 import { useUiStore } from '../../stores/ui'
 
 const props = defineProps({
   clients: { type: Array, default: () => [] },
+  aircraft: { type: Array, default: () => [] },
   accessPayments: { type: Array, default: () => [] },
   subscriptionPayments: { type: Array, default: () => [] },
   aircraftSubscriptions: { type: Array, default: () => [] },
+  initialTab: { type: String, default: 'commercial' },
 })
 const emit = defineEmits(['refresh'])
 const ui = useUiStore()
+const route = useRoute()
+const router = useRouter()
 
 const activeTab = ref('commercial')
 const searchTerm = ref('')
 const statusFilter = ref('todos')
 const currentPage = ref(1)
 const rowsPerPage = ref(10)
+const sortBy = ref('renewal_asc')
 const actionUserId = ref(0)
 const evidenceModalOpen = ref(false)
 const selectedEvidence = ref(null)
 const evidenceSearchTerm = ref('')
+const selectedProviderPaymentId = ref('')
+const brokenAircraftImages = ref({})
 
 const latestPaymentByUserId = computed(() => {
   const map = new Map()
@@ -29,6 +37,18 @@ const latestPaymentByUserId = computed(() => {
     const userId = Number(payment?.user_id || payment?.user?.id || 0)
     if (!userId || map.has(userId)) continue
     map.set(userId, payment)
+  }
+
+  return map
+})
+
+const aircraftCatalogById = computed(() => {
+  const map = new Map()
+
+  for (const item of props.aircraft || []) {
+    const id = Number(item?.id || 0)
+    if (!id) continue
+    map.set(id, item)
   }
 
   return map
@@ -107,6 +127,170 @@ const filteredAircraftSubscriptions = computed(() =>
   }),
 )
 
+const providerPaymentRows = computed(() =>
+  sortProviderPaymentRows(
+    (props.aircraftSubscriptions || [])
+    .map((item, index) => {
+      const aircraftId = Number(item?.aircraft?.id || item?.aircraft_id || 0)
+      const catalogAircraftRecord = aircraftCatalogById.value.get(aircraftId) || null
+      const aircraftRecord = item?.aircraft || catalogAircraftRecord || {}
+      const providerRecord = aircraftRecord?.provider || item?.provider || item?.user || {}
+      const status = String(
+        item?.payment_status ||
+          item?.status ||
+          item?.subscription_status ||
+          item?.aircraft_subscription?.status ||
+          'pending',
+      ).toLowerCase()
+      const amount =
+        item?.amount ??
+        item?.price_monthly ??
+        item?.plan?.price ??
+        item?.plan?.amount ??
+        item?.monthly_amount ??
+        0
+      const currency = String(
+        item?.currency || item?.payment_currency || item?.plan?.currency || item?.plan?.currency_code || 'USD',
+      ).toUpperCase()
+      const aircraftImage = resolveAircraftImage(aircraftRecord, item, catalogAircraftRecord)
+      const operationalStatus = String(
+        aircraftRecord?.status ||
+          aircraftRecord?.operational_status ||
+          aircraftRecord?.availability_status ||
+          'Pendiente',
+      )
+      const renewalMeta = resolveProviderRenewalMeta(item)
+
+      return {
+        id: item?.id || `provider-payment-${index + 1}`,
+        aircraftLabel: aircraftRecord?.registration || aircraftRecord?.matricula || aircraftRecord?.model || 'Aeronave',
+        aircraftModel: aircraftRecord?.model || aircraftRecord?.name || 'Modelo pendiente',
+        aircraftName: aircraftRecord?.name || aircraftRecord?.model || aircraftRecord?.registration || 'Aeronave',
+        aircraftBase:
+          aircraftRecord?.base_airport ||
+          aircraftRecord?.base ||
+          aircraftRecord?.airport ||
+          aircraftRecord?.location ||
+          'Base pendiente',
+        aircraftCategory: aircraftRecord?.category || aircraftRecord?.class || 'Categoria no visible',
+        aircraftImage,
+        providerName:
+          providerRecord?.commercial_name ||
+          providerRecord?.company_name ||
+          providerRecord?.name ||
+          providerRecord?.email ||
+          'Proveedor sin ligar',
+        providerEmail: providerRecord?.email || providerRecord?.user?.email || '',
+        planName: item?.plan?.name || 'Suscripcion de aeronave',
+        status,
+        amount,
+        currency,
+        paymentProvider: item?.payment_provider || 'stripe',
+        paymentReference:
+          item?.payment_reference ||
+          item?.provider_payment_id ||
+          item?.provider_subscription_id ||
+          item?.stripe_subscription_id ||
+          'Sin referencia',
+        checkoutId: item?.provider_checkout_id || item?.stripe_checkout_session_id || 'N/D',
+        providerSubscriptionId:
+          item?.provider_subscription_id || item?.stripe_subscription_id || item?.provider_payment_id || 'N/D',
+        startsAt: item?.starts_at || item?.started_at || item?.subscription?.started_at || '',
+        endsAt: item?.ends_at || item?.expires_at || item?.subscription?.expires_at || '',
+        paidAt: item?.paid_at || item?.updated_at || item?.subscription?.paid_at || '',
+        autoRenewEnabled: renewalMeta.autoRenewEnabled,
+        paymentMethodReady: renewalMeta.paymentMethodReady,
+        renewalModeLabel: renewalMeta.renewalModeLabel,
+        renewalReminderLabel: renewalMeta.renewalReminderLabel,
+        renewalTone: renewalMeta.renewalTone,
+        daysUntilExpiry: renewalMeta.daysUntilExpiry ?? null,
+        operationalStatus,
+        aircraftApproved:
+          aircraftRecord?.approved === true ||
+          String(aircraftRecord?.status || '').toLowerCase() === 'active',
+        raw: item,
+      }
+    })
+    .filter((row) => {
+      const haystack = [
+        row.aircraftLabel,
+        row.aircraftModel,
+        row.providerName,
+        row.providerEmail,
+        row.planName,
+        row.paymentReference,
+        row.providerSubscriptionId,
+      ]
+        .join(' ')
+        .toLowerCase()
+
+      const matchesSearch = !searchTerm.value || haystack.includes(searchTerm.value.toLowerCase())
+      const matchesStatus =
+        statusFilter.value === 'todos' || row.status === statusFilter.value || paymentLabel(row.status) === statusFilter.value
+
+      return matchesSearch && matchesStatus
+    }),
+    sortBy.value,
+  ),
+)
+
+const providerPaymentSummaryCards = computed(() => {
+  const activeRows = providerPaymentRows.value.filter((row) => row.status === 'active').length
+  const pendingRows = providerPaymentRows.value.filter((row) =>
+    ['pending', 'processing', 'requires_payment_method'].includes(row.status),
+  ).length
+  const failedRows = providerPaymentRows.value.filter((row) =>
+    ['failed', 'canceled'].includes(row.status),
+  ).length
+  const monthlyAmount = providerPaymentRows.value.reduce((total, row) => total + Number(row.amount || 0), 0)
+  const monthlyCurrency = providerPaymentRows.value[0]?.currency || 'USD'
+
+  return [
+    { label: 'Cobros proveedor', value: String(providerPaymentRows.value.length), detail: 'Pagos ligados a aeronaves activas o en onboarding.' },
+    { label: 'Suscripciones activas', value: String(activeRows), detail: 'Cobros con estado activo o visible para flota.' },
+    { label: 'Pendientes por conciliar', value: String(pendingRows), detail: 'Registros que aun requieren confirmacion o metodo de pago.' },
+    { label: 'Errores visibles', value: String(failedRows), detail: 'Cobros que necesitan seguimiento administrativo.' },
+    { label: 'Monto mensual monitoreado', value: formatMoney(monthlyAmount, monthlyCurrency), detail: 'Suma de la mensualidad visible en la base actual.' },
+  ]
+})
+
+const selectedProviderPayment = computed(
+  () =>
+    providerPaymentRows.value.find((row) => String(row.id) === String(selectedProviderPaymentId.value)) ||
+    paginatedProviderPaymentRows.value[0] ||
+    providerPaymentRows.value[0] ||
+    null,
+)
+
+const selectedProviderPaymentTimeline = computed(() => {
+  const row = selectedProviderPayment.value
+  if (!row) return []
+
+  return [
+    {
+      id: `${row.id}-created`,
+      label: 'Suscripcion registrada',
+      date: formatDate(row.startsAt, { compact: true }),
+      detail: `${row.planName} vinculada a ${row.aircraftLabel}.`,
+      state: row.startsAt ? 'done' : 'pending',
+    },
+    {
+      id: `${row.id}-paid`,
+      label: ['active', 'paid', 'succeeded'].includes(row.status) ? 'Pago confirmado' : 'Cobro en seguimiento',
+      date: formatDate(row.paidAt, { compact: true, withTime: true }),
+      detail: row.paymentReference,
+      state: ['active', 'paid', 'succeeded'].includes(row.status) ? 'done' : 'current',
+    },
+    {
+      id: `${row.id}-renewal`,
+      label: 'Proxima vigencia',
+      date: formatDate(row.endsAt, { compact: true }),
+      detail: `Proveedor ${row.providerName}`,
+      state: row.endsAt ? 'upcoming' : 'pending',
+    },
+  ]
+})
+
 const summaryCards = computed(() => {
   const totalCommercial = commercialRows.value.length
   const paidCommercial = commercialRows.value.filter((row) => row.hasPaidAccess).length
@@ -115,6 +299,7 @@ const summaryCards = computed(() => {
     ['pending', 'requires_payment_method', 'processing'].includes(row.paymentStatus),
   ).length
   const activeAircraft = (props.aircraftSubscriptions || []).filter((item) => String(item?.status || '').toLowerCase() === 'active').length
+  const providerPayments = providerPaymentRows.value.length
 
   return [
     { label: 'Clientes monitoreados', value: totalCommercial, detail: 'Base comercial visible en esta vista.' },
@@ -122,11 +307,13 @@ const summaryCards = computed(() => {
     { label: 'Prueba consumida', value: trialConsumed, detail: 'Ya requieren pago para seguir cotizando.' },
     { label: 'Pagos pendientes', value: pendingPayment, detail: 'Intentos creados o en validacion.' },
     { label: 'Suscripciones aeronave', value: activeAircraft, detail: 'Registros activos de flota.' },
+    { label: 'Pagos proveedor', value: providerPayments, detail: 'Cobros del proveedor vinculados a aeronaves.' },
   ]
 })
 
 const activeCollectionLength = computed(() => {
   if (activeTab.value === 'payments') return Math.max(props.accessPayments.length, props.subscriptionPayments.length)
+  if (activeTab.value === 'provider-payments') return providerPaymentRows.value.length
   if (activeTab.value === 'aircraft') return filteredAircraftSubscriptions.value.length
   return filteredCommercialRows.value.length
 })
@@ -136,11 +323,49 @@ const totalPages = computed(() => Math.max(1, Math.ceil(activeCollectionLength.v
 const paginatedCommercialRows = computed(() => paginateRows(filteredCommercialRows.value))
 const paginatedRecentPayments = computed(() => paginateRows(props.accessPayments || []))
 const paginatedSubscriptionPayments = computed(() => paginateRows(props.subscriptionPayments || []))
+const paginatedProviderPaymentRows = computed(() => paginateRows(providerPaymentRows.value))
 const paginatedAircraftSubscriptions = computed(() => paginateRows(filteredAircraftSubscriptions.value))
 
-watch([activeTab, rowsPerPage, searchTerm, statusFilter], () => {
+watch([activeTab, rowsPerPage, searchTerm, statusFilter, sortBy], () => {
   currentPage.value = 1
 })
+
+watch(
+  () => [props.initialTab, route.query.tab],
+  ([nextTab, queryTab]) => {
+    const allowedTabs = new Set(['commercial', 'payments', 'provider-payments', 'aircraft'])
+    const resolvedTab = allowedTabs.has(String(queryTab || '')) ? String(queryTab) : nextTab
+    activeTab.value = allowedTabs.has(resolvedTab) ? resolvedTab : 'commercial'
+  },
+  { immediate: true },
+)
+
+watch(
+  providerPaymentRows,
+  (rows) => {
+    if (!rows.length) {
+      selectedProviderPaymentId.value = ''
+      return
+    }
+
+    const currentExists = rows.some((row) => String(row.id) === String(selectedProviderPaymentId.value))
+    if (!currentExists) {
+      selectedProviderPaymentId.value = String(rows[0].id)
+    }
+  },
+  { immediate: true },
+)
+
+watch(
+  () => route.query.provider_payment_id,
+  (nextId) => {
+    if (!nextId) return
+    if (providerPaymentRows.value.some((row) => String(row.id) === String(nextId))) {
+      selectedProviderPaymentId.value = String(nextId)
+    }
+  },
+  { immediate: true },
+)
 
 watch(totalPages, (value) => {
   if (currentPage.value > value) {
@@ -159,6 +384,163 @@ function resolveCommercialStage(client = {}, payment = null) {
     return 'trial_in_progress'
   }
   return 'new'
+}
+
+function resolveAircraftImage(aircraftRecord = {}, subscriptionRecord = {}, catalogAircraftRecord = null) {
+  const candidateValues = [
+    aircraftRecord?.main_image,
+    aircraftRecord?.mainImage,
+    aircraftRecord?.image_url,
+    aircraftRecord?.imageUrl,
+    aircraftRecord?.image,
+    aircraftRecord?.photo,
+    aircraftRecord?.thumbnail,
+    aircraftRecord?.cover_image,
+    aircraftRecord?.featured_image,
+    aircraftRecord?.media?.[0]?.url,
+    aircraftRecord?.gallery?.[0]?.url,
+    aircraftRecord?.images?.[0]?.image_url,
+    aircraftRecord?.images?.[0]?.url,
+    aircraftRecord?.images?.[0]?.path,
+    aircraftRecord?.files?.[0]?.url,
+    subscriptionRecord?.aircraft_image,
+    subscriptionRecord?.image_url,
+    catalogAircraftRecord?.mainImage,
+    catalogAircraftRecord?.main_image,
+    catalogAircraftRecord?.image,
+    catalogAircraftRecord?.image_url,
+    catalogAircraftRecord?.main_image_url,
+    catalogAircraftRecord?.images?.[0]?.imageUrl,
+    catalogAircraftRecord?.images?.[0]?.image_url,
+    catalogAircraftRecord?.images?.[0]?.url,
+  ]
+
+  for (const candidate of candidateValues) {
+    const normalized = resolveMediaUrl(extractImageCandidate(candidate))
+    if (normalized) return normalized
+  }
+
+  const collectionCandidates = [
+    aircraftRecord?.images,
+    aircraftRecord?.gallery,
+    aircraftRecord?.media,
+    aircraftRecord?.files,
+    catalogAircraftRecord?.images,
+    catalogAircraftRecord?.gallery,
+    catalogAircraftRecord?.media,
+    catalogAircraftRecord?.files,
+  ]
+  for (const collection of collectionCandidates) {
+    if (!Array.isArray(collection)) continue
+    for (const entry of collection) {
+      const normalized = resolveMediaUrl(
+        extractImageCandidate(entry?.image_url || entry?.url || entry?.path || entry?.file_url || entry),
+      )
+      if (normalized) return normalized
+    }
+  }
+
+  return ''
+}
+
+function extractImageCandidate(candidate) {
+  if (!candidate) return ''
+  if (typeof candidate === 'string') return candidate
+  if (typeof candidate === 'object') {
+    return candidate.url || candidate.path || candidate.image_url || candidate.file_url || candidate.src || ''
+  }
+  return ''
+}
+
+function getDaysUntilDate(value) {
+  if (!value) return null
+  const target = new Date(value)
+  if (Number.isNaN(target.getTime())) return null
+
+  const startOfToday = new Date()
+  startOfToday.setHours(0, 0, 0, 0)
+
+  const normalizedTarget = new Date(target)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(value).trim())) {
+    normalizedTarget.setHours(23, 59, 59, 999)
+  }
+
+  return Math.ceil((normalizedTarget.getTime() - startOfToday.getTime()) / 86400000)
+}
+
+function resolveProviderRenewalMeta(item = {}) {
+  const providerSubscriptionId = String(
+    item?.provider_subscription_id || item?.stripe_subscription_id || item?.subscription?.provider_subscription_id || '',
+  ).trim()
+  const explicitAutoRenew = [
+    item?.auto_renew_enabled,
+    item?.autoRenewEnabled,
+    item?.subscription_auto_renew,
+    item?.subscriptionAutoRenew,
+  ].find((value) => value === true || value === false)
+  const paymentMethodReadyCandidate = [
+    item?.default_payment_method_ready,
+    item?.defaultPaymentMethodReady,
+    item?.has_default_payment_method,
+    item?.hasDefaultPaymentMethod,
+  ].find((value) => value === true || value === false)
+  const normalizedStatus = String(
+    item?.payment_status || item?.status || item?.subscription_status || '',
+  ).toLowerCase()
+  const autoRenewEnabled =
+    explicitAutoRenew === true ||
+    (Boolean(providerSubscriptionId) && ['active', 'paid', 'current', 'succeeded'].includes(normalizedStatus))
+  const paymentMethodReady =
+    paymentMethodReadyCandidate === true ||
+    (paymentMethodReadyCandidate !== false && Boolean(providerSubscriptionId))
+  const daysUntilExpiry = getDaysUntilDate(item?.ends_at || item?.expires_at || item?.subscription?.expires_at || '')
+
+  if (daysUntilExpiry === null) {
+    return {
+      autoRenewEnabled,
+      paymentMethodReady,
+      providerSubscriptionId,
+      renewalModeLabel: autoRenewEnabled ? 'Automatica' : 'Manual',
+      renewalReminderLabel: 'Sin vigencia visible',
+      renewalTone: autoRenewEnabled ? 'info' : 'warn',
+    }
+  }
+
+  if (daysUntilExpiry < 0) {
+    return {
+      autoRenewEnabled,
+      paymentMethodReady,
+      providerSubscriptionId,
+      daysUntilExpiry,
+      renewalModeLabel: autoRenewEnabled ? 'Automatica vencida' : 'Manual vencida',
+      renewalReminderLabel: 'Vencida',
+      renewalTone: 'danger',
+    }
+  }
+
+  if (autoRenewEnabled) {
+    return {
+      autoRenewEnabled,
+      paymentMethodReady,
+      providerSubscriptionId,
+      daysUntilExpiry,
+      renewalModeLabel: paymentMethodReady ? 'Automatica' : 'Automatica con alerta',
+      renewalReminderLabel:
+        daysUntilExpiry <= 7 ? `Cobra en ${daysUntilExpiry} dia(s)` : `Activa por ${daysUntilExpiry} dia(s)`,
+      renewalTone: paymentMethodReady ? (daysUntilExpiry <= 7 ? 'info' : 'success') : 'warn',
+    }
+  }
+
+  return {
+    autoRenewEnabled,
+    paymentMethodReady,
+    providerSubscriptionId,
+    daysUntilExpiry,
+    renewalModeLabel: 'Manual',
+    renewalReminderLabel:
+      daysUntilExpiry <= 15 ? `Renovar en ${daysUntilExpiry} dia(s)` : `Vigente por ${daysUntilExpiry} dia(s)`,
+    renewalTone: daysUntilExpiry <= 15 ? 'warn' : 'info',
+  }
 }
 
 function resolveCommercialLabel(stage = 'new') {
@@ -217,7 +599,7 @@ function commercialTone(stage = '') {
 }
 
 function paymentTone(status = '') {
-  if (['paid', 'succeeded'].includes(status)) return 'success'
+  if (['paid', 'succeeded', 'active'].includes(status)) return 'success'
   if (['failed', 'canceled'].includes(status)) return 'danger'
   if (['pending', 'processing', 'requires_payment_method'].includes(status)) return 'warn'
   return 'neutral'
@@ -226,6 +608,7 @@ function paymentTone(status = '') {
 function paymentLabel(status = '') {
   const normalized = String(status || '').toLowerCase()
   if (normalized === 'paid' || normalized === 'succeeded') return 'Pagado'
+  if (normalized === 'active') return 'Activa'
   if (normalized === 'failed') return 'Fallido'
   if (normalized === 'processing') return 'Procesando'
   if (normalized === 'requires_payment_method') return 'Falta tarjeta'
@@ -234,6 +617,78 @@ function paymentLabel(status = '') {
   return normalized || 'Sin pago'
 }
 
+function toTimestamp(value) {
+  const date = new Date(value || '')
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime()
+}
+
+function sortProviderPaymentRows(rows = [], mode = 'renewal_asc') {
+  const collection = [...rows]
+
+  collection.sort((left, right) => {
+    if (mode === 'amount_desc') return Number(right.amount || 0) - Number(left.amount || 0)
+    if (mode === 'amount_asc') return Number(left.amount || 0) - Number(right.amount || 0)
+    if (mode === 'provider_asc') return String(left.providerName || '').localeCompare(String(right.providerName || ''), 'es')
+    if (mode === 'aircraft_asc') return String(left.aircraftName || '').localeCompare(String(right.aircraftName || ''), 'es')
+    if (mode === 'recent_desc') return toTimestamp(right.paidAt) - toTimestamp(left.paidAt)
+    return toTimestamp(left.endsAt) - toTimestamp(right.endsAt)
+  })
+
+  return collection
+}
+
+function hasRenderableAircraftImage(row = {}) {
+  return Boolean(row?.aircraftImage) && !brokenAircraftImages.value[String(row.id)]
+}
+
+function markAircraftImageError(rowId) {
+  brokenAircraftImages.value = {
+    ...brokenAircraftImages.value,
+    [String(rowId)]: true,
+  }
+}
+
+function getAircraftBadge(row = {}) {
+  const source = String(row?.aircraftLabel || row?.aircraftName || 'AV').trim()
+  const compact = source.replace(/[^A-Z0-9]/gi, '').toUpperCase()
+  return compact.slice(0, 2) || 'AV'
+}
+
+const toolbarSearchPlaceholder = computed(() => {
+  if (activeTab.value === 'provider-payments') {
+    return 'Matricula, modelo, proveedor, referencia Stripe o base operativa...'
+  }
+  if (activeTab.value === 'aircraft') {
+    return 'Matricula, modelo, operador o referencia...'
+  }
+  return 'Cliente, correo, empresa, matricula o referencia...'
+})
+
+const statusFilterOptions = computed(() => {
+  if (activeTab.value === 'provider-payments') {
+    return [
+      { value: 'todos', label: 'Todos' },
+      { value: 'active', label: 'Activa' },
+      { value: 'pending', label: 'Pendiente' },
+      { value: 'processing', label: 'Procesando' },
+      { value: 'requires_payment_method', label: 'Falta tarjeta' },
+      { value: 'failed', label: 'Fallido' },
+      { value: 'canceled', label: 'Cancelado' },
+    ]
+  }
+
+  return [
+    { value: 'todos', label: 'Todos' },
+    { value: 'active', label: 'Activa' },
+    { value: 'paid', label: 'Pago activo' },
+    { value: 'trial_used', label: 'Prueba consumida' },
+    { value: 'trial_in_progress', label: 'Prueba iniciada' },
+    { value: 'new', label: 'Registro nuevo' },
+    { value: 'pending', label: 'Pendiente' },
+    { value: 'failed', label: 'Fallido' },
+  ]
+})
+
 function paginateRows(rows = []) {
   const start = (currentPage.value - 1) * rowsPerPage.value
   return rows.slice(start, start + rowsPerPage.value)
@@ -241,6 +696,41 @@ function paginateRows(rows = []) {
 
 function goToPage(page) {
   currentPage.value = Math.min(Math.max(1, page), totalPages.value)
+}
+
+function openAdminSection(section, query = {}) {
+  router.push({
+    name: 'admin',
+    params: { section },
+    query,
+  })
+}
+
+function openSelectedProviderAircraft(row = selectedProviderPayment.value) {
+  if (!row) return
+  openAdminSection('aeronaves', {
+    aircraft_id: String(row.raw?.aircraft?.id || row.raw?.aircraft_id || ''),
+  })
+}
+
+function openSelectedProviderProfile(row = selectedProviderPayment.value) {
+  if (!row) return
+  openAdminSection('proveedores', {
+    provider_id: String(
+      row.raw?.aircraft?.provider?.id ||
+        row.raw?.provider?.id ||
+        row.raw?.provider_id ||
+        '',
+    ),
+  })
+}
+
+function openSelectedProviderSubscription(row = selectedProviderPayment.value) {
+  if (!row) return
+  openAdminSection('suscripciones', {
+    tab: 'provider-payments',
+    provider_payment_id: String(row.id),
+  })
 }
 
 function isBusy(userId) {
@@ -383,6 +873,30 @@ function exportCurrentView() {
     return
   }
 
+  if (activeTab.value === 'provider-payments') {
+    exportCsv(
+      'pagos-proveedor-aeronaves.csv',
+      ['ID', 'Proveedor', 'Correo', 'Aeronave', 'Modelo', 'Plan', 'Estado', 'Monto', 'Moneda', 'Proveedor pago', 'Referencia', 'Stripe sub', 'Checkout', 'Vigencia'],
+      providerPaymentRows.value.map((row) => [
+        row.id,
+        row.providerName,
+        row.providerEmail,
+        row.aircraftLabel,
+        row.aircraftModel,
+        row.planName,
+        paymentLabel(row.status),
+        row.amount || '',
+        row.currency,
+        row.paymentProvider,
+        row.paymentReference,
+        row.providerSubscriptionId,
+        row.checkoutId,
+        `${formatDate(row.startsAt, { compact: true })} - ${formatDate(row.endsAt, { compact: true })}`,
+      ]),
+    )
+    return
+  }
+
   if (activeTab.value === 'aircraft') {
     exportCsv(
       'suscripciones-aeronave.csv',
@@ -421,7 +935,7 @@ function exportCurrentView() {
 }
 
 function openEvidenceModal(record = {}, kind = 'payment') {
-  const payload = record.gateway_response || {}
+  const payload = record.gateway_response || record.raw || record.payload || {}
   const source = resolveEvidenceSource(payload)
   selectedEvidence.value = {
     kind,
@@ -429,23 +943,37 @@ function openEvidenceModal(record = {}, kind = 'payment') {
     title:
       kind === 'subscription'
         ? `Evidencia de suscripcion #${record.id || 'N/D'}`
+        : kind === 'provider'
+          ? `Evidencia proveedor #${record.id || 'N/D'}`
         : `Evidencia de pago #${record.id || 'N/D'}`,
     summary: {
-      cliente: record.user?.name || record.name || 'Sin cliente',
-      correo: record.user?.email || record.email || 'Sin correo',
+      cliente:
+        record.user?.name ||
+        record.name ||
+        record.providerName ||
+        record.raw?.aircraft?.provider?.commercial_name ||
+        'Sin cliente',
+      correo:
+        record.user?.email ||
+        record.email ||
+        record.providerEmail ||
+        record.raw?.aircraft?.provider?.email ||
+        'Sin correo',
       estado: paymentLabel(record.status || record.paymentStatus || ''),
       referencia:
         record.stripe_payment_intent_id ||
         record.provider_payment_id ||
+        record.paymentReference ||
         record.transaction_reference ||
+        record.providerSubscriptionId ||
         record.provider_checkout_id ||
         'Sin referencia',
       checkout_session_id:
-        record.stripe_checkout_session_id || record.provider_checkout_id || 'N/D',
+        record.stripe_checkout_session_id || record.provider_checkout_id || record.checkoutId || 'N/D',
       payment_intent_id:
-        record.stripe_payment_intent_id || record.provider_payment_id || 'N/D',
+        record.stripe_payment_intent_id || record.provider_payment_id || record.providerSubscriptionId || 'N/D',
       fecha:
-        formatDate(record.paid_at || record.paidAccessAt, { compact: true, withTime: true }),
+        formatDate(record.paid_at || record.paidAccessAt || record.paidAt, { compact: true, withTime: true }),
     },
     source,
     payload,
@@ -584,6 +1112,9 @@ function exportCsv(fileName, headers, rows) {
         <button type="button" :class="['tab-button', { active: activeTab === 'payments' }]" @click="activeTab = 'payments'">
           Pagos recientes
         </button>
+        <button type="button" :class="['tab-button', { active: activeTab === 'provider-payments' }]" @click="activeTab = 'provider-payments'">
+          Pagos proveedor
+        </button>
         <button type="button" :class="['tab-button', { active: activeTab === 'aircraft' }]" @click="activeTab = 'aircraft'">
           Aeronaves
         </button>
@@ -601,19 +1132,27 @@ function exportCsv(fileName, headers, rows) {
     <div class="surface toolbar">
       <label class="toolbar-field toolbar-search">
         <span>Buscar</span>
-        <input v-model="searchTerm" type="search" placeholder="Cliente, correo, empresa, matricula o referencia..." />
+        <input v-model="searchTerm" type="search" :placeholder="toolbarSearchPlaceholder" />
       </label>
 
       <label class="toolbar-field">
         <span>Filtro rapido</span>
         <select v-model="statusFilter">
-          <option value="todos">Todos</option>
-          <option value="paid">Pago activo</option>
-          <option value="trial_used">Prueba consumida</option>
-          <option value="trial_in_progress">Prueba iniciada</option>
-          <option value="new">Registro nuevo</option>
-          <option value="pending">Pendiente</option>
-          <option value="failed">Fallido</option>
+          <option v-for="option in statusFilterOptions" :key="option.value" :value="option.value">
+            {{ option.label }}
+          </option>
+        </select>
+      </label>
+
+      <label v-if="activeTab === 'provider-payments'" class="toolbar-field">
+        <span>Orden</span>
+        <select v-model="sortBy">
+          <option value="renewal_asc">Proximo cobro</option>
+          <option value="recent_desc">Ultimo pago reciente</option>
+          <option value="amount_desc">Monto mayor</option>
+          <option value="amount_asc">Monto menor</option>
+          <option value="provider_asc">Proveedor A-Z</option>
+          <option value="aircraft_asc">Aeronave A-Z</option>
         </select>
       </label>
 
@@ -875,6 +1414,227 @@ function exportCsv(fileName, headers, rows) {
       </div>
     </div>
 
+    <div v-else-if="activeTab === 'provider-payments'" class="surface table-panel">
+      <div class="panel-head">
+        <div>
+          <span class="eyebrow">Cobros del proveedor</span>
+          <h3>Vista compacta de cobros por aeronave</h3>
+        </div>
+        <p>{{ providerPaymentRows.length }} registro(s)</p>
+      </div>
+
+      <div class="provider-payments-summary">
+        <article v-for="card in providerPaymentSummaryCards" :key="card.label" class="surface provider-payments-summary__card">
+          <span>{{ card.label }}</span>
+          <strong>{{ card.value }}</strong>
+          <small>{{ card.detail }}</small>
+        </article>
+      </div>
+
+      <div v-if="providerPaymentRows.length" class="provider-payments-layout">
+        <div class="table-wrap provider-payments-table-wrap">
+          <table class="admin-table provider-payments-table">
+            <thead>
+              <tr>
+                <th>Aeronave</th>
+                <th>Proveedor</th>
+                <th>Estado</th>
+                <th>Monto</th>
+                <th>Ultimo cobro</th>
+                <th>Vigencia</th>
+                <th>Stripe</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="row in paginatedProviderPaymentRows"
+                :key="row.id"
+                class="provider-payments-table__row"
+                :class="{ 'is-active': String(selectedProviderPaymentId) === String(row.id) }"
+                @click="selectedProviderPaymentId = String(row.id)"
+              >
+                <td>
+                  <div class="provider-payments-table__aircraft">
+                    <img
+                      v-if="hasRenderableAircraftImage(row)"
+                      :src="row.aircraftImage"
+                      :alt="row.aircraftName"
+                      loading="lazy"
+                      @error="markAircraftImageError(row.id)"
+                    />
+                    <div v-else class="provider-payment-card__placeholder provider-payments-table__placeholder">
+                      {{ getAircraftBadge(row) }}
+                    </div>
+                    <div class="stack-cell">
+                      <strong>{{ row.aircraftName }}</strong>
+                      <small>{{ row.aircraftLabel }} · {{ row.aircraftBase }}</small>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="stack-cell">
+                    <strong>{{ row.providerName }}</strong>
+                    <small>{{ row.providerEmail || 'Sin correo visible' }}</small>
+                  </div>
+                </td>
+                <td>
+                  <span :class="['status-pill', paymentTone(row.status)]">
+                    {{ paymentLabel(row.status) }}
+                  </span>
+                  <small class="provider-payments-table__meta">{{ row.renewalReminderLabel }}</small>
+                </td>
+                <td>
+                  <div class="stack-cell">
+                    <strong>{{ formatMoney(row.amount, row.currency) }}</strong>
+                    <small>{{ row.planName }}</small>
+                  </div>
+                </td>
+                <td>{{ formatDate(row.paidAt, { compact: true, withTime: true }) }}</td>
+                <td>{{ formatDate(row.endsAt, { compact: true }) }}</td>
+                <td>
+                  <div class="stack-cell">
+                    <strong>{{ row.providerSubscriptionId }}</strong>
+                    <small>{{ row.renewalModeLabel }} · {{ row.checkoutId }}</small>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <aside v-if="selectedProviderPayment" class="surface provider-payment-detail">
+          <div class="provider-payment-detail__hero">
+            <div class="provider-payment-detail__hero-media">
+              <img
+                v-if="hasRenderableAircraftImage(selectedProviderPayment)"
+                :src="selectedProviderPayment.aircraftImage"
+                :alt="selectedProviderPayment.aircraftName"
+                loading="lazy"
+                @error="markAircraftImageError(selectedProviderPayment.id)"
+              />
+              <div v-else class="provider-payment-card__placeholder provider-payment-card__placeholder--large">
+                {{ getAircraftBadge(selectedProviderPayment) }}
+              </div>
+            </div>
+
+            <div class="provider-payment-detail__hero-copy">
+              <span class="eyebrow">Detalle seleccionado</span>
+              <h4>{{ selectedProviderPayment.aircraftName }}</h4>
+              <p>{{ selectedProviderPayment.aircraftLabel }} · {{ selectedProviderPayment.aircraftModel }}</p>
+              <div class="provider-payment-detail__badges">
+                <span :class="['status-pill', paymentTone(selectedProviderPayment.status)]">
+                  {{ paymentLabel(selectedProviderPayment.status) }}
+                </span>
+                <span :class="['status-pill', selectedProviderPayment.aircraftApproved ? 'success' : 'warn']">
+                  {{ selectedProviderPayment.aircraftApproved ? 'Aeronave aprobada' : 'Revision operativa' }}
+                </span>
+                <span :class="['status-pill', selectedProviderPayment.renewalTone]">
+                  {{ selectedProviderPayment.renewalModeLabel }}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <article class="provider-payment-detail__renewal-note" :data-tone="selectedProviderPayment.renewalTone">
+            <span>Renovacion</span>
+            <strong>{{ selectedProviderPayment.renewalReminderLabel }}</strong>
+            <small>
+              {{ selectedProviderPayment.autoRenewEnabled ? 'Stripe puede renovar esta suscripcion automaticamente.' : 'Esta aeronave requiere renovacion manual antes del vencimiento.' }}
+              {{ selectedProviderPayment.paymentMethodReady ? ' Metodo de pago visible.' : ' Metodo de pago no confirmado.' }}
+            </small>
+          </article>
+
+          <div class="provider-payment-detail__grid">
+            <article class="provider-payment-detail__block">
+              <span>Proveedor</span>
+              <strong>{{ selectedProviderPayment.providerName }}</strong>
+              <small>{{ selectedProviderPayment.providerEmail || 'Sin correo visible' }}</small>
+            </article>
+            <article class="provider-payment-detail__block">
+              <span>Base operativa</span>
+              <strong>{{ selectedProviderPayment.aircraftBase }}</strong>
+              <small>{{ selectedProviderPayment.aircraftCategory }}</small>
+            </article>
+            <article class="provider-payment-detail__block">
+              <span>Plan</span>
+              <strong>{{ selectedProviderPayment.planName }}</strong>
+              <small>{{ String(selectedProviderPayment.paymentProvider || 'stripe').toUpperCase() }}</small>
+            </article>
+            <article class="provider-payment-detail__block">
+              <span>Monto mensual</span>
+              <strong>{{ formatMoney(selectedProviderPayment.amount, selectedProviderPayment.currency) }}</strong>
+              <small>Estatus operativo: {{ selectedProviderPayment.operationalStatus }}</small>
+            </article>
+          </div>
+
+          <div class="provider-payment-detail__ledger">
+            <article class="provider-payment-detail__line">
+              <span>Referencia de pago</span>
+              <strong>{{ selectedProviderPayment.paymentReference }}</strong>
+            </article>
+            <article class="provider-payment-detail__line">
+              <span>Stripe subscription</span>
+              <strong>{{ selectedProviderPayment.providerSubscriptionId }}</strong>
+            </article>
+            <article class="provider-payment-detail__line">
+              <span>Checkout / session</span>
+              <strong>{{ selectedProviderPayment.checkoutId }}</strong>
+            </article>
+            <article class="provider-payment-detail__line">
+              <span>Vigencia backend</span>
+              <strong>{{ formatDate(selectedProviderPayment.startsAt, { compact: true }) }} - {{ formatDate(selectedProviderPayment.endsAt, { compact: true }) }}</strong>
+            </article>
+            <article class="provider-payment-detail__line">
+              <span>Modo de renovacion</span>
+              <strong>{{ selectedProviderPayment.renewalModeLabel }}</strong>
+            </article>
+          </div>
+
+          <div class="provider-payment-detail__timeline">
+            <h5>Timeline de cobro</h5>
+            <article
+              v-for="entry in selectedProviderPaymentTimeline"
+              :key="entry.id"
+              class="provider-payment-detail__timeline-item"
+              :data-state="entry.state"
+            >
+              <span class="provider-payment-detail__timeline-dot"></span>
+              <div>
+                <strong>{{ entry.label }}</strong>
+                <p>{{ entry.date }}</p>
+                <small>{{ entry.detail }}</small>
+              </div>
+            </article>
+          </div>
+
+          <div class="provider-payment-detail__actions">
+            <button type="button" class="ghost-button" @click="openSelectedProviderAircraft(selectedProviderPayment)">
+              Ver aeronave
+            </button>
+            <button type="button" class="ghost-button" @click="openSelectedProviderProfile(selectedProviderPayment)">
+              Ver proveedor
+            </button>
+            <button type="button" class="ghost-button" @click="openSelectedProviderSubscription(selectedProviderPayment)">
+              Ir a suscripcion
+            </button>
+            <button type="button" class="ghost-button" @click="openEvidenceModal(selectedProviderPayment, 'provider')">
+              Ver evidencia completa
+            </button>
+          </div>
+        </aside>
+      </div>
+
+      <div v-else class="table-wrap">
+        <table class="admin-table">
+          <tbody>
+            <tr>
+              <td colspan="8" class="empty-cell">Aun no hay pagos de proveedor ligados a aeronaves.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <div v-else class="surface table-panel">
       <div class="panel-head">
         <div>
@@ -1089,7 +1849,7 @@ function exportCsv(fileName, headers, rows) {
 
 .toolbar {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) minmax(180px, 220px) minmax(120px, 140px) auto;
+  grid-template-columns: minmax(260px, 1fr) repeat(3, minmax(140px, 200px)) auto;
   gap: 1rem;
 }
 
@@ -1114,6 +1874,263 @@ function exportCsv(fileName, headers, rows) {
 .table-panel {
   display: grid;
   gap: 1rem;
+}
+
+.provider-payments-summary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.provider-payments-summary__card {
+  padding: 0.85rem 0.95rem;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.provider-payments-summary__card span,
+.provider-payments-summary__card small {
+  color: #111111;
+}
+
+.provider-payments-summary__card strong {
+  color: #111111;
+  font-size: 1.2rem;
+}
+
+.provider-payments-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(340px, 0.85fr);
+  gap: 0.9rem;
+  align-items: start;
+}
+
+.provider-payments-table-wrap {
+  max-height: 72vh;
+  overflow: auto;
+  border: 1px solid rgba(33, 30, 26, 0.08);
+  border-radius: 18px;
+  background: #fffdf9;
+}
+
+.provider-payments-table {
+  min-width: 860px;
+}
+
+.provider-payments-table__row {
+  cursor: pointer;
+  transition:
+    background-color 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.provider-payments-table__row:hover,
+.provider-payments-table__row.is-active {
+  background: #fbf4e6;
+}
+
+.provider-payments-table__meta {
+  display: block;
+  margin-top: 0.35rem;
+  color: #6f6a61;
+}
+
+.provider-payments-table__aircraft {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 0.7rem;
+  align-items: center;
+}
+
+.provider-payments-table__aircraft img,
+.provider-payment-detail__hero-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  background: #f2ede3;
+}
+
+.provider-payments-table__aircraft img,
+.provider-payments-table__placeholder {
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+}
+
+.provider-payment-card__placeholder {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #1b395c 0%, #284d74 65%, #c8a96b 100%);
+  color: #fff8ef;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.provider-payment-card__placeholder--large {
+  min-height: 8.5rem;
+  border-radius: 18px;
+}
+
+.provider-payment-detail,
+.provider-payment-detail__grid,
+.provider-payment-detail__timeline {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.provider-payment-detail__actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.provider-payment-detail__hero-copy p,
+.provider-payment-detail__timeline-item p,
+.provider-payment-detail__timeline-item small {
+  margin: 0;
+  color: #111111;
+}
+
+.provider-payment-detail__grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.provider-payment-detail__renewal-note {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.8rem 0.9rem;
+  border-radius: 16px;
+  border: 1px solid rgba(33, 30, 26, 0.08);
+  background: #fffdf9;
+}
+
+.provider-payment-detail__renewal-note[data-tone='success'] {
+  background: #edfdf3;
+  border-color: rgba(31, 122, 70, 0.18);
+}
+
+.provider-payment-detail__renewal-note[data-tone='warn'] {
+  background: #fff6df;
+  border-color: rgba(176, 107, 0, 0.18);
+}
+
+.provider-payment-detail__renewal-note[data-tone='danger'] {
+  background: #ffece8;
+  border-color: rgba(192, 57, 43, 0.18);
+}
+
+.provider-payment-detail__renewal-note[data-tone='info'] {
+  background: #eef4fa;
+  border-color: rgba(27, 57, 92, 0.16);
+}
+
+.provider-payment-detail__block,
+.provider-payment-detail__line {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.6rem 0.7rem;
+  border-radius: 14px;
+  background: rgba(246, 242, 232, 0.55);
+}
+
+.provider-payment-detail__block span,
+.provider-payment-detail__line span {
+  color: #111111;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.provider-payment-detail strong,
+.provider-payment-detail h4,
+.provider-payment-detail h5,
+.provider-payment-detail p,
+.provider-payment-detail small,
+.provider-payment-detail span {
+  color: #111111;
+}
+
+.provider-payment-detail {
+  position: sticky;
+  top: 1rem;
+  padding: 0.95rem;
+}
+
+.provider-payment-detail__hero {
+  display: grid;
+  grid-template-columns: 116px minmax(0, 1fr);
+  gap: 0.85rem;
+  align-items: center;
+}
+
+.provider-payment-detail__hero-media {
+  overflow: hidden;
+  border-radius: 18px;
+  background: #efe7da;
+  min-height: 7rem;
+  border: 1px solid rgba(33, 30, 26, 0.08);
+}
+
+.provider-payment-detail__hero-copy h4,
+.provider-payment-detail__timeline h5 {
+  margin: 0;
+  color: #111111;
+}
+
+.provider-payment-detail__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.provider-payment-detail__ledger {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.provider-payment-detail__timeline-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 0.8rem minmax(0, 1fr);
+  gap: 0.65rem;
+}
+
+.provider-payment-detail__timeline-item:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  top: 1rem;
+  left: 0.42rem;
+  width: 1px;
+  height: calc(100% + 0.75rem);
+  background: rgba(160, 121, 29, 0.22);
+}
+
+.provider-payment-detail__timeline-dot {
+  position: relative;
+  z-index: 1;
+  width: 0.75rem;
+  height: 0.75rem;
+  margin-top: 0.2rem;
+  border: 2px solid #c8a96b;
+  border-radius: 999px;
+  background: #fffdf9;
+}
+
+.provider-payment-detail__timeline-item[data-state='done'] .provider-payment-detail__timeline-dot {
+  border-color: #1f7a46;
+  background: #1f7a46;
+}
+
+.provider-payment-detail__timeline-item[data-state='current'] .provider-payment-detail__timeline-dot {
+  border-color: #a0791d;
+  background: #fff1c4;
 }
 
 .subpanel {
@@ -1144,8 +2161,8 @@ function exportCsv(fileName, headers, rows) {
 .ghost-button,
 .danger-button {
   border: 1px solid rgba(33, 30, 26, 0.12);
-  border-radius: 16px;
-  padding: 0.85rem 1rem;
+  border-radius: 14px;
+  padding: 0.72rem 0.9rem;
   font: inherit;
   font-weight: 700;
   cursor: pointer;
@@ -1412,6 +2429,13 @@ function exportCsv(fileName, headers, rows) {
   }
 
   .toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .provider-payments-summary,
+  .provider-payments-layout,
+  .provider-payment-detail__hero,
+  .provider-payment-detail__grid {
     grid-template-columns: 1fr;
   }
 

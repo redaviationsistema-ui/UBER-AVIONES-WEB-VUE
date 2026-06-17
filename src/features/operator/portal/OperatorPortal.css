@@ -1578,26 +1578,118 @@
   gap: 0.75rem;
 }
 
-.payments-hero-grid,
 .payments-aircraft-grid,
-.payments-tabs {
+.payments-tabs,
+.payments-executive-grid,
+.payments-premium-nav,
+.payments-provider-card__meta,
+.payments-timeline {
   display: grid;
   gap: 1rem;
 }
 
-.payments-hero-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin-top: 1rem;
+.payments-premium-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(19rem, 0.95fr);
+  gap: 1.2rem;
+  margin-bottom: 1.2rem;
+  padding: 1.25rem;
+  border: 1px solid #e7d9c0;
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at top left, rgba(27, 57, 92, 0.08), transparent 36%),
+    linear-gradient(135deg, #fffcf6 0%, #f6efe3 52%, #fffdfa 100%);
 }
 
-.payments-summary-card {
-  padding: 1rem 1.1rem;
+.payments-premium-hero__copy {
+  display: grid;
+  gap: 0.9rem;
+  align-content: start;
+}
+
+.payments-premium-nav {
+  grid-template-columns: repeat(3, max-content);
+  gap: 0.85rem;
+}
+
+.payments-premium-nav span {
+  position: relative;
+  padding-bottom: 0.7rem;
+  color: #1b395c;
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
+.payments-premium-nav span::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #1b395c, #c8a96b);
+}
+
+.payments-provider-card {
+  display: grid;
+  gap: 1rem;
+  padding: 1.15rem;
+  border: 1px solid rgba(27, 57, 92, 0.12);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 22px 48px rgba(22, 17, 13, 0.08);
+}
+
+.payments-provider-card__top {
+  display: flex;
+  gap: 0.9rem;
+  align-items: center;
+}
+
+.payments-provider-card__top strong,
+.payments-table-aircraft strong {
+  display: block;
+  color: #0f2135;
+}
+
+.payments-provider-card__top small,
+.payments-table-aircraft small {
+  color: #6e6658;
+}
+
+.payments-provider-card__avatar {
+  display: grid;
+  place-items: center;
+  width: 3.4rem;
+  height: 3.4rem;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #1b395c 0%, #284d74 58%, #c8a96b 100%);
+  color: #fffaf1;
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.payments-provider-card__meta {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.payments-provider-card__meta > div,
+.payments-executive-card,
+.payments-timeline-card,
+.payments-pending-card,
+.payments-history-card,
+.payments-operation-card,
+.payments-aircraft-card {
+  padding: 1rem 1.05rem;
   border: 1px solid #efe2ca;
   border-radius: 20px;
-  background: linear-gradient(180deg, #fffdf8 0%, #ffffff 100%);
+  background: linear-gradient(180deg, #fffefb 0%, #fffdfa 100%);
 }
 
-.payments-summary-card span {
+.payments-provider-card__meta span,
+.payments-executive-card p {
   color: #7a6b53;
   font-size: 0.78rem;
   font-weight: 800;
@@ -1605,46 +1697,126 @@
   text-transform: uppercase;
 }
 
-.payments-summary-card strong {
+.payments-provider-card__meta strong {
   display: block;
-  margin-top: 0.45rem;
-  font-size: 2rem;
-  line-height: 1;
+  margin-top: 0.35rem;
 }
 
-.payments-summary-card small {
-  display: block;
-  margin-top: 0.5rem;
+.payments-executive-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 1rem;
+}
+
+.payments-executive-card {
+  display: grid;
+  gap: 0.4rem;
+  min-height: 10.5rem;
+}
+
+.payments-executive-card__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 16px;
+  background: #f4ecdf;
+  font-size: 1.1rem;
+}
+
+.payments-executive-card strong {
+  font-size: 1.85rem;
+  line-height: 1;
+  color: #0f2135;
+}
+
+.payments-executive-card small {
   color: #6d665c;
+  line-height: 1.4;
+}
+
+.payments-executive-card[data-tone='success'] {
+  border-color: rgba(46, 139, 87, 0.18);
+}
+
+.payments-executive-card[data-tone='warning'] {
+  border-color: rgba(200, 169, 107, 0.28);
+}
+
+.payments-executive-card[data-tone='info'] {
+  border-color: rgba(27, 57, 92, 0.18);
 }
 
 .payments-tabs {
-  grid-template-columns: repeat(2, minmax(0, max-content));
-  margin: 1rem 0;
+  grid-template-columns: repeat(4, minmax(0, max-content));
+  align-items: end;
+  margin: 1.15rem 0;
 }
 
 .tab-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.85rem;
-  min-height: 3.2rem;
-  padding: 0.8rem 1rem;
-  border: 1px solid #e7d9c0;
-  border-radius: 18px;
-  background: #fffdfa;
-  color: #3d3124;
+  position: relative;
+  display: inline-grid;
+  gap: 0.2rem;
+  justify-items: start;
+  min-height: 3.6rem;
+  padding: 0.2rem 0 0.9rem;
+  border: 0;
+  border-bottom: 2px solid rgba(200, 169, 107, 0.2);
+  border-radius: 0;
+  background: transparent;
+  color: #5d5345;
   font-weight: 700;
 }
 
 .tab-button strong {
-  color: #8f6919;
+  color: #0f2135;
+  font-size: 1.15rem;
 }
 
 .tab-button.active {
-  border-color: rgba(200, 169, 107, 0.58);
-  background: linear-gradient(180deg, #fffaf0 0%, #fff7ea 100%);
-  box-shadow: 0 16px 34px rgba(80, 56, 22, 0.08);
+  color: #0f2135;
+  box-shadow: none;
+}
+
+.tab-button.active::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -2px;
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #1b395c, #c8a96b);
+}
+
+.payments-status-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.3rem;
+  padding: 0.1rem 0.9rem;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.payments-status-badge[data-tone='success'] {
+  background: rgba(46, 139, 87, 0.14);
+  color: #1d6b42;
+}
+
+.payments-status-badge[data-tone='warning'] {
+  background: rgba(200, 169, 107, 0.22);
+  color: #8b6517;
+}
+
+.payments-status-badge[data-tone='danger'] {
+  background: rgba(184, 61, 54, 0.15);
+  color: #9f2f28;
+}
+
+.payments-status-badge[data-tone='info'] {
+  background: rgba(27, 57, 92, 0.12);
+  color: #1b395c;
 }
 
 .aircraft-payment-card[data-tone='success'] {
@@ -1663,6 +1835,10 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.payments-aircraft-layout {
+  align-items: start;
+}
+
 .payments-aircraft-grid > div {
   display: grid;
   gap: 0.35rem;
@@ -1670,6 +1846,128 @@
   border: 1px solid #efe2ca;
   border-radius: 18px;
   background: #fffdfa;
+}
+
+.payments-aircraft-hero {
+  background:
+    radial-gradient(circle at top right, rgba(27, 57, 92, 0.06), transparent 32%),
+    linear-gradient(180deg, #fffdf8 0%, #fffdfa 100%);
+}
+
+.payments-aircraft-hero__badges,
+.billing-renewal-alert__meta {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.billing-renewal-alert {
+  display: grid;
+  gap: 0.7rem;
+  padding: 1rem 1.05rem;
+  border-radius: 18px;
+  border: 1px solid #efe2ca;
+  background: #fffdfa;
+}
+
+.billing-renewal-alert[data-tone='success'] {
+  border-color: rgba(46, 139, 87, 0.18);
+  background: linear-gradient(180deg, rgba(237, 253, 243, 0.9), rgba(255, 255, 255, 0.98));
+}
+
+.billing-renewal-alert[data-tone='warning'] {
+  border-color: rgba(200, 169, 107, 0.28);
+  background: linear-gradient(180deg, rgba(255, 246, 223, 0.9), rgba(255, 255, 255, 0.98));
+}
+
+.billing-renewal-alert[data-tone='danger'] {
+  border-color: rgba(184, 61, 54, 0.24);
+  background: linear-gradient(180deg, rgba(255, 239, 233, 0.9), rgba(255, 255, 255, 0.98));
+}
+
+.billing-renewal-alert[data-tone='info'] {
+  border-color: rgba(27, 57, 92, 0.16);
+  background: linear-gradient(180deg, rgba(238, 244, 250, 0.96), rgba(255, 255, 255, 0.98));
+}
+
+.payments-table-shell {
+  margin-top: 0;
+}
+
+.payments-table-head,
+.payments-table-row {
+  display: grid;
+  grid-template-columns: 1.5fr 0.85fr 0.9fr 0.9fr 0.9fr 0.75fr;
+  gap: 0.85rem;
+  align-items: center;
+  min-width: 64rem;
+  padding: 0.95rem 1rem;
+}
+
+.payments-table-head {
+  border-bottom: 1px solid #efe2ca;
+  background: #faf4e8;
+  color: #7b6840;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.payments-table-row + .payments-table-row {
+  border-top: 1px solid #f1e7d6;
+}
+
+.payments-table-aircraft {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.payments-timeline-card {
+  gap: 1.15rem;
+}
+
+.payments-timeline {
+  gap: 0.85rem;
+}
+
+.payments-timeline-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1rem minmax(0, 1fr);
+  gap: 0.95rem;
+}
+
+.payments-timeline-item:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  top: 1rem;
+  left: 0.43rem;
+  width: 1px;
+  height: calc(100% + 0.7rem);
+  background: #e4d7bf;
+}
+
+.payments-timeline-item__dot {
+  position: relative;
+  z-index: 1;
+  width: 0.9rem;
+  height: 0.9rem;
+  margin-top: 0.2rem;
+  border: 2px solid #c8a96b;
+  border-radius: 999px;
+  background: #fffdfa;
+}
+
+.payments-timeline-item[data-state='done'] .payments-timeline-item__dot {
+  border-color: #1d6b42;
+  background: #1d6b42;
+}
+
+.payments-timeline-item strong,
+.payments-timeline-item p,
+.payments-timeline-item small {
+  margin: 0;
 }
 
 .availability-hero,
@@ -3342,8 +3640,9 @@ textarea {
 
   .fleet-kpi-grid,
   .aircraft-flow-grid,
-  .payments-hero-grid,
+  .payments-executive-grid,
   .payments-aircraft-grid,
+  .payments-provider-card__meta,
   .fleet-layout,
   .fleet-premium-grid,
   .aircraft-billing-spotlight-grid,
@@ -3382,6 +3681,15 @@ textarea {
   .requests-toolbar,
   .requests-dispatch-layout,
   .requests-tab-row {
+    grid-template-columns: 1fr;
+  }
+
+  .payments-premium-hero,
+  .payments-tabs {
+    grid-template-columns: 1fr;
+  }
+
+  .payments-premium-nav {
     grid-template-columns: 1fr;
   }
 

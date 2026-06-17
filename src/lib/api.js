@@ -206,6 +206,10 @@ function buildUrl(path, query = {}, backendOverride = null) {
   return url.toString()
 }
 
+export function resolveApiRequestUrl(path, query = {}, backendOverride = null) {
+  return buildUrl(path, query, backendOverride)
+}
+
 function shouldLogAircraftRequest(path = '') {
   if (!AIRCRAFT_DEBUG_ENABLED) return false
 

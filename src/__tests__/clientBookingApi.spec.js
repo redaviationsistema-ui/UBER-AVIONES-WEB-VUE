@@ -26,6 +26,7 @@ import {
   inferEngineType,
   markClientTripReadyForPayment,
   normalizeTrip,
+  searchClientFlights,
 } from '../features/client/clientBookingApi'
 import { api } from '../lib/api'
 import {
@@ -128,6 +129,117 @@ describe('buildFlightRequestPayload', () => {
     expect(payload.total).toBe(15900)
     expect(payload.estimated_total).toBe(15900)
     expect(payload.final_price).toBe(15900)
+  })
+})
+
+describe('searchClientFlights', () => {
+  it('uses overnight_cost as the applied overnight charge when backend fee is only informational', async () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    api.post.mockResolvedValue({
+      matches: [
+        {
+          id: 'match-overnight',
+          aircraft_name: 'Learjet 31A',
+          base_price: 19500,
+          expense_fee: 1000,
+          total: 23780,
+          taxes: 3280,
+          overnight_fee: 3000,
+          overnight_cost: 0,
+          overnight_nights: 0,
+          pricing_breakdown: {
+            overnight_fee: 3000,
+            overnight_cost: 0,
+            overnight_nights: 0,
+          },
+        },
+      ],
+    })
+    api.get.mockResolvedValue({ aircraft: [] })
+
+    const [quote] = await searchClientFlights({
+      trip_type: 'one_way',
+      passengers: 4,
+      legs: [
+        {
+          origin: 'TLC',
+          destination: 'CUN',
+          date: '2026-06-20',
+          time: '09:00',
+        },
+      ],
+    })
+
+    expect(quote.overnight_fee).toBe(3000)
+    expect(quote.overnight_cost).toBe(0)
+    expect(quote.overnight_fees).toBe(0)
+    expect(quote.debug_pricing?.overnight_cost).toBe(0)
+    expect(consoleSpy).toHaveBeenCalledWith('- Overnight fee:', 3000)
+    expect(consoleSpy).toHaveBeenCalledWith('- Overnight nights:', 0)
+    expect(consoleSpy).toHaveBeenCalledWith('- Overnight cost:', 0)
+
+    consoleSpy.mockRestore()
+  })
+
+  it('keeps catalog fallback totals independent from overnight_fee when no overnight_cost exists', async () => {
+    api.post.mockRejectedValue(new Error('backend unavailable'))
+    api.get.mockResolvedValue({
+      aircraft: [
+        {
+          id: 1,
+          name: 'Fallback Jet A',
+          category: 'Light Jet',
+          status: 'active',
+          source_origin: 'TLC',
+          capacity: 6,
+          hourly_rate: 12000,
+          overnight_fee: 3000,
+          overnight_cost: 0,
+        },
+        {
+          id: 2,
+          name: 'Fallback Jet B',
+          category: 'Light Jet',
+          status: 'active',
+          source_origin: 'TLC',
+          capacity: 6,
+          hourly_rate: 12000,
+          overnight_fee: 0,
+          overnight_cost: 0,
+        },
+      ],
+    })
+
+    const quotes = await searchClientFlights({
+      trip_type: 'round_trip',
+      passengers: 4,
+      overnight_nights: 2,
+      days: 2,
+      legs: [
+        {
+          origin: 'TLC',
+          destination: 'CUN',
+          date: '2026-06-20',
+          time: '09:00',
+        },
+        {
+          origin: 'CUN',
+          destination: 'TLC',
+          date: '2026-06-22',
+          time: '12:00',
+        },
+      ],
+    })
+
+    expect(quotes).toHaveLength(2)
+    expect(quotes[0].overnight_cost).toBe(0)
+    expect(quotes[0].overnight_fees).toBe(0)
+    expect(quotes[1].overnight_cost).toBe(0)
+    expect(quotes[1].overnight_fees).toBe(0)
+    expect(quotes[0].final_price).toBe(quotes[1].final_price)
+    expect(quotes[0].taxes).toBeCloseTo(quotes[1].taxes, 6)
+    expect(quotes[0].extra_services_total).toBe(quotes[1].extra_services_total)
   })
 })
 

@@ -403,6 +403,23 @@ const adminSections = {
     deactivation: ['Pago fallido', 'Reembolso', 'Cancelacion'],
     states: paymentStates,
   },
+  'pagos-proveedor': {
+    eyebrow: 'Operacion y proveedores',
+    title: 'Pagos de proveedores',
+    description: 'Monitorea cobros por aeronave, vigencias, referencias Stripe y renovaciones de toda la flota.',
+    highlights: [
+      { label: 'Aeronaves activas', value: '0', detail: 'Se reemplaza con datos reales del backend al cargar la vista.' },
+      { label: 'Pendientes', value: '0', detail: 'Suscripciones o cobros que requieren seguimiento.' },
+      { label: 'Pagados', value: '0', detail: 'Renovaciones confirmadas para proveedores.' },
+      { label: 'Renovaciones proximas', value: '0', detail: 'Cobros cercanos por vencer o renovarse.' },
+    ],
+    actions: ['Ver aeronave', 'Ver proveedor', 'Revisar vigencia', 'Abrir evidencia Stripe'],
+    fields: ['Aeronave', 'Proveedor', 'Estado', 'Monto', 'Vigencia', 'Referencia'],
+    details: ['Timeline', 'Cobro confirmado', 'Proximo pago', 'Suscripcion', 'Eventos backend'],
+    edits: ['Estado operativo', 'Seguimiento', 'Revision administrativa'],
+    deactivation: ['Suscripcion vencida', 'Cobro fallido', 'Proveedor en pausa'],
+    states: paymentStates,
+  },
   incidencias: {
     eyebrow: 'Incidencias',
     title: 'Mesa de incidencias',
@@ -1556,6 +1573,12 @@ async function loadPortalSection(section) {
     return
   }
 
+  if (section === 'pagos' || section === 'pagos-proveedor') {
+    await reconcilePendingClientAccessPayments({ silent: true })
+    await Promise.all([loadAircraft(), loadSubscriptions(), loadClients(), loadAccessPayments(), loadSubscriptionPayments()])
+    return
+  }
+
   if (section === 'sobrecargos' || section === 'disponibilidad' || section === 'sobrecargo-operaciones') {
     if (section === 'disponibilidad') {
       await loadOperations({
@@ -2054,12 +2077,25 @@ async function refreshNetworkState(title, message) {
 }
 
 async function refreshSubscriptionsPanel() {
-  await requestPortalSectionLoad('suscripciones', { force: true })
+  const targetSection =
+    props.section === 'pagos' || props.section === 'pagos-proveedor'
+      ? props.section
+      : 'suscripciones'
+  await requestPortalSectionLoad(targetSection, { force: true })
   if (props.section === 'suscripciones') {
     ui.pushToast({
       tone: 'success',
       title: 'Suscripciones actualizadas',
       message: 'La vista comercial se sincronizo con los datos mas recientes.',
+    })
+    return
+  }
+
+  if (props.section === 'pagos-proveedor' || props.section === 'pagos') {
+    ui.pushToast({
+      tone: 'success',
+      title: 'Pagos de proveedor actualizados',
+      message: 'La vista administrativa se sincronizo con cobros y vigencias mas recientes.',
     })
   }
 }
@@ -2412,9 +2448,31 @@ watch(
   <AdminSubscriptionsSection
     v-else-if="section === 'suscripciones'"
     :clients="clientUsers"
+    :aircraft="aircraft"
     :aircraft-subscriptions="subscriptions"
     :access-payments="accessPayments"
     :subscription-payments="subscriptionPayments"
+    initial-tab="commercial"
+    @refresh="refreshSubscriptionsPanel"
+  />
+  <AdminSubscriptionsSection
+    v-else-if="section === 'pagos'"
+    :clients="clientUsers"
+    :aircraft="aircraft"
+    :aircraft-subscriptions="subscriptions"
+    :access-payments="accessPayments"
+    :subscription-payments="subscriptionPayments"
+    initial-tab="provider-payments"
+    @refresh="refreshSubscriptionsPanel"
+  />
+  <AdminSubscriptionsSection
+    v-else-if="section === 'pagos-proveedor'"
+    :clients="clientUsers"
+    :aircraft="aircraft"
+    :aircraft-subscriptions="subscriptions"
+    :access-payments="accessPayments"
+    :subscription-payments="subscriptionPayments"
+    initial-tab="provider-payments"
     @refresh="refreshSubscriptionsPanel"
   />
   <AdminCrewDirectorySection

@@ -525,6 +525,15 @@ const providerAircraftPlanAmount = computed(() =>
   ),
 )
 
+const providerAircraftBillingCurrency = computed(() =>
+  String(
+    providerAircraftBillingPlan.value?.currency ||
+      providerAircraftBillingPlan.value?.currency_code ||
+      providerAircraftBillingPlan.value?.moneda ||
+      'USD',
+  ).toUpperCase(),
+)
+
 const providerAircraftBillingAmount = computed(() => providerAircraftPlanAmount.value || 100)
 
 const selectedPaymentsAircraftId = computed(() => {
@@ -674,6 +683,7 @@ const aircraftPaymentRows = computed(() =>
         return aircraft.value.length === 1
       }) ||
       null
+    const renewalMeta = getAircraftRenewalMeta(item, relatedPayment)
 
     return {
       id: item.id,
@@ -684,7 +694,10 @@ const aircraftPaymentRows = computed(() =>
       status: billingMeta.label,
       tone: billingMeta.tone,
       amount: providerAircraftBillingAmount.value,
-      amountLabel: formatCurrency(providerAircraftBillingAmount.value),
+      amountLabel: formatCurrency(
+        providerAircraftBillingAmount.value,
+        providerAircraftBillingCurrency.value,
+      ),
       description:
         relatedPayment?.description ||
         `Suscripcion mensual de ${item.name}${item.registration ? ` · ${item.registration}` : ''}`,
@@ -694,6 +707,20 @@ const aircraftPaymentRows = computed(() =>
       paymentStatus: relatedPayment?.status || billingMeta.label,
       lastPaymentAt: relatedPayment?.completedAt || item.lastPaymentAt || '',
       subscriptionEndsAt: item.subscriptionEndsAt || '',
+      providerSubscriptionId:
+        relatedPayment?.providerSubscriptionId || item.providerSubscriptionId || '',
+      providerCheckoutId:
+        relatedPayment?.providerCheckoutId || item.providerCheckoutId || '',
+      autoRenewEnabled: renewalMeta.autoRenewEnabled,
+      paymentMethodReady: renewalMeta.paymentMethodReady,
+      renewalMode: renewalMeta.mode,
+      renewalModeLabel: renewalMeta.modeLabel,
+      renewalReminderLabel: renewalMeta.reminderLabel,
+      renewalReminderDetail: renewalMeta.reminderDetail,
+      renewalTone: renewalMeta.tone,
+      daysUntilExpiry: renewalMeta.daysUntilExpiry,
+      canRenewNow: renewalMeta.canRenewNow,
+      isRenewalUrgent: renewalMeta.isUrgent,
       flowDetail: billingMeta.detail,
       hasPaymentRecord: Boolean(relatedPayment),
       action: billingMeta.action,
@@ -732,10 +759,235 @@ const aircraftPaymentsActive = computed(
   () => aircraftPaymentRows.value.filter((item) => item.tone === 'success').length,
 )
 
+const aircraftRenewalsNeedingAction = computed(
+  () => aircraftPaymentRows.value.filter((item) => item.canRenewNow && !item.autoRenewEnabled).length,
+)
+
+const aircraftAutoRenewActive = computed(
+  () => aircraftPaymentRows.value.filter((item) => item.autoRenewEnabled).length,
+)
+
+const operationalPayments = computed(() =>
+  payments.value.filter((payment) => !payment.isAircraftSubscription),
+)
+
+const paymentHistoryFeed = computed(() =>
+  [...payments.value].sort((left, right) => {
+    const leftTime = new Date(left.rawCreatedAt || left.completedAt || 0).getTime()
+    const rightTime = new Date(right.rawCreatedAt || right.completedAt || 0).getTime()
+    return rightTime - leftTime || Number(right.id || 0) - Number(left.id || 0)
+  }),
+)
+
+const pendingPaymentRecords = computed(() => {
+  const operationPending = operationalPayments.value
+    .filter((payment) => payment.statusNormalized !== 'paid')
+    .map((payment) => ({
+      id: `operation-${payment.id}`,
+      kind: 'operation',
+      title: payment.flight,
+      subtitle: payment.description,
+      amountLabel: payment.amount,
+      status: payment.status,
+      tone:
+        payment.statusNormalized === 'pending'
+          ? 'warning'
+          : payment.statusNormalized === 'failed'
+            ? 'danger'
+            : 'info',
+      detail: payment.completedAt,
+      actionLabel: 'Ver liquidacion',
+      targetTab: 'operations',
+    }))
+
+  const aircraftPending = aircraftPaymentRows.value
+    .filter((item) => item.action === 'activate' || item.isRenewalUrgent || item.canRenewNow)
+    .map((item) => ({
+      id: `aircraft-${item.aircraftId}`,
+      kind: 'aircraft',
+      title: item.aircraft,
+      subtitle: item.base,
+      amountLabel: `${item.amountLabel} / mes`,
+      status: item.autoRenewEnabled ? item.renewalModeLabel : item.status,
+      tone: item.autoRenewEnabled ? item.renewalTone : item.tone,
+      detail: item.renewalReminderLabel || (item.subscriptionEndsAt
+        ? `Vence ${formatDateCompact(item.subscriptionEndsAt)}`
+        : 'Pendiente de activar'),
+      actionLabel: item.canRenewNow ? 'Renovar aeronave' : 'Ver aeronave',
+      targetTab: 'aircraft',
+      aircraftId: item.aircraftId,
+    }))
+
+  return [...operationPending, ...aircraftPending]
+})
+
+const paymentExecutiveSummary = computed(() => {
+  const now = new Date()
+  const paidThisMonth = paymentHistoryFeed.value
+    .filter((payment) => {
+      if (payment.statusNormalized !== 'paid') return false
+      const date = new Date(payment.paidAt || payment.rawCreatedAt || payment.completedAt || '')
+      return !Number.isNaN(date.getTime()) && date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear()
+    })
+    .reduce((total, payment) => total + Number(payment.amountValue || 0), 0)
+  const paidThisMonthCurrency =
+    paymentHistoryFeed.value.find((payment) => payment.statusNormalized === 'paid')?.currency ||
+    providerAircraftBillingCurrency.value
+
+  const pendingTotal = pendingPaymentRecords.value.reduce((total, item) => {
+    const numeric = Number(String(item.amountLabel || '').replace(/[^0-9.-]+/g, ''))
+    return total + (Number.isFinite(numeric) ? numeric : 0)
+  }, 0)
+
+  const renewalsSoon = aircraftPaymentRows.value.filter((item) => {
+    if (!item.subscriptionEndsAt) return false
+    const expiration = new Date(item.subscriptionEndsAt)
+    if (Number.isNaN(expiration.getTime())) return false
+    const diffDays = Math.ceil((expiration.getTime() - now.getTime()) / 86400000)
+    return diffDays >= 0 && diffDays <= 45
+  }).length
+
+  return [
+    {
+      id: 'paid-month',
+      icon: '💰',
+      label: 'Cobrado este mes',
+      value: formatCurrency(paidThisMonth, paidThisMonthCurrency),
+      detail: `${paymentHistoryFeed.value.filter((item) => item.statusNormalized === 'paid').length} cobro(s) confirmados.`,
+      tone: 'success',
+    },
+    {
+      id: 'pending-total',
+      icon: '⚠️',
+      label: 'Pagos pendientes',
+      value: formatCurrency(pendingTotal, providerAircraftBillingCurrency.value),
+      detail: `${pendingPaymentRecords.value.length} seguimiento(s) por liberar.`,
+      tone: pendingPaymentRecords.value.length ? 'warning' : 'success',
+    },
+    {
+      id: 'aircraft-active',
+      icon: '✈️',
+      label: 'Aeronaves activas',
+      value: String(aircraftPaymentsActive.value),
+      detail: `${aircraftPaymentRows.value.length} aeronave(s) monitoreadas en total.`,
+      tone: aircraftPaymentsActive.value ? 'info' : 'neutral',
+    },
+    {
+      id: 'renewals',
+      icon: '📈',
+      label: 'Renovaciones proximas',
+      value: String(renewalsSoon),
+      detail: `${aircraftAutoRenewActive.value} con autopago y ${aircraftRenewalsNeedingAction.value} por revisar manualmente.`,
+      tone: renewalsSoon ? 'warning' : 'success',
+    },
+  ]
+})
+
+const providerPaymentProfile = computed(() => {
+  const rawName = providerName.value || auth.user?.name || 'Proveedor'
+  const lastAccessRaw =
+    auth.user?.last_login_at ||
+    auth.user?.last_access_at ||
+    auth.user?.updated_at ||
+    auth.user?.created_at ||
+    ''
+
+  return {
+    initials: rawName
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((chunk) => chunk[0]?.toUpperCase() || '')
+      .join('') || 'PR',
+    company: company.tradeName || company.legalName || rawName,
+    roleLabel: auth.user?.role_name || 'Proveedor',
+    verification: companyStatusMeta.value.tone === 'success' ? 'Proveedor verificado' : 'Proveedor en revision',
+    lastAccess: formatRelativeAccessLabel(lastAccessRaw),
+    onlineLabel: loading.value ? 'Sincronizando' : 'Online',
+  }
+})
+
 const paymentTabs = computed(() => [
-  { id: 'operations', label: 'Liquidaciones', count: payments.value.length },
+  { id: 'operations', label: 'Liquidaciones', count: operationalPayments.value.length },
   { id: 'aircraft', label: 'Aeronaves', count: aircraftPaymentRows.value.length },
+  { id: 'pending', label: 'Pagos pendientes', count: pendingPaymentRecords.value.length },
+  { id: 'history', label: 'Historial', count: paymentHistoryFeed.value.length },
 ])
+
+const showAircraftPaymentsTable = computed(() => filteredAircraftPaymentRows.value.length > 20)
+
+const selectedPaymentTimeline = computed(() => {
+  if (selectedAircraftPaymentTimeline.value.length) {
+    const events = selectedAircraftPaymentTimeline.value.map((payment) => ({
+      id: `paid-${payment.id}`,
+      title:
+        payment.statusNormalized === 'paid'
+          ? 'Pago realizado'
+          : payment.statusNormalized === 'pending'
+            ? 'Cobro pendiente'
+            : 'Evento de cobro',
+      date: formatDateCompact(payment.paidAt || payment.rawCreatedAt || payment.completedAt),
+      detail: payment.description || payment.amount,
+      state: payment.statusNormalized === 'paid' ? 'done' : 'upcoming',
+    }))
+
+    const targetRow = filteredAircraftPaymentRows.value[0]
+    if (targetRow?.subscriptionEndsAt) {
+      events.push({
+        id: `next-${targetRow.aircraftId}`,
+        title: 'Proximo cobro',
+        date: formatDateCompact(targetRow.subscriptionEndsAt),
+        detail: `${targetRow.amountLabel} / mes`,
+        state: 'upcoming',
+      })
+    }
+
+    events.push({
+      id: `mode-${targetRow?.aircraftId || 'general'}`,
+      title: targetRow?.autoRenewEnabled ? 'Renovacion automatica activa' : 'Renovacion manual requerida',
+      date: targetRow?.subscriptionEndsAt ? formatDateCompact(targetRow.subscriptionEndsAt) : 'Sin fecha visible',
+      detail: targetRow?.renewalReminderDetail || 'Sin detalle visible',
+      state: targetRow?.autoRenewEnabled ? 'done' : 'current',
+    })
+
+    return events
+  }
+
+  if (filteredAircraftPaymentRows.value[0]) {
+    const targetRow = filteredAircraftPaymentRows.value[0]
+    return [
+      {
+        id: `created-${targetRow.aircraftId}`,
+        title: 'Suscripcion creada',
+        date: targetRow.lastPaymentAt ? formatDateCompact(targetRow.lastPaymentAt) : 'Pendiente',
+        detail: targetRow.flowDetail,
+        state: targetRow.hasPaymentRecord ? 'done' : 'upcoming',
+      },
+      {
+        id: `renewal-${targetRow.aircraftId}`,
+        title: 'Proximo cobro',
+        date: targetRow.subscriptionEndsAt ? formatDateCompact(targetRow.subscriptionEndsAt) : 'Sin fecha visible',
+        detail: `${targetRow.amountLabel} / mes`,
+        state: 'upcoming',
+      },
+      {
+        id: `mode-${targetRow.aircraftId}`,
+        title: targetRow.autoRenewEnabled ? 'Renovacion automatica activa' : 'Renovacion manual requerida',
+        date: targetRow.subscriptionEndsAt ? formatDateCompact(targetRow.subscriptionEndsAt) : 'Sin fecha visible',
+        detail: targetRow.renewalReminderDetail,
+        state: targetRow.autoRenewEnabled ? 'done' : 'current',
+      },
+    ]
+  }
+
+  return paymentHistoryFeed.value.slice(0, 6).map((payment) => ({
+    id: `history-${payment.id}`,
+    title: payment.statusNormalized === 'paid' ? 'Pago realizado' : payment.status,
+    date: formatDateCompact(payment.paidAt || payment.rawCreatedAt || payment.completedAt),
+    detail: payment.description || payment.amount,
+    state: payment.statusNormalized === 'paid' ? 'done' : 'upcoming',
+  }))
+})
 
 const providerOpenIncidents = computed(() =>
   incidents.value.filter((item) => !['Resuelta', 'Cerrada'].includes(item.status)),
@@ -3457,6 +3709,22 @@ function normalizeAircraft(raw = {}, index = 0) {
     billingPlanId: raw.billing_plan_id || raw.billingPlanId || null,
     subscriptionStartedAt: raw.subscription_started_at || raw.subscriptionStartedAt || null,
     subscriptionEndsAt: raw.subscription_ends_at || raw.subscriptionEndsAt || null,
+    providerSubscriptionId:
+      raw.provider_subscription_id || raw.subscription_id || raw.stripe_subscription_id || '',
+    providerCheckoutId:
+      raw.provider_checkout_id || raw.checkout_session_id || raw.stripe_checkout_session_id || '',
+    autoRenewEnabled:
+      raw.auto_renew_enabled ??
+      raw.autoRenewEnabled ??
+      raw.subscription_auto_renew ??
+      raw.subscriptionAutoRenew ??
+      null,
+    defaultPaymentMethodReady:
+      raw.default_payment_method_ready ??
+      raw.defaultPaymentMethodReady ??
+      raw.has_default_payment_method ??
+      raw.hasDefaultPaymentMethod ??
+      null,
     lastPaymentAt: raw.last_payment_at || raw.lastPaymentAt || null,
     approved: Boolean(raw.approved_at || raw.approved || raw.is_approved),
     approvedAt: raw.approved_at || raw.approvedAt || null,
@@ -3529,6 +3797,22 @@ function humanizeAircraftStatus(status = '') {
   return status || 'Sin estado'
 }
 
+function getDateDiffInDays(value) {
+  if (!value) return null
+  const target = new Date(value)
+  if (Number.isNaN(target.getTime())) return null
+
+  const startOfToday = new Date()
+  startOfToday.setHours(0, 0, 0, 0)
+
+  const endDate = new Date(target)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(value).trim())) {
+    endDate.setHours(23, 59, 59, 999)
+  }
+
+  return Math.ceil((endDate.getTime() - startOfToday.getTime()) / 86400000)
+}
+
 function hasExpiredAircraftSubscription(item = {}) {
   const rawEndsAt = String(item.subscriptionEndsAt || item.subscription_ends_at || item.ends_at || '')
     .trim()
@@ -3543,6 +3827,187 @@ function hasExpiredAircraftSubscription(item = {}) {
   if (Number.isNaN(endsAt.getTime())) return false
 
   return endsAt.getTime() < Date.now()
+}
+
+function resolveAircraftAutoRenewState(item = {}, relatedPayment = null) {
+  const explicitFlag = [
+    item.autoRenewEnabled,
+    item.auto_renew_enabled,
+    item.subscriptionAutoRenew,
+    item.subscription_auto_renew,
+    item.billingAutoRenew,
+    item.billing_auto_renew,
+    relatedPayment?.autoRenewEnabled,
+    relatedPayment?.auto_renew_enabled,
+  ].find((value) => value === true || value === false)
+
+  const providerSubscriptionId =
+    item.providerSubscriptionId ||
+    item.provider_subscription_id ||
+    relatedPayment?.providerSubscriptionId ||
+    relatedPayment?.provider_subscription_id ||
+    ''
+
+  const paymentMethodReadyCandidate = [
+    item.defaultPaymentMethodReady,
+    item.default_payment_method_ready,
+    item.paymentMethodReady,
+    item.payment_method_ready,
+    item.hasDefaultPaymentMethod,
+    item.has_default_payment_method,
+    relatedPayment?.defaultPaymentMethodReady,
+    relatedPayment?.default_payment_method_ready,
+  ].find((value) => value === true || value === false)
+
+  const normalizedStatus = String(
+    item.subscriptionStatus || item.billingStatus || item.status || '',
+  )
+    .trim()
+    .toLowerCase()
+
+  const autoRenewEnabled =
+    explicitFlag === true ||
+    (!hasExpiredAircraftSubscription(item) &&
+      Boolean(providerSubscriptionId) &&
+      ['active', 'paid', 'current', 'trialing'].includes(normalizedStatus))
+
+  const paymentMethodReady =
+    paymentMethodReadyCandidate === true ||
+    (paymentMethodReadyCandidate !== false && Boolean(providerSubscriptionId))
+
+  return {
+    autoRenewEnabled,
+    paymentMethodReady,
+    providerSubscriptionId: providerSubscriptionId || '',
+  }
+}
+
+function getAircraftRenewalMeta(item = {}, relatedPayment = null) {
+  const { autoRenewEnabled, paymentMethodReady, providerSubscriptionId } = resolveAircraftAutoRenewState(
+    item,
+    relatedPayment,
+  )
+  const daysUntilExpiry = getDateDiffInDays(item.subscriptionEndsAt || item.subscription_ends_at || item.ends_at || '')
+
+  if (daysUntilExpiry === null) {
+    return {
+      autoRenewEnabled,
+      mode: autoRenewEnabled ? 'automatic' : 'manual',
+      modeLabel: autoRenewEnabled ? 'Renovacion automatica' : 'Renovacion manual',
+      reminderLabel: 'Sin vigencia visible',
+      reminderDetail: autoRenewEnabled
+        ? 'La suscripcion esta ligada a Stripe, pero no hay fecha visible de vigencia.'
+        : 'Conviene revisar backend antes de que la aeronave quede sin renovacion trazable.',
+      tone: autoRenewEnabled ? 'info' : 'warning',
+      daysUntilExpiry: null,
+      isUrgent: !autoRenewEnabled,
+      canRenewNow: !autoRenewEnabled,
+      paymentMethodReady,
+      providerSubscriptionId,
+    }
+  }
+
+  if (daysUntilExpiry < 0) {
+    return {
+      autoRenewEnabled,
+      mode: autoRenewEnabled ? 'automatic' : 'manual',
+      modeLabel: autoRenewEnabled ? 'Cobro automatico vencido' : 'Renovacion manual vencida',
+      reminderLabel: 'Suscripcion vencida',
+      reminderDetail: autoRenewEnabled
+        ? 'Stripe debio renovar esta suscripcion; conviene validar metodo de pago y webhook.'
+        : 'La aeronave requiere un nuevo cobro para volver a activarse.',
+      tone: 'danger',
+      daysUntilExpiry,
+      isUrgent: true,
+      canRenewNow: true,
+      paymentMethodReady,
+      providerSubscriptionId,
+    }
+  }
+
+  if (autoRenewEnabled) {
+    if (!paymentMethodReady) {
+      return {
+        autoRenewEnabled,
+        mode: 'automatic',
+        modeLabel: 'Autopago con alerta',
+        reminderLabel: `Vence en ${daysUntilExpiry} dia(s)`,
+        reminderDetail: 'Hay suscripcion Stripe, pero no hay metodo de pago confirmado para renovar con seguridad.',
+        tone: daysUntilExpiry <= 7 ? 'danger' : 'warning',
+        daysUntilExpiry,
+        isUrgent: true,
+        canRenewNow: true,
+        paymentMethodReady,
+        providerSubscriptionId,
+      }
+    }
+
+    return {
+      autoRenewEnabled,
+      mode: 'automatic',
+      modeLabel: 'Renovacion automatica',
+      reminderLabel:
+        daysUntilExpiry <= 0
+          ? 'Renovacion en curso'
+          : `Cobro automatico en ${daysUntilExpiry} dia(s)`,
+      reminderDetail:
+        daysUntilExpiry <= 7
+          ? 'La aeronave debe renovarse automaticamente en Stripe. Solo monitorea el resultado del cobro.'
+          : 'La renovacion esta ligada a Stripe y no requiere accion manual por ahora.',
+      tone: daysUntilExpiry <= 7 ? 'info' : 'success',
+      daysUntilExpiry,
+      isUrgent: false,
+      canRenewNow: false,
+      paymentMethodReady,
+      providerSubscriptionId,
+    }
+  }
+
+  if (daysUntilExpiry <= 3) {
+    return {
+      autoRenewEnabled,
+      mode: 'manual',
+      modeLabel: 'Renovacion manual',
+      reminderLabel: `Vence en ${daysUntilExpiry} dia(s)`,
+      reminderDetail: 'Se recomienda pagar ahora para evitar que la aeronave salga de visibilidad.',
+      tone: 'danger',
+      daysUntilExpiry,
+      isUrgent: true,
+      canRenewNow: true,
+      paymentMethodReady,
+      providerSubscriptionId,
+    }
+  }
+
+  if (daysUntilExpiry <= 15) {
+    return {
+      autoRenewEnabled,
+      mode: 'manual',
+      modeLabel: 'Renovacion manual',
+      reminderLabel: `Renovar en los proximos ${daysUntilExpiry} dia(s)`,
+      reminderDetail: 'La suscripcion sigue activa, pero ya conviene lanzar el cobro anticipado.',
+      tone: 'warning',
+      daysUntilExpiry,
+      isUrgent: true,
+      canRenewNow: true,
+      paymentMethodReady,
+      providerSubscriptionId,
+    }
+  }
+
+  return {
+    autoRenewEnabled,
+    mode: 'manual',
+    modeLabel: 'Renovacion manual',
+    reminderLabel: `Vigente por ${daysUntilExpiry} dia(s)`,
+    reminderDetail: 'No hay autopago ligado. La renovacion tendra que dispararse manualmente antes del vencimiento.',
+    tone: 'info',
+    daysUntilExpiry,
+    isUrgent: false,
+    canRenewNow: daysUntilExpiry <= 30,
+    paymentMethodReady,
+    providerSubscriptionId,
+  }
 }
 
 function getAircraftBillingStatusMeta(item = {}) {
@@ -3637,7 +4102,18 @@ function wait(ms = 0) {
 }
 
 function setPaymentsTab(tabId = 'operations') {
-  paymentsTab.value = tabId === 'aircraft' ? 'aircraft' : 'operations'
+  const allowedTabs = new Set(['operations', 'aircraft', 'pending', 'history'])
+  const nextTab = allowedTabs.has(tabId) ? tabId : 'operations'
+  paymentsTab.value = nextTab
+
+  if (props.section === 'pagos' && route.query.payments_tab !== nextTab) {
+    router.replace({
+      query: {
+        ...route.query,
+        payments_tab: nextTab,
+      },
+    })
+  }
 }
 
 function focusAircraftBilling(aircraftId = null) {
@@ -3748,7 +4224,7 @@ async function refreshAircraftBillingStatus(aircraftId, options = {}) {
     const response = await requestWithCandidates([
       {
         method: 'get',
-        path: `/provider/aircraft/${aircraftId}/billing-status`,
+        path: `/provider/aircraft/${aircraftId}/billing`,
         query: {
           session_id: sessionId,
         },
@@ -3815,7 +4291,7 @@ async function activateAircraftBilling(item = {}) {
     const response = await requestWithCandidates([
       {
         method: 'post',
-        path: `/provider/aircraft/${aircraftId}/billing/create`,
+        path: `/provider/aircraft/${aircraftId}/billing`,
         body: {
           success_url: successUrl,
           cancel_url: cancelUrl,
@@ -4916,6 +5392,18 @@ function normalizePayment(raw = {}, index = 0) {
     providerCheckoutId: raw.checkout_session_id || raw.provider_checkout_id || '',
     providerSubscriptionId: raw.subscription_id || raw.provider_subscription_id || '',
     paidAt: raw.paid_at || '',
+    autoRenewEnabled:
+      raw.auto_renew_enabled ??
+      raw.autoRenewEnabled ??
+      raw.subscription_auto_renew ??
+      raw.subscriptionAutoRenew ??
+      null,
+    defaultPaymentMethodReady:
+      raw.default_payment_method_ready ??
+      raw.defaultPaymentMethodReady ??
+      raw.has_default_payment_method ??
+      raw.hasDefaultPaymentMethod ??
+      null,
     isAircraftSubscription,
   }
 }
@@ -6083,7 +6571,45 @@ function formatDateTimeDisplay(value = '') {
   }).format(parsed)
 }
 
-function formatCurrency(value) {
+function formatDateCompact(value = '') {
+  if (!value) return 'Sin fecha'
+
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    return formatDateTimeRange(value).slice(0, 10) || String(value)
+  }
+
+  return new Intl.DateTimeFormat('es-MX', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'America/Mexico_City',
+  }).format(parsed)
+}
+
+function formatRelativeAccessLabel(value = '') {
+  if (!value) return 'Hoy'
+
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return 'Hoy'
+
+  const now = new Date()
+  const sameDay =
+    parsed.getDate() === now.getDate() &&
+    parsed.getMonth() === now.getMonth() &&
+    parsed.getFullYear() === now.getFullYear()
+
+  const timeLabel = new Intl.DateTimeFormat('es-MX', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: 'America/Mexico_City',
+  }).format(parsed)
+
+  return sameDay ? `Hoy ${timeLabel}` : `${formatDateCompact(parsed.toISOString())} ${timeLabel}`
+}
+
+function formatCurrency(value, currency = 'MXN') {
   const numericValue =
     typeof value === 'number' ? value : Number(String(value).replace(/[^0-9.-]+/g, ''))
 
@@ -6093,7 +6619,7 @@ function formatCurrency(value) {
 
   return new Intl.NumberFormat('es-MX', {
     style: 'currency',
-    currency: 'MXN',
+    currency: String(currency || 'MXN').toUpperCase(),
     maximumFractionDigits: 0,
   }).format(numericValue)
 }
@@ -9057,7 +9583,7 @@ watch(
   () => [props.section, route.query.payments_tab],
   ([nextSection, nextTab]) => {
     if (nextSection !== 'pagos') return
-    setPaymentsTab(String(nextTab || '').trim().toLowerCase() === 'aircraft' ? 'aircraft' : 'operations')
+    setPaymentsTab(String(nextTab || '').trim().toLowerCase() || 'operations')
   },
   { immediate: true },
 )
@@ -9186,12 +9712,20 @@ watch(
       activeAircraft,
       aircraftPaymentsActive,
       aircraftPaymentsPending,
+      operationalPayments,
       aircraftPaymentRows,
       filteredAircraftPaymentRows,
       selectedPaymentsAircraftId,
       selectedPaymentsAircraft,
       selectedAircraftPaymentTimeline,
+      selectedPaymentTimeline,
       latestSelectedAircraftPayment,
+      providerAircraftBillingCurrency,
+      pendingPaymentRecords,
+      paymentExecutiveSummary,
+      providerPaymentProfile,
+      paymentHistoryFeed,
+      showAircraftPaymentsTable,
       pendingRequests,
       activeOperations,
       openIncidents,
@@ -9442,6 +9976,7 @@ watch(
       endOfAvailabilityDay,
       isSameAvailabilityDay,
       formatDateTimeDisplay,
+      formatDateCompact,
       formatCurrency,
       formatDocumentExpiry,
       normalizeAvailabilityStatusForBackend,

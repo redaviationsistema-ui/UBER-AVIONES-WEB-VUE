@@ -2829,8 +2829,41 @@ function aircraftDurationLabel(aircraft = {}) {
   )
 }
 
+function aircraftPrimaryDurationLabel(aircraft = {}) {
+  if (hasBackendQuotedPricing(aircraft)) {
+    const billableHours = Number(
+      aircraft.debug_pricing?.final_billable_hours || aircraft.billable_hours || 0,
+    )
+    const hoursSource = String(
+      aircraft.debug_pricing?.hours_source || aircraft.flight_base_source || '',
+    ).trim()
+
+    if (billableHours > 0 && hoursSource === 'billable_hours') {
+      const billableLabel = formatDurationFromHours(billableHours)
+      if (billableLabel) return billableLabel
+    }
+  }
+
+  return aircraftDurationLabel(aircraft)
+}
+
 function aircraftBillingNote(aircraft = {}) {
   if (hasBackendQuotedPricing(aircraft)) {
+    const displayHours = Number(aircraftDisplayFlightHours(aircraft) || 0)
+    const billableHours = Number(
+      aircraft.debug_pricing?.final_billable_hours || aircraft.billable_hours || 0,
+    )
+
+    if (
+      Number.isFinite(displayHours) &&
+      Number.isFinite(billableHours) &&
+      displayHours > 0 &&
+      billableHours > 0 &&
+      Math.abs(displayHours - billableHours) >= 0.05
+    ) {
+      return `Tiempo estimado de vuelo ${formatDurationFromHours(displayHours)}. Horas cobrables ${formatDurationFromHours(billableHours)}.`
+    }
+
     return ''
   }
 
@@ -2867,7 +2900,7 @@ function itineraryDepartureLabel(summary = {}) {
 }
 
 function aircraftSpeedLine(aircraft = {}, summary = {}) {
-  return `${aircraftDurationLabel(aircraft)} • ${itineraryDepartureLabel(summary)}`
+  return `${aircraftPrimaryDurationLabel(aircraft)} • ${itineraryDepartureLabel(summary)}`
 }
 
 function aircraftIncludes(aircraft = {}) {
@@ -2996,9 +3029,7 @@ function aircraftPricingForType(aircraft = {}, priorityType = 'essential') {
         0,
     )
     const billableHours = Number(aircraft.billable_hours || 0)
-    const overnightCost = Number(
-      aircraft.overnight_cost || aircraft.overnight_fees || aircraft.overnight_fee || 0,
-    )
+    const overnightCost = Number(aircraft.overnight_cost || aircraft.overnight_fees || 0)
     const expenseFee = Number(aircraft.airport_expenses || aircraft.expense_fee || 0)
     const ivaAmount = Number(aircraft.iva_amount || aircraft.taxes || aircraft.tax || 0)
     const subtotalBeforeMultipliers =

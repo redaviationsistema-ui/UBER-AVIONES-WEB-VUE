@@ -3106,29 +3106,58 @@
 
     <section v-else-if="section === 'pagos'" class="page-grid">
       <article class="surface">
-        <div class="section-head">
-          <div>
+        <div class="payments-premium-hero">
+          <div class="payments-premium-hero__copy">
             <p class="eyebrow">Pagos / liquidaciones</p>
-            <h2>Flujo de cobros operativos y de aeronaves</h2>
+            <h2>Cabina financiera del proveedor</h2>
+            <p class="muted">
+              Monitorea liquidaciones, renovaciones de aeronaves y proximos cobros desde una sola vista operativa.
+            </p>
+            <div class="payments-premium-nav">
+              <span>Operacion</span>
+              <span>Coordinacion</span>
+              <span>Control</span>
+            </div>
           </div>
-          <span class="badge">El proveedor no cobra directo al cliente</span>
+
+          <div class="payments-provider-card">
+            <div class="payments-provider-card__top">
+              <div class="payments-provider-card__avatar">{{ providerPaymentProfile.initials }}</div>
+              <div>
+                <span class="badge">{{ providerPaymentProfile.verification }}</span>
+                <strong>{{ providerPaymentProfile.company }}</strong>
+                <small>{{ providerPaymentProfile.roleLabel }}</small>
+              </div>
+            </div>
+
+            <div class="payments-provider-card__meta">
+              <div>
+                <span>Empresa</span>
+                <strong>{{ providerPaymentProfile.company }}</strong>
+              </div>
+              <div>
+                <span>Ultimo acceso</span>
+                <strong>{{ providerPaymentProfile.lastAccess }}</strong>
+              </div>
+              <div>
+                <span>Sesion</span>
+                <strong>{{ providerPaymentProfile.onlineLabel }}</strong>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div class="payments-hero-grid">
-          <article class="payments-summary-card">
-            <span>Liquidaciones visibles</span>
-            <strong>{{ payments.length }}</strong>
-            <small>Pagos operativos cargados por backend.</small>
-          </article>
-          <article class="payments-summary-card">
-            <span>Aeronaves por activar</span>
-            <strong>{{ aircraftPaymentsPending }}</strong>
-            <small>Suscripciones que aun no quedan activas.</small>
-          </article>
-          <article class="payments-summary-card">
-            <span>Aeronaves activas</span>
-            <strong>{{ aircraftPaymentsActive }}</strong>
-            <small>Mensualidades activas y visibles en sistema.</small>
+        <div class="payments-executive-grid">
+          <article
+            v-for="item in paymentExecutiveSummary"
+            :key="item.id"
+            class="payments-executive-card"
+            :data-tone="item.tone"
+          >
+            <span class="payments-executive-card__icon">{{ item.icon }}</span>
+            <p>{{ item.label }}</p>
+            <strong>{{ item.value }}</strong>
+            <small>{{ item.detail }}</small>
           </article>
         </div>
 
@@ -3147,13 +3176,15 @@
         </div>
 
         <div v-if="paymentsTab === 'operations'" class="list-grid">
-          <article v-for="payment in payments" :key="payment.id" class="list-card">
+          <article v-for="payment in operationalPayments" :key="payment.id" class="list-card payments-operation-card">
             <div class="card-top">
               <div>
                 <strong>{{ payment.flight }}</strong>
-                <p class="muted">{{ payment.completedAt }} - {{ payment.amount }}</p>
+                <p class="muted">{{ payment.completedAt }} · {{ payment.amount }}</p>
               </div>
-              <span class="badge">{{ payment.status }}</span>
+              <span class="payments-status-badge" :data-tone="payment.statusNormalized === 'paid' ? 'success' : payment.statusNormalized === 'pending' ? 'warning' : 'info'">
+                {{ payment.statusNormalized === 'paid' ? 'Pagado' : payment.statusNormalized === 'pending' ? 'Pendiente' : payment.status }}
+              </span>
             </div>
 
             <p class="muted">{{ payment.description }}</p>
@@ -3166,134 +3197,268 @@
               <span class="badge">Solo lectura</span>
             </div>
           </article>
-          <p v-if="!payments.length" class="empty-state">
+          <p v-if="!operationalPayments.length" class="empty-state">
             Aun no hay liquidaciones operativas visibles para este proveedor.
           </p>
         </div>
 
-        <div v-else class="list-grid">
-          <article v-if="selectedPaymentsAircraft && filteredAircraftPaymentRows.length" class="list-card aircraft-payment-hero">
+        <div v-else-if="paymentsTab === 'pending'" class="list-grid">
+          <article v-for="item in pendingPaymentRecords" :key="item.id" class="list-card payments-pending-card" :data-tone="item.tone">
             <div class="card-top">
               <div>
-                <strong>{{ selectedPaymentsAircraft.name }}</strong>
-                <p class="muted">{{ selectedPaymentsAircraft.registration || 'Sin matricula' }} · {{ selectedPaymentsAircraft.base || 'Sin base' }}</p>
+                <strong>{{ item.title }}</strong>
+                <p class="muted">{{ item.subtitle }}</p>
               </div>
-              <span
-                class="status-pill"
-                :data-tone="filteredAircraftPaymentRows[0].tone"
-              >{{ filteredAircraftPaymentRows[0].status }}</span>
+              <span class="payments-status-badge" :data-tone="item.tone">{{ item.status }}</span>
             </div>
-
             <div class="payments-aircraft-grid">
               <div>
-                <span class="mini-label">Estado BD</span>
-                <strong>{{ filteredAircraftPaymentRows[0].hasPaymentRecord ? 'Pago localizado en base de datos' : 'Sin pago confirmado en base de datos' }}</strong>
+                <span class="mini-label">Monto</span>
+                <strong>{{ item.amountLabel }}</strong>
               </div>
               <div>
-                <span class="mini-label">Ultimo cobro confirmado</span>
-                <strong>{{ latestSelectedAircraftPayment?.statusNormalized === 'paid' ? (latestSelectedAircraftPayment.paidAt || latestSelectedAircraftPayment.completedAt || 'Confirmado') : 'Aun no confirmado' }}</strong>
-              </div>
-              <div>
-                <span class="mini-label">Referencia activa</span>
-                <strong>{{ latestSelectedAircraftPayment?.providerSubscriptionId || latestSelectedAircraftPayment?.reference || filteredAircraftPaymentRows[0].reference }}</strong>
-              </div>
-              <div>
-                <span class="mini-label">Proximo pago</span>
-                <strong>{{ filteredAircraftPaymentRows[0].subscriptionEndsAt ? formatDateTimeRange(filteredAircraftPaymentRows[0].subscriptionEndsAt) : 'Sin vigencia visible' }}</strong>
+                <span class="mini-label">Seguimiento</span>
+                <strong>{{ item.detail }}</strong>
               </div>
             </div>
-          </article>
-
-          <article
-            v-for="payment in filteredAircraftPaymentRows"
-            :key="payment.id"
-            class="list-card aircraft-payment-card"
-            :data-tone="payment.tone"
-          >
-            <div class="card-top">
-              <div>
-                <strong>{{ payment.aircraft }}</strong>
-                <p class="muted">{{ payment.registration }} · {{ payment.base }}</p>
-              </div>
-              <span class="status-pill" :data-tone="payment.tone">{{ payment.status }}</span>
-            </div>
-
-            <p class="muted">{{ payment.description }}</p>
-
-            <div class="payments-aircraft-grid">
-              <div>
-                <span class="mini-label">Mensualidad</span>
-                <strong>{{ payment.amountLabel }} / mes</strong>
-              </div>
-              <div>
-                <span class="mini-label">Metodo</span>
-                <strong>{{ payment.paymentMethod }}</strong>
-              </div>
-              <div>
-                <span class="mini-label">Referencia</span>
-                <strong>{{ payment.reference }}</strong>
-              </div>
-              <div>
-                <span class="mini-label">Ultimo evento</span>
-                <strong>{{
-                  payment.subscriptionEndsAt
-                    ? `Activa hasta ${formatDateTimeRange(payment.subscriptionEndsAt)}`
-                    : payment.lastPaymentAt || 'Sin pago confirmado'
-                }}</strong>
-              </div>
-            </div>
-
-            <article class="billing-status-card" :data-tone="payment.tone">
-              <div class="card-top">
-                <div>
-                  <span class="mini-label">Flujo</span>
-                  <strong>{{ payment.hasPaymentRecord ? 'Pago localizado' : 'Pago pendiente o no sincronizado' }}</strong>
-                </div>
-                <span class="status-pill" :data-tone="payment.tone">{{ payment.paymentStatus }}</span>
-              </div>
-              <p class="muted compact-copy">{{ payment.flowDetail }}</p>
-            </article>
-
             <div class="inline-actions">
-              <button type="button" class="ghost-button" @click="focusAircraftBilling(payment.aircraftId); goToSection('aeronaves', { aircraft_id: String(payment.aircraftId) })">
-                Ver aeronave
-              </button>
               <button
-                v-if="payment.action === 'activate'"
-                type="button"
-                class="primary-action"
-                @click="activateAircraftBilling(aircraft.find((item) => Number(item.id) === Number(payment.aircraftId)))"
-              >
-                Pagar y activar
-              </button>
-              <button
+                v-if="item.kind === 'aircraft'"
                 type="button"
                 class="ghost-button"
-                @click="refreshAircraftBillingStatus(payment.aircraftId, { reloadAircraftList: true, reloadPayments: true })"
+                @click="focusAircraftBilling(item.aircraftId); setPaymentsTab('aircraft')"
               >
-                Actualizar estado
+                {{ item.actionLabel }}
+              </button>
+              <button
+                v-else
+                type="button"
+                class="ghost-button"
+                @click="setPaymentsTab('operations')"
+              >
+                {{ item.actionLabel }}
               </button>
             </div>
           </article>
-          <article
-            v-for="payment in selectedAircraftPaymentTimeline"
-            :key="`timeline-${payment.id}`"
-            class="list-card aircraft-payment-event"
-          >
+          <p v-if="!pendingPaymentRecords.length" class="empty-state">
+            No hay pagos pendientes visibles. La cartera del proveedor esta al corriente.
+          </p>
+        </div>
+
+        <div v-else-if="paymentsTab === 'history'" class="list-grid">
+          <article v-for="payment in paymentHistoryFeed" :key="payment.id" class="list-card payments-history-card">
             <div class="card-top">
               <div>
-                <strong>{{ payment.statusNormalized === 'paid' ? 'Cobro confirmado' : payment.statusNormalized === 'pending' ? 'Intento pendiente' : 'Evento de cobro' }}</strong>
-                <p class="muted">{{ payment.completedAt }} · {{ payment.amount }}</p>
+                <strong>{{ payment.statusNormalized === 'paid' ? 'Pago realizado' : payment.status }}</strong>
+                <p class="muted">{{ formatDateCompact(payment.paidAt || payment.rawCreatedAt || payment.completedAt) }} · {{ payment.amount }}</p>
               </div>
-              <span class="status-pill" :data-tone="payment.statusNormalized === 'paid' ? 'success' : payment.statusNormalized === 'pending' ? 'warning' : 'neutral'">
-                {{ payment.status }}
+              <span class="payments-status-badge" :data-tone="payment.statusNormalized === 'paid' ? 'success' : payment.statusNormalized === 'pending' ? 'warning' : 'info'">
+                {{ payment.statusNormalized === 'paid' ? 'Pagado' : payment.status }}
               </span>
             </div>
             <p class="muted">{{ payment.description }}</p>
             <div class="fleet-inline-metrics">
               <span>{{ payment.paymentMethod }}</span>
               <span>{{ payment.providerCheckoutId || payment.reference || 'Sin referencia' }}</span>
-              <span>{{ payment.providerSubscriptionId || 'Sin suscripcion' }}</span>
+              <span>{{ payment.providerSubscriptionId || payment.client }}</span>
+            </div>
+          </article>
+          <p v-if="!paymentHistoryFeed.length" class="empty-state">
+            Aun no existe historial de pagos para mostrar.
+          </p>
+        </div>
+
+        <div v-else class="list-grid payments-aircraft-layout">
+          <article v-if="selectedPaymentsAircraft && filteredAircraftPaymentRows.length" class="list-card aircraft-payment-hero payments-aircraft-hero">
+            <div class="card-top">
+              <div>
+                <strong>{{ selectedPaymentsAircraft.name }}</strong>
+                <p class="muted">{{ selectedPaymentsAircraft.base || 'Sin base' }}</p>
+              </div>
+              <div class="payments-aircraft-hero__badges">
+                <span class="payments-status-badge" :data-tone="filteredAircraftPaymentRows[0].tone">{{ filteredAircraftPaymentRows[0].status }}</span>
+                <span class="payments-status-badge" :data-tone="filteredAircraftPaymentRows[0].renewalTone">{{ filteredAircraftPaymentRows[0].renewalModeLabel }}</span>
+              </div>
+            </div>
+
+            <article class="billing-renewal-alert" :data-tone="filteredAircraftPaymentRows[0].renewalTone">
+              <div>
+                <span class="mini-label">Recordatorio de renovacion</span>
+                <strong>{{ filteredAircraftPaymentRows[0].renewalReminderLabel }}</strong>
+                <p class="muted compact-copy">{{ filteredAircraftPaymentRows[0].renewalReminderDetail }}</p>
+              </div>
+              <div class="billing-renewal-alert__meta">
+                <span class="badge">{{ filteredAircraftPaymentRows[0].providerSubscriptionId ? 'Stripe subscription enlazada' : 'Sin suscripcion Stripe enlazada' }}</span>
+                <span class="badge">{{ filteredAircraftPaymentRows[0].paymentMethodReady ? 'Metodo de pago listo' : 'Metodo de pago por validar' }}</span>
+              </div>
+            </article>
+
+            <div class="payments-aircraft-grid">
+              <div>
+                <span class="mini-label">Ultimo pago</span>
+                <strong>{{ latestSelectedAircraftPayment?.statusNormalized === 'paid' ? formatDateCompact(latestSelectedAircraftPayment.paidAt || latestSelectedAircraftPayment.completedAt) : 'Sin pago confirmado' }}</strong>
+              </div>
+              <div>
+                <span class="mini-label">Proximo pago</span>
+                <strong>{{ filteredAircraftPaymentRows[0].subscriptionEndsAt ? formatDateCompact(filteredAircraftPaymentRows[0].subscriptionEndsAt) : 'Sin vigencia visible' }}</strong>
+              </div>
+              <div>
+                <span class="mini-label">Referencia activa</span>
+                <strong>{{ latestSelectedAircraftPayment?.providerSubscriptionId || latestSelectedAircraftPayment?.reference || filteredAircraftPaymentRows[0].reference }}</strong>
+              </div>
+              <div>
+                <span class="mini-label">Modo de renovacion</span>
+                <strong>{{ filteredAircraftPaymentRows[0].renewalModeLabel }}</strong>
+              </div>
+            </div>
+          </article>
+
+          <div v-if="showAircraftPaymentsTable" class="table-shell payments-table-shell">
+            <div class="payments-table-head">
+              <span>Aeronave</span>
+              <span>Estado</span>
+              <span>Pago</span>
+              <span>Proximo</span>
+              <span>Monto</span>
+              <span>Acciones</span>
+            </div>
+            <div
+              v-for="payment in filteredAircraftPaymentRows"
+              :key="`table-${payment.id}`"
+              class="payments-table-row"
+            >
+              <div class="payments-table-aircraft">
+                <strong>{{ payment.aircraft }}</strong>
+                <small>{{ payment.registration }} · {{ payment.base }}</small>
+              </div>
+              <span class="payments-status-badge" :data-tone="payment.tone">{{ payment.status }}</span>
+              <strong>{{ payment.lastPaymentAt ? formatDateCompact(payment.lastPaymentAt) : 'Sin pago' }}</strong>
+              <strong>{{ payment.subscriptionEndsAt ? formatDateCompact(payment.subscriptionEndsAt) : 'Sin fecha' }}</strong>
+              <strong>{{ payment.amountLabel }}</strong>
+              <div class="inline-actions">
+                <button type="button" class="ghost-button" @click="focusAircraftBilling(payment.aircraftId)">Ver</button>
+                <button
+                  v-if="payment.canRenewNow"
+                  type="button"
+                  class="primary-action"
+                  @click="activateAircraftBilling(aircraft.find((item) => Number(item.id) === Number(payment.aircraftId)))"
+                >
+                  {{ payment.action === 'activate' ? 'Pagar' : 'Renovar' }}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <template v-else>
+            <article
+              v-for="payment in filteredAircraftPaymentRows"
+              :key="payment.id"
+              class="list-card aircraft-payment-card payments-aircraft-card"
+              :data-tone="payment.tone"
+            >
+              <div class="card-top">
+                <div>
+                  <strong>{{ payment.aircraft }}</strong>
+                  <p class="muted">{{ payment.base }}</p>
+                </div>
+                <span class="payments-status-badge" :data-tone="payment.tone">{{ payment.status }}</span>
+              </div>
+
+              <div class="payments-aircraft-grid">
+                <div>
+                  <span class="mini-label">Ultimo pago</span>
+                  <strong>{{ payment.lastPaymentAt ? formatDateCompact(payment.lastPaymentAt) : 'Sin pago confirmado' }}</strong>
+                </div>
+                <div>
+                  <span class="mini-label">Proximo pago</span>
+                  <strong>{{ payment.subscriptionEndsAt ? formatDateCompact(payment.subscriptionEndsAt) : 'Sin vigencia visible' }}</strong>
+                </div>
+                <div>
+                  <span class="mini-label">Referencia</span>
+                  <strong>{{ payment.reference }}</strong>
+                </div>
+                <div>
+                  <span class="mini-label">Renovacion</span>
+                  <strong>{{ payment.renewalModeLabel }}</strong>
+                </div>
+              </div>
+
+              <article class="billing-status-card" :data-tone="payment.tone">
+                <div class="card-top">
+                  <div>
+                    <span class="mini-label">Estado de cobro</span>
+                    <strong>{{ payment.hasPaymentRecord ? 'Pago localizado' : 'Pago pendiente o no sincronizado' }}</strong>
+                  </div>
+                  <span class="payments-status-badge" :data-tone="payment.tone">{{ payment.paymentStatus }}</span>
+                </div>
+                <p class="muted compact-copy">{{ payment.flowDetail }}</p>
+              </article>
+
+              <article class="billing-renewal-alert" :data-tone="payment.renewalTone">
+                <div>
+                  <span class="mini-label">Recordatorio de renovacion</span>
+                  <strong>{{ payment.renewalReminderLabel }}</strong>
+                  <p class="muted compact-copy">{{ payment.renewalReminderDetail }}</p>
+                </div>
+                <div class="billing-renewal-alert__meta">
+                  <span class="badge">{{ payment.providerSubscriptionId ? 'Autopago disponible' : 'Renovacion manual' }}</span>
+                  <span class="badge">{{ payment.paymentMethodReady ? 'Metodo listo' : 'Metodo por validar' }}</span>
+                </div>
+              </article>
+
+              <div class="inline-actions">
+                <button type="button" class="ghost-button" @click="focusAircraftBilling(payment.aircraftId); goToSection('aeronaves', { aircraft_id: String(payment.aircraftId) })">
+                  Ver aeronave
+                </button>
+                <button
+                  type="button"
+                  class="ghost-button"
+                  @click="focusAircraftBilling(payment.aircraftId)"
+                >
+                  Ver historial
+                </button>
+                <button
+                  v-if="payment.action === 'activate' || payment.canRenewNow"
+                  type="button"
+                  class="primary-action"
+                  @click="activateAircraftBilling(aircraft.find((item) => Number(item.id) === Number(payment.aircraftId)))"
+                >
+                  {{ payment.action === 'activate' ? 'Pagar y activar' : 'Renovar antes de vencer' }}
+                </button>
+                <button
+                  type="button"
+                  class="ghost-button"
+                  @click="refreshAircraftBillingStatus(payment.aircraftId, { reloadAircraftList: true, reloadPayments: true })"
+                >
+                  Actualizar estado
+                </button>
+              </div>
+            </article>
+          </template>
+
+          <article class="list-card payments-timeline-card">
+            <div class="card-top">
+              <div>
+                <strong>Timeline de pagos</strong>
+                <p class="muted">Seguimiento vertical de cobros, renovaciones y proximos eventos.</p>
+              </div>
+              <span class="badge">{{ selectedPaymentsAircraft ? selectedPaymentsAircraft.name : 'Vista general' }}</span>
+            </div>
+
+            <div class="payments-timeline">
+              <article
+                v-for="entry in selectedPaymentTimeline"
+                :key="entry.id"
+                class="payments-timeline-item"
+                :data-state="entry.state"
+              >
+                <span class="payments-timeline-item__dot"></span>
+                <div>
+                  <strong>{{ entry.title }}</strong>
+                  <p class="muted">{{ entry.date }}</p>
+                  <small>{{ entry.detail }}</small>
+                </div>
+              </article>
             </div>
           </article>
           <p v-if="!filteredAircraftPaymentRows.length" class="empty-state">

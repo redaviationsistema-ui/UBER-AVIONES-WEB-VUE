@@ -1,4 +1,4 @@
-import { api, resolveMediaUrl } from '../../lib/api'
+import { api, resolveApiRequestUrl, resolveMediaUrl } from '../../lib/api'
 import { featuredAirports } from '../../utils/airports'
 import {
   buildWorkflowApiPayload,
@@ -486,6 +486,9 @@ function buildPricingBreakdown(match = {}, aircraftRecord = {}, payload = {}, it
           backendPricing.repositioning_cost,
       ),
       overnightFee: asNumber(
+        match.overnight_fee || backendPricing.overnight_fee || backendPricing.crew_overnight_fee,
+      ),
+      overnightCost: asNumber(
         match.overnight_cost || match.overnight_fees || backendPricing.overnight_cost,
       ),
       additionalOperationalCost: asNumber(
@@ -524,6 +527,7 @@ function buildPricingBreakdown(match = {}, aircraftRecord = {}, payload = {}, it
         match.return_to_base_hours || backendPricing.return_to_base_hours,
       ),
       repositioningHours: asNumber(match.repositioning_hours || backendPricing.repositioning_hours),
+      overnightNights: asNumber(match.overnight_nights || backendPricing.overnight_nights),
       overnightHours: asNumber(match.overnight_hours || backendPricing.overnight_hours),
     }
   }
@@ -558,6 +562,13 @@ function buildPricingBreakdown(match = {}, aircraftRecord = {}, payload = {}, it
   const crewRate = asNumber(match.crew_rate || aircraftRecord.crew_rate)
   const repositioningFee = asNumber(match.repositioning_fee || aircraftRecord.repositioning_fee)
   const overnightFee = asNumber(match.overnight_fee || aircraftRecord.overnight_fee)
+  const overnightCost = asNumber(
+    match.overnight_cost ||
+      match.overnight_fees ||
+      aircraftRecord.overnight_cost ||
+      aircraftRecord.overnight_fees,
+  )
+  const overnightNights = asNumber(match.overnight_nights || aircraftRecord.overnight_nights)
   const additionalOperationalCost = asNumber(
     match.operational_cost || aircraftRecord.operational_cost || aircraftRecord.cost,
   )
@@ -597,7 +608,7 @@ function buildPricingBreakdown(match = {}, aircraftRecord = {}, payload = {}, it
     maintenance +
     crew +
     repositioningFee +
-    overnightFee +
+    overnightCost +
     additionalOperationalCost +
     fixedFeeTotal
   const utility = subtotal * marginPercent
@@ -611,7 +622,7 @@ function buildPricingBreakdown(match = {}, aircraftRecord = {}, payload = {}, it
       maintenanceRate > 0 ||
       crewRate > 0 ||
       repositioningFee > 0 ||
-      overnightFee > 0 ||
+      overnightCost > 0 ||
       additionalOperationalCost > 0 ||
       fixedFee > 0 ||
       marginPercent > 0)
@@ -628,6 +639,8 @@ function buildPricingBreakdown(match = {}, aircraftRecord = {}, payload = {}, it
     crewRate,
     repositioningFee,
     overnightFee,
+    overnightCost,
+    overnightNights,
     additionalOperationalCost,
     fixedFee,
     fixedFeeTotal,
@@ -644,7 +657,7 @@ function buildPricingBreakdown(match = {}, aircraftRecord = {}, payload = {}, it
   }
 }
 
-function normalizeMatches(payload, itinerary = {}) {
+function normalizeMatches(payload, itinerary = {}, requestMeta = {}) {
   const previewPayload =
     payload?.data && typeof payload.data === 'object' && !Array.isArray(payload.data)
       ? payload.data
@@ -677,6 +690,20 @@ function normalizeMatches(payload, itinerary = {}) {
     const imageRecord = { ...match, ...aircraftRecord }
     const aircraftImages = normalizeAircraftImages(imageRecord)
     const pricing = buildPricingBreakdown(match, aircraftRecord, payload, itinerary)
+    const normalizedOvernightFee = asNumber(
+      match.overnight_fee || backendPricing?.overnight_fee || aircraftRecord?.overnight_fee,
+    )
+    const normalizedOvernightNights = asNumber(
+      match.overnight_nights ||
+        backendPricing?.overnight_nights ||
+        itinerary?.overnight_nights ||
+        itinerary?.days,
+    )
+    const normalizedOvernightCost = backendPricing
+      ? asNumber(
+          match.overnight_cost || match.overnight_fees || backendPricing.overnight_cost,
+        )
+      : asNumber(match.overnight_cost || match.overnight_fees || pricing.overnightCost)
     const resolvedTotal = pricing.hasFormulaInputs
       ? pricing.total
       : asNumber(match.total || match.price, 0)
@@ -694,6 +721,26 @@ function normalizeMatches(payload, itinerary = {}) {
         aircraftImages[0]?.imageUrl ||
         '',
     )
+    const finalBillableHours = asNumber(
+      match.billable_hours || backendPricing?.final_billable_hours || backendPricing?.billable_hours,
+    )
+    const hoursSource =
+      match.hours_source ||
+      backendPricing?.hours_source ||
+      match.flight_base_source ||
+      backendPricing?.flight_base_source ||
+      'backend_preview'
+    const expenseFeeSource =
+      match.expense_fee_source ||
+      backendPricing?.expense_fee_source ||
+      (asNumber(match.expense_fee || match.airport_expenses || backendPricing?.expense_fee) > 0
+        ? 'backend_preview'
+        : '')
+    const pricingSource =
+      match.quote_strategy ||
+      backendPricing?.quote_strategy ||
+      requestMeta.pricingSource ||
+      'official_backend_pricing_v2'
 
     return {
       id: match.id || `match-${index}`,
@@ -781,10 +828,10 @@ function normalizeMatches(payload, itinerary = {}) {
       fbo_fees: asNumber(match.fbo_fees || match.fbo || 0, 0),
       fuel_surcharge: asNumber(match.fuel_surcharge || 0, 0),
       expense_fee: asNumber(match.expense_fee || match.airport_expenses || 0, 0),
-      overnight_fees: asNumber(
-        match.overnight_cost || match.overnight_fees || match.overnight_fee || 0,
-        0,
-      ),
+      overnight_fees: normalizedOvernightCost,
+      overnight_fee: normalizedOvernightFee,
+      overnight_cost: normalizedOvernightCost,
+      overnight_nights: normalizedOvernightNights,
       taxes: asNumber(match.iva_amount || match.taxes || match.tax || 0, 0),
       hidden_operator: match.hidden_operator ?? true,
       amenities: Array.isArray(match.amenities)
@@ -896,13 +943,25 @@ function normalizeMatches(payload, itinerary = {}) {
         pricing.repositioningFee || match.repositioning_cost || match.repositioning_fee || '',
       return_to_base_cost: pricing.returnToBaseCost || match.return_to_base_cost || '',
       return_to_base_hours: pricing.returnToBaseHours || match.return_to_base_hours || '',
-      overnight_fee: pricing.overnightFee || match.overnight_cost || match.overnight_fee || '',
-      overnight_cost: pricing.overnightFee || match.overnight_cost || match.overnight_fee || '',
+      overnight_fee: normalizedOvernightFee,
+      overnight_cost: normalizedOvernightCost,
       airport_expenses:
         pricing.airportExpenses || match.airport_expenses || match.expense_fee || '',
       minimum_adjustment: pricing.minimumAdjustment || match.minimum_adjustment || '',
       margin_amount: pricing.utility || match.margin_amount || '',
       subtotal_before_margin: pricing.subtotalBeforeMargin || match.subtotal_before_margin || '',
+      source: requestMeta.source || 'backend_preview',
+      pricing_source: pricingSource,
+      endpoint_url: requestMeta.endpointUrl || '',
+      debug_pricing: {
+        ...(backendPricing || {}),
+        hours_source: hoursSource,
+        expense_fee_source: expenseFeeSource,
+        final_billable_hours: finalBillableHours,
+        overnight_fee: normalizedOvernightFee,
+        overnight_nights: normalizedOvernightNights,
+        overnight_cost: normalizedOvernightCost,
+      },
       pricing_context: backendPricing || null,
       pricing_breakdown: backendPricing
         ? backendPricing
@@ -917,7 +976,10 @@ function normalizeMatches(payload, itinerary = {}) {
               maintenance: Number(pricing.maintenance.toFixed(2)),
               crew: Number(pricing.crew.toFixed(2)),
               repositioning: Number(pricing.repositioningFee.toFixed(2)),
-              overnight: Number(pricing.overnightFee.toFixed(2)),
+              overnight: Number((pricing.overnightCost || 0).toFixed(2)),
+              overnight_fee: Number(normalizedOvernightFee.toFixed(2)),
+              overnight_nights: Number(normalizedOvernightNights.toFixed(2)),
+              overnight_cost: Number(normalizedOvernightCost.toFixed(2)),
               additional_operational_cost: Number(pricing.additionalOperationalCost.toFixed(2)),
               fixed_fee: Number(pricing.fixedFee.toFixed(2)),
               fixed_fee_total: Number(pricing.fixedFeeTotal.toFixed(2)),
@@ -1285,7 +1347,8 @@ function normalizeAircraftFromDatabase(raw = {}, index = 0, sourcePath = '') {
     fbo_fees: asNumber(raw.fbo_fees || raw.fbo || 0, 0),
     fuel_surcharge: asNumber(raw.fuel_surcharge || 0, 0),
     expense_fee: asNumber(raw.expense_fee || raw.airport_expenses || 0, 0),
-    overnight_fees: asNumber(raw.overnight_fees || raw.overnight_fee || 0, 0),
+    overnight_fees: asNumber(raw.overnight_cost || raw.overnight_fees || 0, 0),
+    overnight_cost: asNumber(raw.overnight_cost || raw.overnight_fees || 0, 0),
     taxes: asNumber(raw.iva_amount || raw.taxes || raw.tax || 0, 0),
     hidden_operator: true,
     amenities: normalizeAmenities(raw),
@@ -1322,6 +1385,7 @@ function normalizeAircraftFromDatabase(raw = {}, index = 0, sourcePath = '') {
     attention_level: normalizeAttentionLevel(raw.attention_level || raw.priority_level || ''),
     repositioning_fee: raw.repositioning_fee || '',
     overnight_fee: raw.overnight_fee || '',
+    overnight_nights: asNumber(raw.overnight_nights || 0, 0),
     provider: raw.provider || null,
     image_url: images[0]?.imageUrl || '',
     images,
@@ -1480,8 +1544,18 @@ function buildCatalogFallbackQuotes(catalog = [], itinerary = {}) {
       const fallbackFinalPrice = asNumber(
         aircraft.final_price || aircraft.price || aircraft.quoted_price || fallbackBasePrice,
       )
+      const appliedOvernightCost = asNumber(aircraft.overnight_cost || aircraft.overnight_fees)
+      const formulaOvernightCost = asNumber(pricing.extraServices?.overnight)
+      const overnightDelta = appliedOvernightCost - formulaOvernightCost
+      const adjustedIvaAmount = Math.max(
+        asNumber(pricing.ivaAmount) + overnightDelta * asNumber(pricing.ivaRate),
+        0,
+      )
       const basePrice = pricing.baseCost > 0 ? pricing.baseCost : fallbackBasePrice
-      const finalPrice = pricing.finalPrice > 0 ? pricing.finalPrice : fallbackFinalPrice
+      const finalPrice =
+        pricing.finalPrice > 0
+          ? Math.max(pricing.finalPrice + overnightDelta * (1 + asNumber(pricing.ivaRate)), 0)
+          : fallbackFinalPrice
       const billableHours =
         pricing.billableHours > 0 ? pricing.billableHours : asNumber(aircraft.billable_hours)
       const estimatedHours =
@@ -1501,10 +1575,22 @@ function buildCatalogFallbackQuotes(catalog = [], itinerary = {}) {
           `Aeronave ${aircraft.id || ''}`.trim()
         const quoteLines = [
           `[Cotizador mercado] ${aircraftLabel}`,
+          `- Aircraft id: ${aircraft.aircraft_id || aircraft.id || ''}`,
+          `- Aircraft name: ${aircraft.aircraft || aircraft.model || aircraft.name || aircraftLabel}`,
+          `- Source: catalog_fallback_quote`,
+          `- Pricing source: frontend_catalog_fallback`,
+          `- Endpoint URL: ${aircraft.source_endpoint || CLIENT_AIRCRAFT_PATHS[0] || ''}`,
+          `- Hours source: frontend_formula_fallback`,
+          `- Expense fee source: ${
+            aircraft.airport_expenses_usd || aircraft.airport_expenses || aircraft.expense_fee
+              ? 'catalog_aircraft_record'
+              : 'category_default'
+          }`,
+          `- Final billable hours: ${Number((billableHours || 0).toFixed(2))}`,
           `- Vuelo base: ${Number(basePrice.toFixed(2))}`,
-          `- Overnight: ${Number((pricing.extraServices?.overnight || 0).toFixed(2))}`,
+          `- Overnight: ${Number(appliedOvernightCost.toFixed(2))}`,
           `- Expense fee: ${Number((pricing.expenseFee || 0).toFixed(2))}`,
-          `- IVA: ${Number((pricing.ivaAmount || 0).toFixed(2))}`,
+          `- IVA: ${Number(adjustedIvaAmount.toFixed(2))}`,
           `- Total: ${Number(finalPrice.toFixed(2))}`,
           `- Horas cobrables: ${Number((billableHours || 0).toFixed(2))}`,
         ]
@@ -1532,7 +1618,7 @@ function buildCatalogFallbackQuotes(catalog = [], itinerary = {}) {
             : asNumber(aircraft.operational_cost),
         repositioning_fee:
           pricing.repositioning > 0 ? pricing.repositioning : asNumber(aircraft.repositioning_fee),
-        taxes: pricing.ivaAmount > 0 ? pricing.ivaAmount : asNumber(aircraft.taxes || aircraft.tax),
+        taxes: pricing.ivaAmount > 0 ? adjustedIvaAmount : asNumber(aircraft.taxes || aircraft.tax),
         time: aircraft.time || formatDurationFromHours(estimatedHours),
         estimated_hours: estimatedHours || '',
         billable_hours: billableHours || '',
@@ -1562,14 +1648,30 @@ function buildCatalogFallbackQuotes(catalog = [], itinerary = {}) {
             : asNumber(aircraft.priority_factor, 1),
         subtotal_before_multipliers:
           pricing.subtotalBeforeMultipliers > 0
-            ? pricing.subtotalBeforeMultipliers
+            ? Math.max(pricing.subtotalBeforeMultipliers + overnightDelta, 0)
             : asNumber(aircraft.subtotal_before_multipliers),
         extra_services_total:
-          pricing.extraServicesTotal > 0
-            ? pricing.extraServicesTotal
+          pricing.extraServicesTotal > 0 || appliedOvernightCost > 0
+            ? Math.max(pricing.extraServicesTotal + overnightDelta, 0)
             : asNumber(aircraft.extra_services_total),
+        overnight_fees: appliedOvernightCost,
+        overnight_cost: appliedOvernightCost,
+        source: 'catalog_fallback_quote',
+        pricing_source: 'frontend_catalog_fallback',
+        endpoint_url: aircraft.source_endpoint || CLIENT_AIRCRAFT_PATHS[0] || '',
         source_table: aircraft.source_table || 'catalog_fallback_quote',
         match_reason: aircraft.match_reason || 'Cotizacion generada desde la base de salida',
+        debug_pricing: {
+          ...(aircraft.debug_pricing && typeof aircraft.debug_pricing === 'object'
+            ? aircraft.debug_pricing
+            : {}),
+          hours_source: 'frontend_formula_fallback',
+          expense_fee_source:
+            aircraft.airport_expenses_usd || aircraft.airport_expenses || aircraft.expense_fee
+              ? 'catalog_aircraft_record'
+              : 'category_default',
+          final_billable_hours: Number((billableHours || 0).toFixed(2)),
+        },
       }
     })
     .filter(Boolean)
@@ -2927,12 +3029,17 @@ export async function searchClientFlights(itinerary, options = {}) {
     passengers: itinerary?.passengers || '',
   }
   let matches = []
+  const quoteEndpointUrl = resolveApiRequestUrl(QUOTES_PREVIEW_PATH)
 
   try {
     const payload = await api.post(QUOTES_PREVIEW_PATH, buildFlightRequestPayload(itinerary), {
       timeoutMs: options.timeoutMs || CLIENT_QUOTES_TIMEOUT_MS,
     })
-    matches = normalizeMatches(payload, itinerary)
+    matches = normalizeMatches(payload, itinerary, {
+      endpointUrl: quoteEndpointUrl,
+      source: 'backend_preview',
+      pricingSource: 'official_backend_pricing_v2',
+    })
 
     if (typeof console !== 'undefined') {
       matches.forEach((item, index) => {
@@ -2943,7 +3050,19 @@ export async function searchClientFlights(itinerary, options = {}) {
           item.aircraft_category ||
           `Aeronave ${index + 1}`
         const basePrice = Number(item.base_price || 0)
-        const overnightCost = Number(item.pricing_breakdown?.overnight || item.overnight_fees || 0)
+        const debugPricing =
+          item.debug_pricing && typeof item.debug_pricing === 'object' ? item.debug_pricing : {}
+        const overnightFee = Number(debugPricing.overnight_fee || item.overnight_fee || 0)
+        const overnightNights = Number(
+          debugPricing.overnight_nights || item.overnight_nights || 0,
+        )
+        const overnightCost = Number(
+          debugPricing.overnight_cost ||
+            item.overnight_cost ||
+            item.pricing_breakdown?.overnight_cost ||
+            item.overnight_fees ||
+            0,
+        )
         const expenseFee = Number(item.expense_fee || 0)
         const ivaAmount = Number(item.taxes || item.tax || 0)
         const finalPrice = Number(item.total || item.final_price || 0)
@@ -2958,16 +3077,51 @@ export async function searchClientFlights(itinerary, options = {}) {
         const hourlyRate = Number(
           item.hourly_rate || item.pricing_breakdown?.hourly_rate || 0,
         )
+        const source = String(item.source || item.source_table || 'backend_preview')
+        const pricingSource = String(item.pricing_source || item.quote_strategy || 'backend')
+        const endpointUrl = String(item.endpoint_url || quoteEndpointUrl || '')
+        const finalBillableHours = Number(
+          item.debug_pricing?.final_billable_hours || item.billable_hours || 0,
+        )
+        const hoursSource = String(
+          item.debug_pricing?.hours_source ||
+            item.flight_base_source ||
+            item.pricing_breakdown?.flight_base_source ||
+            'backend_preview',
+        )
+        const expenseFeeSource = String(
+          item.debug_pricing?.expense_fee_source ||
+            (expenseFee > 0 ? 'backend_preview' : ''),
+        )
 
         console.log(`[Cotizador backend crudo] ${aircraftLabel}`)
+        console.log(`- Aircraft id: ${item.aircraft_id || ''}`)
+        console.log(`- Aircraft name: ${item.aircraft || item.model || aircraftLabel}`)
+        console.log(`- Source: ${source}`)
+        console.log(`- Pricing source: ${pricingSource}`)
+        console.log(`- Endpoint URL: ${endpointUrl}`)
+        console.log(`- Hours source: ${hoursSource}`)
+        console.log(`- Expense fee source: ${expenseFeeSource}`)
+        console.log(`- Final billable hours: ${finalBillableHours}`)
         console.log(`- Horas exactas usadas: ${rawHours}`)
         console.log(`- Horas mostradas/redondeadas: ${billableHours}`)
         console.log(`- Precio por hora: ${hourlyRate}`)
         console.log(`- Vuelo base backend: ${basePrice}`)
+        console.log('- Overnight fee:', overnightFee)
+        console.log('- Overnight nights:', overnightNights)
+        console.log('- Overnight cost:', overnightCost)
 
         console.log(
           [
             `[Cotizador backend crudo] ${aircraftLabel}`,
+            `- Aircraft id: ${item.aircraft_id || ''}`,
+            `- Aircraft name: ${item.aircraft || item.model || aircraftLabel}`,
+            `- Source: ${source}`,
+            `- Pricing source: ${pricingSource}`,
+            `- Endpoint URL: ${endpointUrl}`,
+            `- Hours source: ${hoursSource}`,
+            `- Expense fee source: ${expenseFeeSource}`,
+            `- Final billable hours: ${finalBillableHours.toFixed(2)}`,
             `- Vuelo base backend: ${basePrice.toFixed(2)}`,
             `- Overnight backend: ${overnightCost.toFixed(2)}`,
             `- Expense fee backend: ${expenseFee.toFixed(2)}`,
