@@ -343,12 +343,13 @@ export const useAuthStore = defineStore('auth', () => {
     loading.value = true
 
     try {
+      const registerPath = String(options.path || '/auth/register').trim() || '/auth/register'
       const response =
         payload instanceof FormData
-          ? await api.postForm('/auth/register', payload, {
+          ? await api.postForm(registerPath, payload, {
               timeoutMs: AUTH_REQUEST_TIMEOUT_MS,
             })
-          : await api.post('/auth/register', payload, {
+          : await api.post(registerPath, payload, {
               timeoutMs: AUTH_REQUEST_TIMEOUT_MS,
             })
       applyAuth(response, options)

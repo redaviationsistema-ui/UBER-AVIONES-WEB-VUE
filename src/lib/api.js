@@ -21,6 +21,9 @@ const DOCUSIGN_TIMEOUT_MS = Number(import.meta.env.VITE_DOCUSIGN_TIMEOUT_MS || 1
 const API_CREDENTIALS_MODE = String(import.meta.env.VITE_API_CREDENTIALS_MODE || 'same-origin')
   .trim()
   .toLowerCase()
+const AIRCRAFT_DEBUG_ENABLED = String(import.meta.env.VITE_AIRCRAFT_DEBUG || 'false')
+  .trim()
+  .toLowerCase() === 'true'
 
 let memoryToken = null
 const AUTH_STORAGE_KEY = 'red_aviation_auth_token'
@@ -204,9 +207,9 @@ function buildUrl(path, query = {}, backendOverride = null) {
 }
 
 function shouldLogAircraftRequest(path = '') {
-  return String(path || '')
-    .toLowerCase()
-    .includes('aircraft')
+  if (!AIRCRAFT_DEBUG_ENABLED) return false
+
+  return String(path || '').toLowerCase().includes('aircraft')
 }
 
 function shouldTraceOperationalRequest(_path = '', _debugTag = '') {

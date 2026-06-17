@@ -133,7 +133,7 @@ defineEmits(['logout', 'navigate', 'toggle-profile'])
 .client-main-nav {
   display: flex;
   justify-content: center;
-  gap: 0.45rem;
+  gap: 0.7rem;
 }
 
 .client-main-nav button,
@@ -141,7 +141,7 @@ defineEmits(['logout', 'navigate', 'toggle-profile'])
 .profile-dropdown button {
   min-height: 2.65rem;
   border: 0;
-  border-radius: 8px;
+  border-radius: 12px;
   padding: 0 0.95rem;
   background: transparent;
   color: #1f1f1f;
@@ -166,6 +166,7 @@ defineEmits(['logout', 'navigate', 'toggle-profile'])
 .client-main-nav button:hover {
   background: #111111;
   color: #ffffff;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
 }
 
 .profile-menu {

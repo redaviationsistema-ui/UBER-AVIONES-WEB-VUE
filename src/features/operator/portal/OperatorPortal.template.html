@@ -533,10 +533,20 @@
 
         <div class="hero-actions">
           <span class="badge">Empresa: {{ company.reviewStatus }}</span>
-          <button type="button" class="primary-action" @click="openAircraftWizard()">
+          <button
+            type="button"
+            class="primary-action"
+            :disabled="!providerCanRegisterAircraft"
+            @click="openAircraftWizard()"
+          >
             + Registrar aeronave
           </button>
         </div>
+      </article>
+
+      <article v-if="!providerCanRegisterAircraft" class="surface empty-state">
+        Tu cuenta de proveedor sigue en validacion administrativa. En cuanto Admin la apruebe,
+        podras registrar aeronaves y activar la mensualidad por cada una.
       </article>
 
       <div class="fleet-kpi-grid">
@@ -563,7 +573,14 @@
             <div class="fleet-toolbar-actions">
               <button type="button" class="ghost-button" @click="exportAircraftCatalog()">Exportar</button>
               <button type="button" class="ghost-button" @click="reloadAircraftList()">Actualizar</button>
-              <button type="button" class="primary-action" @click="openAircraftWizard()">+ Nueva aeronave</button>
+              <button
+                type="button"
+                class="primary-action"
+                :disabled="!providerCanRegisterAircraft"
+                @click="openAircraftWizard()"
+              >
+                + Nueva aeronave
+              </button>
             </div>
           </div>
 

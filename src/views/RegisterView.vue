@@ -528,15 +528,25 @@ async function submit() {
   try {
     const payload = buildRegistrationPayload()
     logRegistrationPayload(payload)
-    await auth.register(payload, { intendedRole: form.role })
+    const registerPath = form.role === 'provider' ? '/provider/register' : '/auth/register'
+    const response = await auth.register(payload, {
+      intendedRole: form.role,
+      path: registerPath,
+    })
     await auth.refreshSession()
-    const targetDashboard = resolveDashboardPathByRole(form.role)
+    const providerStatus = String(response?.provider_status || '').trim().toLowerCase()
+    const targetDashboard =
+      form.role === 'provider' && providerStatus === 'pending_validation'
+        ? '/operador/empresa'
+        : resolveDashboardPathByRole(form.role)
 
     successMessage.value =
       form.role === 'client'
         ? 'Usuario cliente creado. Entrando a su portal correspondiente.'
         : form.role === 'provider'
-          ? 'Operador creado correctamente. Entrando a su panel operativo.'
+          ? providerStatus === 'pending_validation'
+            ? 'Proveedor creado correctamente. Tu cuenta quedo pendiente de validacion administrativa.'
+            : 'Operador creado correctamente. Entrando a su panel operativo.'
           : 'Sobrecargo creado correctamente. Entrando a su panel correspondiente.'
 
     router.push(targetDashboard || auth.dashboardPath)

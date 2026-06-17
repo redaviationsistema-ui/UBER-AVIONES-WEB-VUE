@@ -15,13 +15,12 @@ import {
 } from '../../../utils/flightPricing'
 import {
   cancelClientAccessPayment,
-  confirmClientAccessPayment,
   createClientAccessCheckout,
   createClientFlightRequest,
   getClientAccessPaymentSuccess,
   getClientAccessStatus,
-  createClientPaymentIntent,
   ensureClientReservation,
+  createClientPaymentIntent,
   createClientWireIntent,
   getClientDestinations,
   getClientFlightPackages,
@@ -81,6 +80,7 @@ let workflowSyncRefreshTimer = null
 let reservationsRequestPromise = null
 const reservationDetailRequestIds = new Set()
 let signedContractSyncTimer = null
+let reservationConfirmedRedirectTimer = null
 const appliedSignedContractReturnKey = ref('')
 const appliedCommercialAccessCheckoutKey = ref('')
 let commercialAccessStatusRequestPromise = null
@@ -472,12 +472,45 @@ const customerPhone = computed(() => {
   return String(rawPhone || '').trim()
 })
 const paymentHeroTitle = computed(() => {
-  if (commercialAccessCheckoutReturnMode.value) return 'Activa tu acceso comercial'
+  if (commercialAccessCheckoutReturnMode.value) {
+    const accessSource = auth.access?.commercial_access || auth.access
+    const state = buildCommercialAccessUiState(accessSource)
+    if (state.isSuspended) return 'Reactiva tu suscripción'
+    if (state.isPastDue) return 'Actualiza tu método de pago'
+    if (isCommercialAccessExpired(accessSource)) return 'Reactiva tu acceso comercial'
+
+    const { daysUntil } = resolveCommercialAccessExpiryMeta(accessSource)
+    if ([0, 1, 3, 7].includes(daysUntil)) return 'Renueva tu acceso comercial'
+
+    return 'Activa tu acceso comercial'
+  }
   if (!selectedReservation.value) return 'Checkout seguro'
   return paymentReadyForCheckout.value ? 'Configura tu pago' : 'Pago bloqueado hasta firma'
 })
 const paymentHeroCopy = computed(() => {
   if (commercialAccessCheckoutReturnMode.value) {
+    const accessSource = auth.access?.commercial_access || auth.access
+    const state = buildCommercialAccessUiState(accessSource)
+    const graceEndsAtLabel = formatAccessExpiryDate(resolveCommercialAccessGracePeriodEndDate(accessSource))
+    if (state.isSuspended) {
+      return 'Tu suscripción quedó suspendida. Usa esta cabina de pago para actualizar el método y reactivar el acceso comercial.'
+    }
+
+    if (state.isPastDue) {
+      return graceEndsAtLabel
+        ? `El cobro automático falló y tu cuenta está en gracia hasta el ${graceEndsAtLabel}. Actualiza el método ahora para evitar el bloqueo.`
+        : 'El cobro automático falló y tu cuenta está en periodo de gracia. Actualiza el método ahora para evitar el bloqueo.'
+    }
+
+    if (isCommercialAccessExpired(accessSource)) {
+      return 'Usa esta misma cabina de pago para reactivar tu acceso comercial y volver a cotizar vuelos privados.'
+    }
+
+    const { daysUntil } = resolveCommercialAccessExpiryMeta(accessSource)
+    if ([0, 1, 3, 7].includes(daysUntil)) {
+      return 'Usa esta misma cabina de pago para renovar tu acceso comercial antes de que venza y seguir operando sin interrupciones.'
+    }
+
     return 'Usa esta misma cabina de pago para habilitar tu acceso comercial y seguir cotizando vuelos privados.'
   }
   if (selectedReservation.value) {
@@ -493,12 +526,12 @@ const paymentHeroCopy = computed(() => {
 })
 const paymentRouteHeadline = computed(() =>
   commercialAccessCheckoutReturnMode.value
-    ? 'Acceso comercial SKY Group'
+    ? 'Renovacion de acceso comercial SKY GROUP'
     : itineraryHeadline(activeItinerarySummary.value),
 )
 const paymentDateLabel = computed(() =>
   commercialAccessCheckoutReturnMode.value
-    ? 'Activacion mensual inmediata'
+    ? accessRenewalDateLabel.value
     : itineraryDateLine(activeItinerarySummary.value),
 )
 const paymentFeatureList = computed(() =>
@@ -506,13 +539,13 @@ const paymentFeatureList = computed(() =>
     ? [
         {
           icon: 'shield',
-          title: 'Acceso protegido',
-          copy: 'Activa tu cuenta comercial dentro del mismo portal del cliente.',
+          title: 'Cuenta comercial protegida',
+          copy: 'Renueva o reactiva tu acceso comercial dentro del mismo portal del cliente.',
         },
         {
           icon: 'route',
-          title: 'Cotizaciones ilimitadas',
-          copy: 'Despues de la activacion podras volver a cotizar y solicitar reservas.',
+          title: 'Operacion continua',
+          copy: 'Despues de completar el pago podras seguir cotizando, reservando y pagando vuelos.',
         },
       ]
     : [
@@ -530,24 +563,74 @@ const paymentFeatureList = computed(() =>
 )
 const commercialAccessCheckoutFacts = computed(() => {
   const state = buildCommercialAccessUiState(auth.access?.commercial_access || auth.access)
-  const trialLabel =
-    state.freeQuotesUsed >= state.freeQuoteLimit
-      ? 'Prueba consumida'
-      : `${state.freeQuotesUsed}/${state.freeQuoteLimit} pruebas usadas`
+  const accessSource = auth.access?.commercial_access || auth.access
+  const latestPayment = commercialAccessSnapshot.value.latestPayment
+  const expiryMeta = resolveCommercialAccessExpiryMeta(accessSource)
+  const paymentBrand = normalizeCardBrand(latestPayment?.card_brand || '')
+  const paymentLast4 = String(latestPayment?.card_last4 || '').trim()
+  const paymentMethod = paymentBrand
+    ? `${paymentBrand}${paymentLast4 ? ` terminacion ${paymentLast4}` : ''}`
+    : state.hasPaidAccess
+      ? 'Tarjeta registrada'
+      : 'Stripe Checkout seguro'
 
-  let paymentLabel = 'Sin pago'
-  if (state.hasPaidAccess) paymentLabel = 'Pagado'
-  else if (state.status === 'payment_pending') paymentLabel = 'Pago en validacion'
-  else if (state.status === 'payment_failed') paymentLabel = 'Pago rechazado'
+  const accessStatusLabel = state.isSuspended
+    ? 'Suspendido'
+    : state.isPastDue
+      ? 'Past due · gracia activa'
+      : isCommercialAccessExpired(accessSource)
+    ? 'Vencido'
+    : state.hasPaidAccess && expiryMeta.daysUntil === 0
+      ? 'Activo · vence hoy'
+    : state.hasPaidAccess && expiryMeta.daysUntil === 1
+        ? 'Activo · vence mañana'
+        : state.hasPaidAccess && expiryMeta.daysUntil === 3
+          ? 'Activo · recordatorio 3 dias'
+          : state.hasPaidAccess && expiryMeta.daysUntil === 7
+            ? 'Activo · recordatorio 7 dias'
+        : state.hasPaidAccess
+          ? 'Activo'
+          : state.status === 'payment_pending'
+            ? 'Pago en validacion'
+            : state.status === 'payment_failed'
+              ? 'Pago rechazado'
+              : state.freeQuotesUsed >= state.freeQuoteLimit
+                ? 'Prueba consumida'
+                : 'Prueba disponible'
 
-  const accessLabel = state.hasPaidAccess ? 'Acceso activo' : 'Requiere activacion'
-  const usageLabel = `${state.freeQuotesUsed}/${state.freeQuoteLimit} uso${state.freeQuoteLimit === 1 ? '' : 's'} de prueba`
+  let validityLabel = expiryMeta.label ? formatAccessLongDate(expiryMeta.label) : 'Por confirmar'
+  if (state.hasPaidAccess && expiryMeta.daysUntil === 0) {
+    validityLabel = `Renueva hoy · ${validityLabel}`
+  } else if (state.hasPaidAccess && expiryMeta.daysUntil === 1) {
+    validityLabel = `Renueva mañana · ${validityLabel}`
+  }
 
   return [
-    { label: 'Estado comercial', value: trialLabel, tone: 'warning' },
-    { label: 'Estado de pago', value: paymentLabel, tone: state.hasPaidAccess ? 'success' : 'neutral' },
-    { label: 'Plan actual', value: COMMERCIAL_ACCESS_AMOUNT_LABEL, tone: 'premium' },
-    { label: 'Lectura operativa', value: `${usageLabel} · ${accessLabel}`, tone: 'neutral' },
+    {
+      label: 'Estado de acceso',
+      value: accessStatusLabel,
+      tone: state.isSuspended ? 'danger' : state.hasPaidAccess ? 'success' : 'warning',
+    },
+    {
+      label: 'Vigencia actual',
+      value: validityLabel,
+      tone: 'premium',
+    },
+    {
+      label: 'Metodo registrado',
+      value: paymentMethod,
+      tone: 'neutral',
+    },
+    {
+      label: 'Monto mensual',
+      value: COMMERCIAL_ACCESS_AMOUNT_LABEL,
+      tone: 'premium',
+    },
+    {
+      label: 'Ultimo pago',
+      value: latestPayment?.paid_at ? formatAccessLongDate(latestPayment.paid_at) : 'Sin cargo confirmado',
+      tone: 'neutral',
+    },
   ]
 })
 const paymentMethodCards = [
@@ -606,6 +689,64 @@ function normalizeCardBrand(value = '') {
   return normalized.charAt(0).toUpperCase() + normalized.slice(1)
 }
 
+function normalizeCommercialAccessStatus(value = '') {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+}
+
+function isCommercialAccessActiveStatus(status = '') {
+  return new Set(['active', 'activa', 'vigente', 'approved', 'paid']).has(
+    normalizeCommercialAccessStatus(status),
+  )
+}
+
+function isCommercialAccessPastDueStatus(status = '') {
+  return new Set([
+    'past_due',
+    'past due',
+    'payment_failed',
+    'failed',
+    'retry_required',
+    'retry_pending',
+    'grace',
+    'grace_period',
+    'in_grace',
+  ]).has(normalizeCommercialAccessStatus(status))
+}
+
+function isCommercialAccessSuspendedStatus(status = '') {
+  return new Set([
+    'unpaid',
+    'suspended',
+    'suspendida',
+    'suspendido',
+    'blocked',
+    'inactive',
+    'cancelled',
+    'canceled',
+  ]).has(normalizeCommercialAccessStatus(status))
+}
+
+function stateAllowsCommercialGraceAccess(status = '') {
+  return isCommercialAccessPastDueStatus(status)
+}
+
+function formatAccessLongDate(value = '') {
+  const normalized = String(value || '').trim()
+  if (!normalized) return 'Por confirmar'
+
+  const isoValue = normalized.includes('T') ? normalized : normalized.replace(' ', 'T')
+  const parsed = new Date(isoValue)
+  if (!Number.isFinite(parsed.getTime())) return normalized
+
+  return new Intl.DateTimeFormat('es-MX', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  }).format(parsed)
+}
+
 function svgDataUri(svg) {
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`
 }
@@ -626,6 +767,16 @@ const CARD_BRAND_LOGOS = {
 }
 
 const paymentMethodSummaryLabel = computed(() => {
+  if (commercialAccessCheckoutReturnMode.value) {
+    const latestPayment = commercialAccessSnapshot.value.latestPayment
+    const brand = normalizeCardBrand(latestPayment?.card_brand || '')
+    const last4 = String(latestPayment?.card_last4 || '').trim()
+
+    if (brand) return `${brand}${last4 ? ` terminacion ${last4}` : ''}`
+    if (selectedPaymentMethod.value === 'wire') return 'Transferencia / wire'
+    return 'Stripe Checkout seguro'
+  }
+
   if (selectedPaymentMethod.value === 'wire') {
     return paymentMethodCards.find((method) => method.id === 'wire')?.label || 'Transferencia / wire'
   }
@@ -694,6 +845,13 @@ function extractCommercialAccessFields(source = null) {
     const accessExpiresAt = commercial.access_expires_at ?? candidate.access_expires_at
     const paidAccessAt = commercial.paid_access_at ?? candidate.paid_access_at
     const billingPeriodEnd = commercial.billing_period_end ?? candidate.billing_period_end
+    const gracePeriodEndsAt =
+      commercial.grace_period_ends_at ??
+      commercial.grace_ends_at ??
+      commercial.grace_period_end ??
+      candidate.grace_period_ends_at ??
+      candidate.grace_ends_at ??
+      candidate.grace_period_end
 
     if (
       status !== undefined ||
@@ -703,7 +861,8 @@ function extractCommercialAccessFields(source = null) {
       remainingFreeQuotes !== undefined ||
       accessExpiresAt !== undefined ||
       paidAccessAt !== undefined ||
-      billingPeriodEnd !== undefined
+      billingPeriodEnd !== undefined ||
+      gracePeriodEndsAt !== undefined
     ) {
       return {
         status,
@@ -714,6 +873,7 @@ function extractCommercialAccessFields(source = null) {
         access_expires_at: accessExpiresAt,
         paid_access_at: paidAccessAt,
         billing_period_end: billingPeriodEnd,
+        grace_period_ends_at: gracePeriodEndsAt,
       }
     }
   }
@@ -721,7 +881,293 @@ function extractCommercialAccessFields(source = null) {
   return {}
 }
 
+function extractCommercialAccessLatestPayment(source = null) {
+  const candidates = [
+    source?.latest_payment,
+    source?.latestPayment,
+    source?.payment,
+    source?.commercial_access?.latest_payment,
+    source?.commercialAccess?.latest_payment,
+    source?.access?.commercial_access?.latest_payment,
+    source?.access?.commercialAccess?.latest_payment,
+    auth.access?.commercial_access?.latest_payment,
+    auth.access?.latest_payment,
+  ].filter(isPlainObject)
+
+  const payment = candidates[0] || null
+  if (!payment) return null
+
+  return {
+    id: payment.id ?? null,
+    status: payment.status ?? '',
+    amount: payment.amount ?? null,
+    currency: payment.currency ?? '',
+    card_brand: payment.card_brand ?? '',
+    card_last4: payment.card_last4 ?? '',
+    paid_at: payment.paid_at ?? '',
+    billing_period_start: payment.billing_period_start ?? '',
+    billing_period_end: payment.billing_period_end ?? '',
+    billing_plan: isPlainObject(payment.billing_plan)
+      ? {
+          id: payment.billing_plan.id ?? null,
+          code: payment.billing_plan.code ?? '',
+          name: payment.billing_plan.name ?? '',
+          amount: payment.billing_plan.amount ?? null,
+          currency: payment.billing_plan.currency ?? '',
+        }
+      : isPlainObject(payment.billingPlan)
+        ? {
+            id: payment.billingPlan.id ?? null,
+            code: payment.billingPlan.code ?? '',
+            name: payment.billingPlan.name ?? '',
+            amount: payment.billingPlan.amount ?? null,
+            currency: payment.billingPlan.currency ?? '',
+          }
+        : null,
+  }
+}
+
 const activePlan = computed(() => accountAccessCopy.value)
+
+function resolveCommercialAccessBillingIdentifiers(source = null) {
+  const candidates = [
+    source,
+    auth.access?.commercial_access,
+    auth.access,
+    auth.user,
+  ].filter((candidate) => candidate && typeof candidate === 'object')
+
+  for (const candidate of candidates) {
+    const commercial =
+      candidate?.commercial_access && typeof candidate.commercial_access === 'object'
+        ? candidate.commercial_access
+        : candidate?.commercialAccess && typeof candidate.commercialAccess === 'object'
+          ? candidate.commercialAccess
+          : {}
+
+    const subscriptionId =
+      commercial.provider_subscription_id ||
+      commercial.subscription_id ||
+      candidate?.provider_subscription_id ||
+      candidate?.subscription_id ||
+      ''
+    const customerId =
+      commercial.provider_customer_id ||
+      commercial.customer_id ||
+      candidate?.provider_customer_id ||
+      candidate?.customer_id ||
+      ''
+
+    if (subscriptionId || customerId) {
+      return {
+        subscriptionId: String(subscriptionId || '').trim(),
+        customerId: String(customerId || '').trim(),
+      }
+    }
+  }
+
+  return {
+    subscriptionId: '',
+    customerId: '',
+  }
+}
+
+function formatCompactBillingReference(value = '') {
+  const normalized = String(value || '').trim()
+  if (!normalized) return 'No visible'
+  if (normalized.length <= 18) return normalized
+  return `${normalized.slice(0, 10)}...${normalized.slice(-6)}`
+}
+
+function getDaysBetweenTodayAnd(value = '') {
+  const normalized = String(value || '').trim()
+  if (!normalized) return null
+
+  const isoValue = normalized.includes('T') ? normalized : normalized.replace(' ', 'T')
+  const parsed = new Date(isoValue)
+  if (!Number.isFinite(parsed.getTime())) return null
+
+  const today = new Date()
+  const parsedUtc = Date.UTC(parsed.getFullYear(), parsed.getMonth(), parsed.getDate())
+  const todayUtc = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())
+
+  return Math.round((parsedUtc - todayUtc) / 86400000)
+}
+
+function normalizeCalendarDate(value = '') {
+  const normalized = String(value || '').trim()
+  if (!normalized) return ''
+
+  const isoValue = normalized.includes('T') ? normalized : normalized.replace(' ', 'T')
+  const parsed = new Date(isoValue)
+  if (!Number.isFinite(parsed.getTime())) return ''
+
+  const year = parsed.getFullYear()
+  const month = String(parsed.getMonth() + 1).padStart(2, '0')
+  const day = String(parsed.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function detectRecentCommercialAccessRenewal(accessSource = null, latestPayment = null) {
+  const paidAt = String(latestPayment?.paid_at || '').trim()
+  const cycleStartsAt = String(latestPayment?.billing_period_start || '').trim()
+  const cycleEndsAt = String(
+    latestPayment?.billing_period_end || resolveCommercialAccessExpiryDate(accessSource) || '',
+  ).trim()
+  const currentExpiry = String(resolveCommercialAccessExpiryDate(accessSource) || '').trim()
+  const daysSincePayment = paidAt ? getDaysBetweenTodayAnd(paidAt) : null
+  const daysSinceCycleStart = cycleStartsAt ? getDaysBetweenTodayAnd(cycleStartsAt) : null
+  const daysUntilCycleEnd = cycleEndsAt ? getDaysBetweenTodayAnd(cycleEndsAt) : null
+  const cycleStartDate = normalizeCalendarDate(cycleStartsAt)
+  const cycleEndDate = normalizeCalendarDate(cycleEndsAt)
+  const currentExpiryDate = normalizeCalendarDate(currentExpiry)
+  const cycleRangeDays =
+    cycleStartDate && cycleEndDate
+      ? Math.round(
+          (new Date(`${cycleEndDate}T00:00:00`).getTime() -
+            new Date(`${cycleStartDate}T00:00:00`).getTime()) /
+            86400000,
+        )
+      : null
+
+  return {
+    paidAt,
+    cycleStartsAt,
+    cycleEndsAt,
+    currentExpiry,
+    // `daysSincePayment` is negative after the payment date passed.
+    isRecentRenewal:
+      daysSincePayment !== null &&
+      daysSincePayment <= 0 &&
+      daysSincePayment >= -7 &&
+      daysSinceCycleStart !== null &&
+      daysSinceCycleStart <= 0 &&
+      daysSinceCycleStart >= -10 &&
+      daysUntilCycleEnd !== null &&
+      daysUntilCycleEnd >= 20 &&
+      cycleRangeDays !== null &&
+      cycleRangeDays >= 20 &&
+      Boolean(cycleEndDate) &&
+      cycleEndDate === currentExpiryDate,
+  }
+}
+
+const accessRenewalDateLabel = computed(() => {
+  const accessSource = auth.access?.commercial_access || auth.access
+  const state = buildCommercialAccessUiState(accessSource)
+  const expiryMeta = resolveCommercialAccessExpiryMeta(accessSource)
+  if (!expiryMeta.label) return 'Activacion mensual inmediata'
+
+  if (state.isPastDue) {
+    const graceEndsAtLabel = formatAccessExpiryDate(resolveCommercialAccessGracePeriodEndDate(accessSource))
+    return graceEndsAtLabel
+      ? `Periodo de gracia hasta ${formatAccessLongDate(graceEndsAtLabel)}`
+      : 'Periodo de gracia activo'
+  }
+
+  if (isCommercialAccessExpired(accessSource)) {
+    return `Reactivacion inmediata · vencio ${formatAccessLongDate(expiryMeta.label)}`
+  }
+
+  if (expiryMeta.daysUntil === 0) {
+    return `Renovacion sugerida hoy · ${formatAccessLongDate(expiryMeta.label)}`
+  }
+
+  if (expiryMeta.daysUntil === 1) {
+    return `Renovacion sugerida mañana · ${formatAccessLongDate(expiryMeta.label)}`
+  }
+
+  if (expiryMeta.daysUntil === 3) {
+    return `Recordatorio en 3 dias · ${formatAccessLongDate(expiryMeta.label)}`
+  }
+
+  if (expiryMeta.daysUntil === 7) {
+    return `Recordatorio en 7 dias · ${formatAccessLongDate(expiryMeta.label)}`
+  }
+
+  return `Vigencia actual hasta ${formatAccessLongDate(expiryMeta.label)}`
+})
+const activePaymentBadge = computed(() => {
+  const value = String(accountAccessCopy.value || '').trim()
+  if (!value.toLowerCase().startsWith('pago activo')) return ''
+  return value.toUpperCase()
+})
+const commercialAccessRenewalPanel = computed(() => {
+  const accessSource = auth.access?.commercial_access || auth.access
+  const state = buildCommercialAccessUiState(accessSource)
+  const expiryMeta = resolveCommercialAccessExpiryMeta(accessSource)
+  const latestPayment = commercialAccessSnapshot.value.latestPayment
+  const identifiers = resolveCommercialAccessBillingIdentifiers(accessSource)
+  const renewalCycle = detectRecentCommercialAccessRenewal(accessSource, latestPayment)
+  const hasSubscription = Boolean(identifiers.subscriptionId)
+  const tone = renewalCycle.isRecentRenewal
+    ? 'success'
+    : state.isSuspended
+    ? 'danger'
+    : state.isPastDue
+      ? 'warning'
+      : hasSubscription && state.hasPaidAccess
+        ? 'success'
+        : 'neutral'
+
+  let title = 'Sin renovación automática confirmada'
+  let message =
+    'Todavía no vemos una suscripción vinculada para asegurar el siguiente cobro automático.'
+  let outcome = 'Revisa el siguiente cobro manualmente.'
+
+  if (renewalCycle.isRecentRenewal && hasSubscription && state.hasPaidAccess) {
+    title = 'Se renovó correctamente'
+    message =
+      'El último cobro ya se registró y la vigencia del acceso avanzó al nuevo ciclo sin intervención manual.'
+    outcome = renewalCycle.cycleEndsAt
+      ? `La renovación quedó confirmada y este ciclo permanece activo hasta ${formatAccessLongDate(renewalCycle.cycleEndsAt)}.`
+      : 'La renovación quedó confirmada y el nuevo ciclo ya está activo.'
+  } else if (state.isSuspended) {
+    title = 'Renovación automática detenida'
+    message =
+      'La suscripción ya no está cobrando de forma automática. Hace falta reactivar el acceso o actualizar el método de pago.'
+    outcome = 'La cuenta puede quedar bloqueada hasta reactivarse.'
+  } else if (state.isPastDue) {
+    title = 'Renovación automática requiere atención'
+    message =
+      'Stripe intentó el cobro del nuevo ciclo, pero el pago no se confirmó. La cuenta sigue en gracia mientras se corrige.'
+    outcome = 'Si el siguiente intento falla, el acceso puede suspenderse.'
+  } else if (hasSubscription && state.hasPaidAccess) {
+    title = 'Renovación automática configurada'
+    message =
+      'Ya existe una suscripción activa vinculada al cliente. Si el próximo cobro entra bien, la vigencia avanzará sola.'
+    outcome = expiryMeta.label
+      ? `Cuando Stripe renueve, la fecha actual ${formatAccessLongDate(expiryMeta.label)} debe extenderse al siguiente ciclo.`
+      : 'Cuando Stripe renueve, la vigencia debe moverse al siguiente ciclo.'
+  }
+
+  return {
+    tone,
+    title,
+    message,
+    outcome,
+    rows: [
+      {
+        label: 'Próximo corte',
+        value: accessRenewalDateLabel.value,
+      },
+      {
+        label: 'Último pago confirmado',
+        value: renewalCycle.paidAt
+          ? formatAccessLongDate(renewalCycle.paidAt)
+          : 'Sin cargo confirmado',
+      },
+      {
+        label: 'Suscripción Stripe',
+        value: formatCompactBillingReference(identifiers.subscriptionId),
+      },
+      {
+        label: 'Cliente Stripe',
+        value: formatCompactBillingReference(identifiers.customerId),
+      },
+    ],
+  }
+})
 const commercialAccessSnapshot = computed(() => {
   const access = auth.access || {}
   const user = auth.user || {}
@@ -745,6 +1191,7 @@ const commercialAccessSnapshot = computed(() => {
     freeQuotesUsed: Number(
       commercial.free_quotes_used ?? access.free_quotes_used ?? user.free_quotes_used ?? 0,
     ),
+    latestPayment: extractCommercialAccessLatestPayment({ access, user }),
   }
 })
 const hasCommercialTrialQuoteAvailable = computed(() => {
@@ -770,6 +1217,7 @@ const canQuoteFlights = computed(() => {
   const access = auth.access || {}
   const user = auth.user || {}
   const commercial = access.commercial_access || access.commercialAccess || {}
+  const accessSource = access.commercial_access || access.commercialAccess || access
   const subscription = access.subscription || access.membership || {}
   const normalizedSubscriptionStatus = String(
     subscription.status ||
@@ -803,7 +1251,12 @@ const canQuoteFlights = computed(() => {
     )
     .filter(Boolean)
 
+  if (isCommercialAccessExpired(accessSource)) {
+    return false
+  }
+
   return (
+    stateAllowsCommercialGraceAccess(normalizedCommercialStatus) ||
     activeStatuses.has(normalizedSubscriptionStatus) ||
     demoStatuses.has(normalizedSubscriptionStatus) ||
     demoStatuses.has(normalizedCommercialStatus) ||
@@ -816,6 +1269,7 @@ const canReserveFlights = computed(() => {
   const access = auth.access || {}
   const user = auth.user || {}
   const commercial = access.commercial_access || access.commercialAccess || {}
+  const accessSource = access.commercial_access || access.commercialAccess || access
   const subscription = access.subscription || access.membership || {}
   const normalizedSubscriptionStatus = String(
     subscription.status ||
@@ -834,8 +1288,13 @@ const canReserveFlights = computed(() => {
     .toLowerCase()
   const activeStatuses = new Set(['active', 'activa', 'vigente', 'approved'])
 
+  if (isCommercialAccessExpired(accessSource)) {
+    return false
+  }
+
   return (
     commercialAccessSnapshot.value.hasPaidAccess ||
+    stateAllowsCommercialGraceAccess(normalizedCommercialStatus) ||
     activeStatuses.has(normalizedCommercialStatus) ||
     activeStatuses.has(normalizedSubscriptionStatus) ||
     String(access.subscription_active ?? '')
@@ -845,7 +1304,71 @@ const canReserveFlights = computed(() => {
 })
 const hasActiveClientAccess = computed(() => canQuoteFlights.value)
 const commercialTrialNotice = computed(() => {
-  const state = buildCommercialAccessUiState(auth.access?.commercial_access || auth.access)
+  const accessSource = auth.access?.commercial_access || auth.access
+  const state = buildCommercialAccessUiState(accessSource)
+  const expiryMeta = resolveCommercialAccessExpiryMeta(accessSource)
+  const expiresAtLabel = expiryMeta.label
+  const graceEndsAtLabel = formatAccessExpiryDate(resolveCommercialAccessGracePeriodEndDate(accessSource))
+
+  if (state.isSuspended) {
+    return {
+      tone: 'danger',
+      title: graceEndsAtLabel ? `Acceso suspendido desde ${graceEndsAtLabel}` : 'Acceso suspendido',
+      message:
+        'Tu periodo de gracia terminó o la suscripcion quedó impaga. Actualiza el método de pago para reactivar cotizaciones, reservas y pagos.',
+    }
+  }
+
+  if (isCommercialAccessExpired(accessSource)) {
+    return {
+      tone: 'danger',
+      title: expiresAtLabel ? `Acceso comercial vencido ${expiresAtLabel}` : 'Acceso comercial vencido',
+      message: 'Tu acceso ya expiró. Reactiva el pago para volver a cotizar, reservar, firmar contrato y pagar vuelos.',
+    }
+  }
+
+  if (state.hasPaidAccess && expiryMeta.daysUntil === 0) {
+    return {
+      tone: 'warn',
+      title: expiresAtLabel ? `Acceso comercial vence hoy ${expiresAtLabel}` : 'Acceso comercial vence hoy',
+      message: 'Tu acceso sigue activo durante hoy. Puedes renovarlo ahora para no interrumpir cotizaciones, reservas y pagos.',
+    }
+  }
+
+  if (state.hasPaidAccess && expiryMeta.daysUntil === 1) {
+    return {
+      tone: 'warn',
+      title: expiresAtLabel ? `Acceso comercial vence mañana ${expiresAtLabel}` : 'Acceso comercial vence mañana',
+      message: 'Tu acceso sigue activo, pero vence mañana. Puedes renovarlo desde ahora para evitar interrupciones.',
+    }
+  }
+
+  if (state.hasPaidAccess && expiryMeta.daysUntil === 3) {
+    return {
+      tone: 'info',
+      title: expiresAtLabel ? `Recordatorio de renovación · faltan 3 días (${expiresAtLabel})` : 'Recordatorio de renovación · faltan 3 días',
+      message: 'Tu suscripción sigue activa. Conviene revisar ahora tu método de pago para evitar un fallo cerca del próximo cobro.',
+    }
+  }
+
+  if (state.hasPaidAccess && expiryMeta.daysUntil === 7) {
+    return {
+      tone: 'info',
+      title: expiresAtLabel ? `Recordatorio de renovación · faltan 7 días (${expiresAtLabel})` : 'Recordatorio de renovación · faltan 7 días',
+      message: 'Tu cuenta sigue activa. Ya puedes validar la renovación automática y el método de pago registrado.',
+    }
+  }
+
+  if (state.isPastDue) {
+    return {
+      tone: 'warn',
+      title: graceEndsAtLabel
+        ? `Pago fallido · periodo de gracia hasta ${graceEndsAtLabel}`
+        : 'Pago fallido · periodo de gracia activo',
+      message:
+        'Intentamos cobrar la renovación automática, pero el pago falló. Tu cuenta sigue activa temporalmente mientras actualizas el método de pago.',
+    }
+  }
 
   if (state.hasPaidAccess) {
     return {
@@ -882,6 +1405,19 @@ const shouldShowCommercialAccessCta = computed(() =>
   requiresCommercialAccessPayment(auth.access?.commercial_access || auth.access),
 )
 
+const commercialAccessCtaLabel = computed(() => {
+  const accessSource = auth.access?.commercial_access || auth.access
+  const state = buildCommercialAccessUiState(accessSource)
+  if (state.isSuspended) return 'Reactivar suscripción'
+  if (state.isPastDue) return 'Actualizar método de pago'
+  if (isCommercialAccessExpired(accessSource)) return 'Reactivar acceso comercial'
+
+  const { daysUntil } = resolveCommercialAccessExpiryMeta(accessSource)
+  if ([0, 1, 3, 7].includes(daysUntil)) return 'Renovar acceso comercial'
+
+  return 'Activar acceso comercial'
+})
+
 function buildCommercialAccessUiState(accessSource = null) {
   const fallback = commercialAccessSnapshot.value
   const commercial = extractCommercialAccessFields(accessSource)
@@ -895,6 +1431,7 @@ function buildCommercialAccessUiState(accessSource = null) {
     0,
     Number(commercial.remaining_free_quotes ?? freeQuoteLimit - freeQuotesUsed),
   )
+  const gracePeriodEndsAt = String(commercial.grace_period_ends_at || '').trim()
 
   return {
     status,
@@ -902,6 +1439,10 @@ function buildCommercialAccessUiState(accessSource = null) {
     freeQuoteLimit,
     freeQuotesUsed,
     remainingFreeQuotes,
+    gracePeriodEndsAt,
+    isPastDue: isCommercialAccessPastDueStatus(status),
+    isSuspended: isCommercialAccessSuspendedStatus(status),
+    isActive: hasPaidAccess || isCommercialAccessActiveStatus(status),
   }
 }
 
@@ -912,14 +1453,82 @@ function resolveCommercialAccessExpiryDate(accessSource = null) {
 
   return String(
     commercial.access_expires_at ||
+      commercial.billing_period_end ||
       access.commercial_access?.access_expires_at ||
+      access.commercial_access?.billing_period_end ||
       access.access_expires_at ||
+      access.billing_period_end ||
       user.access_expires_at ||
+      user.billing_period_end ||
+      access.commercial_access?.latest_payment?.billing_period_end ||
+      access.latest_payment?.billing_period_end ||
       '',
   ).trim()
 }
 
+function resolveCommercialAccessGracePeriodEndDate(accessSource = null) {
+  const commercial = extractCommercialAccessFields(accessSource)
+  const access = auth.access || {}
+  const user = auth.user || {}
+
+  return String(
+    commercial.grace_period_ends_at ||
+      access.commercial_access?.grace_period_ends_at ||
+      access.commercial_access?.grace_ends_at ||
+      access.grace_period_ends_at ||
+      access.grace_ends_at ||
+      user.grace_period_ends_at ||
+      user.grace_ends_at ||
+      '',
+  ).trim()
+}
+
+function formatAccessExpiryDate(value = '') {
+  const normalized = String(value || '').trim()
+  if (!normalized) return ''
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return normalized
+
+  const normalizedIso = normalized.includes('T') ? normalized : normalized.replace(' ', 'T')
+  const parsed = new Date(normalizedIso)
+  if (!Number.isFinite(parsed.getTime())) return normalized.slice(0, 10)
+
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(parsed)
+
+  const year = parts.find((part) => part.type === 'year')?.value || ''
+  const month = parts.find((part) => part.type === 'month')?.value || ''
+  const day = parts.find((part) => part.type === 'day')?.value || ''
+
+  return year && month && day ? `${year}-${month}-${day}` : normalized.slice(0, 10)
+}
+
+function resolveCommercialAccessExpiryMeta(accessSource = null) {
+  const expiresAt = resolveCommercialAccessExpiryDate(accessSource)
+  const label = formatAccessExpiryDate(expiresAt)
+  if (!label) return { expiresAt, label: '', daysUntil: null }
+
+  const [year, month, day] = label.split('-').map((value) => Number(value))
+  if (!year || !month || !day) return { expiresAt, label, daysUntil: null }
+
+  const expiryUtc = Date.UTC(year, month - 1, day)
+  const now = new Date()
+  const todayUtc = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())
+
+  return {
+    expiresAt,
+    label,
+    daysUntil: Math.round((expiryUtc - todayUtc) / 86400000),
+  }
+}
+
 function isCommercialAccessExpired(accessSource = null) {
+  const state = buildCommercialAccessUiState(accessSource)
+  if (state.isPastDue) return false
+  if (state.isSuspended) return true
+
   const expiresAt = resolveCommercialAccessExpiryDate(accessSource)
   if (!expiresAt) return false
 
@@ -932,14 +1541,40 @@ function isCommercialAccessExpired(accessSource = null) {
 const accountAccessCopy = computed(() => {
   const accessSource = auth.access?.commercial_access || auth.access
   const state = buildCommercialAccessUiState(accessSource)
-  const expiresAt = resolveCommercialAccessExpiryDate(accessSource)
+  const expiryMeta = resolveCommercialAccessExpiryMeta(accessSource)
+  const expiresAtLabel = expiryMeta.label
+  const graceEndsAtLabel = formatAccessExpiryDate(resolveCommercialAccessGracePeriodEndDate(accessSource))
+
+  if (state.isSuspended) {
+    return graceEndsAtLabel ? `Acceso suspendido · gracia terminó ${graceEndsAtLabel}` : 'Acceso suspendido'
+  }
 
   if (isCommercialAccessExpired(accessSource)) {
-    return expiresAt ? `Acceso vencido ${expiresAt.slice(0, 10)}` : 'Acceso vencido'
+    return expiresAtLabel ? `Acceso vencido ${expiresAtLabel}` : 'Acceso vencido'
+  }
+
+  if (state.isPastDue) {
+    return graceEndsAtLabel ? `Past due · gracia hasta ${graceEndsAtLabel}` : 'Past due · gracia activa'
+  }
+
+  if (state.hasPaidAccess && expiryMeta.daysUntil === 0) {
+    return expiresAtLabel ? `Pago activo · vence hoy ${expiresAtLabel}` : 'Pago activo · vence hoy'
+  }
+
+  if (state.hasPaidAccess && expiryMeta.daysUntil === 1) {
+    return expiresAtLabel ? `Pago activo · vence mañana ${expiresAtLabel}` : 'Pago activo · vence mañana'
+  }
+
+  if (state.hasPaidAccess && expiryMeta.daysUntil === 3) {
+    return expiresAtLabel ? `Pago activo · recordatorio 3 días ${expiresAtLabel}` : 'Pago activo · recordatorio 3 días'
+  }
+
+  if (state.hasPaidAccess && expiryMeta.daysUntil === 7) {
+    return expiresAtLabel ? `Pago activo · recordatorio 7 días ${expiresAtLabel}` : 'Pago activo · recordatorio 7 días'
   }
 
   if (state.hasPaidAccess || state.status === 'active') {
-    return expiresAt ? `Pago activo · vence ${expiresAt.slice(0, 10)}` : 'Pago activo'
+    return expiresAtLabel ? `Pago activo · vence ${expiresAtLabel}` : 'Pago activo'
   }
 
   if (state.status === 'payment_pending') {
@@ -959,11 +1594,36 @@ const accountAccessCopy = computed(() => {
 
 function requiresCommercialAccessPayment(accessSource = null) {
   const state = buildCommercialAccessUiState(accessSource)
+  if (state.isSuspended || state.isPastDue) return true
+  if (isCommercialAccessExpired(accessSource)) return true
+  const { daysUntil } = resolveCommercialAccessExpiryMeta(accessSource)
+  if (state.hasPaidAccess && [0, 1, 3, 7].includes(daysUntil)) return true
   return !state.hasPaidAccess && state.remainingFreeQuotes <= 0
 }
 
 function buildCommercialAccessMessage(accessSource = null) {
   const state = buildCommercialAccessUiState(accessSource)
+  const expiresAt = resolveCommercialAccessExpiryDate(accessSource)
+  const expiresAtLabel = formatAccessExpiryDate(expiresAt)
+  const graceEndsAtLabel = formatAccessExpiryDate(resolveCommercialAccessGracePeriodEndDate(accessSource))
+
+  if (state.isSuspended) {
+    return graceEndsAtLabel
+      ? `Tu periodo de gracia terminó el ${graceEndsAtLabel}. Actualiza el método de pago para reactivar el acceso comercial.`
+      : 'Tu acceso comercial está suspendido. Actualiza el método de pago para reactivarlo.'
+  }
+
+  if (isCommercialAccessExpired(accessSource)) {
+    return expiresAtLabel
+      ? `Tu acceso comercial expiró el ${expiresAtLabel}. Reactiva el pago para continuar.`
+      : 'Tu acceso comercial expiró. Reactiva el pago para continuar.'
+  }
+
+  if (state.isPastDue) {
+    return graceEndsAtLabel
+      ? `El cobro automático falló. Tu cuenta sigue activa en periodo de gracia hasta el ${graceEndsAtLabel}.`
+      : 'El cobro automático falló. Tu cuenta sigue activa temporalmente mientras actualizas el método de pago.'
+  }
 
   if (state.hasPaidAccess) {
     return 'Tu acceso comercial ya esta activo.'
@@ -986,6 +1646,27 @@ function buildCommercialAccessMessage(accessSource = null) {
 
 function buildReservationAccessMessage(accessSource = null) {
   const state = buildCommercialAccessUiState(accessSource)
+  const expiresAt = resolveCommercialAccessExpiryDate(accessSource)
+  const expiresAtLabel = formatAccessExpiryDate(expiresAt)
+  const graceEndsAtLabel = formatAccessExpiryDate(resolveCommercialAccessGracePeriodEndDate(accessSource))
+
+  if (state.isSuspended) {
+    return graceEndsAtLabel
+      ? `Tu periodo de gracia terminó el ${graceEndsAtLabel}. Actualiza el método de pago para volver a reservar, firmar contrato y pagar el vuelo.`
+      : 'Tu acceso comercial está suspendido. Actualiza el método de pago para volver a reservar, firmar contrato y pagar el vuelo.'
+  }
+
+  if (isCommercialAccessExpired(accessSource)) {
+    return expiresAtLabel
+      ? `Tu acceso comercial venció el ${expiresAtLabel}. Reactiva el pago para poder reservar, firmar contrato y pagar el vuelo.`
+      : 'Tu acceso comercial venció. Reactiva el pago para poder reservar, firmar contrato y pagar el vuelo.'
+  }
+
+  if (state.isPastDue) {
+    return graceEndsAtLabel
+      ? `Tu pago automático falló, pero sigues activo hasta el ${graceEndsAtLabel}. Actualiza el método de pago para evitar el bloqueo.`
+      : 'Tu pago automático falló, pero sigues activo temporalmente. Actualiza el método de pago para evitar el bloqueo.'
+  }
 
   if (state.hasPaidAccess) {
     return 'Tu acceso comercial ya esta activo.'
@@ -1009,6 +1690,7 @@ function buildReservationAccessMessage(accessSource = null) {
 function syncCommercialAccessState(accessSource = null) {
   const state = buildCommercialAccessUiState(accessSource)
   const commercial = extractCommercialAccessFields(accessSource)
+  const latestPayment = extractCommercialAccessLatestPayment(accessSource)
   const currentCommercial = auth.access?.commercial_access || {}
   const accessExpiresAt =
     commercial.access_expires_at ??
@@ -1025,6 +1707,11 @@ function syncCommercialAccessState(accessSource = null) {
     currentCommercial.billing_period_end ??
     auth.access?.billing_period_end ??
     auth.user?.billing_period_end
+  const gracePeriodEndsAt =
+    commercial.grace_period_ends_at ??
+    currentCommercial.grace_period_ends_at ??
+    auth.access?.grace_period_ends_at ??
+    auth.user?.grace_period_ends_at
 
   auth.syncUserContext({
     accessPatch: {
@@ -1038,6 +1725,8 @@ function syncCommercialAccessState(accessSource = null) {
         access_expires_at: accessExpiresAt,
         paid_access_at: paidAccessAt,
         billing_period_end: billingPeriodEnd,
+        grace_period_ends_at: gracePeriodEndsAt,
+        latest_payment: latestPayment || currentCommercial.latest_payment || null,
       },
       access_status: state.status,
       has_paid_access: state.hasPaidAccess,
@@ -1046,6 +1735,8 @@ function syncCommercialAccessState(accessSource = null) {
       access_expires_at: accessExpiresAt,
       paid_access_at: paidAccessAt,
       billing_period_end: billingPeriodEnd,
+      grace_period_ends_at: gracePeriodEndsAt,
+      latest_payment: latestPayment || auth.access?.latest_payment || null,
     },
     userPatch: {
       access_status: state.status,
@@ -1055,6 +1746,7 @@ function syncCommercialAccessState(accessSource = null) {
       access_expires_at: accessExpiresAt,
       paid_access_at: paidAccessAt,
       billing_period_end: billingPeriodEnd,
+      grace_period_ends_at: gracePeriodEndsAt,
     },
   })
 }
@@ -1129,23 +1821,11 @@ function isSuccessfulAccessPaymentStatus(value = '') {
   ].includes(normalizeAccessPaymentStatus(value))
 }
 
-function resolveAccessPaymentIntentId(payload = null) {
-  const payment = payload?.payment && typeof payload.payment === 'object' ? payload.payment : {}
-
-  return String(
-    payment.payment_intent_id ||
-      payment.provider_payment_id ||
-      payment.stripe_payment_intent_id ||
-      payment.intent_id ||
-      '',
-  ).trim()
-}
-
 async function refreshCommercialAccessStatus({ forceSessionRefresh = false } = {}) {
   if (!commercialAccessStatusRequestPromise) {
     commercialAccessStatusRequestPromise = (async () => {
       const payload = await getClientAccessStatus({ timeoutMs: 30000 })
-      syncCommercialAccessState(payload?.access || payload)
+      syncCommercialAccessState(payload)
       return payload
     })().finally(() => {
       commercialAccessStatusRequestPromise = null
@@ -1156,7 +1836,7 @@ async function refreshCommercialAccessStatus({ forceSessionRefresh = false } = {
 
   if (forceSessionRefresh) {
     await auth.refreshSession()
-    syncCommercialAccessState(payload?.access || auth.access?.commercial_access || auth.access)
+    syncCommercialAccessState(payload || auth.access?.commercial_access || auth.access)
   }
 
   return payload
@@ -1202,7 +1882,8 @@ const isResultsSection = computed(() =>
 )
 const userFirstName = computed(() => {
   const rawName = auth.user?.name || auth.user?.company_name || auth.userName || ''
-  return String(rawName).trim().split(/\s+/)[0] || ''
+  const firstName = String(rawName).trim().split(/\s+/)[0] || ''
+  return firstName ? firstName.charAt(0).toUpperCase() + firstName.slice(1).toLowerCase() : ''
 })
 const profileDisplayName = computed(
   () => auth.user?.name || auth.user?.company_name || auth.userName || 'Cliente privado',
@@ -1216,22 +1897,67 @@ const profileInitials = computed(() =>
     .join('')
     .toUpperCase() || 'CP',
 )
+function readProfileCandidate(...candidates) {
+  for (const candidate of candidates) {
+    if (candidate === null || candidate === undefined) continue
+
+    if (Array.isArray(candidate)) {
+      const normalized = candidate
+        .map((item) => String(item || '').trim())
+        .filter(Boolean)
+      if (normalized.length) return normalized.join(', ')
+      continue
+    }
+
+    if (typeof candidate === 'object') {
+      continue
+    }
+
+    const normalized = String(candidate || '').trim()
+    if (normalized) return normalized
+  }
+
+  return ''
+}
+
+const clientProfileRecord = computed(() => ({
+  ...(auth.access?.profile || {}),
+  ...(auth.user?.profile || {}),
+  ...(auth.user || {}),
+}))
+const profilePhone = computed(() =>
+  readProfileCandidate(
+    clientProfileRecord.value.phone,
+    clientProfileRecord.value.telefono,
+    auth.access?.phone,
+  ) || 'Por completar',
+)
+const profileEmail = computed(() =>
+  readProfileCandidate(clientProfileRecord.value.email, auth.access?.email) || 'Por completar',
+)
 const profileStats = computed(() => [
-  { label: 'Vuelos', value: String(reservations.value.length || 0), caption: 'Historial total' },
+  {
+    label: 'Vuelos',
+    value: String(reservations.value.length || 0),
+    caption: reservations.value.length ? 'Historial total' : 'Sin vuelos registrados',
+  },
   {
     label: 'Viajeros',
     value: String(Math.max(1, Number(auth.user?.traveler_count || searchForm.passengers || 1))),
-    caption: 'Frecuentes',
+    caption:
+      Math.max(1, Number(auth.user?.traveler_count || searchForm.passengers || 1)) === 1
+        ? 'Viajero frecuente'
+        : 'Viajeros frecuentes',
   },
   {
-    label: 'Facturacion',
+    label: 'Facturación',
     value: auth.user?.billing_email ? 'Configurada' : 'Pendiente',
-    caption: 'Cuenta comercial',
+    caption: auth.user?.billing_email ? 'Cuenta comercial' : 'Datos por completar',
   },
   {
     label: 'Concierge',
     value: hasActiveClientAccess.value ? 'Activo' : 'Disponible',
-    caption: 'Atencion premium',
+    caption: 'Atención premium',
   },
 ])
 const selectedPriorityMeta = computed(
@@ -2460,6 +3186,10 @@ function ensureDefaultPriority(packages = []) {
 
 function go(section, id = '') {
   profileMenuOpen.value = false
+  if (reservationConfirmedRedirectTimer) {
+    window.clearTimeout(reservationConfirmedRedirectTimer)
+    reservationConfirmedRedirectTimer = null
+  }
   if (section === 'reservar') {
     quoteResultsVisible.value = false
   }
@@ -2605,23 +3335,46 @@ function buildAbsoluteClientRoute(location = {}) {
 }
 
 function buildCommercialAccessCheckoutReturnUrl(checkoutState = '') {
-  const returnUrl = buildAbsoluteClientRoute({
+  return buildAbsoluteClientRoute({
     name: 'cliente',
     params: { section: 'pago' },
     query: {
       accessPayment: '1',
       checkout: checkoutState,
-      session_id: '{CHECKOUT_SESSION_ID}',
     },
   })
+}
 
-  return returnUrl.replaceAll('%7B', '{').replaceAll('%7D', '}')
+function buildCommercialAccessReturnUrl() {
+  return buildAbsoluteClientRoute({
+    name: 'cliente',
+    params: { section: 'perfil' },
+  })
 }
 
 function delay(ms = 1000) {
   return new Promise((resolve) => {
     window.setTimeout(resolve, ms)
   })
+}
+
+function clearReservationConfirmedRedirectTimer() {
+  if (reservationConfirmedRedirectTimer) {
+    window.clearTimeout(reservationConfirmedRedirectTimer)
+    reservationConfirmedRedirectTimer = null
+  }
+}
+
+function scheduleReservationConfirmedRedirect() {
+  clearReservationConfirmedRedirectTimer()
+
+  if (props.section !== 'reserva-confirmada') return
+  if (!canRenderReservationWorkflow.value) return
+
+  reservationConfirmedRedirectTimer = window.setTimeout(() => {
+    reservationConfirmedRedirectTimer = null
+    go('viajes', reservationContextId.value)
+  }, 2500)
 }
 
 function findReservationRecordById(reservationId = '') {
@@ -2796,7 +3549,13 @@ async function applySignedContractReturnState() {
 
 async function finalizeCommercialAccessCheckoutReturn() {
   const checkoutState = normalizeRouteQueryValue(route.query.checkout).toLowerCase()
-  const sessionId = normalizeRouteQueryValue(route.query.session_id || route.query.checkout_session_id)
+  const rawSessionId = normalizeRouteQueryValue(
+    route.query.session_id || route.query.checkout_session_id,
+  )
+  const sessionId =
+    rawSessionId && !rawSessionId.includes('CHECKOUT_SESSION_ID') && !/[{}]/.test(rawSessionId)
+      ? rawSessionId
+      : ''
 
   if (!checkoutState) return
   if (!commercialAccessCheckoutReturnMode.value) return
@@ -2819,12 +3578,12 @@ async function finalizeCommercialAccessCheckoutReturn() {
       const latestAccessStatus = await getClientAccessStatus({ timeoutMs: 30000 }).catch(() => null)
 
       await auth.refreshSession()
-      syncCommercialAccessState(latestAccessStatus?.access || auth.access?.commercial_access || auth.access)
+      syncCommercialAccessState(latestAccessStatus || auth.access?.commercial_access || auth.access)
 
       ui.pushToast({
         tone: 'warning',
         title: 'Pago cancelado',
-        message: 'La activacion del acceso comercial fue cancelada antes de completarse.',
+        message: 'La renovacion del acceso comercial fue cancelada antes de completarse.',
       })
 
       await router.replace({
@@ -2845,6 +3604,14 @@ async function finalizeCommercialAccessCheckoutReturn() {
         },
         { timeoutMs: 30000 },
       )
+
+      if (typeof console !== 'undefined') {
+        console.log('[client-payment-registration] access-checkout-success:response', {
+          session_id: sessionId,
+          attempt: attempt + 1,
+          response: payload,
+        })
+      }
 
       const accessStatus = String(payload?.access?.status || '').trim().toLowerCase()
       const paymentStatus = normalizeAccessPaymentStatus(payload?.payment?.status)
@@ -2868,24 +3635,6 @@ async function finalizeCommercialAccessCheckoutReturn() {
     await refreshReservations({ silent: true }).catch(() => null)
 
     const successAccessStatus = String(successPayload?.access?.status || '').trim().toLowerCase()
-    const successPaymentStatus = normalizeAccessPaymentStatus(successPayload?.payment?.status)
-    const shouldForcePaymentConfirmation =
-      !successPayload?.access?.has_paid_access &&
-      successAccessStatus !== 'active' &&
-      isSuccessfulAccessPaymentStatus(successPaymentStatus)
-
-    if (shouldForcePaymentConfirmation) {
-      const paymentIntentId = resolveAccessPaymentIntentId(successPayload)
-
-      if (paymentIntentId) {
-        await confirmClientAccessPayment(
-          {
-            payment_intent_id: paymentIntentId,
-          },
-          { timeoutMs: 30000 },
-        ).catch(() => null)
-      }
-    }
 
     let latestAccessStatus =
       successPayload?.access?.has_paid_access === true || successAccessStatus === 'active'
@@ -2907,7 +3656,7 @@ async function finalizeCommercialAccessCheckoutReturn() {
     }
 
     const resolvedAccess = latestAccessStatus?.access || auth.access?.commercial_access || auth.access
-    syncCommercialAccessState(resolvedAccess)
+    syncCommercialAccessState(latestAccessStatus || resolvedAccess)
 
     const isActiveAccess =
       resolvedAccess?.has_paid_access === true ||
@@ -3210,25 +3959,30 @@ async function handlePaymentSubmit() {
           contact_email: paymentForm.contactEmail.trim() || customerEmail.value,
           success_url: successUrl,
           cancel_url: cancelUrl,
+          return_url: buildCommercialAccessReturnUrl(),
           successUrl,
           cancelUrl,
         },
         { timeoutMs: 30000 },
       )
 
-      const checkoutUrl = String(
+      const redirectUrl = String(
+        payload?.management_url ||
         payload?.checkout_url ||
+          payload?.managementUrl ||
           payload?.checkoutUrl ||
+          payload?.data?.management_url ||
           payload?.data?.checkout_url ||
+          payload?.data?.managementUrl ||
           payload?.data?.checkoutUrl ||
           '',
       ).trim()
 
-      if (!checkoutUrl) {
-        throw new Error('El backend no devolvio la URL segura de Stripe Checkout.')
+      if (!redirectUrl) {
+        throw new Error('El backend no devolvio la URL de Stripe para administrar o activar el acceso comercial.')
       }
 
-      window.location.assign(checkoutUrl)
+      window.location.assign(redirectUrl)
       return
     } catch (error) {
       paymentInlineError.value =
@@ -3349,6 +4103,18 @@ async function handlePaymentSubmit() {
       },
       receipt_email: paymentForm.contactEmail.trim(),
     })
+
+    if (typeof console !== 'undefined') {
+      console.log('[client-payment-registration] stripe-confirm-card-payment:response', {
+        reservation_id: reservationId || '',
+        flight_request_id: flightRequestId || '',
+        contact_email: paymentForm.contactEmail.trim(),
+        payment_intent_id: result?.paymentIntent?.id || '',
+        payment_intent_status: result?.paymentIntent?.status || '',
+        payment_method_id: result?.paymentIntent?.payment_method || '',
+        result,
+      })
+    }
 
     if (result.error) {
       throw new Error(result.error.message || 'Stripe no pudo confirmar el pago.')
@@ -3877,13 +4643,6 @@ async function submitSearch() {
 
   if (!validateSearchForm()) return
 
-  ui.pushToast({
-    tone: 'success',
-    title: 'Concierge Ejecutivo 24/7',
-    message:
-      'Recibimos tu solicitud de reserva. Estamos cotizando tu vuelo privado con seguimiento prioritario.',
-  })
-
   searching.value = true
   quoteResultsVisible.value = true
   aircraftOptions.value = []
@@ -3909,13 +4668,6 @@ async function submitSearch() {
       repositioningRequired: pendingMultiDestinationLegs ? true : undefined,
     }
     submittedItinerary.value = buildItinerarySummary(quotePayload)
-    ui.pushToast({
-      tone: 'success',
-      title: 'Cotizando itinerario',
-      message: pendingMultiDestinationLegs
-        ? 'Cotizando el tramo confirmado con reposicionamiento preventivo.'
-        : 'Validando aeropuertos, tramos y operadores activos.',
-    })
     go('resultados')
     aircraftOptions.value = await searchClientFlights(quotePayload, {
       timeoutMs: CLIENT_QUOTES_TIMEOUT_MS,
@@ -4437,10 +5189,19 @@ watch(
   },
 )
 
+watch(
+  () => [props.section, canRenderReservationWorkflow.value, reservationContextId.value],
+  () => {
+    scheduleReservationConfirmedRedirect()
+  },
+  { immediate: true },
+)
+
 onBeforeUnmount(() => {
   clearReservationsPolling()
   clearWorkflowSyncRefreshTimer()
   clearSignedContractSyncTimer()
+  clearReservationConfirmedRedirectTimer()
   destroyStripePaymentElement()
 
   if (removeWorkflowSyncSubscription) {
@@ -4541,7 +5302,7 @@ watch(
             class="commercial-access-banner__action"
             @click="goToCommercialAccessPayment()"
           >
-            Activar acceso comercial
+            {{ commercialAccessCtaLabel }}
           </button>
         </article>
 
@@ -4574,7 +5335,7 @@ watch(
               class="commercial-access-banner__action"
               @click="goToCommercialAccessPayment()"
             >
-              Activar acceso comercial
+              {{ commercialAccessCtaLabel }}
             </button>
           </article>
 
@@ -4801,7 +5562,7 @@ watch(
                   <strong>Stripe Checkout seguro</strong>
                   <p>
                     Al continuar te llevaremos a la pagina segura de Stripe para completar la
-                    activacion mensual de tu acceso comercial.
+                    renovacion mensual de tu acceso comercial.
                   </p>
                 </div>
 
@@ -5101,8 +5862,8 @@ watch(
                   : paymentSubmitting
                   ? 'Procesando...'
                   : commercialAccessCheckoutReturnMode
-                    ? 'Continuar con activacion'
-                  : selectedPaymentMethod === 'wire'
+                    ? commercialAccessCtaLabel
+                    : selectedPaymentMethod === 'wire'
                     ? 'Generar instrucciones bancarias'
                     : 'Pagar ahora'
               }}
@@ -5221,16 +5982,25 @@ watch(
                 <span class="eyebrow">Miembro Executive</span>
                 <h3>Bienvenido, {{ userFirstName }}</h3>
                 <p>
-                  Tu expediente ya concentra identidad, facturacion, preferencias de cabina y
-                  seguridad para reservar mas rapido la siguiente operacion.
+                  Tu expediente ya concentra identidad, facturación, preferencias de cabina y
+                  seguridad para reservar más rápido.
                 </p>
+              </div>
+
+              <div v-if="activePaymentBadge" class="profile-payment-badge">
+                <span class="profile-payment-badge__icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24">
+                    <path d="M12 2 4 5v6c0 5 3.4 9.7 8 11 4.6-1.3 8-6 8-11V5l-8-3Zm-1.2 13.6L7.6 12.4l1.4-1.4 1.8 1.8 4.2-4.2 1.4 1.4-5.6 5.6Z" fill="currentColor"/>
+                  </svg>
+                </span>
+                <strong>{{ activePaymentBadge }}</strong>
               </div>
 
               <div class="profile-member-chip">
                 <span class="profile-member-avatar">{{ profileInitials }}</span>
                 <div>
-                  <strong>{{ profileDisplayName }}</strong>
-                  <small>{{ hasActiveClientAccess ? 'Executive Member' : 'Private Client' }}</small>
+                  <strong>{{ hasActiveClientAccess ? 'Executive Member' : 'Private Client' }}</strong>
+                  <small>{{ isCommercialAccessExpired(auth.access?.commercial_access || auth.access) ? 'Cuenta vencida' : hasActiveClientAccess ? 'Cuenta activa' : 'Cuenta privada' }}</small>
                 </div>
               </div>
             </div>
@@ -5251,7 +6021,7 @@ watch(
                         fill="currentColor"
                       />
                     </svg>
-                    <svg v-else-if="item.label === 'Facturacion'" viewBox="0 0 24 24">
+                    <svg v-else-if="item.label === 'Facturación'" viewBox="0 0 24 24">
                       <path
                         d="M6 3h9l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm8 1.5V9h4.5L14 4.5ZM8 12h8v1.5H8V12Zm0 3h8v1.5H8V15Z"
                         fill="currentColor"
@@ -5273,26 +6043,39 @@ watch(
           </section>
 
           <div class="profile-cards profile-cards--premium">
-            
-           
+            <article
+              class="profile-renewal-card"
+              :data-tone="commercialAccessRenewalPanel.tone"
+            >
+              <div class="profile-renewal-card__header">
+                <div>
+                  <span class="eyebrow">Renovación automática</span>
+                  <h3>{{ commercialAccessRenewalPanel.title }}</h3>
+                </div>
+                <strong>{{ activePlan }}</strong>
+              </div>
+
+              <p>{{ commercialAccessRenewalPanel.message }}</p>
+
+              <div class="profile-renewal-card__grid">
+                <article
+                  v-for="item in commercialAccessRenewalPanel.rows"
+                  :key="item.label"
+                  class="profile-renewal-card__fact"
+                >
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.value }}</strong>
+                </article>
+              </div>
+
+              <small>{{ commercialAccessRenewalPanel.outcome }}</small>
+            </article>
           </div>
 
           <form class="profile-form profile-form--premium">
-            <label><span class="profile-field-label"><span class="profile-field-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3a5 5 0 1 1 0 10 5 5 0 0 1 0-10Zm0 12c4.418 0 8 2.239 8 5v1H4v-1c0-2.761 3.582-5 8-5Z" fill="currentColor"/></svg></span>Nombre</span><input :value="auth.user?.name || 'Miembro Red Aviation'" /></label>
-            <label><span class="profile-field-label"><span class="profile-field-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6.6 10.8a15.5 15.5 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.24c1.1.36 2.3.56 3.6.56a1 1 0 0 1 1 1V20a1 1 0 0 1-1 1C10.3 21 3 13.7 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.3.2 2.5.56 3.6a1 1 0 0 1-.24 1l-2.22 2.2Z" fill="currentColor"/></svg></span>Telefono</span><input placeholder="+52 55 0000 0000" /></label>
-            <label
-              ><span class="profile-field-label"><span class="profile-field-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 21V7l9-4 9 4v14H3Zm2-2h14V8.3l-7-3.1-7 3.1V19Zm3-2h3v-3H8v3Zm0-5h3V9H8v3Zm5 5h3v-3h-3v3Zm0-5h3V9h-3v3Z" fill="currentColor"/></svg></span>Empresa</span><input :value="auth.user?.company_name || ''" placeholder="Empresa"
-            /></label>
-            <label><span class="profile-field-label"><span class="profile-field-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 5h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Zm0 3v.5l8 4.5 8-4.5V8H4Z" fill="currentColor"/></svg></span>Correo</span><input :value="auth.user?.email || 'miembro@redaviation.test'" /></label>
-            <label><span class="profile-field-label"><span class="profile-field-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 3h9l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm8 1.5V9h4.5L14 4.5ZM8 12h8v1.5H8V12Zm0 3h8v1.5H8V15Z" fill="currentColor"/></svg></span>Pasaporte / ID</span><input placeholder="Documento principal" /></label>
-            <label><span class="profile-field-label"><span class="profile-field-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3V7Zm3 1a1 1 0 0 0-1 1v1h12V9a1 1 0 0 0-1-1H7Zm11 5H6v4a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-4Z" fill="currentColor"/></svg></span>Metodo de pago</span><input placeholder="Tarjeta corporativa o transferencia" /></label>
-            <label><span class="profile-field-label"><span class="profile-field-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 3h9l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm8 1.5V9h4.5L14 4.5ZM8 12h8v1.5H8V12Zm0 3h8v1.5H8V15Z" fill="currentColor"/></svg></span>Facturacion</span><input placeholder="RFC / razon social" /></label>
-            <label><span class="profile-field-label"><span class="profile-field-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2 4 5v6c0 5 3.4 9.7 8 11 4.6-1.3 8-6 8-11V5l-8-3Zm-1.2 13.6L7.6 12.4l1.4-1.4 1.8 1.8 4.2-4.2 1.4 1.4-5.6 5.6Z" fill="currentColor"/></svg></span>Seguridad</span><input placeholder="NDA, privacidad, requerimientos" /></label>
-            <label class="wide"
-              ><span class="profile-field-label"><span class="profile-field-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 21.35 10.55 20C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09A6.02 6.02 0 0 1 16.5 3C19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35Z" fill="currentColor"/></svg></span>Preferencias</span><textarea
-                placeholder="Catering, mascotas, FBO, privacidad, asistencia especial"
-              ></textarea>
-            </label>
+            <label><span class="profile-field-label"><span class="profile-field-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3a5 5 0 1 1 0 10 5 5 0 0 1 0-10Zm0 12c4.418 0 8 2.239 8 5v1H4v-1c0-2.761 3.582-5 8-5Z" fill="currentColor"/></svg></span>Nombre</span><input :value="profileDisplayName" readonly /></label>
+            <label><span class="profile-field-label"><span class="profile-field-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6.6 10.8a15.5 15.5 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.24c1.1.36 2.3.56 3.6.56a1 1 0 0 1 1 1V20a1 1 0 0 1-1 1C10.3 21 3 13.7 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.3.2 2.5.56 3.6a1 1 0 0 1-.24 1l-2.22 2.2Z" fill="currentColor"/></svg></span>Teléfono</span><input :value="profilePhone" readonly /></label>
+            <label class="profile-form__field profile-form__field--half"><span class="profile-field-label"><span class="profile-field-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 5h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Zm0 3v.5l8 4.5 8-4.5V8H4Z" fill="currentColor"/></svg></span>Correo</span><input :value="profileEmail" readonly /></label>
           </form>
         </template>
 
@@ -6944,7 +7727,7 @@ button {
 
 .profile-hero-shell {
   display: grid;
-  gap: 1rem;
+  gap: 0.85rem;
 }
 
 .profile-hero-card {
@@ -6952,7 +7735,7 @@ button {
   grid-template-columns: minmax(0, 1.35fr) auto;
   gap: 1rem;
   align-items: end;
-  padding: 1.4rem;
+  padding: 1.15rem 1.25rem;
   border: 1px solid rgba(181, 138, 60, 0.24);
   border-radius: 22px;
   background:
@@ -6963,7 +7746,7 @@ button {
 
 .profile-hero-copy {
   display: grid;
-  gap: 0.55rem;
+  gap: 0.45rem;
 }
 
 .profile-hero-copy h3,
@@ -6978,17 +7761,54 @@ button {
 .profile-concierge-card p {
   margin: 0;
   color: rgba(255, 255, 255, 0.8);
-  line-height: 1.6;
+  line-height: 1.5;
 }
 
 .profile-member-chip {
   display: flex;
   align-items: center;
   gap: 0.85rem;
-  padding: 0.85rem 1rem;
+  padding: 0.78rem 0.95rem;
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.profile-payment-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.8rem;
+  width: fit-content;
+  max-width: 100%;
+  padding: 0.9rem 1.4rem;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #f9edd0 0%, #efddb1 100%);
+  color: #9a7422;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.profile-payment-badge__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  background: rgba(154, 116, 34, 0.12);
+  flex: 0 0 auto;
+}
+
+.profile-payment-badge__icon svg {
+  width: 1.2rem;
+  height: 1.2rem;
+}
+
+.profile-payment-badge strong {
+  color: inherit;
+  font-size: clamp(1rem, 2vw, 1.2rem);
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  line-height: 1.15;
 }
 
 .profile-member-chip strong,
@@ -6999,6 +7819,7 @@ button {
 
 .profile-member-chip small {
   opacity: 0.76;
+  font-size: 0.88rem;
 }
 
 .profile-member-avatar {
@@ -7016,7 +7837,7 @@ button {
 .profile-kpi-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 1rem;
+  gap: 0.85rem;
 }
 
 .profile-kpi-card,
@@ -7025,7 +7846,7 @@ button {
 .profile-activity-card {
   display: grid;
   gap: 0.35rem;
-  padding: 1rem 1.05rem;
+  padding: 0.95rem 1rem;
   border: 1px solid #e5dfd4;
   border-radius: 20px;
   background: #ffffff;
@@ -7103,13 +7924,103 @@ button {
   margin-top: 0.25rem;
 }
 
+.profile-renewal-card {
+  display: grid;
+  gap: 1rem;
+  padding: 1.25rem;
+  border: 1px solid #e5dfd4;
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at top right, rgba(181, 138, 60, 0.14), transparent 34%),
+    linear-gradient(180deg, #ffffff 0%, #fbf8f2 100%);
+  box-shadow: 0 20px 42px rgba(17, 17, 17, 0.05);
+}
+
+.profile-renewal-card[data-tone='success'] {
+  border-color: rgba(53, 122, 86, 0.2);
+  background:
+    radial-gradient(circle at top right, rgba(77, 155, 111, 0.18), transparent 34%),
+    linear-gradient(180deg, #ffffff 0%, #f4fbf6 100%);
+}
+
+.profile-renewal-card[data-tone='warning'] {
+  border-color: rgba(181, 138, 60, 0.24);
+  background:
+    radial-gradient(circle at top right, rgba(214, 159, 52, 0.18), transparent 34%),
+    linear-gradient(180deg, #ffffff 0%, #fff8ee 100%);
+}
+
+.profile-renewal-card[data-tone='danger'] {
+  border-color: rgba(180, 73, 73, 0.22);
+  background:
+    radial-gradient(circle at top right, rgba(214, 92, 92, 0.16), transparent 34%),
+    linear-gradient(180deg, #ffffff 0%, #fff5f4 100%);
+}
+
+.profile-renewal-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.profile-renewal-card__header strong {
+  padding: 0.65rem 0.9rem;
+  border-radius: 999px;
+  background: rgba(17, 17, 17, 0.05);
+  color: #111111;
+  font-size: 0.88rem;
+  line-height: 1.2;
+}
+
+.profile-renewal-card h3 {
+  font-size: clamp(1.35rem, 2.5vw, 1.8rem);
+}
+
+.profile-renewal-card p,
+.profile-renewal-card small {
+  margin: 0;
+  color: #5d5a53;
+  line-height: 1.6;
+}
+
+.profile-renewal-card__grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.profile-renewal-card__fact {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.95rem 1rem;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(17, 17, 17, 0.06);
+}
+
+.profile-renewal-card__fact span {
+  color: #8c6a1f;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.profile-renewal-card__fact strong {
+  color: #161616;
+  font-size: 0.98rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 .profile-highlight-card--premium {
   padding: 1.25rem;
   border-radius: 20px;
 }
 
 .profile-form--premium {
-  padding: 1.25rem;
+  padding: 1rem;
   border-radius: 20px;
   box-shadow: 0 18px 38px rgba(17, 17, 17, 0.04);
 }
@@ -7280,34 +8191,46 @@ button {
 .profile-form {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
+  gap: 0.85rem 1rem;
   padding: 1rem;
   border: 1px solid #e5e1d8;
-  border-radius: 8px;
+  border-radius: 16px;
   background: #ffffff;
 }
 
 .profile-form label {
   display: grid;
-  gap: 0.42rem;
-  color: #3a332a;
-  font-weight: 800;
+  gap: 0.5rem;
+  color: #5f594e;
+  font-weight: 700;
 }
 
 .profile-form input,
 .profile-form textarea,
 .support-card textarea {
   width: 100%;
-  border: 1px solid #d8d2c4;
-  border-radius: 8px;
-  background: #fbfaf7;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  background: #f5f2eb;
   color: #111111;
   font: inherit;
 }
 
 .profile-form input {
-  min-height: 3rem;
-  padding: 0 0.85rem;
+  min-height: 3.5rem;
+  padding: 0 1rem;
+  font-weight: 800;
+}
+
+.profile-form__field--half {
+  max-width: calc(50% - 0.5rem);
+}
+
+.profile-field-label {
+  color: #676055;
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
 }
 
 .wide {
@@ -7468,6 +8391,7 @@ button {
 
 @media (max-width: 1080px) {
   .profile-kpi-grid,
+  .profile-renewal-card__grid,
   .profile-document-grid,
   .profile-activity-shell,
   .results-search-bar,
@@ -7986,6 +8910,10 @@ button {
 @media (max-width: 720px) {
   .commercial-payment-brief {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .profile-renewal-card__header {
+    display: grid;
   }
 }
 

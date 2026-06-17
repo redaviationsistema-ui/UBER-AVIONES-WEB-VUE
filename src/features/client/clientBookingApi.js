@@ -113,24 +113,10 @@ const CLIENT_PAYMENT_CONFIRM_PATHS = [
     ].filter(Boolean),
   ),
 ]
-const CLIENT_ACCESS_PAYMENT_INTENT_PATHS = [
-  ...new Set(
-    [
-      '/client/access-payment/payment-intent',
-    ].filter(Boolean),
-  ),
-]
 const CLIENT_ACCESS_CHECKOUT_PATHS = [
   ...new Set(
     [
       '/client/access-payment/create',
-    ].filter(Boolean),
-  ),
-]
-const CLIENT_ACCESS_PAYMENT_CONFIRM_PATHS = [
-  ...new Set(
-    [
-      '/client/access-payment/confirm',
     ].filter(Boolean),
   ),
 ]
@@ -155,6 +141,11 @@ const CLIENT_ACCESS_STATUS_PATHS = [
     ].filter(Boolean),
   ),
 ]
+
+function logClientPaymentRegistration(label, details = {}) {
+  if (typeof console === 'undefined') return
+  console.log(`[client-payment-registration] ${label}`, details)
+}
 const FALLBACK_DESTINATIONS = [
   {
     code: 'CUN',
@@ -2796,6 +2787,12 @@ export async function markClientTripPaymentConfirmed(
     },
   }
 
+  logClientPaymentRegistration('confirm-payment:request', {
+    reservation_id: normalizedReservationId,
+    flight_request_id: normalizedFlightRequestId || '',
+    workflowPayload,
+  })
+
   const directCandidates = CLIENT_PAYMENT_CONFIRM_PATHS.flatMap((path) => [
     { method: 'post', path: replaceRouteId(path, normalizedReservationId), body: workflowPayload },
     { method: 'patch', path: replaceRouteId(path, normalizedReservationId), body: workflowPayload },
@@ -2812,6 +2809,12 @@ export async function markClientTripPaymentConfirmed(
           timeoutMs: options.timeoutMs,
         })),
       )
+      logClientPaymentRegistration('confirm-payment:response', {
+        reservation_id: normalizedReservationId,
+        flight_request_id: normalizedFlightRequestId || '',
+        workflowPayload,
+        response: payload,
+      })
       const record =
         payload?.reservation || payload?.trip || payload?.data || payload?.flight_request || payload
 
@@ -2826,6 +2829,12 @@ export async function markClientTripPaymentConfirmed(
         },
       )
     } catch (error) {
+      logClientPaymentRegistration('confirm-payment:error', {
+        reservation_id: normalizedReservationId,
+        flight_request_id: normalizedFlightRequestId || '',
+        workflowPayload,
+        error,
+      })
       directError = error
     }
   }
@@ -3078,8 +3087,23 @@ export async function createClientPaymentIntent(flightRequestId, payload = {}, o
 
   for (const path of CLIENT_PAYMENT_INTENT_PATHS) {
     try {
-      return await api.post(path, body, options)
+      logClientPaymentRegistration('create-payment-intent:request', {
+        path,
+        body,
+      })
+      const response = await api.post(path, body, options)
+      logClientPaymentRegistration('create-payment-intent:response', {
+        path,
+        body,
+        response,
+      })
+      return response
     } catch (error) {
+      logClientPaymentRegistration('create-payment-intent:error', {
+        path,
+        body,
+        error,
+      })
       lastError = error
     }
   }
@@ -3103,8 +3127,23 @@ export async function createClientWireIntent(flightRequestId, payload = {}, opti
 
   for (const path of CLIENT_WIRE_PATHS) {
     try {
-      return await api.post(path, body, options)
+      logClientPaymentRegistration('create-wire-intent:request', {
+        path,
+        body,
+      })
+      const response = await api.post(path, body, options)
+      logClientPaymentRegistration('create-wire-intent:response', {
+        path,
+        body,
+        response,
+      })
+      return response
     } catch (error) {
+      logClientPaymentRegistration('create-wire-intent:error', {
+        path,
+        body,
+        error,
+      })
       lastError = error
     }
   }
@@ -3112,58 +3151,33 @@ export async function createClientWireIntent(flightRequestId, payload = {}, opti
   throw lastError || new Error('No se pudieron generar las instrucciones bancarias.')
 }
 
-export async function createClientAccessPaymentIntent(payload = {}, options = {}) {
-  let lastError = null
-
-  for (const path of CLIENT_ACCESS_PAYMENT_INTENT_PATHS) {
-    try {
-      return await api.post(path, payload, options)
-    } catch (error) {
-      lastError = error
-    }
-  }
-
-  throw lastError || new Error('No se pudo crear el PaymentIntent del acceso comercial.')
-}
-
 export async function createClientAccessCheckout(payload = {}, options = {}) {
   let lastError = null
 
   for (const path of CLIENT_ACCESS_CHECKOUT_PATHS) {
     try {
-      return await api.post(path, payload, options)
+      logClientPaymentRegistration('create-access-checkout:request', {
+        path,
+        body: payload,
+      })
+      const response = await api.post(path, payload, options)
+      logClientPaymentRegistration('create-access-checkout:response', {
+        path,
+        body: payload,
+        response,
+      })
+      return response
     } catch (error) {
+      logClientPaymentRegistration('create-access-checkout:error', {
+        path,
+        body: payload,
+        error,
+      })
       lastError = error
     }
   }
 
   throw lastError || new Error('No se pudo iniciar Stripe Checkout para el acceso comercial.')
-}
-
-export async function confirmClientAccessPayment(payload = {}, options = {}) {
-  const paymentIntentId = String(payload?.payment_intent_id || payload?.paymentIntentId || '').trim()
-
-  if (!paymentIntentId) {
-    throw new Error('No encontramos el PaymentIntent del acceso comercial.')
-  }
-
-  let lastError = null
-
-  for (const path of CLIENT_ACCESS_PAYMENT_CONFIRM_PATHS) {
-    try {
-      return await api.post(
-        path,
-        {
-          payment_intent_id: paymentIntentId,
-        },
-        options,
-      )
-    } catch (error) {
-      lastError = error
-    }
-  }
-
-  throw lastError || new Error('No se pudo confirmar el pago del acceso comercial.')
 }
 
 export async function getClientAccessPaymentSuccess(payload = {}, options = {}) {

@@ -1082,14 +1082,13 @@ async function reconcileAccessPayment(user = {}) {
   if (!userId || isReconcilingPayment(userId)) return
 
   const payment = latestAccessPaymentForUser(user)
-  const paymentIntentId = resolveAccessPaymentIntentId(payment)
   const checkoutSessionId = resolveAccessCheckoutSessionId(payment)
 
-  if (!paymentIntentId && !checkoutSessionId) {
+  if (!checkoutSessionId) {
     ui.pushToast({
       tone: 'error',
       title: 'No se pudo validar el pago',
-      message: 'Este registro no trae referencias de Stripe para reconciliar el acceso comercial.',
+      message: 'Este registro no trae la sesion de Stripe necesaria para reconciliar el acceso comercial.',
     })
     return
   }
@@ -1097,25 +1096,14 @@ async function reconcileAccessPayment(user = {}) {
   reconcilingPaymentUserIds.value = [...reconcilingPaymentUserIds.value, userId]
 
   try {
-    if (paymentIntentId) {
-      await requestWithCandidates([
-        {
-          method: 'post',
-          path: '/client/access-payment/confirm',
-          body: { payment_intent_id: paymentIntentId },
-          timeoutMs: 30000,
-        },
-      ])
-    } else {
-      await requestWithCandidates([
-        {
-          method: 'get',
-          path: '/client/access-payment/success',
-          query: { session_id: checkoutSessionId },
-          timeoutMs: 30000,
-        },
-      ])
-    }
+    await requestWithCandidates([
+      {
+        method: 'get',
+        path: '/client/access-payment/success',
+        query: checkoutSessionId ? { session_id: checkoutSessionId } : undefined,
+        timeoutMs: 30000,
+      },
+    ])
 
     await emit('refresh')
 

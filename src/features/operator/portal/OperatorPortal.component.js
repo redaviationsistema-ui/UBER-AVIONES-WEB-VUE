@@ -200,6 +200,7 @@ const activatingAircraftId = ref(null)
 
 const billingStatusRefreshAircraftId = ref(null)
 const paymentsAircraftSyncKey = ref('')
+const billingStatusBackendCooldownUntil = ref(0)
 
 const handledBillingReturnKey = ref('')
 
@@ -1271,7 +1272,11 @@ const companyStatusMeta = computed(() => {
   if (['approved', 'aprobada', 'aprobado', 'active'].includes(normalized)) {
     return { label: 'Aprobado', tone: 'success', headline: 'Operador verificado' }
   }
-  if (normalized.includes('revision') || normalized.includes('pending')) {
+  if (
+    normalized.includes('pending_validation') ||
+    normalized.includes('revision') ||
+    normalized.includes('pending')
+  ) {
     return { label: 'En revision', tone: 'warning', headline: 'Validacion en proceso' }
   }
   if (
@@ -1284,6 +1289,10 @@ const companyStatusMeta = computed(() => {
 
   return { label: company.status || 'Sin estado', tone: 'neutral', headline: 'Perfil operativo' }
 })
+
+const providerCanRegisterAircraft = computed(
+  () => Boolean(company.canRegisterAircraft) || companyStatusMeta.value.tone === 'success',
+)
 
 const companyLastAuditDate = computed(() => {
   const latestCompanyEntry = history.value.find((entry) =>
@@ -2041,6 +2050,7 @@ function createEmptyCompany() {
     fixedFee: '',
     status: 'pendiente',
     reviewStatus: 'Sin datos',
+    canRegisterAircraft: false,
     adminNotes: '',
     documents: [],
   }
@@ -2903,6 +2913,41 @@ function showError(title, message) {
   ui.pushToast({ tone: 'error', title, message })
 }
 
+function getFriendlyOperatorErrorMessage(error, fallbackMessage, context = 'general') {
+  const status = Number(error?.status || 0)
+  const message = String(error?.message || '').trim()
+  const normalizedMessage = message.toLowerCase()
+
+  if ([502, 503, 504].includes(status)) {
+    if (context === 'billing-plan') {
+      return 'El backend no pudo devolver la mensualidad de la aeronave en este momento. Revisa la ruta de facturacion del proveedor en Laravel.'
+    }
+
+    if (context === 'portal-load') {
+      return 'El backend no pudo devolver los datos del portal operador en este momento. Revisa las rutas de aeronaves del proveedor en Laravel.'
+    }
+
+    return 'El backend no pudo completar esta solicitud en este momento. Intenta de nuevo en unos segundos.'
+  }
+
+  if (
+    error?.candidateAttempts?.length &&
+    (status === 404 ||
+      status === 405 ||
+      (normalizedMessage.includes('route') && normalizedMessage.includes('could not be found')))
+  ) {
+    if (context === 'billing-plan') {
+      return 'El backend todavia no expone una ruta compatible para consultar la mensualidad por aeronave.'
+    }
+
+    if (context === 'portal-load') {
+      return 'El backend todavia no expone una ruta compatible para cargar una o mas secciones del portal operador.'
+    }
+  }
+
+  return message || fallbackMessage
+}
+
 function isBackendConnectionError(error) {
   const message = String(error?.message || '').toLowerCase()
   return (
@@ -2915,6 +2960,14 @@ function isBackendConnectionError(error) {
 
 function getBackendConnectionMessage() {
   return 'No hay conexion con el backend local en http://127.0.0.1:8000. Verifica que Laravel este corriendo.'
+}
+
+function markAircraftBillingBackendUnavailable(cooldownMs = 15000) {
+  const nextCooldownUntil = Date.now() + Number(cooldownMs || 0)
+  billingStatusBackendCooldownUntil.value = Math.max(
+    billingStatusBackendCooldownUntil.value,
+    nextCooldownUntil,
+  )
 }
 
 function clearFormFeedback(formKey) {
@@ -3249,6 +3302,13 @@ function openProviderRelease(requestOrId = null) {
 }
 
 function normalizeCompany(raw = {}) {
+  const approvalStatus =
+    raw.approval_status || raw.validation_status || raw.review_status || raw.status || company.status
+  const providerStatus = raw.provider_status || approvalStatus
+  const canRegisterAircraft =
+    raw.can_register_aircraft ??
+    ['approved', 'aprobada', 'aprobado', 'active'].includes(String(approvalStatus || '').toLowerCase())
+
   return {
     legalName: raw.legal_name || raw.company_name || raw.razon_social || company.legalName,
     rfc: raw.rfc || raw.tax_id || company.rfc,
@@ -3258,13 +3318,13 @@ function normalizeCompany(raw = {}) {
     address: raw.address || raw.direccion || company.address,
     legalRepresentative:
       raw.legal_representative || raw.representante_legal || company.legalRepresentative,
-    status: raw.status || company.status,
+    status: providerStatus || company.status,
     jetAPrice: raw.jet_a_price ?? raw.jetA ?? raw.precio_jet_a ?? company.jetAPrice,
     marginPercent:
       raw.margin_percent ?? raw.utility_percent ?? raw.porcentaje_utilidad ?? company.marginPercent,
     fixedFee: raw.fixed_fee ?? raw.fee_fijo ?? company.fixedFee,
-    reviewStatus:
-      raw.validation_status || raw.review_status || raw.estado_validacion || company.reviewStatus,
+    reviewStatus: approvalStatus || raw.estado_validacion || company.reviewStatus,
+    canRegisterAircraft: Boolean(canRegisterAircraft),
     adminNotes: raw.admin_notes || raw.observations || raw.observaciones || company.adminNotes,
     documents: Array.isArray(raw.documents)
       ? raw.documents.map((document, index) => normalizeCompanyDocument(document, index))
@@ -3599,6 +3659,10 @@ async function loadProviderAircraftBillingPlan(options = {}) {
     return providerAircraftBillingPlan.value
   }
 
+  if (shouldSkipAircraftBillingRefresh()) {
+    return providerAircraftBillingPlan.value
+  }
+
   loadingProviderAircraftBillingPlan.value = true
 
   try {
@@ -3609,9 +3673,18 @@ async function loadProviderAircraftBillingPlan(options = {}) {
     providerAircraftBillingPlan.value = plan && Object.keys(plan).length ? plan : null
     return providerAircraftBillingPlan.value
   } catch (error) {
+    if (isAircraftBillingBackendUnavailable(error)) {
+      markAircraftBillingBackendUnavailable()
+      return providerAircraftBillingPlan.value
+    }
+
     showError(
       'No se pudo consultar la mensualidad',
-      error.message || 'El backend no devolvio el plan de facturacion por aeronave.',
+      getFriendlyOperatorErrorMessage(
+        error,
+        'El backend no devolvio el plan de facturacion por aeronave.',
+        'billing-plan',
+      ),
     )
     return null
   } finally {
@@ -3638,8 +3711,30 @@ function applyAircraftBillingStatus(aircraftId, payload = {}) {
   })
 }
 
+function isAircraftBillingBackendUnavailable(error) {
+  const message = String(error?.message || '').toLowerCase()
+  const detail = String(error?.response?.data?.message || '').toLowerCase()
+  const causeMessage = String(error?.cause?.message || '').toLowerCase()
+  return (
+    Number(error?.status || 0) === 0 ||
+    isBackendConnectionError(error) ||
+    message.includes('econnrefused') ||
+    message.includes('no fue posible conectar con el servicio local ni con el servidor remoto') ||
+    message.includes('failed to fetch') ||
+    message.includes('network error') ||
+    detail.includes('econnrefused') ||
+    causeMessage.includes('econnrefused') ||
+    causeMessage.includes('failed to fetch')
+  )
+}
+
+function shouldSkipAircraftBillingRefresh() {
+  return billingStatusBackendCooldownUntil.value > Date.now()
+}
+
 async function refreshAircraftBillingStatus(aircraftId, options = {}) {
   if (!aircraftId) return null
+  if (shouldSkipAircraftBillingRefresh()) return null
 
   const rawSessionId = String(options.sessionId || '').trim()
   const sessionId =
@@ -3679,6 +3774,9 @@ async function refreshAircraftBillingStatus(aircraftId, options = {}) {
 
     return response
   } catch (error) {
+    if (isAircraftBillingBackendUnavailable(error)) {
+      markAircraftBillingBackendUnavailable()
+    }
     if (!options.silent) {
       showError(
         'No se pudo validar el cobro',
@@ -3769,13 +3867,17 @@ async function syncAircraftBillingAfterCheckout(aircraftId, sessionId = '') {
   const attempts = 6
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
-    await refreshAircraftBillingStatus(aircraftId, {
+    const response = await refreshAircraftBillingStatus(aircraftId, {
       silent: attempt > 0,
       reloadAircraftList: true,
       reloadPayments: true,
       successToast: attempt === 0,
       sessionId,
     })
+
+    if (!response && shouldSkipAircraftBillingRefresh()) {
+      break
+    }
 
     const syncedAircraft =
       aircraft.value.find((item) => Number(item.id) === Number(aircraftId)) || null
@@ -3844,7 +3946,8 @@ async function refreshPendingAircraftBillingStatuses() {
       .filter(Boolean)
 
     for (const aircraftId of pendingAircraftIds) {
-      await refreshAircraftBillingStatus(aircraftId, { silent: true })
+      const response = await refreshAircraftBillingStatus(aircraftId, { silent: true })
+      if (!response && shouldSkipAircraftBillingRefresh()) break
     }
   } finally {
     aircraftBillingSyncInFlight = false
@@ -3870,13 +3973,16 @@ async function syncAircraftBillingPaymentsView() {
 
   try {
     for (const aircraftId of aircraftIds) {
-      await refreshAircraftBillingStatus(aircraftId, {
+      const response = await refreshAircraftBillingStatus(aircraftId, {
         silent: true,
         reloadAircraftList: true,
       })
+      if (!response && shouldSkipAircraftBillingRefresh()) break
     }
 
-    await ensureSectionDataLoaded('pagos', { force: true, timeoutMs: OPERATOR_BACKGROUND_TIMEOUT_MS })
+    if (!shouldSkipAircraftBillingRefresh()) {
+      await ensureSectionDataLoaded('pagos', { force: true, timeoutMs: OPERATOR_BACKGROUND_TIMEOUT_MS })
+    }
   } finally {
     window.setTimeout(() => {
       if (paymentsAircraftSyncKey.value === syncKey) {
@@ -4947,6 +5053,7 @@ function setCompanyDocumentFile(file) {
 
 async function reloadCompany() {
   const response = await requestWithCandidates([
+    { method: 'get', path: '/proveedor/profile-status' },
     { method: 'get', path: '/proveedor/dashboard' },
     { method: 'get', path: '/proveedor/empresa' },
     { method: 'get', path: '/operator/dashboard' },
@@ -5196,6 +5303,16 @@ function cancelEditingAircraft() {
 }
 
 function openAircraftWizard(item = null, mode = 'edit') {
+  if (!item && mode !== 'view' && !providerCanRegisterAircraft.value) {
+    ui.pushToast({
+      tone: 'warning',
+      title: 'Validacion pendiente',
+      message: 'Primero necesitamos que Admin apruebe la cuenta del proveedor antes de registrar aeronaves.',
+    })
+    goToSection('empresa')
+    return
+  }
+
   if (item) {
     startEditingAircraft(item)
     imageForm.aircraftId = item.id
@@ -6888,7 +7005,11 @@ async function loadPortal() {
 
     showError(
       'No se pudo cargar el portal',
-      error.message || 'El backend no respondio con datos del proveedor.',
+      getFriendlyOperatorErrorMessage(
+        error,
+        'El backend no respondio con datos del proveedor.',
+        'portal-load',
+      ),
     )
   } finally {
     if (currentLoadSequence === portalLoadSequence.value) {
@@ -7151,9 +7272,10 @@ async function createAircraft() {
     ])
 
     const record = pickRecord(response, ['aircraft', 'data'])
+    const redirectTo = String(response?.redirect_to || response?.redirectTo || '').trim()
     let createdAircraft = null
     if (record && Object.keys(record).length && record.id) {
-      createdAircraft = upsertAircraftRecord(record)
+      createdAircraft = upsertAircraftRecord({ ...record, redirect_to: redirectTo })
     } else {
       await reloadAircraftList()
       createdAircraft = aircraft.value[0] || null
@@ -7161,21 +7283,37 @@ async function createAircraft() {
     imageForm.aircraftId = createdAircraft?.id || imageForm.aircraftId
     documentForm.aircraftId = createdAircraft?.id || documentForm.aircraftId
     focusAircraftBilling(createdAircraft?.id || null)
+    if (props.section === 'aeronaves' && createdAircraft?.id) {
+      router.replace({
+        name: 'operador',
+        params: { section: 'aeronaves' },
+        query: {
+          ...route.query,
+          aircraft_id: String(createdAircraft.id),
+        },
+      })
+    }
     void loadProviderAircraftBillingPlan()
     pushHistory('Aeronaves', 'Nueva aeronave registrada')
     syncAircraftScopedForms()
-    const aircraftBlocked = String(createdAircraft?.status || '').toLowerCase() === 'blocked'
+    const billingPending =
+      String(
+        createdAircraft?.billingStatus ||
+          createdAircraft?.subscriptionStatus ||
+          createdAircraft?.status ||
+          '',
+      ).toLowerCase() === 'pending_payment'
     setFormSuccess(
       'aircraft',
-      aircraftBlocked
-        ? 'La aeronave se creo y quedo bloqueada hasta que admin la active.'
+      billingPending
+        ? 'La aeronave se creo y quedo pendiente de pago. Continua con la activacion mensual.'
         : 'La aeronave se creo y quedo lista para continuar con imagenes, documentos y activacion mensual.',
     )
     ui.pushToast({
-      tone: aircraftBlocked ? 'info' : 'success',
-      title: aircraftBlocked ? 'Aeronave registrada y bloqueada' : 'Aeronave creada',
-      message: aircraftBlocked
-        ? 'La aeronave fue registrada y quedo bloqueada hasta activacion admin.'
+      tone: billingPending ? 'info' : 'success',
+      title: billingPending ? 'Aeronave registrada pendiente de pago' : 'Aeronave creada',
+      message: billingPending
+        ? 'La aeronave fue registrada y ahora necesita la mensualidad de activacion para quedar visible.'
         : 'La aeronave ya fue registrada en backend y quedo pendiente de activacion.',
     })
     return createdAircraft
@@ -9107,6 +9245,7 @@ watch(
       dashboardCompletion,
       dashboardGlobalStatus,
       dashboardAlerts,
+      providerCanRegisterAircraft,
       dashboardQuickActions,
       dashboardChecklist,
       dashboardRecentActivity,

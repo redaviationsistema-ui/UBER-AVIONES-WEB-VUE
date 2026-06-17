@@ -290,6 +290,7 @@ watch(
           'portal-workspace': usesWorkspaceMenu,
         }"
       >
+      
         <header v-if="usesWorkspaceMenu && showPortalHeader" class="portal-header">
           <div>
             <p class="eyebrow">Espacio de trabajo</p>

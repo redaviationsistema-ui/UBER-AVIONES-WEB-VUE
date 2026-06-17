@@ -1,11 +1,16 @@
 import { api } from './api'
 
+function isGatewayFailure(status = 0) {
+  return [502, 503, 504].includes(Number(status || 0))
+}
+
 function shouldTryNextCandidate(error) {
   const status = Number(error?.status || 0)
   const message = String(error?.message || '').toLowerCase()
 
   if (status === 0) return true
   if ([404, 405].includes(status)) return true
+  if (isGatewayFailure(status)) return false
   if (status >= 500 && status <= 599) return true
   if (message.includes('route') && message.includes('could not be found')) return true
 
@@ -20,6 +25,13 @@ function buildAttemptSummary(attempts = []) {
       return `${path}${status}`
     })
     .join(' | ')
+}
+
+function shouldExposeAttemptSummary(error) {
+  const status = Number(error?.status || 0)
+  const message = String(error?.message || '').toLowerCase()
+
+  return status === 404 || status === 405 || (message.includes('route') && message.includes('could not be found'))
 }
 
 export async function requestWithCandidates(candidates, requestOptions = {}) {
@@ -79,9 +91,9 @@ export async function requestWithCandidates(candidates, requestOptions = {}) {
 
   if (lastError) {
     const attemptsSummary = buildAttemptSummary(attempts)
-    if (attemptsSummary) {
+    lastError.candidateAttempts = attempts
+    if (attemptsSummary && shouldExposeAttemptSummary(lastError)) {
       lastError.message = `${lastError.message || 'La solicitud fallo.'} Rutas probadas: ${attemptsSummary}`
-      lastError.candidateAttempts = attempts
     }
     throw lastError
   }

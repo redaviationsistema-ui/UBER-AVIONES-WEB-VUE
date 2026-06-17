@@ -65,10 +65,7 @@ const requestTokens = {
 const profileTabs = [
   { id: 'dashboard', label: 'Perfil', caption: 'Vista general' },
   { id: 'travelers', label: 'Viajeros', caption: 'Frecuentes y rutas' },
-  { id: 'billing', label: 'Facturacion', caption: 'Cobro y cierre' },
   { id: 'documents', label: 'Documentos', caption: 'Expediente digital' },
-  { id: 'preferences', label: 'Preferencias', caption: 'Experiencia a bordo' },
-  { id: 'security', label: 'Seguridad', caption: 'Privacidad y seguimiento' },
 ]
 const preferenceChipOptions = [
   { id: 'catering_gourmet', label: 'Catering Gourmet', field: 'catering', value: 'Gourmet' },
@@ -201,18 +198,6 @@ const accountCards = computed(() => [
     label: 'Correo',
     value: props.profile?.email || 'Por completar',
   },
-  {
-    label: 'Empresa',
-    value: props.profile?.company_name || props.profile?.company || 'Opcional',
-  },
-  {
-    label: 'Metodo de pago',
-    value: props.profile?.payment_method || 'Pendiente de configuracion',
-  },
-  {
-    label: 'Privacidad / NDA',
-    value: props.access?.has_access ? 'Perfil protegido' : 'Configurable al reservar',
-  },
 ])
 
 const operationsFlow = computed(() => [
@@ -331,6 +316,123 @@ const memberTier = computed(() => {
   return 'Access on Demand'
 })
 
+function resolveAccessCandidate(...candidates) {
+  for (const candidate of candidates) {
+    const normalized = String(candidate ?? '').trim()
+    if (normalized) return normalized
+  }
+
+  return ''
+}
+
+function resolveClientAccessExpiryDate() {
+  const commercial = props.access?.commercial_access || props.access?.commercialAccess || {}
+  const membership = props.access?.membership || props.access?.subscription || {}
+
+  return resolveAccessCandidate(
+    commercial.access_expires_at,
+    commercial.expires_at,
+    membership.expires_at,
+    membership.ends_at,
+    props.access?.access_expires_at,
+    props.access?.membership_expires_at,
+    props.access?.subscription_expires_at,
+    props.profile?.access_expires_at,
+    props.profile?.membership_expires_at,
+  )
+}
+
+function formatClientAccessExpiryDate(value = '') {
+  const normalized = String(value || '').trim()
+  if (!normalized) return ''
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return normalized
+
+  const normalizedIso = normalized.includes('T') ? normalized : normalized.replace(' ', 'T')
+  const parsed = new Date(normalizedIso)
+  if (!Number.isFinite(parsed.getTime())) return normalized.slice(0, 10)
+
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(parsed)
+
+  const year = parts.find((part) => part.type === 'year')?.value || ''
+  const month = parts.find((part) => part.type === 'month')?.value || ''
+  const day = parts.find((part) => part.type === 'day')?.value || ''
+
+  return year && month && day ? `${year}-${month}-${day}` : normalized.slice(0, 10)
+}
+
+function resolveClientAccessExpiryMeta() {
+  const expiryDate = resolveClientAccessExpiryDate()
+  const label = formatClientAccessExpiryDate(expiryDate)
+  if (!label) return { expiryDate, label: '', daysUntil: null }
+
+  const [year, month, day] = label.split('-').map((value) => Number(value))
+  if (!year || !month || !day) return { expiryDate, label, daysUntil: null }
+
+  const expiryUtc = Date.UTC(year, month - 1, day)
+  const now = new Date()
+  const todayUtc = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())
+
+  return {
+    expiryDate,
+    label,
+    daysUntil: Math.round((expiryUtc - todayUtc) / 86400000),
+  }
+}
+
+function hasClientAccessExpired() {
+  const expiryDate = resolveClientAccessExpiryDate()
+  if (!expiryDate) return false
+
+  const parsedDate = new Date(expiryDate)
+  if (!Number.isFinite(parsedDate.getTime())) return false
+
+  return parsedDate.getTime() < Date.now()
+}
+
+const membershipFlag = computed(() => (hasClientAccessExpired() ? 'Miembro vencido' : 'Miembro activo'))
+
+const paymentStatusBadge = computed(() => {
+  const commercial = props.access?.commercial_access || props.access?.commercialAccess || {}
+  const membership = props.access?.membership || props.access?.subscription || {}
+  const normalizedStatus = resolveAccessCandidate(
+    commercial.status,
+    membership.status,
+    props.access?.access_status,
+    props.access?.membership_status,
+    props.access?.subscription_status,
+    props.profile?.access_status,
+    props.profile?.membership_status,
+  ).toLowerCase()
+  const expiryMeta = resolveClientAccessExpiryMeta()
+  const expiryDateLabel = expiryMeta.label
+  const hasPaidAccess = Boolean(
+    commercial.has_paid_access ??
+      props.access?.has_paid_access ??
+      props.profile?.has_paid_access ??
+      false,
+  )
+  const activeStatuses = new Set(['active', 'activa', 'vigente', 'approved', 'paid'])
+
+  if (!hasPaidAccess && !activeStatuses.has(normalizedStatus)) return ''
+  if (hasClientAccessExpired()) {
+    return expiryDateLabel ? `PAGO VENCIDO · EXPIRÓ ${expiryDateLabel}` : 'PAGO VENCIDO'
+  }
+
+  if (expiryMeta.daysUntil === 0) {
+    return expiryDateLabel ? `PAGO ACTIVO · VENCE HOY ${expiryDateLabel}` : 'PAGO ACTIVO · VENCE HOY'
+  }
+
+  if (expiryMeta.daysUntil === 1) {
+    return expiryDateLabel ? `PAGO ACTIVO · VENCE MAÑANA ${expiryDateLabel}` : 'PAGO ACTIVO · VENCE MAÑANA'
+  }
+
+  return expiryDateLabel ? `PAGO ACTIVO · VENCE ${expiryDateLabel}` : 'PAGO ACTIVO'
+})
+
 const lastFlightLabel = computed(() => {
   const request = props.requests[0] || props.latestRequest || null
   if (!request) return 'Sin vuelo reciente'
@@ -370,9 +472,9 @@ const dashboardMetrics = computed(() => [
     caption: 'Frecuentes',
   },
   {
-    label: 'Facturacion',
-    value: props.commercialProfile?.invoice_required ? 'Configurada' : 'Pendiente',
-    caption: 'Cuenta comercial',
+    label: 'Ruta activa',
+    value: currentRouteLabel.value,
+    caption: 'Operacion reciente',
   },
   {
     label: 'Concierge',
@@ -441,25 +543,6 @@ const dashboardDocuments = computed(() =>
             : 'En revision',
   })),
 )
-
-const securityHighlights = computed(() => [
-  {
-    label: 'Privacidad',
-    value: props.access?.has_access ? 'Reforzada' : 'Estándar',
-  },
-  {
-    label: 'NDA',
-    value: props.commercialProfile?.nda_required ? 'Requerido' : 'Opcional',
-  },
-  {
-    label: 'Documentos aprobados',
-    value: String(props.documentStats?.approved || 0),
-  },
-  {
-    label: 'Canal concierge',
-    value: props.conciergeChat?.id ? 'Protegido' : 'Pendiente',
-  },
-])
 
 const commercialSteps = computed(() => [
   {
@@ -761,7 +844,21 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="hero-member-body">
-            <span class="member-flag">Miembro activo</span>
+            <div
+              v-if="paymentStatusBadge"
+              class="payment-active-badge"
+              :class="{ 'payment-active-badge--expired': hasClientAccessExpired() }"
+            >
+              <span class="payment-active-badge__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M12 2 4 5v6c0 5 3.4 9.7 8 11 4.6-1.3 8-6 8-11V5l-8-3Zm-1.2 13.6L7.6 12.4l1.4-1.4 1.8 1.8 4.2-4.2 1.4 1.4-5.6 5.6Z" fill="currentColor"/>
+                </svg>
+              </span>
+              <strong>{{ paymentStatusBadge }}</strong>
+            </div>
+            <span class="member-flag" :class="{ 'member-flag--expired': hasClientAccessExpired() }">
+              {{ membershipFlag }}
+            </span>
             <strong>{{ memberTier }}</strong>
             <p>Perfil protegido con historial de vuelo, preferencias guardadas y cierre comercial centralizado.</p>
           </div>
@@ -1036,7 +1133,7 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <section v-if="['dashboard', 'travelers', 'preferences'].includes(activeProfileTab)" class="status-strip">
+    <section v-if="['dashboard', 'travelers'].includes(activeProfileTab)" class="status-strip">
       <article v-for="item in experienceSignals" :key="item.label" class="signal-card">
         <span>{{ item.label }}</span>
         <strong>{{ item.value }}</strong>
@@ -1057,62 +1154,6 @@ onBeforeUnmount(() => {
           <span>{{ item.label }}</span>
           <strong>{{ item.value }}</strong>
         </article>
-      </div>
-    </section>
-
-    <section v-if="activeProfileTab === 'preferences'" class="profile-section">
-      <div class="section-heading">
-        <h2>Preferencias visuales y operativas</h2>
-        <p>
-          Configura amenities, privacidad, catering y experiencia terrestre desde una interfaz mas
-          cercana a un club de aviacion ejecutiva.
-        </p>
-      </div>
-
-      <div class="preferences-shell">
-        <div class="preference-chip-grid">
-          <button
-            v-for="chip in preferenceChipOptions"
-            :key="chip.id"
-            type="button"
-            class="preference-chip"
-            :class="{ 'preference-chip--active': isPreferenceChipActive(chip) }"
-            @click="togglePreferenceChip(chip)"
-          >
-            {{ chip.label }}
-          </button>
-        </div>
-
-        <div class="advanced-panel advanced-panel--preferences">
-          <label class="inline-field">
-            <span>Mascotas</span>
-            <input :value="form.pets" placeholder="Si / No / Detalles" @input="updateField('pets', $event)" />
-          </label>
-
-          <label class="inline-field">
-            <span>Catering</span>
-            <input :value="form.catering" placeholder="Preferencias a bordo" @input="updateField('catering', $event)" />
-          </label>
-
-          <label class="inline-field">
-            <span>Equipaje</span>
-            <input :value="form.baggage" placeholder="Cantidad o restricciones" @input="updateField('baggage', $event)" />
-          </label>
-
-          <label class="inline-field">
-            <span>Traslado terrestre</span>
-            <input
-              :value="form.ground_transport"
-              placeholder="Blindado, ejecutivo, hotel..."
-              @input="updateField('ground_transport', $event)"
-            />
-          </label>
-
-          <label class="inline-field inline-field--wide">
-            <span>Notas operativas</span>
-            <input :value="form.notes" placeholder="Requerimientos adicionales del vuelo" @input="updateField('notes', $event)" />
-          </label>
-        </div>
       </div>
     </section>
 
@@ -1137,7 +1178,7 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <section v-if="['travelers', 'security'].includes(activeProfileTab)" class="matching-section">
+    <section v-if="activeProfileTab === 'travelers'" class="matching-section">
       <div class="section-heading">
         <h2>Motor de matching y coordinacion premium</h2>
         <p>
@@ -1239,12 +1280,11 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <section v-if="['billing', 'documents', 'security'].includes(activeProfileTab)" class="closing-section">
+    <section v-if="activeProfileTab === 'documents'" class="closing-section">
       <div class="section-heading">
-        <h2>Cierre comercial, seguridad y post-vuelo</h2>
+        <h2>Documentos del expediente</h2>
         <p>
-          El cliente no sale del ecosistema: firma, paga, recibe factura, vuela y vuelve a
-          reservar desde la misma experiencia.
+          Revisa y adjunta los documentos del cliente sin salir de esta vista.
         </p>
       </div>
 
@@ -1619,20 +1659,13 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <section v-if="['dashboard', 'security'].includes(activeProfileTab)" class="operations-live-section">
+    <section v-if="activeProfileTab === 'dashboard'" class="operations-live-section">
       <div class="section-heading">
         <h2>Seguimiento operativo y concierge en vivo</h2>
         <p>
           Cuando una solicitud ya avanza dentro del sistema, aqui concentramos timeline real,
           canal privado y seguimiento operativo sin sacar al cliente del ecosistema.
         </p>
-      </div>
-
-      <div v-if="activeProfileTab === 'security'" class="security-highlight-grid">
-        <article v-for="item in securityHighlights" :key="item.label" class="signal-card">
-          <span>{{ item.label }}</span>
-          <strong>{{ item.value }}</strong>
-        </article>
       </div>
 
       <div class="live-grid">
@@ -1975,6 +2008,58 @@ onBeforeUnmount(() => {
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.member-flag--expired {
+  color: #f2a6a6;
+}
+
+.payment-active-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.8rem;
+  width: fit-content;
+  max-width: 100%;
+  margin-bottom: 0.8rem;
+  padding: 0.9rem 1.4rem;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #f9edd0 0%, #efddb1 100%);
+  color: #9a7422;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.payment-active-badge--expired {
+  background: linear-gradient(180deg, #f8d9d9 0%, #efbaba 100%);
+  color: #9f2f2f;
+}
+
+.payment-active-badge__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  background: rgba(154, 116, 34, 0.12);
+  flex-shrink: 0;
+}
+
+.payment-active-badge--expired .payment-active-badge__icon {
+  background: rgba(159, 47, 47, 0.14);
+}
+
+.payment-active-badge__icon svg {
+  width: 1.2rem;
+  height: 1.2rem;
+}
+
+.payment-active-badge strong {
+  color: inherit;
+  font-size: clamp(1rem, 2vw, 1.2rem);
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1.15;
 }
 
 .concierge-glass-card {
