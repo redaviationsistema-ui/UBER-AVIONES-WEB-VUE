@@ -182,7 +182,7 @@ describe('searchClientFlights', () => {
     consoleSpy.mockRestore()
   })
 
-  it('keeps catalog fallback totals independent from overnight_fee when no overnight_cost exists', async () => {
+  it('does not show catalog fallback quotes when the backend preview is unavailable', async () => {
     api.post.mockRejectedValue(new Error('backend unavailable'))
     api.get.mockResolvedValue({
       aircraft: [
@@ -211,35 +211,30 @@ describe('searchClientFlights', () => {
       ],
     })
 
-    const quotes = await searchClientFlights({
-      trip_type: 'round_trip',
-      passengers: 4,
-      overnight_nights: 2,
-      days: 2,
-      legs: [
-        {
-          origin: 'TLC',
-          destination: 'CUN',
-          date: '2026-06-20',
-          time: '09:00',
-        },
-        {
-          origin: 'CUN',
-          destination: 'TLC',
-          date: '2026-06-22',
-          time: '12:00',
-        },
-      ],
-    })
+    await expect(
+      searchClientFlights({
+        trip_type: 'round_trip',
+        passengers: 4,
+        overnight_nights: 2,
+        days: 2,
+        legs: [
+          {
+            origin: 'TLC',
+            destination: 'CUN',
+            date: '2026-06-20',
+            time: '09:00',
+          },
+          {
+            origin: 'CUN',
+            destination: 'TLC',
+            date: '2026-06-22',
+            time: '12:00',
+          },
+        ],
+      }),
+    ).rejects.toThrow('backend unavailable')
 
-    expect(quotes).toHaveLength(2)
-    expect(quotes[0].overnight_cost).toBe(0)
-    expect(quotes[0].overnight_fees).toBe(0)
-    expect(quotes[1].overnight_cost).toBe(0)
-    expect(quotes[1].overnight_fees).toBe(0)
-    expect(quotes[0].final_price).toBe(quotes[1].final_price)
-    expect(quotes[0].taxes).toBeCloseTo(quotes[1].taxes, 6)
-    expect(quotes[0].extra_services_total).toBe(quotes[1].extra_services_total)
+    expect(api.get).not.toHaveBeenCalled()
   })
 })
 

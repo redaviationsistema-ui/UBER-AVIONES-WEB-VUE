@@ -3249,6 +3249,11 @@ function goToCommercialAccessPayment() {
   })
 }
 
+function reservationActionLabel(aircraft = null) {
+  if (aircraft && isReservingAircraft(aircraft)) return 'Reservando...'
+  return canReserveFlights.value ? 'Reservar' : commercialAccessCtaLabel.value
+}
+
 function ensureCommercialAccessPaymentRouteEligibility() {
   if (!commercialAccessPaymentMode.value) return
   if (requiresCommercialAccessPayment(auth.access?.commercial_access || auth.access)) return
@@ -5443,7 +5448,7 @@ watch(
                 :disabled="Boolean(reservingAircraftId)"
                 @click="requestReservation(featuredAircraft)"
               >
-                {{ isReservingAircraft(featuredAircraft) ? 'Reservando...' : 'Reservar' }}
+                {{ reservationActionLabel(featuredAircraft) }}
               </button>
             </div>
           </article>
@@ -5492,7 +5497,7 @@ watch(
                   :disabled="Boolean(reservingAircraftId)"
                   @click="requestReservation(aircraft)"
                 >
-                  {{ isReservingAircraft(aircraft) ? 'Reservando...' : 'Reservar' }}
+                  {{ reservationActionLabel(aircraft) }}
                 </button>
               </div>
             </article>

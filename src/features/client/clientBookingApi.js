@@ -3185,7 +3185,11 @@ export async function searchClientFlights(itinerary, options = {}) {
       throw error
     }
 
-    // La vista de resultados solo debe mostrar cotizacion real calculada por backend.
+    throw error || new Error('No fue posible generar una cotizacion real desde el backend.')
+  }
+
+  if (!matches.length) {
+    throw new Error('No fue posible generar una cotizacion real para este itinerario.')
   }
 
   const aircraft = await getAircraftFromDatabase(aircraftQuery)
@@ -3193,7 +3197,7 @@ export async function searchClientFlights(itinerary, options = {}) {
     return filterAircraftByItinerary(mergeMatchesWithCatalogImages(matches, aircraft), itinerary)
   }
 
-  return buildCatalogFallbackQuotes(aircraft, itinerary)
+  return []
 }
 
 export async function createClientFlightRequest(itinerary, options = {}) {
