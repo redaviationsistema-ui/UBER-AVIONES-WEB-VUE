@@ -370,6 +370,19 @@ describe('resolveWorkflowState', () => {
 })
 
 describe('resolveSharedWorkflowStatus', () => {
+  it('keeps waiting_provider requests out of contract_pending until the provider accepts', () => {
+    expect(
+      resolveSharedWorkflowStatus({
+        id: 110,
+        status: 'waiting_provider',
+        workflow_status: 'contract_pending',
+        provider_status: 'pending',
+        contract_status: 'generated',
+        operation_id: 9000,
+      }),
+    ).toBe('provider_pending')
+  })
+
   it('moves the shared flow to contract_pending when provider accepted but contract generation already started', () => {
     expect(
       resolveSharedWorkflowStatus({

@@ -46,6 +46,8 @@ const WORKFLOW_DEFINITIONS = {
     apiStatus: 'provider_pending',
     apiWorkflow: 'proveedor por confirmar',
     matches: [
+      'waiting_provider',
+      'provider_status_pending',
       'provider_pending',
       'buscando operador',
       'buscando aeronave',
@@ -444,12 +446,22 @@ export function resolveSharedWorkflowStatus(record = {}) {
     nestedReservation?.status ||
     ''
   const normalizedWorkflow = normalizeWorkflowToken(rawWorkflow)
+  const normalizedStatus = normalizeWorkflowToken(record.status || nestedReservation?.status || '')
   const explicitWorkflowId = resolveWorkflowState(explicitWorkflow).id
   const normalizedContractStatus = normalizeWorkflowToken(
     record.contract?.status ||
       record.contract_status ||
       nestedReservation?.contract?.status ||
       nestedReservation?.contract_status ||
+      '',
+  )
+  const normalizedProviderStatus = normalizeWorkflowToken(
+    record.provider_status ||
+      record.providerStatus ||
+      record.operator_status ||
+      record.operatorStatus ||
+      nestedReservation?.provider_status ||
+      nestedReservation?.providerStatus ||
       '',
   )
   const normalizedPaymentStatus = normalizeWorkflowToken(
@@ -597,8 +609,16 @@ export function resolveSharedWorkflowStatus(record = {}) {
     'matched',
   ])
   const providerPendingSignals = new Set([
+    'waiting provider',
+    'waiting_provider',
+    'provider status pending',
+    'provider_status_pending',
     'provider pending',
     'provider_pending',
+    'pending provider',
+    'pending_provider',
+    'pending',
+    'pendiente',
     'buscando operador',
     'buscando aeronave',
     'matching',
@@ -662,6 +682,29 @@ export function resolveSharedWorkflowStatus(record = {}) {
     'en curso',
   ])
   const crewCompletedSignals = new Set(['crew completed', 'crew_completed'])
+  const hasProviderAcceptedSignal =
+    providerAcceptedSignals.has(normalizedProviderStatus) ||
+    providerAcceptedSignals.has(normalizedWorkflow) ||
+    explicitWorkflowId === 'provider_accepted' ||
+    hasAcceptedMatch
+  const hasProviderRejectedSignal =
+    rejectedSignals.has(normalizedProviderStatus) || rejectedSignals.has(normalizedWorkflow)
+  const isWaitingProvider =
+    providerPendingSignals.has(normalizedProviderStatus) ||
+    providerPendingSignals.has(normalizedStatus) ||
+    providerPendingSignals.has(normalizedWorkflow) ||
+    explicitWorkflowId === 'provider_pending'
+
+  if (hasProviderRejectedSignal) {
+    return 'rejected'
+  }
+
+  if (
+    providerPendingSignals.has(normalizedProviderStatus) ||
+    (isWaitingProvider && !hasProviderAcceptedSignal)
+  ) {
+    return 'provider_pending'
+  }
 
   if (reservationClosedSignals.has(normalizedReservationStatus)) {
     return 'completed'
@@ -742,7 +785,12 @@ export function resolveSharedWorkflowStatus(record = {}) {
     return 'contract_signed'
   }
 
-  if (['generated', 'en firma', 'firma pendiente'].includes(normalizedContractStatus)) {
+  if (
+    hasProviderAcceptedSignal &&
+    ['generated', 'pending', 'pendiente', 'en firma', 'firma pendiente'].includes(
+      normalizedContractStatus,
+    )
+  ) {
     return 'contract_pending'
   }
 
@@ -755,7 +803,7 @@ export function resolveSharedWorkflowStatus(record = {}) {
   }
 
   if (hasOperation) {
-    return 'contract_pending'
+    return hasProviderAcceptedSignal ? 'contract_pending' : 'provider_pending'
   }
 
   if (providerPendingSignals.has(normalizedWorkflow)) {

@@ -2076,9 +2076,8 @@ const requestStatusTabs = computed(() => [
   {
     id: 'coordination',
     label: 'Coordinacion',
-    count: requests.value.filter(
-      (request) => getRequestStatusMeta(request).queue === 'coordination',
-    ).length,
+    count: requests.value.filter((request) => requestMatchesStatusFilter(request, 'coordination'))
+      .length,
   },
   {
     id: 'confirmed',
@@ -2112,7 +2111,7 @@ const filteredRequests = computed(() => {
       const matchesStatus =
         requestStatusFilter.value === 'all'
           ? statusMeta.queue !== 'rejected'
-          : statusMeta.queue === requestStatusFilter.value
+          : requestMatchesStatusFilter(request, requestStatusFilter.value)
       const matchesPriority =
         requestPriorityFilter.value === 'all' || priorityMeta.key === requestPriorityFilter.value
       const haystack = [
@@ -2142,6 +2141,16 @@ const filteredRequests = computed(() => {
       return Number(right.id) - Number(left.id)
     })
 })
+
+function requestMatchesStatusFilter(request = {}, filter = 'all') {
+  const statusMeta = getRequestStatusMeta(request)
+  if (filter === 'all') return statusMeta.queue !== 'rejected'
+  if (filter === 'coordination') {
+    const workflowId = resolveWorkflowState(resolveRequestWorkflowValue(request)).id
+    return statusMeta.queue === 'coordination' || ['reserved', 'provider_pending'].includes(workflowId)
+  }
+  return statusMeta.queue === filter
+}
 
 const selectedRequest = computed(() => {
   if (!filteredRequests.value.length) return null
@@ -2284,6 +2293,14 @@ const selectedRequestWorkflowPreview = computed(() => {
   const workflowValue = resolveRequestWorkflowValue(request)
   const visualStepId = resolveOperatorVisualStepId(workflowValue)
   const option = operationWorkflowOptions.find((item) => item.value === visualStepId)
+  const workflowId = resolveWorkflowState(workflowValue).id
+
+  if (workflowId === 'provider_pending' || workflowId === 'reserved') {
+    return {
+      label: 'Responder solicitud',
+      detail: 'Pendiente de aceptar o rechazar antes de iniciar contrato.',
+    }
+  }
 
   return {
     label: option?.label || normalizeWorkflowLabel(workflowValue),
@@ -4651,6 +4668,15 @@ function normalizeClientLabel(rawClient) {
 function resolveOperatorRequestStatusSource(raw = {}) {
   const explicitWorkflowStatus = String(raw.workflow_status || raw.workflow || '').trim()
   if (explicitWorkflowStatus) {
+    const guardedWorkflowStatus = resolveSharedWorkflowStatus({
+      ...raw,
+      workflow_status: explicitWorkflowStatus,
+      status: raw.status || '',
+    })
+    if (resolveWorkflowState(guardedWorkflowStatus).id === 'provider_pending') {
+      return guardedWorkflowStatus
+    }
+
     return resolveWorkflowState(explicitWorkflowStatus).id === 'provider_accepted'
       ? 'contract_pending'
       : explicitWorkflowStatus
@@ -4833,6 +4859,13 @@ function normalizeRequest(raw = {}, index = 0) {
     workflowStatus: sharedWorkflowStatus,
     contractStatus:
       raw.contract?.status || raw.contract_status || raw.reservation?.contract_status || '',
+    providerStatus:
+      raw.provider_status ||
+      raw.providerStatus ||
+      raw.operator_status ||
+      raw.operatorStatus ||
+      raw.reservation?.provider_status ||
+      '',
     paymentStatus:
       raw.payment?.status ||
       raw.payment_status ||
@@ -6889,6 +6922,14 @@ function getRequestStatusMeta(statusOrRequest = '') {
       headline: label,
     }
   }
+  if (workflowState === 'provider_pending' || workflowState === 'reserved') {
+    return {
+      label: 'Solicitud nueva',
+      tone: 'warning',
+      queue: 'new',
+      headline: 'Pendiente de aceptar o rechazar',
+    }
+  }
   if (
     workflowState === 'provider_accepted' ||
     workflowState === 'contract_pending' ||
@@ -7063,6 +7104,7 @@ function resolveRequestWorkflowValue(requestOrStatus = '') {
         workflow_status: explicitWorkflowValue,
         status: linkedOperation?.status || requestOrStatus.status || requestOrStatus.rawStatus || '',
         contract_status: linkedOperation?.contractStatus || requestOrStatus.contractStatus || '',
+        provider_status: requestOrStatus.providerStatus || requestOrStatus.raw?.provider_status || '',
         payment_status: linkedOperation?.paymentStatus || requestOrStatus.paymentStatus || '',
         operation_id: linkedOperation?.id || requestOrStatus.operationId || '',
       }) ||
@@ -7139,6 +7181,10 @@ function getRequestHelperCopy(request = {}) {
   const workflowValue = resolveRequestWorkflowValue(request)
   const workflowId = resolveWorkflowState(workflowValue).id
   const visualStepId = resolveOperatorVisualStepId(workflowValue)
+
+  if (workflowId === 'provider_pending' || workflowId === 'reserved') {
+    return 'Pendiente de respuesta del proveedor. Acepta o rechaza la solicitud para continuar el flujo.'
+  }
 
   if (workflowId === 'rejected' || workflowId === 'cancelled') {
     return getSharedWorkflowActionCopy(workflowValue).detail
