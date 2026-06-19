@@ -3047,6 +3047,35 @@ textarea {
   line-height: 1;
 }
 
+.request-workflow-status {
+  display: grid;
+  gap: 0.45rem;
+  border: 1px solid #f0dec1;
+  border-radius: 22px;
+  background: linear-gradient(180deg, #fffaf1 0%, #fffdfa 100%);
+  padding: 1rem;
+}
+
+.request-workflow-status strong {
+  color: #16110d;
+  font-size: 1.05rem;
+}
+
+.request-workflow-status__select {
+  width: 100%;
+  max-width: 22rem;
+  border: 1px solid #e7d8bc;
+  border-radius: 14px;
+  background: #fff;
+  color: #2e2418;
+  padding: 0.78rem 0.9rem;
+  font: inherit;
+}
+
+.request-workflow-status p {
+  margin: 0;
+}
+
 .request-summary-grid,
 .request-detail-grid,
 .request-detail-blocks,

@@ -6,8 +6,7 @@ import basicSsl from '@vitejs/plugin-basic-ssl'
 import vueDevTools from 'vite-plugin-vue-devtools'
 
 const viteLogger = createLogger()
-const suppressedBillingStatusProxyErrorPattern =
-  /http proxy error: \/api\/v1\/provider\/aircraft\/\d+\/billing-status/i
+const suppressedLocalApiProxyErrorPattern = /http proxy error: \/api(?:\/|$)/i
 const suppressedConnectionRefusedPattern = /econnrefused\s+127\.0\.0\.1:8000/i
 
 const customLogger = {
@@ -18,7 +17,7 @@ const customLogger = {
     const errorPayload = `${normalizedMessage}\n${normalizedStack}`
 
     if (
-      suppressedBillingStatusProxyErrorPattern.test(normalizedMessage) &&
+      suppressedLocalApiProxyErrorPattern.test(normalizedMessage) &&
       suppressedConnectionRefusedPattern.test(errorPayload)
     ) {
       return

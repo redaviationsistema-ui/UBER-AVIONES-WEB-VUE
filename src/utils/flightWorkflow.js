@@ -461,6 +461,35 @@ export function resolveSharedWorkflowStatus(record = {}) {
       nestedReservation?.payment_status ||
       '',
   )
+  const normalizedReservationStatus = normalizeWorkflowToken(
+    record.reservation_status ||
+      record.reservationStatus ||
+      nestedReservation?.reservation_status ||
+      nestedReservation?.reservationStatus ||
+      '',
+  )
+  const normalizedFlightStatus = normalizeWorkflowToken(
+    record.flight_status ||
+      record.flightStatus ||
+      record.operation?.flight_status ||
+      record.operation?.flightStatus ||
+      nestedReservation?.flight_status ||
+      nestedReservation?.flightStatus ||
+      nestedReservation?.operation?.flight_status ||
+      nestedReservation?.operation?.flightStatus ||
+      '',
+  )
+  const normalizedTrackingStatus = normalizeWorkflowToken(
+    record.tracking_status ||
+      record.trackingStatus ||
+      record.operation?.tracking_status ||
+      record.operation?.trackingStatus ||
+      nestedReservation?.tracking_status ||
+      nestedReservation?.trackingStatus ||
+      nestedReservation?.operation?.tracking_status ||
+      nestedReservation?.operation?.trackingStatus ||
+      '',
+  )
   const normalizedCrewStatus = normalizeWorkflowToken(
     record.crew_status ||
       record.crewStatus ||
@@ -596,10 +625,62 @@ export function resolveSharedWorkflowStatus(record = {}) {
     'requires payment method',
     'requires_payment_method',
   ])
+  const reservationClosedSignals = new Set([
+    'closed',
+    'cerrada',
+    'cerrado',
+    'archived',
+    'archive',
+  ])
+  const flightConfirmedSignals = new Set([
+    'confirmed',
+    'confirmada',
+    'confirmado',
+    'flight confirmed',
+    'vuelo confirmado',
+    'ready',
+    'lista',
+    'scheduled',
+  ])
+  const flightCompletedSignals = new Set([
+    'completed',
+    'complete',
+    'finalized',
+    'finalizada',
+    'finalizado',
+    'landed',
+    'done',
+  ])
+  const trackingActiveSignals = new Set([
+    'active',
+    'activo',
+    'activa',
+    'live',
+    'tracking live',
+    'tracking en vivo',
+    'in progress',
+    'en curso',
+  ])
   const crewCompletedSignals = new Set(['crew completed', 'crew_completed'])
+
+  if (reservationClosedSignals.has(normalizedReservationStatus)) {
+    return 'completed'
+  }
+
+  if (flightCompletedSignals.has(normalizedTrackingStatus) || flightCompletedSignals.has(normalizedFlightStatus)) {
+    return 'completed'
+  }
 
   if (crewCompletedSignals.has(normalizedCrewStatus)) {
     return 'completed'
+  }
+
+  if (trackingActiveSignals.has(normalizedTrackingStatus)) {
+    return 'tracking_live'
+  }
+
+  if (flightConfirmedSignals.has(normalizedFlightStatus)) {
+    return 'flight_confirmed'
   }
 
   if (

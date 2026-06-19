@@ -372,6 +372,17 @@ const requestStatusUpdate = reactive({
   action: '',
 })
 
+const operationWorkflowOptions = [
+  { value: 'reserved', label: 'Reserva solicitada' },
+  { value: 'provider_pending', label: 'Proveedor' },
+  { value: 'contract_pending', label: 'Contrato pendiente' },
+  { value: 'payment_pending', label: 'Pago pendiente' },
+  { value: 'payment_confirmed', label: 'Pago confirmado' },
+  { value: 'flight_confirmed', label: 'Vuelo confirmado' },
+  { value: 'tracking_live', label: 'Tracking activo' },
+  { value: 'completed', label: 'Finalizado' },
+]
+
 const savingProviderOperationalRelease = ref(false)
 
 const syncingProviderOperationalRelease = ref(false)
@@ -2157,6 +2168,129 @@ const releaseProviderRequest = computed(() => {
       ),
     ) || null
   )
+})
+
+function getSelectedRequestOperationStage() {
+  if (!selectedRequest.value) return 'reserved'
+  const workflowValue = resolveRequestWorkflowValue(selectedRequest.value)
+  const visualStepId = resolveOperatorVisualStepId(workflowValue)
+  return operationWorkflowOptions.some((option) => option.value === visualStepId)
+    ? visualStepId
+    : 'reserved'
+}
+
+function applyLocalRequestWorkflowStageUpdate(id, workflowStage = '') {
+  const normalizedId = String(id)
+  const workflowPayload = buildWorkflowApiPayload(workflowStage)
+
+  requests.value = requests.value.map((request) => {
+    if (String(request.id) !== normalizedId) return request
+
+    const nextRaw = {
+      ...(request.raw || {}),
+      status: workflowPayload.status,
+      workflow_status: workflowStage,
+      workflow: workflowStage,
+    }
+
+    return normalizeRequest(nextRaw, 0)
+  })
+}
+
+function buildOperatorWorkflowUpdateCandidates(request, payload) {
+  const family = REQUEST_MUTATION_ROUTE_FAMILIES[getOperatorMutationRouteFamily(request)]
+  const targetIds = getOperatorFlightRequestTargetIds(request)
+
+  if (!family || !targetIds.length) return []
+
+  return targetIds.flatMap((targetId) => {
+    const workflowPath = family.workflowPath.replace(':id', targetId)
+    const statusPath = family.statusPath.replace(':id', targetId)
+    const basePath = family.basePath.replace(':id', targetId)
+
+    return [
+      { method: 'patch', path: workflowPath, body: payload, timeoutMs: OPERATOR_SECTION_TIMEOUT_MS },
+      { method: 'put', path: workflowPath, body: payload, timeoutMs: OPERATOR_SECTION_TIMEOUT_MS },
+      { method: 'post', path: workflowPath, body: payload, timeoutMs: OPERATOR_SECTION_TIMEOUT_MS },
+      { method: 'patch', path: statusPath, body: payload, timeoutMs: OPERATOR_SECTION_TIMEOUT_MS },
+      { method: 'put', path: statusPath, body: payload, timeoutMs: OPERATOR_SECTION_TIMEOUT_MS },
+      { method: 'patch', path: basePath, body: payload, timeoutMs: OPERATOR_SECTION_TIMEOUT_MS },
+      { method: 'put', path: basePath, body: payload, timeoutMs: OPERATOR_SECTION_TIMEOUT_MS },
+    ]
+  })
+}
+
+async function updateSelectedRequestOperationStage(nextStage) {
+  if (!selectedRequest.value) return
+
+  const request = selectedRequest.value
+  const workflowPayload = buildWorkflowApiPayload(nextStage)
+  const payload = {
+    ...workflowPayload,
+    state: workflowPayload.status,
+    workflow_stage: nextStage,
+    operational_stage: nextStage,
+  }
+
+  requestStatusUpdate.requestId = request.id
+  requestStatusUpdate.action = 'workflow'
+
+  try {
+    await requestWithCandidates(buildOperatorWorkflowUpdateCandidates(request, payload))
+  } catch (error) {
+    requestStatusUpdate.requestId = null
+    requestStatusUpdate.action = ''
+    if (isBackendConnectionError(error)) {
+      clearRequestsPolling()
+      return showError('Backend no disponible', getBackendConnectionMessage())
+    }
+    return showError(
+      'No se pudo actualizar el workflow',
+      error?.candidateAttempts?.length
+        ? 'El backend no acepto ninguna ruta compatible para actualizar la etapa de la operacion.'
+        : error.message || 'La etapa de la operacion no pudo guardarse en la base de datos.',
+    )
+  }
+
+  applyLocalRequestWorkflowStageUpdate(request.id, nextStage)
+  emitWorkflowSync({
+    scope: 'reservation-workflow',
+    reservationId: request.reservationId || request.requestId || request.id,
+    requestId: request.requestId || request.id,
+    nextStage,
+    action: 'updated',
+  })
+  ui.pushToast({
+    tone: 'success',
+    title: 'Estado sincronizado',
+    message: `La operacion ahora esta en ${operationWorkflowOptions.find((option) => option.value === nextStage)?.label || nextStage}.`,
+  })
+  requestStatusUpdate.requestId = null
+  requestStatusUpdate.action = ''
+  window.setTimeout(() => {
+    void refreshRequestsList({ silent: true })
+  }, 400)
+}
+
+const selectedRequestWorkflowPreview = computed(() => {
+  if (!selectedRequest.value) {
+    return {
+      label: 'Reserva solicitada',
+      detail: 'La solicitud aun no tiene senales suficientes para avanzar en el flujo.',
+    }
+  }
+
+  const request = selectedRequest.value
+  const workflowValue = resolveRequestWorkflowValue(request)
+  const visualStepId = resolveOperatorVisualStepId(workflowValue)
+  const option = operationWorkflowOptions.find((item) => item.value === visualStepId)
+
+  return {
+    label: option?.label || normalizeWorkflowLabel(workflowValue),
+    detail:
+      getSharedWorkflowStepDescription(visualStepId, 'current') ||
+      getSharedWorkflowActionCopy(workflowValue).detail,
+  }
 })
 
 const requestOperationalAlerts = computed(() => {
@@ -9798,8 +9932,10 @@ watch(
       filteredRequests,
       selectedRequest,
       releaseProviderRequest,
+      operationWorkflowOptions,
       requestOperationalAlerts,
       selectedRequestAircraftComparison,
+      selectedRequestWorkflowPreview,
       providerOperationalBinaryStatusOptions,
       providerOperationalCrewOverallOptions,
       providerOperationalAircraftOverallOptions,
@@ -9993,6 +10129,7 @@ watch(
       applyLocalRequestStatusUpdate,
       getRequestPriorityMeta,
       getRequestStatusCopy,
+      getSelectedRequestOperationStage,
       operatorWorkflowRank,
       preferOperatorWorkflowValue,
       resolveRequestWorkflowValue,
@@ -10000,6 +10137,7 @@ watch(
       resolveWorkflowState,
       resolveOperatorVisualStepId,
       buildOperatorRequestFlowSteps,
+      updateSelectedRequestOperationStage,
       getRequestPrimaryActionLabel,
       shouldDisableRequestPrimaryAction,
       canTriggerRequestPrimaryAction,

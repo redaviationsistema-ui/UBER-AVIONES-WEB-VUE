@@ -2015,6 +2015,22 @@
               </article>
             </div>
 
+           <!--  <article class="request-workflow-status">
+              <span class="mini-label">Estado de la operacion</span>
+              <select
+                class="request-workflow-status__select"
+                :value="getSelectedRequestOperationStage()"
+                :disabled="isUpdatingRequestStatus(selectedRequest.id, 'workflow')"
+                @change="updateSelectedRequestOperationStage($event.target.value)"
+              >
+                <option v-for="option in operationWorkflowOptions" :key="option.value" :value="option.value">
+                  {{ option.label }}
+                </option>
+              </select>
+              <strong>{{ selectedRequestWorkflowPreview.label }}</strong>
+              <p class="muted">{{ selectedRequestWorkflowPreview.detail }}</p>
+            </article> -->
+
             <div class="request-summary-grid">
               <article class="request-summary-card">
                 <span class="mini-label">Estado</span>
@@ -2022,9 +2038,9 @@
                 <p class="muted">{{ getRequestStatusCopy(selectedRequest) }}</p>
               </article>
               <article class="request-summary-card">
-                <span class="mini-label">Etapa compartida</span>
-                <strong>{{ normalizeWorkflowLabel(resolveRequestWorkflowValue(selectedRequest)) }}</strong>
-                <p class="muted">La misma etapa que consumen cliente y admin.</p>
+                <span class="mini-label">Etapa visible</span>
+                <strong>{{ selectedRequestWorkflowPreview.label }}</strong>
+                <p class="muted">{{ selectedRequestWorkflowPreview.detail }}</p>
               </article>
               <article class="request-summary-card">
                 <span class="mini-label">Paquete / servicio</span>

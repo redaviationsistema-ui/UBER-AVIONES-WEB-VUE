@@ -12,6 +12,8 @@ const candidatePaths = [...new Set([
 
 let resolvedAirportPath = ''
 const unavailableAirportPaths = new Set()
+const AIRPORT_NETWORK_RETRY_MS = 30000
+let airportNetworkRetryAt = 0
 
 function normalizeAirportList(payload) {
   const rawList = payload?.airports || payload?.data || payload?.results || payload?.items || []
@@ -34,6 +36,18 @@ function mergeUniqueAirports(primary = [], limit = 6) {
   return combined.slice(0, limit)
 }
 
+function isBackendUnavailableError(error) {
+  const status = Number(error?.status || 0)
+  const message = String(error?.message || '').trim().toLowerCase()
+
+  return (
+    status === 0 ||
+    message.includes('no fue posible conectar') ||
+    message.includes('servicio local') ||
+    message.includes('failed to fetch')
+  )
+}
+
 async function fetchByPath(path, query) {
   const payload = await api.get(path, {
     query: {
@@ -50,8 +64,16 @@ async function fetchByPath(path, query) {
 export async function searchAirports(query, limit = 6) {
   const trimmedQuery = String(query || '').trim()
   const fallbackItems = searchFeaturedAirports(trimmedQuery, limit)
+  const now = Date.now()
 
   if (!trimmedQuery) {
+    return {
+      items: fallbackItems,
+      source: 'local',
+    }
+  }
+
+  if (airportNetworkRetryAt > now) {
     return {
       items: fallbackItems,
       source: 'local',
@@ -67,6 +89,15 @@ export async function searchAirports(query, limit = 6) {
         source: remoteItems.length ? 'remote' : 'local',
       }
     } catch (error) {
+      if (isBackendUnavailableError(error)) {
+        airportNetworkRetryAt = Date.now() + AIRPORT_NETWORK_RETRY_MS
+        resolvedAirportPath = ''
+        return {
+          items: fallbackItems,
+          source: 'local',
+        }
+      }
+
       if ([404, 405].includes(Number(error?.status))) {
         unavailableAirportPaths.add(resolvedAirportPath)
       }
@@ -82,12 +113,22 @@ export async function searchAirports(query, limit = 6) {
     try {
       const remoteItems = await fetchByPath(path, trimmedQuery)
       resolvedAirportPath = path
+      airportNetworkRetryAt = 0
       const mergedItems = mergeUniqueAirports([...remoteItems, ...fallbackItems], limit)
       return {
         items: mergedItems,
         source: remoteItems.length ? 'remote' : 'local',
       }
     } catch (error) {
+      if (isBackendUnavailableError(error)) {
+        airportNetworkRetryAt = Date.now() + AIRPORT_NETWORK_RETRY_MS
+        resolvedAirportPath = ''
+        return {
+          items: fallbackItems,
+          source: 'local',
+        }
+      }
+
       if ([404, 405].includes(Number(error?.status))) {
         unavailableAirportPaths.add(path)
       }
