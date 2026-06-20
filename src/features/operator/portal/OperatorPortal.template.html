@@ -2099,6 +2099,27 @@
     </section>
 
     <section v-else-if="section === 'release-provider'" class="page-grid">
+      <div
+        v-if="savingProviderOperationalRelease"
+        class="operator-section-loading-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="provider-release-loading-title"
+      >
+        <div class="operator-section-loading-surface">
+          <div class="operator-section-loading-orb" aria-hidden="true">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+          <p class="eyebrow">Liberacion</p>
+          <h3 id="provider-release-loading-title">
+            {{ getProviderReleaseLoadingTitle(releaseProviderRequest) }}
+          </h3>
+          <p class="muted">{{ getProviderReleaseLoadingMessage(releaseProviderRequest) }}</p>
+        </div>
+      </div>
+
       <article class="surface requests-dispatch-surface">
         <div class="section-head">
           <div>

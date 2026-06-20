@@ -15,7 +15,7 @@ const props = defineProps({
   reservations: { type: Array, required: true },
   selectedId: { type: String, default: '' },
   timeline: { type: Array, required: true },
-  initialTab: { type: String, default: 'proximos' },
+  initialTab: { type: String, default: 'historial' },
   refreshing: { type: Boolean, default: false },
 })
 
@@ -27,7 +27,7 @@ const emit = defineEmits([
   'refresh',
 ])
 
-const activeTab = ref('proximos')
+const activeTab = ref('historial')
 
 const PROGRESS_STEPS = SHARED_WORKFLOW_STEPS.map((step) => ({
   key:
@@ -427,6 +427,31 @@ function hasWorkflowIn(status = '', states = []) {
   return states.includes(resolveWorkflowState(status).id)
 }
 
+function reservationDepartureDate(reservation = {}) {
+  const candidates = [
+    reservation.date,
+    reservation.departure_datetime,
+    reservation.departure_date,
+    reservation.legs?.[0]?.departure_datetime,
+    reservation.requirements?.[0]?.departure_datetime,
+  ]
+
+  for (const candidate of candidates) {
+    if (!candidate) continue
+
+    const parsed = new Date(candidate)
+    if (!Number.isNaN(parsed.getTime())) return parsed
+  }
+
+  return null
+}
+
+function isReservationPast(reservation = {}) {
+  const departureDate = reservationDepartureDate(reservation)
+  if (!departureDate) return false
+  return departureDate.getTime() < Date.now()
+}
+
 function reservationWorkflowValue(reservation = {}) {
   return (
     resolveSharedWorkflowStatus({
@@ -488,6 +513,10 @@ function reservationTab(reservation = {}) {
     return 'historial'
   }
 
+  if (isReservationPast(reservation)) {
+    return 'historial'
+  }
+
   if (
     [
       'draft',
@@ -508,11 +537,11 @@ function reservationTab(reservation = {}) {
 }
 
 const tabOptions = [
-  { key: 'proximos', label: 'Historial' },
+  { key: 'historial', label: 'Historial' },
 ]
 
 function normalizeTabKey(value = '') {
-  return tabOptions.some((tab) => tab.key === value) ? value : 'proximos'
+  return tabOptions.some((tab) => tab.key === value) ? value : 'historial'
 }
 
 const filteredReservations = computed(() =>
@@ -538,7 +567,7 @@ watch(
     const fallbackTab = tabOptions.find((tab) =>
       reservations.some((reservation) => reservationTab(reservation) === tab.key),
     )
-    activeTab.value = fallbackTab?.key || 'proximos'
+    activeTab.value = fallbackTab?.key || 'historial'
   },
   { immediate: true },
 )

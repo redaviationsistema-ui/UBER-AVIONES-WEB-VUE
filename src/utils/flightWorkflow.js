@@ -436,8 +436,10 @@ export function resolveSharedWorkflowStatus(record = {}) {
   const briefing = record.briefing && typeof record.briefing === 'object' ? record.briefing : {}
   const explicitWorkflow =
     record.workflow_status ||
+    record.work_flow_status ||
     record.workflow ||
     nestedReservation?.workflow_status ||
+    nestedReservation?.work_flow_status ||
     nestedReservation?.workflow ||
     ''
   const rawWorkflow =

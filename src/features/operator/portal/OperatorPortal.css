@@ -3314,6 +3314,10 @@ textarea {
   font-weight: 600;
 }
 
+.provider-list-check span::before {
+  content: none;
+}
+
 .provider-list-check input {
   width: 1rem;
   height: 1rem;

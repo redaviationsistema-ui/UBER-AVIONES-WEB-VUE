@@ -1860,7 +1860,8 @@ export function deriveClientWorkflowStatus(request = {}) {
 
 export function normalizeTrip(request = {}, options = {}) {
   const entityType = String(options.entityType || '').trim() || 'trip'
-  const explicitWorkflowValue = request.workflow_status || request.workflow || ''
+  const explicitWorkflowValue =
+    request.workflow_status || request.work_flow_status || request.workflow || ''
   const legs = Array.isArray(request.legs)
     ? request.legs
         .map((leg) => ({

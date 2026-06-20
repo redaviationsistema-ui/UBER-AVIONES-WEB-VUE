@@ -2950,6 +2950,20 @@ function getProviderReleasePrimaryActionLabel(request = getActiveProviderRelease
   return 'Confirmar liberacion operativa'
 }
 
+function getProviderReleaseLoadingTitle(request = getActiveProviderReleaseRequest()) {
+  const workflowId = getProviderOperationalWorkflowStage(request)
+  if (workflowId === 'tracking_live') return 'Finalizando vuelo'
+  return 'Enviando liberacion operativa'
+}
+
+function getProviderReleaseLoadingMessage(request = getActiveProviderReleaseRequest()) {
+  const workflowId = getProviderOperationalWorkflowStage(request)
+  if (workflowId === 'tracking_live') {
+    return 'Estamos cerrando el flujo compartido, registrando la operacion final y notificando la actualizacion del vuelo.'
+  }
+  return 'Estamos validando la confirmacion operacional, guardando el avance del proveedor y sincronizando el siguiente paso del vuelo.'
+}
+
 function getProviderReleasePrimaryActionStatus(request = getActiveProviderReleaseRequest()) {
   const workflowId = getProviderOperationalWorkflowStage(request)
   if (workflowId === 'completed') return 'completed'
@@ -10239,6 +10253,8 @@ watch(
       startRequestsPolling,
       handleRequestsVisibilityRefresh,
       reloadOperationsList,
+      getProviderReleaseLoadingTitle,
+      getProviderReleaseLoadingMessage,
       createOrUpdateCrew,
       suspendCrewMember,
       activateCrewMember,
