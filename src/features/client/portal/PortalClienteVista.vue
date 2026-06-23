@@ -5433,6 +5433,7 @@ watch(
               <p v-if="aircraftBillingNote(featuredAircraft)" class="aircraft-billing-note">
                 {{ aircraftBillingNote(featuredAircraft) }}
               </p>
+              <p class="aircraft-capacity-line">{{ aircraftCapacityLabel(featuredAircraft) }}</p>
               <p class="hero-price-label">Tarifa estimada total</p>
               <strong class="hero-price">{{ aircraftPriceCopy(featuredAircraft) }}</strong>
               <p class="hero-service-copy">Incluye operacion, logistica y servicio ejecutivo.</p>
@@ -5484,6 +5485,7 @@ watch(
                     <p v-if="aircraftBillingNote(aircraft)" class="aircraft-billing-note">
                       {{ aircraftBillingNote(aircraft) }}
                     </p>
+                    <p class="aircraft-capacity-line">{{ aircraftCapacityLabel(aircraft) }}</p>
                   </div>
                 </div>
                 <p class="aircraft-price-line">
@@ -6863,6 +6865,13 @@ button {
   margin: 0;
   color: #8f6613;
   font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.aircraft-capacity-line {
+  margin: 0;
+  color: #40382d;
+  font-size: 0.84rem;
   font-weight: 700;
 }
 

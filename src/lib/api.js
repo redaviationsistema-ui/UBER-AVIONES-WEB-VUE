@@ -287,6 +287,24 @@ function canUseLocalStorage() {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined'
 }
 
+function getDefaultStatusErrorMessage(status = 0) {
+  const normalizedStatus = Number(status || 0)
+
+  if ([502, 503, 504].includes(normalizedStatus)) {
+    return 'No pudimos iniciar sesion en este momento. Intenta de nuevo en unos minutos.'
+  }
+
+  if (normalizedStatus >= 500) {
+    return 'Ocurrio un problema en el servidor. Intenta de nuevo en unos minutos.'
+  }
+
+  if (normalizedStatus > 0) {
+    return `Error ${normalizedStatus}`
+  }
+
+  return 'Ocurrio un problema al procesar la solicitud.'
+}
+
 function extractApiErrorMessage(payload = {}, status = 0) {
   if (typeof payload?.message === 'string' && payload.message.trim()) {
     if (payload.message !== `Error ${status}`) {
@@ -301,7 +319,7 @@ function extractApiErrorMessage(payload = {}, status = 0) {
     return firstFieldErrors[0]
   }
 
-  return `Error ${status}`
+  return getDefaultStatusErrorMessage(status)
 }
 
 function isTimeoutError(error) {
