@@ -217,6 +217,24 @@ export function normalizeContractFrontendState(payload = {}) {
       ? payload.data.frontend_state
       : null) ||
     {}
+  const statusSummary =
+    (payload?.status_summary && typeof payload.status_summary === 'object'
+      ? payload.status_summary
+      : null) ||
+    (payload?.data?.status_summary && typeof payload.data.status_summary === 'object'
+      ? payload.data.status_summary
+      : null) ||
+    {}
+
+  const signedPdfUrl = String(
+    frontendState.signed_pdf_url ||
+      payload?.signed_pdf_url ||
+      payload?.contract?.signed_pdf_url ||
+      payload?.contract?.document_url ||
+      payload?.contract?.signed_pdf_path ||
+      statusSummary.signed_pdf_url ||
+      '',
+  ).trim()
 
   const rawStatus = String(
     frontendState.ui_status ||
@@ -228,15 +246,29 @@ export function normalizeContractFrontendState(payload = {}) {
       payload?.contract?.status ||
       payload?.data?.status ||
       payload?.envelope_status ||
+      statusSummary.docusign_status ||
+      statusSummary.contract_status ||
       payload?.contract_status ||
       '',
   )
     .trim()
     .toLowerCase()
 
-  const uiStatus = rawStatus || 'generated'
+  const normalizedUiStatus =
+    signedPdfUrl ||
+    statusSummary.payment_enabled === true ||
+    statusSummary.is_signed === true ||
+    ['signed', 'approved', 'completed'].includes(rawStatus)
+      ? 'completed'
+      : rawStatus
+
+  const uiStatus = normalizedUiStatus || 'generated'
   const readyForPayment =
-    frontendState.ready_for_payment === true || uiStatus === 'completed'
+    frontendState.ready_for_payment === true ||
+    statusSummary.payment_enabled === true ||
+    statusSummary.is_signed === true ||
+    signedPdfUrl !== '' ||
+    uiStatus === 'completed'
   const nextAction =
     String(frontendState.next_action || (readyForPayment ? 'go_to_payment' : 'sign_contract')).trim() ||
     'sign_contract'
@@ -249,9 +281,6 @@ export function normalizeContractFrontendState(payload = {}) {
         : readyForPayment
           ? 'El contrato ya quedo listo para continuar a pago.'
           : 'Estamos validando el estado mas reciente del contrato.')
-  const signedPdfUrl = String(
-    frontendState.signed_pdf_url || payload?.signed_pdf_url || payload?.contract?.signed_pdf_url || '',
-  ).trim()
 
   return {
     ...frontendState,
