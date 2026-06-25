@@ -113,6 +113,32 @@ const CLIENT_PAYMENT_CONFIRM_PATHS = [
     ].filter(Boolean),
   ),
 ]
+const CLIENT_RESERVATION_UPDATE_PATHS = [
+  ...new Set(
+    [
+      '/cliente/reservas/:id/pago/asistido',
+      '/client/reservations/:id/assisted-payment',
+      '/cliente/reservas/:id/payment/assisted',
+      '/client/reservations/:id/payment/assisted',
+      '/cliente/reservas/:id',
+      '/client/reservations/:id',
+    ].filter(Boolean),
+  ),
+]
+const CLIENT_PAYMENT_PROOF_UPLOAD_PATHS = [
+  ...new Set(
+    [
+      '/cliente/reservas/:id/pago/comprobante',
+      '/cliente/reservas/:id/payment/proof',
+      '/cliente/reservas/:id/payment/receipt',
+      '/client/reservations/:id/payment-proof',
+      '/client/reservations/:id/payments/proof',
+      '/client/reservations/:id/payment/receipt',
+      '/cliente/reservas/:id',
+      '/client/reservations/:id',
+    ].filter(Boolean),
+  ),
+]
 const CLIENT_ACCESS_CHECKOUT_PATHS = [
   ...new Set(
     [
@@ -2137,6 +2163,13 @@ export function normalizeTrip(request = {}, options = {}) {
       preferredMatch?.provider?.name ||
       aircraftRecord?.provider_name ||
       '',
+    booking_status: request.booking_status || request.bookingStatus || request.status || '',
+    payment_method:
+      request.payment_method ||
+      request.paymentMethod ||
+      request.payment_order?.payment_method ||
+      request.payment_order?.method ||
+      '',
     payment_status: request.payment_status || '',
     contract: request.contract && typeof request.contract === 'object' ? request.contract : null,
     contract_status: request.contract?.status || request.contract_status || '',
@@ -2669,6 +2702,31 @@ function normalizeEntityIdentifier(value) {
   return ''
 }
 
+function normalizeClientReservationResponse(
+  payload,
+  fallbackRecord = {},
+  fallbackId = '',
+  fallbackWorkflow = {},
+) {
+  const record =
+    payload?.reservation || payload?.trip || payload?.data || payload?.flight_request || payload
+
+  return normalizeTrip(
+    {
+      ...(fallbackRecord && typeof fallbackRecord === 'object' ? fallbackRecord : {}),
+      ...(record && typeof record === 'object' ? record : {}),
+      id:
+        record?.id ||
+        fallbackRecord?.id ||
+        fallbackId,
+      ...fallbackWorkflow,
+    },
+    {
+      entityType: payload?.reservation ? 'reservation' : 'trip',
+    },
+  )
+}
+
 function buildContractSignSnapshot(
   snapshot = {},
   fallbackReservationId = '',
@@ -3005,6 +3063,137 @@ export async function markClientTripPaymentConfirmed(
   } catch (error) {
     throw directError || error
   }
+}
+
+export async function saveClientAssistedPayment(
+  reservationId,
+  paymentPayload = {},
+  options = {},
+) {
+  const normalizedReservationId = normalizeEntityIdentifier(reservationId)
+  const normalizedFlightRequestId = normalizeEntityIdentifier(
+    paymentPayload?.flight_request_id || paymentPayload?.flightRequestId,
+  )
+
+  if (!normalizedReservationId) {
+    throw new Error('No se encontro la reserva para registrar el pago asistido.')
+  }
+
+  const workflowPayload = {
+    ...buildWorkflowApiPayload('payment_pending'),
+    id: normalizedReservationId,
+    reservation: normalizedReservationId,
+    reservation_id: normalizedReservationId,
+    booking_id: normalizedReservationId,
+    flight_request: normalizedFlightRequestId || undefined,
+    flight_request_id: normalizedFlightRequestId || undefined,
+    status: 'pending_payment',
+    booking_status: 'pending_payment',
+    contract_status: 'signed',
+    payment_method: 'assisted_cash',
+    payment_status: 'pending_manual_payment',
+    contact_email: paymentPayload?.contact_email || paymentPayload?.contactEmail || undefined,
+    flight_cost: Number(paymentPayload?.flight_cost || 0) || 0,
+    stripe_fee: 0,
+    administrative_fee: Number(paymentPayload?.administrative_fee || 0) || 0,
+    total_amount: Number(paymentPayload?.total_amount || 0) || 0,
+    payment_order: {
+      ...(paymentPayload?.payment_order && typeof paymentPayload.payment_order === 'object'
+        ? paymentPayload.payment_order
+        : {}),
+      status: 'pending_manual_payment',
+      method: 'assisted_cash',
+      payment_method: 'assisted_cash',
+      contact_email: paymentPayload?.contact_email || paymentPayload?.contactEmail || '',
+      stripe_fee: 0,
+      administrative_fee: Number(paymentPayload?.administrative_fee || 0) || 0,
+      flight_cost: Number(paymentPayload?.flight_cost || 0) || 0,
+      total_amount: Number(paymentPayload?.total_amount || 0) || 0,
+    },
+  }
+
+  const candidates = CLIENT_RESERVATION_UPDATE_PATHS.flatMap((path) => [
+    { method: 'patch', path: replaceRouteId(path, normalizedReservationId), body: workflowPayload },
+    { method: 'put', path: replaceRouteId(path, normalizedReservationId), body: workflowPayload },
+    { method: 'post', path: replaceRouteId(path, normalizedReservationId), body: workflowPayload },
+  ])
+
+  const payload = await requestWithCandidates(
+    candidates.map((candidate) => ({
+      ...candidate,
+      timeoutMs: options.timeoutMs,
+    })),
+  )
+
+  return normalizeClientReservationResponse(payload, workflowPayload, normalizedReservationId, workflowPayload)
+}
+
+export async function uploadClientPaymentProof(
+  reservationId,
+  { flight_request_id: flightRequestId = '', contact_email: contactEmail = '', note = '' } = {},
+  proofFile,
+  options = {},
+) {
+  const normalizedReservationId = normalizeEntityIdentifier(reservationId)
+  const normalizedFlightRequestId = normalizeEntityIdentifier(flightRequestId)
+
+  if (!normalizedReservationId) {
+    throw new Error('No se encontro la reserva para subir el comprobante.')
+  }
+
+  if (!(proofFile instanceof File)) {
+    throw new Error('Selecciona un comprobante valido antes de subirlo.')
+  }
+
+  const formData = new FormData()
+  formData.append('reservation_id', normalizedReservationId)
+  formData.append('reservation', normalizedReservationId)
+  formData.append('booking_id', normalizedReservationId)
+  if (normalizedFlightRequestId) {
+    formData.append('flight_request_id', normalizedFlightRequestId)
+    formData.append('flight_request', normalizedFlightRequestId)
+  }
+  formData.append('status', 'pending_payment')
+  formData.append('workflow_status', 'pago pendiente')
+  formData.append('booking_status', 'pending_payment')
+  formData.append('payment_method', 'assisted_cash')
+  formData.append('payment_status', 'pending_manual_validation')
+  formData.append('contact_email', String(contactEmail || '').trim())
+  formData.append('note', String(note || '').trim())
+  formData.append('proof', proofFile)
+  formData.append('receipt', proofFile)
+  formData.append('file', proofFile)
+
+  const response = await requestWithCandidates(
+    CLIENT_PAYMENT_PROOF_UPLOAD_PATHS.map((path) => ({
+      method: 'postform',
+      path: replaceRouteId(path, normalizedReservationId),
+      formData,
+      timeoutMs: options.timeoutMs,
+    })),
+  )
+
+  const fallbackWorkflow = {
+    status: 'pending_payment',
+    workflow_status: 'pago pendiente',
+    booking_status: 'pending_payment',
+    payment_method: 'assisted_cash',
+    payment_status: 'pending_manual_validation',
+    payment_order: {
+      status: 'pending_manual_validation',
+      method: 'assisted_cash',
+      payment_method: 'assisted_cash',
+      proof_name: proofFile.name,
+      proof_uploaded_at: new Date().toISOString(),
+    },
+  }
+
+  return normalizeClientReservationResponse(
+    response,
+    fallbackWorkflow,
+    normalizedReservationId,
+    fallbackWorkflow,
+  )
 }
 
 export async function ensureClientReservation(payload = {}, options = {}) {

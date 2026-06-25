@@ -9,6 +9,7 @@ import { emitWorkflowSync, subscribeWorkflowSync } from '../../lib/workflowSync'
 import {
   delayAdminReservation,
   getAdminReservations,
+  persistAdminReservationPatch,
   resumeAdminReservation,
   updateAdminReservationStage,
 } from './adminReservationsApi'
@@ -2315,6 +2316,66 @@ async function handleResumeReservationFlow({ reservationId, note }) {
   }
 }
 
+async function handleMarkManualReservationPaid({ reservationId }) {
+  const currentReservation = reservationRecords.value.find((item) => item.id === reservationId)
+  if (!currentReservation) return
+
+  try {
+    reservationFlowLoading.value = true
+    reservationFlowLoadingLabel.value = 'Pago confirmado'
+
+    const updatedReservation = await persistAdminReservationPatch(
+      currentReservation,
+      {
+        status: 'payment_confirmed',
+        workflow_status: 'pago confirmado',
+        booking_status: 'confirmed',
+        contract_status: 'signed',
+        payment_status: 'paid',
+        payment_method: currentReservation.paymentMethod || 'assisted_cash',
+        admin_note: 'Pago asistido validado manualmente por administracion.',
+        payment_order: {
+          ...(currentReservation.paymentOrder || {}),
+          status: 'paid',
+          method: currentReservation.paymentMethod || 'assisted_cash',
+          payment_method: currentReservation.paymentMethod || 'assisted_cash',
+          validated_by_admin: true,
+          validated_at: new Date().toISOString(),
+        },
+      },
+      { timeoutMs: ADMIN_FLOW_UPDATE_TIMEOUT_MS },
+    )
+
+    updateReservationLocalState(reservationId, updatedReservation)
+    emitWorkflowSync({
+      scope: 'reservation-workflow',
+      reservationId,
+      nextStage: 'payment_confirmed',
+      action: 'manual-payment-confirmed',
+      source: adminPortalInstanceId,
+    })
+
+    pushReservationAudit(
+      `Pago asistido validado: reserva #${reservationId}`,
+      `${currentReservation.clientName} quedo marcada como pagada y confirmada por administracion.`,
+    )
+    ui.pushToast({
+      tone: 'success',
+      title: 'Pago validado',
+      message: `La reserva #${reservationId} ya quedo como pagada.`,
+    })
+  } catch (error) {
+    ui.pushToast({
+      tone: 'error',
+      title: 'No se pudo marcar como pagado',
+      message: error?.message || 'El backend no confirmo la validacion del pago asistido.',
+    })
+  } finally {
+    reservationFlowLoading.value = false
+    reservationFlowLoadingLabel.value = ''
+  }
+}
+
 async function handleApproveAircraft(aircraftId) {
   try {
     await requestWithCandidates([
@@ -2516,6 +2577,7 @@ watch(
     @update-flow="handleUpdateReservationFlow"
     @delay-flow="handleDelayReservationFlow"
     @resume-flow="handleResumeReservationFlow"
+    @mark-manual-paid="handleMarkManualReservationPaid"
     @refresh-content="refreshReservationContent"
   />
   <AdminReleasesSection
@@ -2528,6 +2590,7 @@ watch(
     @update-flow="handleUpdateReservationFlow"
     @delay-flow="handleDelayReservationFlow"
     @resume-flow="handleResumeReservationFlow"
+    @mark-manual-paid="handleMarkManualReservationPaid"
     @refresh-content="refreshReservationContent"
   />
   <AdminContractsSection

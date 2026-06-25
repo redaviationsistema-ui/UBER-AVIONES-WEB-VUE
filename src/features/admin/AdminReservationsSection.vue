@@ -37,7 +37,13 @@ const props = defineProps({
   compactMode: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['update-flow', 'delay-flow', 'resume-flow', 'refresh-content'])
+const emit = defineEmits([
+  'update-flow',
+  'delay-flow',
+  'resume-flow',
+  'refresh-content',
+  'mark-manual-paid',
+])
 
 const flowSteps = SHARED_WORKFLOW_STEPS.map((step) => ({
   ...step,
@@ -270,7 +276,24 @@ function humanizePaymentStatus(value = '') {
   const normalized = normalizeStatusToken(value)
   if (normalized === 'paid') return 'Pagado'
   if (normalized === 'pending') return 'Pendiente'
+  if (normalized === 'pending manual payment') return 'Pago asistido pendiente'
+  if (normalized === 'pending manual validation') return 'Validacion manual pendiente'
   return value || 'Pendiente'
+}
+
+function isAssistedManualValidationPending(reservation = {}) {
+  const paymentMethod = String(
+    reservation?.paymentMethod ||
+      reservation?.payment_method ||
+      reservation?.paymentOrder?.payment_method ||
+      reservation?.paymentOrder?.method ||
+      '',
+  )
+    .trim()
+    .toLowerCase()
+  const paymentStatus = normalizeStatusToken(reservation?.paymentStatus || reservation?.payment_status || '')
+
+  return paymentMethod === 'assisted_cash' && paymentStatus === 'pending manual validation'
 }
 
 function stepState(reservation, stepId) {
@@ -1081,6 +1104,22 @@ function submitResume(reservation) {
                 placeholder="Ej. cliente envio documentos y se libera el proceso"
               />
             </label>
+          </article>
+
+          <article v-if="isAssistedManualValidationPending(selectedReservation)" class="control-card">
+            <div class="section-mini-head">
+              <h4>Pago asistido</h4>
+              <p>El cliente ya subio comprobante y esta reserva espera validacion administrativa.</p>
+            </div>
+
+            <button
+              type="button"
+              class="primary-action"
+              :disabled="props.isFlowLoading"
+              @click="emit('mark-manual-paid', { reservationId: selectedReservation.id })"
+            >
+              {{ props.isFlowLoading ? 'Validando...' : 'Marcar como pagado' }}
+            </button>
           </article>
         </div>
 

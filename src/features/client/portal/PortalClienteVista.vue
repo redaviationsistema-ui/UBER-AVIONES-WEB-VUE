@@ -12,6 +12,7 @@ import {
   normalizeAttentionLevel,
   normalizePackageCode,
 } from '../../../utils/flightPricing'
+import { resolveWorkflowState } from '../../../utils/flightWorkflow'
 import {
   cancelClientAccessPayment,
   createClientAccessCheckout,
@@ -20,15 +21,16 @@ import {
   getClientAccessStatus,
   ensureClientReservation,
   createClientPaymentIntent,
-  createClientWireIntent,
   getClientDestinations,
   getClientFlightPackages,
   getClientTrip,
   markClientTripPaymentConfirmed,
   markClientTripReadyForPayment,
+  saveClientAssistedPayment,
   getClientTrips,
   normalizeTrip,
   searchClientFlights,
+  uploadClientPaymentProof,
 } from '../clientBookingApi'
 import { useAuthStore } from '../../../stores/auth'
 import { useUiStore } from '../../../stores/ui'
@@ -369,8 +371,18 @@ const commercialAccessCheckoutReturnPending = computed(
     commercialAccessCheckoutReturnMode.value &&
     Boolean(normalizeRouteQueryValue(route.query.checkout)),
 )
+const reservationWorkflowStageId = computed(() =>
+  resolveWorkflowState(
+    selectedReservation.value?.workflow_status || selectedReservation.value?.status || '',
+  ).id,
+)
+const reservationAllowsDirectPaymentAccess = computed(() => {
+  return reservationQualifiesForCheckout(selectedReservation.value || {})
+})
 const paymentReadyForCheckout = computed(
-  () => selectedReservationFrontendState.value.ready_for_payment === true,
+  () =>
+    selectedReservationFrontendState.value.ready_for_payment === true ||
+    reservationAllowsDirectPaymentAccess.value,
 )
 const reservationContextId = computed(
   () =>
@@ -491,16 +503,16 @@ const paymentBreakdownRows = computed(() => {
 
     return [
       baseAmount > 0
-        ? { key: 'base_amount', label: 'Base amount', value: formatDetailedCurrencyByCode(baseAmount, paymentBreakdownCurrency.value) }
+        ? { key: 'base_amount', label: 'Base amount', value: formatDetailedCurrencyByCode(baseAmount, paymentBreakdownCurrency.value), amount: baseAmount }
         : null,
       stripeFee > 0
-        ? { key: 'stripe_fee', label: 'Stripe fee', value: formatDetailedCurrencyByCode(stripeFee, paymentBreakdownCurrency.value) }
+        ? { key: 'stripe_fee', label: 'Stripe fee', value: formatDetailedCurrencyByCode(stripeFee, paymentBreakdownCurrency.value), amount: stripeFee }
         : null,
       administrativeFee > 0
-        ? { key: 'administrative_fee', label: 'Administrative fee', value: formatDetailedCurrencyByCode(administrativeFee, paymentBreakdownCurrency.value) }
+        ? { key: 'administrative_fee', label: 'Administrative fee', value: formatDetailedCurrencyByCode(administrativeFee, paymentBreakdownCurrency.value), amount: administrativeFee }
         : null,
       totalAmount > 0
-        ? { key: 'total_amount', label: 'Total amount', value: formatDetailedCurrencyByCode(totalAmount, paymentBreakdownCurrency.value), total: true }
+        ? { key: 'total_amount', label: 'Total amount', value: formatDetailedCurrencyByCode(totalAmount, paymentBreakdownCurrency.value), amount: totalAmount, total: true }
         : null,
     ].filter(Boolean)
   }
@@ -540,43 +552,60 @@ const paymentBreakdownRows = computed(() => {
       selectedReservationPriceValue.value ||
       0,
   )
+  const useAssistedBreakdown =
+    activeReservationPaymentMethod.value === 'assisted' ||
+    resolveReservationPaymentMethod(reservation) === 'assisted_cash'
+  const resolvedStripeFee = useAssistedBreakdown ? 0 : stripeFee
+  const resolvedTotalAmount = useAssistedBreakdown
+    ? flightCost + administrativeFee
+    : totalAmount
 
   return [
     flightCost > 0
-      ? { key: 'flight_cost', label: 'Flight cost', value: formatDetailedCurrencyByCode(flightCost, paymentBreakdownCurrency.value) }
+      ? { key: 'flight_cost', label: 'Flight cost', value: formatDetailedCurrencyByCode(flightCost, paymentBreakdownCurrency.value), amount: flightCost }
       : null,
-    stripeFee > 0
-      ? { key: 'stripe_fee', label: 'Stripe fee', value: formatDetailedCurrencyByCode(stripeFee, paymentBreakdownCurrency.value) }
+    resolvedStripeFee > 0
+      ? { key: 'stripe_fee', label: 'Stripe fee', value: formatDetailedCurrencyByCode(resolvedStripeFee, paymentBreakdownCurrency.value), amount: resolvedStripeFee }
       : null,
     administrativeFee > 0
-      ? { key: 'administrative_fee', label: 'Administrative fee', value: formatDetailedCurrencyByCode(administrativeFee, paymentBreakdownCurrency.value) }
+      ? { key: 'administrative_fee', label: 'Administrative fee', value: formatDetailedCurrencyByCode(administrativeFee, paymentBreakdownCurrency.value), amount: administrativeFee }
       : null,
-    totalAmount > 0
-      ? { key: 'total_amount', label: 'Total amount', value: formatDetailedCurrencyByCode(totalAmount, paymentBreakdownCurrency.value), total: true }
+    resolvedTotalAmount > 0
+      ? { key: 'total_amount', label: 'Total amount', value: formatDetailedCurrencyByCode(resolvedTotalAmount, paymentBreakdownCurrency.value), amount: resolvedTotalAmount, total: true }
       : null,
   ].filter(Boolean)
 })
 const paymentBreakdownTotalValue = computed(() => {
   const explicitTotal = paymentBreakdownRows.value.find((item) => item.total)
   if (explicitTotal) {
-    return Number(
-      explicitTotal.key === 'total_amount'
-        ? commercialAccessCheckoutReturnMode.value
-          ? commercialAccessSnapshot.value?.latestPayment?.total_amount ||
-            commercialAccessSnapshot.value?.latestPayment?.amount ||
-            commercialAccessSnapshot.value?.paymentPreview?.total_amount ||
-            0
-          : selectedReservation.value?.total_amount ||
-            selectedReservation.value?.pricing_context?.total_amount ||
-            selectedReservation.value?.aircraft_snapshot?.total_amount ||
-            selectedReservationPriceValue.value ||
-            0
-        : 0,
-    )
+    return Number(explicitTotal.amount || 0)
   }
 
   return selectedReservationPriceValue.value
 })
+const paymentBreakdownAmountMap = computed(() =>
+  paymentBreakdownRows.value.reduce((accumulator, item) => {
+    accumulator[item.key] = Number(item.amount || 0)
+    return accumulator
+  }, {}),
+)
+const assistedPaymentProofUploaded = computed(() => {
+  const paymentOrder = selectedReservation.value?.payment_order || {}
+  return Boolean(
+    paymentOrder?.proof_uploaded_at ||
+      paymentOrder?.proof_name ||
+      paymentOrder?.receipt_url ||
+      paymentOrder?.proof_url,
+  )
+})
+const canUploadAssistedPaymentProof = computed(
+  () => assistedPaymentOrderReady.value || activeReservationPaymentMethod.value === 'assisted',
+)
+const assistedPrimaryCtaLabel = computed(() =>
+  assistedPaymentOrderReady.value && assistedPaymentProofFile.value
+    ? 'Enviar comprobante para validacion'
+    : 'Registrar pago asistido',
+)
 const paymentReservationPassengerCount = computed(() => {
   return Number(
     selectedReservation.value?.passengers ||
@@ -655,7 +684,7 @@ const paymentHeroCopy = computed(() => {
     }
     return 'Confirma el metodo, revisa los datos de contacto y autoriza el cargo de tu reserva.'
   }
-  return 'Pago protegido con tarjeta, transferencia, wire o wallet corporativa.'
+  return 'Pago protegido con Stripe o con validacion asistida del equipo administrativo.'
 })
 const paymentRouteHeadline = computed(() =>
   commercialAccessCheckoutReturnMode.value
@@ -774,27 +803,31 @@ const commercialAccessCheckoutFacts = computed(() => {
 })
 const paymentMethodCards = [
   {
-    id: 'card',
-    label: 'Tarjeta corporativa',
-    note: 'Checkout seguro hospedado .',
+    id: 'stripe',
+    label: 'Stripe',
+    note: 'PaymentIntent, Stripe Elements y confirmacion segura dentro de la app.',
     icon: 'card',
   },
   {
-    id: 'wire',
-    label: 'Transferencia / wire',
-    note: 'Instrucciones bancarias y validacion manual del comprobante.',
+    id: 'assisted',
+    label: 'Pago en efectivo',
+    note: 'Orden manual, comprobante y validación administrativa.',
     icon: 'bank',
   },
 ]
 const paymentForm = reactive({
   contactEmail: '',
 })
-const selectedPaymentMethod = ref('card')
+const selectedPaymentMethod = ref('stripe')
 const paymentCardBrand = ref('')
 const paymentSubmitting = ref(false)
+const paymentProofUploading = ref(false)
 const paymentInlineError = ref('')
-const wireInstructions = ref(null)
 const paymentLastReference = ref('')
+const assistedPaymentOrderReady = ref(false)
+const assistedPaymentProofFile = ref(null)
+const assistedPaymentProofName = ref('')
+const assistedPaymentProofInput = ref(null)
 const paymentCardNumberHost = ref(null)
 const paymentCardExpiryHost = ref(null)
 const paymentCardCvcHost = ref(null)
@@ -810,6 +843,9 @@ let stripeCardCvcElement = null
 let stripeIntentSecret = ''
 let stripePublishableKey = ''
 let stripeViewContext = ''
+
+const isStripeReservationPayment = computed(() => selectedPaymentMethod.value === 'stripe')
+const isAssistedReservationPayment = computed(() => selectedPaymentMethod.value === 'assisted')
 
 function normalizeCardBrand(value = '') {
   const normalized = String(value || '')
@@ -890,6 +926,18 @@ function svgDataUri(svg) {
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`
 }
 
+function resolveReservationPaymentMethod(reservation = null) {
+  return String(
+    reservation?.payment_method ||
+      reservation?.paymentMethod ||
+      reservation?.payment_order?.payment_method ||
+      reservation?.payment_order?.method ||
+      '',
+  )
+    .trim()
+    .toLowerCase()
+}
+
 const CARD_BRAND_LOGOS = {
   Visa: svgDataUri(
     '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="32" viewBox="0 0 96 32"><rect width="96" height="32" rx="8" fill="#1A4FB8"/><path fill="#fff" d="M35.8 21h-3.7l2.3-14h3.7l-2.3 14Zm15.4-13.6a9.2 9.2 0 0 0-3.3-.6c-3.7 0-6.3 1.9-6.3 4.8 0 2.1 1.9 3.2 3.3 3.9 1.5.7 2 1.2 2 1.9 0 1-.9 1.5-2 1.5a7.2 7.2 0 0 1-3.5-.8l-.5-.2-.5 3.1a11.5 11.5 0 0 0 4.2.8c4 0 6.6-1.9 6.7-5 0-1.6-1-2.9-3.1-3.9-1.3-.6-2.1-1-2.1-1.7 0-.6.7-1.2 2-1.2a6.5 6.5 0 0 1 2.7.5l.3.1.5-3ZM61 7h-2.8c-.9 0-1.5.2-1.9 1.2l-5.4 12.8h4l.8-2.3h4.8l.5 2.3h3.6L61 7Zm-3.5 8.9 2-5.4 1.2 5.4h-3.2ZM28.7 7l-3.6 9.6-.4-2c-.7-2.2-2.8-4.6-5.2-5.7l3.3 12h4l6-14h-3.9Z"/><path fill="#F7B600" d="M24.4 7H18c-.2 0-.4 0-.5.2-.2.1-.2.3-.2.5l.1.2c5 1.2 8.4 4.2 9.8 7.8L25.8 8c-.2-.8-.8-1-1.4-1Z"/></svg>',
@@ -912,12 +960,12 @@ const paymentMethodSummaryLabel = computed(() => {
     const last4 = String(latestPayment?.card_last4 || '').trim()
 
     if (brand) return `${brand}${last4 ? ` terminacion ${last4}` : ''}`
-    if (selectedPaymentMethod.value === 'wire') return 'Transferencia / wire'
+    if (isAssistedReservationPayment.value) return 'Pago en efectivo'
     return 'Stripe Checkout seguro'
   }
 
-  if (selectedPaymentMethod.value === 'wire') {
-    return paymentMethodCards.find((method) => method.id === 'wire')?.label || 'Transferencia / wire'
+  if (isAssistedReservationPayment.value) {
+    return paymentMethodCards.find((method) => method.id === 'assisted')?.label || 'Pago en efectivo'
   }
 
   const persistedBrand =
@@ -935,7 +983,7 @@ const paymentMethodSummaryLabel = computed(() => {
 })
 
 const paymentCardVisualLabel = computed(() => {
-  if (selectedPaymentMethod.value !== 'card') return ''
+  if (!isStripeReservationPayment.value) return ''
 
   const persistedBrand =
     normalizeCardBrand(selectedReservation.value?.payment_order?.brand) ||
@@ -947,6 +995,45 @@ const paymentCardVisualLabel = computed(() => {
 })
 
 const paymentCardVisualLogo = computed(() => CARD_BRAND_LOGOS[paymentCardVisualLabel.value] || '')
+const activeReservationPaymentMethod = computed(() => {
+  const persistedMethod = resolveReservationPaymentMethod(selectedReservation.value)
+  if (persistedMethod === 'assisted_cash') return 'assisted'
+  if (persistedMethod === 'stripe') return 'stripe'
+  return selectedPaymentMethod.value
+})
+
+function reservationQualifiesForCheckout(reservation = null) {
+  const workflowStage = resolveWorkflowState(
+    reservation?.workflow_status || reservation?.status || '',
+  ).id
+  const contractStatus = String(
+    reservation?.contract_status || reservation?.contract?.status || '',
+  )
+    .trim()
+    .toLowerCase()
+  const paymentStatus = String(
+    reservation?.payment_status || reservation?.payment_order?.status || '',
+  )
+    .trim()
+    .toLowerCase()
+  const frontendReady = reservation?.frontend_state?.ready_for_payment === true
+
+  return (
+    frontendReady ||
+    ['payment_pending', 'payment_confirmed', 'flight_confirmed', 'tracking_live', 'completed'].includes(
+      workflowStage,
+    ) ||
+    contractStatus === 'signed' ||
+    [
+      'pending',
+      'pendiente de pago',
+      'pending_manual_payment',
+      'pending_manual_validation',
+      'paid',
+      'pagado',
+    ].includes(paymentStatus)
+  )
+}
 
 function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -2446,7 +2533,7 @@ async function ensureStripePaymentElement(publishableKeyOverride = '') {
   const flightRequestId = reservationContextId.value
 
   if (
-    selectedPaymentMethod.value !== 'card' ||
+    selectedPaymentMethod.value !== 'stripe' ||
     props.section !== 'pago' ||
     (!flightRequestId && !commercialAccessCheckoutReturnMode.value) ||
     !paymentCardNumberHost.value ||
@@ -3501,11 +3588,15 @@ function alignReservationWorkflowRoute() {
 }
 
 function goToPayment(reservationId = '') {
-  if (!paymentReadyForCheckout.value) {
+  const targetReservation =
+    findReservationRecordById(reservationId || reservationContextId.value) || selectedReservation.value
+
+  if (!reservationQualifiesForCheckout(targetReservation)) {
     ui.pushToast({
       tone: 'warning',
       title: 'Pago aun no disponible',
       message:
+        targetReservation?.frontend_state?.status_message ||
         selectedReservationFrontendState.value.status_message ||
         'Necesitamos confirmar la firma del contrato antes de abrir el pago.',
     })
@@ -3578,6 +3669,432 @@ function buildCommercialAccessReturnUrl() {
     name: 'cliente',
     params: { section: 'perfil' },
   })
+}
+
+function escapeHtml(value = '') {
+  return String(value || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
+}
+
+function maskEmailAddress(value = '') {
+  const normalized = String(value || '').trim()
+  const [localPart = '', domainPart = ''] = normalized.split('@')
+  if (!localPart || !domainPart) return normalized || 'No disponible'
+  if (localPart.length <= 2) return `${localPart.charAt(0) || '*'}***@${domainPart}`
+  return `${localPart.slice(0, 2)}***${localPart.slice(-1)}@${domainPart}`
+}
+
+function sanitizeDocumentNamePart(value = '') {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\w\s-]/g, ' ')
+    .trim()
+    .replace(/\s+/g, '_')
+    .replace(/_+/g, '_')
+}
+
+function assistedOrderPaymentStatusMeta(value = '') {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (['paid', 'pagado'].includes(normalized)) {
+    return { label: 'Pagado', tone: 'paid' }
+  }
+  if (['pending_manual_validation', 'en revision', 'en revisión'].includes(normalized)) {
+    return { label: 'En revisión', tone: 'review' }
+  }
+  if (['rejected', 'rechazado'].includes(normalized)) {
+    return { label: 'Rechazado', tone: 'rejected' }
+  }
+  return { label: 'Pendiente', tone: 'pending' }
+}
+
+function resolveAssistedOrderPaymentMethod(reservation = {}) {
+  return String(
+    reservation?.payment_method ||
+      reservation?.paymentMethod ||
+      reservation?.payment_order?.payment_method ||
+      reservation?.payment_order?.method ||
+      selectedPaymentMethod.value ||
+      'assisted_cash',
+  )
+    .trim()
+    .toLowerCase()
+}
+
+function formatIssueDateTime(value = new Date()) {
+  const parsed = value instanceof Date ? value : new Date(value)
+  if (!Number.isFinite(parsed.getTime())) return 'Por confirmar'
+
+  return new Intl.DateTimeFormat('es-MX', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(parsed)
+}
+
+function buildPaymentMethodSectionMarkup(reservation = {}) {
+  const paymentOrder = reservation?.payment_order || {}
+  const paymentMethod = resolveAssistedOrderPaymentMethod(reservation)
+  const checkoutUrl = String(
+    paymentOrder?.checkout_url || paymentOrder?.checkoutUrl || reservation?.checkout_url || '',
+  ).trim()
+
+  if (paymentMethod === 'stripe') {
+    return `
+      <div class="method-box">
+        <h3>Método de pago</h3>
+        <p>Stripe seguro</p>
+        ${checkoutUrl ? `<a class="method-link" href="${escapeHtml(checkoutUrl)}" target="_blank" rel="noreferrer">Abrir link de pago</a>` : '<p class="muted">El link de pago estará disponible al confirmar la orden.</p>'}
+      </div>
+    `
+  }
+
+  if (paymentMethod === 'wire' || paymentMethod === 'transfer' || paymentMethod === 'transferencia') {
+    return `
+      <div class="method-box">
+        <h3>Método de pago</h3>
+        <p>Transferencia bancaria</p>
+        <div class="method-grid">
+          <div><span>Banco</span><strong>${escapeHtml(paymentOrder?.bank_name || 'Por configurar')}</strong></div>
+          <div><span>Cuenta</span><strong>${escapeHtml(paymentOrder?.account_number || paymentOrder?.iban || 'Por configurar')}</strong></div>
+          <div><span>CLABE</span><strong>${escapeHtml(paymentOrder?.clabe || paymentOrder?.swift || 'Por configurar')}</strong></div>
+          <div><span>Concepto</span><strong>${escapeHtml(paymentOrder?.concept || paymentOrder?.reference || paymentLastReference.value || 'Pendiente')}</strong></div>
+        </div>
+      </div>
+    `
+  }
+
+  return `
+    <div class="method-box">
+      <h3>Método de pago</h3>
+      <p>Efectivo / pago asistido</p>
+      <p class="muted">Este flujo no muestra datos bancarios. El pago se valida con comprobante y revisión administrativa.</p>
+    </div>
+  `
+}
+
+function buildAssistedOrderEmailUrl() {
+  const reservation = selectedReservation.value || {}
+  const orderReference =
+    paymentLastReference.value ||
+    String(reservation?.payment_order?.reference || reservation?.flight_request_id || reservation?.id || '')
+  const subject = `SKY Group · Orden de pago asistido ${orderReference || reservationContextId.value || ''}`
+  const body = [
+    'Comparto la orden de pago asistido de tu reserva SKY Group.',
+    '',
+    `Reserva: ${reservationContextId.value || 'N/D'}`,
+    `Referencia: ${orderReference || 'Pendiente'}`,
+    `Ruta: ${paymentRouteHeadline.value}`,
+    `Fecha de salida: ${paymentDateLabel.value}`,
+    `Total: ${paymentSummaryAmountLabel.value}`,
+    '',
+    'Conserva el comprobante y súbelo para validación manual.',
+  ].join('\n')
+
+  return `mailto:${encodeURIComponent(paymentForm.contactEmail.trim() || customerEmail.value)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+}
+
+function buildAssistedOrderDocumentName() {
+  const reservation = selectedReservation.value || {}
+  const orderReference =
+    paymentLastReference.value ||
+    String(reservation?.payment_order?.reference || reservation?.flight_request_id || reservation?.id || '')
+  const routeLabel = sanitizeDocumentNamePart(paymentRouteHeadline.value || 'ruta')
+  const aircraftLabel = sanitizeDocumentNamePart(
+    reservation?.aircraft ||
+      reservation?.assigned_aircraft_model ||
+      reservation?.aircraft_model ||
+      'aeronave',
+  )
+  const referenceLabel = sanitizeDocumentNamePart(orderReference || reservationContextId.value || 'sin_referencia')
+
+  return `SKY_Group_Orden_Pago_${routeLabel}_${aircraftLabel}_${referenceLabel}`
+}
+
+function buildAssistedPaymentOrderMarkup() {
+  const reservation = selectedReservation.value || {}
+  const summary = activeItinerarySummary.value || {}
+  const paymentOrder = reservation?.payment_order || {}
+  const breakdown = paymentBreakdownAmountMap.value
+  const flightCost = Number(breakdown.flight_cost || reservation.flight_cost || 0)
+  const administrativeFee = Number(
+    breakdown.administrative_fee || reservation.administrative_fee || 0,
+  )
+  const totalAmount = Number(paymentBreakdownTotalValue.value || flightCost + administrativeFee || 0)
+  const currency = 'USD'
+  const orderReference =
+    paymentLastReference.value ||
+    String(reservation?.payment_order?.reference || reservation?.flight_request_id || reservation?.id || '')
+  const statusMeta = assistedOrderPaymentStatusMeta(
+    reservation?.payment_status || paymentOrder?.status || 'pending_manual_payment',
+  )
+  const issueDate = formatIssueDateTime(new Date())
+  const tripTypeLabel = String(summary?.tripType || summary?.trip_type || 'Vuelo privado').trim()
+  const aircraftLabel = String(
+    reservation?.aircraft ||
+      reservation?.assigned_aircraft_model ||
+      reservation?.aircraft_model ||
+      '',
+  ).trim()
+  const passengerLabel = String(paymentReservationPassengerCount.value || 1)
+  const customerName = escapeHtml(customerDisplayName.value)
+  const customerEmailMasked = escapeHtml(
+    maskEmailAddress(paymentForm.contactEmail.trim() || customerEmail.value),
+  )
+  const paymentMethodMarkup = buildPaymentMethodSectionMarkup(reservation)
+  const mailtoUrl = buildAssistedOrderEmailUrl()
+  const documentName = buildAssistedOrderDocumentName()
+  const logoUrl = `${window.location.origin}${import.meta.env.BASE_URL || '/'}logo.png`
+
+  return `<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>${escapeHtml(documentName)}</title>
+    <style>
+      @page { size: A4; margin: 12mm; }
+      * { box-sizing: border-box; }
+      :root {
+        --sky-ink: #171717;
+        --sky-gold: #a67c28;
+        --sky-gold-soft: #efe2c2;
+        --sky-cream: #fbf7ef;
+        --sky-sand: #eadfcf;
+        --sky-muted: #655d52;
+        --sky-line: #e7d7b9;
+      }
+      html, body { margin: 0; padding: 0; background: linear-gradient(180deg, #f7f1e7 0%, #efe7d9 100%); color: var(--sky-ink); font-family: "Helvetica Neue", Arial, sans-serif; }
+      body { padding: 24px; }
+      .toolbar { max-width: 920px; margin: 0 auto 16px; display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; }
+      .toolbar button, .toolbar a {
+        border: 0; border-radius: 999px; padding: 12px 18px; background: var(--sky-ink); color: #fff;
+        text-decoration: none; font-size: 14px; font-weight: 700; cursor: pointer;
+      }
+      .toolbar .ghost { background: rgba(255,255,255,0.88); color: var(--sky-ink); border: 1px solid #ddd1be; }
+      .sheet {
+        max-width: 920px; margin: 0 auto; background: linear-gradient(180deg, #fffefb 0%, #fffaf3 100%);
+        border: 1px solid #e4d7c5; border-radius: 28px; padding: 34px;
+        box-shadow: 0 18px 50px rgba(20, 20, 20, 0.06);
+        position: relative; overflow: hidden;
+      }
+      .sheet::before {
+        content: ""; position: absolute; inset: 0 0 auto 0; height: 8px;
+        background: linear-gradient(90deg, #171717 0%, #5e4b21 45%, #b58a2d 100%);
+      }
+      .hero {
+        display: flex; flex-wrap: wrap; gap: 18px; justify-content: space-between; align-items: center;
+        margin: -6px -6px 24px; padding: 18px 20px; border-radius: 22px;
+        background: radial-gradient(circle at top left, rgba(181,138,45,0.18), transparent 45%), linear-gradient(135deg, #fffdfa 0%, #f7f0e3 100%);
+        border: 1px solid rgba(181, 138, 45, 0.22);
+      }
+      .hero-brand { display: flex; align-items: center; gap: 16px; }
+      .hero-brand img { width: 118px; height: auto; display: block; }
+      .hero-brand-copy { display: grid; gap: 6px; }
+      .hero-brand-copy strong { font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--sky-gold); }
+      .hero-brand-copy span { color: var(--sky-muted); font-size: 14px; }
+      .header { display: flex; flex-wrap: wrap; gap: 18px; justify-content: space-between; align-items: flex-start; }
+      .brand { display: grid; gap: 8px; }
+      .brand small, .meta-label, .section-label { color: #8d7e6b; text-transform: uppercase; letter-spacing: 0.08em; font-size: 11px; font-weight: 800; }
+      .brand h1 { margin: 0; font-size: 34px; line-height: 1.05; }
+      .brand p { margin: 0; color: #5f564b; font-size: 16px; max-width: 620px; }
+      .header-side { display: grid; gap: 12px; min-width: 260px; }
+      .status-badge {
+        justify-self: end; padding: 10px 14px; border-radius: 999px; font-size: 13px; font-weight: 800;
+        background: #fff6dc; color: #9c6b00; border: 1px solid rgba(166,124,40,0.22);
+      }
+      .status-badge.review { background: #eef5ff; color: #245bb2; }
+      .status-badge.paid { background: #ebf8ef; color: #217a44; }
+      .status-badge.rejected { background: #fdeceb; color: #b63a36; }
+      .meta-grid, .flight-grid, .method-grid {
+        display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 24px;
+      }
+      .panel {
+        border: 1px solid var(--sky-sand); border-radius: 18px; padding: 16px 18px; background: rgba(255,255,255,0.86);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.75);
+      }
+      .panel strong, .metric strong { display: block; font-size: 18px; margin-top: 6px; }
+      .panel p, .method-box p, .instructions li { margin: 0; color: #4d473f; line-height: 1.5; }
+      .section { margin-top: 28px; }
+      .section h2 { margin: 0 0 14px; font-size: 18px; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { padding: 14px 0; border-bottom: 1px solid #eee3d3; font-size: 16px; }
+      td:last-child, th:last-child { text-align: right; font-weight: 700; }
+      .total-box {
+        margin-top: 16px; border-radius: 18px; background: linear-gradient(135deg, rgba(166,124,40,0.14), rgba(255,250,240,0.96));
+        border: 1px solid var(--sky-line); padding: 18px 20px; display: flex; justify-content: space-between; gap: 16px; align-items: center;
+      }
+      .total-box span { color: #7d6d58; text-transform: uppercase; letter-spacing: 0.08em; font-size: 11px; font-weight: 800; }
+      .total-box strong { font-size: 30px; color: var(--sky-ink); }
+      .instructions { margin: 0; padding-left: 20px; display: grid; gap: 10px; }
+      .method-box {
+        margin-top: 24px; border: 1px solid var(--sky-sand); border-radius: 18px; padding: 18px; background: rgba(255,255,255,0.88);
+      }
+      .method-box h3 { margin: 0 0 10px; font-size: 16px; }
+      .method-link { display: inline-flex; margin-top: 6px; color: var(--sky-ink); font-weight: 700; }
+      .footer-note { margin-top: 24px; color: #6a6155; font-size: 13px; line-height: 1.55; padding-top: 16px; border-top: 1px solid rgba(166,124,40,0.16); }
+      .metric { display: grid; gap: 4px; }
+      .muted { color: #6a6155; }
+      @media (max-width: 720px) {
+        body { padding: 14px; }
+        .sheet { padding: 22px; border-radius: 22px; }
+        .hero { padding: 16px; }
+        .hero-brand { align-items: flex-start; }
+        .hero-brand img { width: 96px; }
+        .meta-grid, .flight-grid, .method-grid { grid-template-columns: 1fr; }
+        .status-badge { justify-self: start; }
+        .total-box { align-items: flex-start; flex-direction: column; }
+      }
+      @media print {
+        html, body { background: #fff; }
+        body { padding: 0; }
+        .toolbar { display: none !important; }
+        .sheet { box-shadow: none; border-radius: 0; border: 0; max-width: none; padding: 0; }
+        .hero { border: 1px solid rgba(166,124,40,0.18); }
+        a { color: inherit; text-decoration: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="toolbar">
+      <button onclick="window.print()">Descargar PDF</button>
+      <a class="ghost" href="${escapeHtml(mailtoUrl)}">Enviar por correo</a>
+      <button class="ghost" onclick="window.close()">Cerrar vista</button>
+    </div>
+    <section class="sheet">
+      <section class="hero">
+        <div class="hero-brand">
+          <img src="${escapeHtml(logoUrl)}" alt="SKY Group" />
+          <div class="hero-brand-copy">
+            <strong>SKY Group</strong>
+            <span>Documento oficial de referencia comercial</span>
+          </div>
+        </div>
+        <span class="status-badge ${statusMeta.tone}">Estado del pago: ${escapeHtml(statusMeta.label)}</span>
+      </section>
+
+      <header class="header">
+        <div class="brand">
+          <small>Orden asistida</small>
+          <h1>Orden de pago asistido</h1>
+          <p>Documento de referencia para pago manual sujeto a validación administrativa.</p>
+        </div>
+        <div class="header-side">
+          <div class="panel">
+            <div class="metric"><span class="meta-label">Reserva</span><strong>#${escapeHtml(reservationContextId.value || 'N/D')}</strong></div>
+            <div class="metric"><span class="meta-label">Referencia</span><strong>#${escapeHtml(orderReference || 'Pendiente')}</strong></div>
+            <div class="metric"><span class="meta-label">Fecha de emisión</span><strong>${escapeHtml(issueDate)}</strong></div>
+          </div>
+        </div>
+      </header>
+
+      <section class="meta-grid">
+        <article class="panel">
+          <span class="section-label">Cliente</span>
+          <strong>${customerName}</strong>
+        </article>
+        <article class="panel">
+          <span class="section-label">Correo</span>
+          <strong>${customerEmailMasked}</strong>
+        </article>
+      </section>
+
+      <section class="section">
+        <h2>Detalle del vuelo</h2>
+        <div class="flight-grid">
+          <article class="panel"><span class="section-label">Ruta</span><strong>${escapeHtml(paymentRouteHeadline.value)}</strong></article>
+          <article class="panel"><span class="section-label">Fecha y hora de salida</span><strong>${escapeHtml(paymentDateLabel.value)}</strong></article>
+          <article class="panel"><span class="section-label">Tipo de vuelo</span><strong>${escapeHtml(tripTypeLabel || 'Vuelo privado')}</strong></article>
+          <article class="panel"><span class="section-label">Pasajeros</span><strong>${escapeHtml(passengerLabel)}</strong></article>
+          ${aircraftLabel ? `<article class="panel"><span class="section-label">Aeronave</span><strong>${escapeHtml(aircraftLabel)}</strong></article>` : ''}
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>Resumen de costos</h2>
+        <table>
+          <tbody>
+            <tr><td>Flight cost</td><td>${formatDetailedCurrencyByCode(flightCost, currency)}</td></tr>
+            <tr><td>Administrative fee</td><td>${formatDetailedCurrencyByCode(administrativeFee, currency)}</td></tr>
+          </tbody>
+        </table>
+        <div class="total-box">
+          <div>
+            <span>Total amount</span>
+            <p class="muted">Importe total a validar en USD.</p>
+          </div>
+          <strong>${formatDetailedCurrencyByCode(totalAmount, currency)}</strong>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>Instrucciones de pago</h2>
+        <ol class="instructions">
+          <li>Realiza el pago correspondiente a esta orden.</li>
+          <li>Conserva el comprobante de pago.</li>
+          <li>Sube el comprobante para validación manual.</li>
+          <li>El pago será revisado por administración antes de liberar el siguiente paso de la reserva.</li>
+        </ol>
+      </section>
+
+      <section class="section">
+        ${paymentMethodMarkup}
+      </section>
+
+      <p class="footer-note">
+        Este documento resume la orden de pago asistido de SKY Group. Por seguridad solo se muestran datos mínimos del cliente.
+        La validación final depende del comprobante y de la revisión administrativa.
+      </p>
+    </section>
+  </body>
+</html>`
+}
+
+function handleGenerateAssistedPaymentOrderPdf() {
+  const html = buildAssistedPaymentOrderMarkup()
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+  const documentUrl = URL.createObjectURL(blob)
+  const orderWindow = window.open(documentUrl, '_blank', 'noopener,noreferrer,width=960,height=720')
+  if (!orderWindow) {
+    paymentInlineError.value = 'Tu navegador bloqueo la ventana para generar la orden de pago.'
+    URL.revokeObjectURL(documentUrl)
+    return
+  }
+
+  try {
+    paymentInlineError.value = ''
+    window.setTimeout(() => {
+      URL.revokeObjectURL(documentUrl)
+    }, 60000)
+  } catch (error) {
+    console.error('No se pudo generar la orden de pago PDF', error)
+    orderWindow.close()
+    URL.revokeObjectURL(documentUrl)
+    paymentInlineError.value = 'No fue posible generar la orden de pago PDF en esta ventana. Intenta de nuevo.'
+  }
+}
+
+function handleSendAssistedPaymentOrderEmail() {
+  window.location.href = buildAssistedOrderEmailUrl()
+}
+
+function handleBackToReservation() {
+  go('viajes', reservationContextId.value)
+}
+
+function triggerAssistedPaymentProofUpload() {
+  assistedPaymentProofInput.value?.click()
+}
+
+function handleAssistedPaymentProofSelection(event) {
+  const file = event?.target?.files?.[0] || null
+  assistedPaymentProofFile.value = file
+  assistedPaymentProofName.value = file?.name || ''
 }
 
 function delay(ms = 1000) {
@@ -3925,6 +4442,73 @@ async function finalizeCommercialAccessCheckoutReturn() {
   }
 }
 
+async function handleAssistedPaymentProofUpload() {
+  const reservationId = reservationContextId.value
+  const flightRequestId = flightRequestContextId.value
+
+  if (!reservationId) {
+    paymentInlineError.value = 'No encontramos la reserva para asociar el comprobante.'
+    return
+  }
+
+  if (!assistedPaymentProofFile.value) {
+    paymentInlineError.value = 'Selecciona un comprobante antes de subirlo.'
+    return
+  }
+
+  paymentInlineError.value = ''
+  paymentProofUploading.value = true
+
+  try {
+    const persistedReservation = await uploadClientPaymentProof(
+      reservationId,
+      {
+        flight_request_id: flightRequestId,
+        contact_email: paymentForm.contactEmail.trim() || customerEmail.value,
+      },
+      assistedPaymentProofFile.value,
+      { timeoutMs: 30000 },
+    )
+
+    mergeReservationUpdate({
+      ...(persistedReservation || {}),
+      id: reservationId,
+      status: 'pending_payment',
+      booking_status: 'pending_payment',
+      workflow_status: 'pago pendiente',
+      payment_method: 'assisted_cash',
+      payment_status: 'pending_manual_validation',
+      payment_order: {
+        ...selectedReservation.value?.payment_order,
+        ...persistedReservation?.payment_order,
+        status: 'pending_manual_validation',
+        method: 'assisted_cash',
+        payment_method: 'assisted_cash',
+        proof_name: assistedPaymentProofName.value,
+        proof_uploaded_at: new Date().toISOString(),
+      },
+      updated_at: new Date().toISOString(),
+    })
+
+    ui.pushToast({
+      tone: 'success',
+      title: 'Comprobante recibido',
+      message: 'El comprobante ya quedo cargado y la reserva pasa a validacion manual.',
+    })
+
+    assistedPaymentProofFile.value = null
+    assistedPaymentProofName.value = ''
+    if (assistedPaymentProofInput.value) {
+      assistedPaymentProofInput.value.value = ''
+    }
+  } catch (error) {
+    paymentInlineError.value =
+      error?.message || 'No pudimos subir el comprobante del pago asistido.'
+  } finally {
+    paymentProofUploading.value = false
+  }
+}
+
 const signedContractReservationSignature = computed(() =>
   reservations.value
     .map((reservation) =>
@@ -4244,36 +4828,64 @@ async function handlePaymentSubmit() {
   paymentSubmitting.value = true
 
   try {
-    if (selectedPaymentMethod.value === 'wire') {
+    if (isAssistedReservationPayment.value) {
+      if (assistedPaymentOrderReady.value && assistedPaymentProofFile.value) {
+        await handleAssistedPaymentProofUpload()
+        return
+      }
+
       destroyStripePaymentElement()
 
-      const payload = await createClientWireIntent(
-        flightRequestId,
+      const persistedReservation = await saveClientAssistedPayment(
+        reservationId || flightRequestId,
         {
+          reservation_id: reservationId,
+          flight_request_id: flightRequestId,
           contact_email: paymentForm.contactEmail.trim(),
-          payment_method: 'wire',
+          payment_method: 'assisted_cash',
+          flight_cost: paymentBreakdownAmountMap.value.flight_cost || 0,
+          administrative_fee: paymentBreakdownAmountMap.value.administrative_fee || 0,
+          total_amount: paymentBreakdownTotalValue.value || 0,
         },
         { timeoutMs: 30000 },
       )
 
-      wireInstructions.value =
-        payload?.wire_instructions || payload?.instructions || payload?.data || null
       paymentLastReference.value =
-        wireInstructions.value?.reference || payload?.reference || payload?.payment_reference || ''
+        String(
+          persistedReservation?.payment_order?.reference ||
+            persistedReservation?.flight_request_id ||
+            flightRequestId ||
+            '',
+        ).trim()
+      assistedPaymentOrderReady.value = true
 
       mergeReservationUpdate({
-        id: flightRequestId,
+        ...(persistedReservation || {}),
+        id: reservationId || flightRequestId,
         status: 'pending_payment',
+        booking_status: 'pending_payment',
         workflow_status: 'pago pendiente',
-        payment_status: 'Pendiente de confirmacion bancaria',
+        payment_method: 'assisted_cash',
+        stripe_fee: 0,
+        total_amount:
+          paymentBreakdownAmountMap.value.flight_cost +
+            paymentBreakdownAmountMap.value.administrative_fee || paymentBreakdownTotalValue.value,
+        payment_status: 'pending_manual_payment',
+        payment_order: {
+          ...selectedReservation.value?.payment_order,
+          ...persistedReservation?.payment_order,
+          status: 'pending_manual_payment',
+          method: 'assisted_cash',
+          payment_method: 'assisted_cash',
+        },
         updated_at: new Date().toISOString(),
       })
 
       ui.pushToast({
         tone: 'success',
-        title: 'Transferencia preparada',
+        title: 'Pago asistido registrado',
         message:
-          'Ya puedes copiar la referencia bancaria y subir tu comprobante con concierge o admin.',
+          'La orden de pago ya quedo registrada. Ahora puedes generar el PDF y subir tu comprobante.',
       })
 
       return
@@ -4551,6 +5163,27 @@ watch(
 )
 
 watch(
+  () => [props.section, selectedReservation.value?.id, selectedReservation.value?.payment_method],
+  () => {
+    if (props.section !== 'pago' || commercialAccessCheckoutReturnMode.value) return
+
+    const persistedMethod = resolveReservationPaymentMethod(selectedReservation.value)
+    selectedPaymentMethod.value = persistedMethod === 'assisted_cash' ? 'assisted' : 'stripe'
+    assistedPaymentOrderReady.value = persistedMethod === 'assisted_cash'
+  },
+  { immediate: true },
+)
+
+watch(
+  () => selectedPaymentMethod.value,
+  (method) => {
+    if (method === 'assisted') {
+      paymentInlineError.value = ''
+    }
+  },
+)
+
+watch(
   () => [
     props.section,
     selectedPaymentMethod.value,
@@ -4561,7 +5194,6 @@ watch(
   ],
   async ([section, method]) => {
     if (commercialAccessCheckoutReturnMode.value) {
-      wireInstructions.value = null
       if (stripeViewContext !== 'client_access_checkout') {
         destroyStripePaymentElement()
         stripeViewContext = 'client_access_checkout'
@@ -4570,8 +5202,7 @@ watch(
       return
     }
 
-    if (section === 'pago' && method === 'card') {
-      wireInstructions.value = null
+    if (section === 'pago' && method === 'stripe') {
       await nextTick()
       if (stripeViewContext !== 'reservation') {
         destroyStripePaymentElement()
@@ -4598,7 +5229,7 @@ watch(
       return
     }
 
-    if (method !== 'card') {
+    if (method !== 'stripe') {
       destroyStripePaymentElement()
     }
   },
@@ -5726,6 +6357,20 @@ watch(
 
             <section class="payment-section">
               <h3>Metodo de pago</h3>
+              <div v-if="!commercialAccessCheckoutReturnMode" class="payment-method-grid">
+                <button
+                  v-for="method in paymentMethodCards"
+                  :key="method.id"
+                  type="button"
+                  class="payment-method-card"
+                  :class="{ 'payment-method-card--active': selectedPaymentMethod === method.id }"
+                  @click="selectedPaymentMethod = method.id"
+                >
+                  <strong>{{ method.label }}</strong>
+                  <span>{{ method.note }}</span>
+                </button>
+              </div>
+
               <div class="payment-mode-panel">
                 <div v-if="commercialAccessCheckoutReturnMode" class="payment-mode-panel__copy">
                   <strong>Stripe Checkout seguro</strong>
@@ -5735,7 +6380,7 @@ watch(
                   </p>
                 </div>
 
-                <div v-else-if="selectedPaymentMethod === 'card'" class="payment-mode-panel__copy">
+                <div v-else-if="selectedPaymentMethod === 'stripe'" class="payment-mode-panel__copy">
                   <strong>Metodo de pago</strong>
                   <div class="payment-card-frame">
                     <label class="payment-card-field payment-card-field--full payment-card-field--dark">
@@ -5836,48 +6481,106 @@ watch(
                 </div>
 
                 <div v-else class="payment-mode-panel__copy">
-                  <strong>Transferencia / wire manual</strong>
-                  <p>
-                    Generamos referencia bancaria y el pago queda pendiente hasta validar
-                    comprobante. Puedes operar este flujo sin Stripe card checkout.
-                  </p>
+                  <strong>Pago en efectivo</strong>
+                  <p>Pago manual con comprobante sujeto a validacion administrativa.</p>
                 </div>
               </div>
 
-              <div
-                v-if="selectedPaymentMethod === 'wire' && wireInstructions"
-                class="payment-wire-card"
-              >
+              <div v-if="selectedPaymentMethod === 'assisted'" class="payment-wire-card">
                 <p>
-                  <span>Banco</span
-                  ><strong>{{ wireInstructions.bank_name || 'Por configurar' }}</strong>
+                  <span>Estado</span><strong>Pendiente de pago</strong>
                 </p>
                 <p>
-                  <span>Beneficiario</span
-                  ><strong>{{ wireInstructions.beneficiary || 'Red Aviation' }}</strong>
+                  <span>Referencia</span><strong>{{ paymentLastReference || 'Pendiente' }}</strong>
                 </p>
                 <p>
-                  <span>Cuenta / IBAN</span
-                  ><strong>{{
-                    wireInstructions.account_number || wireInstructions.iban || 'Por configurar'
+                  <span>Flight cost</span>
+                  <strong>{{
+                    formatDetailedCurrencyByCode(
+                      paymentBreakdownAmountMap.flight_cost || 0,
+                      paymentBreakdownCurrency,
+                    )
                   }}</strong>
                 </p>
                 <p>
-                  <span>CLABE / SWIFT</span
-                  ><strong>{{
-                    wireInstructions.clabe || wireInstructions.swift || 'Por configurar'
+                  <span>Administrative fee</span>
+                  <strong>{{
+                    formatDetailedCurrencyByCode(
+                      paymentBreakdownAmountMap.administrative_fee || 0,
+                      paymentBreakdownCurrency,
+                    )
                   }}</strong>
                 </p>
                 <p>
-                  <span>Referencia</span
-                  ><strong>{{
-                    wireInstructions.reference || paymentLastReference || 'Pendiente'
-                  }}</strong>
+                  <span>Total amount</span><strong>{{ paymentSummaryAmountLabel }}</strong>
                 </p>
-                <p>
-                  <span>Monto</span
-                  ><strong>{{ wireInstructions.amount || paymentSummaryAmountLabel }}</strong>
+              </div>
+
+              <div v-if="selectedPaymentMethod === 'assisted'" class="payment-assisted-actions">
+                <button
+                  type="button"
+                  class="secondary-button"
+                  :disabled="!canUploadAssistedPaymentProof"
+                  @click="handleGenerateAssistedPaymentOrderPdf"
+                >
+                  Descargar PDF
+                </button>
+
+                <input
+                  ref="assistedPaymentProofInput"
+                  type="file"
+                  accept=".pdf,image/*"
+                  class="payment-proof-input"
+                  @change="handleAssistedPaymentProofSelection"
+                />
+
+                <button
+                  type="button"
+                  class="ghost-button"
+                  :disabled="!canUploadAssistedPaymentProof"
+                  @click="triggerAssistedPaymentProofUpload"
+                >
+                  Seleccionar comprobante
+                </button>
+
+                <span v-if="assistedPaymentProofName" class="payment-proof-name">
+                  {{ assistedPaymentProofName }}
+                </span>
+
+                <button
+                  type="button"
+                  class="primary-action"
+                  :disabled="!canUploadAssistedPaymentProof || !assistedPaymentProofFile || paymentProofUploading"
+                  @click="handleAssistedPaymentProofUpload"
+                >
+                  {{
+                    paymentProofUploading
+                      ? 'Subiendo comprobante...'
+                      : 'Subir comprobante de pago'
+                  }}
+                </button>
+
+                <p v-if="assistedPaymentProofUploaded" class="payment-proof-hint">
+                  Ya existe un comprobante cargado para esta reserva.
                 </p>
+
+                <div class="payment-assisted-actions__row">
+                  <button
+                    type="button"
+                    class="ghost-button"
+                    :disabled="!canUploadAssistedPaymentProof"
+                    @click="handleSendAssistedPaymentOrderEmail"
+                  >
+                    Enviar por correo
+                  </button>
+                  <button
+                    type="button"
+                    class="ghost-button"
+                    @click="handleBackToReservation"
+                  >
+                    Volver a la reserva
+                  </button>
+                </div>
               </div>
 
               <p v-if="paymentInlineError" class="payment-inline-error">{{ paymentInlineError }}</p>
@@ -6032,8 +6735,8 @@ watch(
                   ? 'Procesando...'
                   : commercialAccessCheckoutReturnMode
                     ? commercialAccessCtaLabel
-                    : selectedPaymentMethod === 'wire'
-                    ? 'Generar instrucciones bancarias'
+                    : selectedPaymentMethod === 'assisted'
+                    ? assistedPrimaryCtaLabel
                     : 'Pagar ahora'
               }}
             </button>
@@ -7694,6 +8397,29 @@ button {
 .payment-wire-card strong {
   text-align: right;
   color: #111111;
+}
+
+.payment-assisted-actions {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.payment-assisted-actions__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.payment-proof-input {
+  display: none;
+}
+
+.payment-proof-name,
+.payment-proof-hint {
+  color: #655d52;
+  font-size: 0.92rem;
+  margin: 0;
 }
 
 .payment-inline-error {

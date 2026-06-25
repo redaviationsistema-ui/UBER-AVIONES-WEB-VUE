@@ -253,11 +253,26 @@ function buildAdminReservationRecord(record = {}) {
       record.payment_status ||
       record.payment?.status ||
       'Pendiente',
+    paymentMethod:
+      normalizedTrip.payment_method ||
+      record.payment_method ||
+      record.payment?.method ||
+      record.payment_order?.payment_method ||
+      record.payment_order?.method ||
+      '',
+    bookingStatus:
+      normalizedTrip.booking_status ||
+      record.booking_status ||
+      record.status ||
+      '',
     contractStatus:
       normalizedTrip.contract_status ||
       record.contract_status ||
       record.contract?.status ||
       'Pendiente',
+    paymentOrder:
+      normalizedTrip.payment_order ||
+      (record.payment_order && typeof record.payment_order === 'object' ? record.payment_order : null),
     adminFlowState: record.admin_flow_state || record.flow_control_state || adminFlow.state || 'active',
     adminDelayReason:
       record.admin_delay_reason || record.hold_reason || record.delay_reason || adminFlow.reason || '',
