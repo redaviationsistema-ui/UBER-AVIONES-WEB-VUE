@@ -2276,7 +2276,11 @@
                       :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || syncingProviderOperationalRelease"
                     >
                       <option value="">Selecciona aeronave</option>
-                      <option v-for="plane in aircraft" :key="plane.id" :value="String(plane.id)">
+                      <option
+                        v-for="plane in providerOperationalReleaseAircraftOptions"
+                        :key="plane.id"
+                        :value="String(plane.id)"
+                      >
                         {{ plane.name }}{{ plane.registration ? ` · ${plane.registration}` : '' }}
                       </option>
                     </select>

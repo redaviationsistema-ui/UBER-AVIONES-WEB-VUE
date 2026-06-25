@@ -1856,12 +1856,12 @@ async function assignCrewToOperation({
   }
 
   const currentWorkflowId = resolveWorkflowState(operation.workflowStatus || operation.status || '').id
-  if (currentWorkflowId !== 'tracking_live') {
-    onError?.({ message: 'La seccion de asignar sobrecargo se habilita cuando la operacion entra a tracking en vivo.' })
+  if (!['flight_confirmed', 'tracking_live'].includes(currentWorkflowId)) {
+    onError?.({ message: 'La asignacion de sobrecargo se habilita cuando el vuelo ya quedo confirmado para despacho operativo.' })
     ui.pushToast({
       tone: 'warning',
       title: 'Asignacion bloqueada',
-      message: 'La seccion de asignar sobrecargo se habilita cuando la operacion entra a tracking en vivo.',
+      message: 'La asignacion de sobrecargo se habilita cuando el vuelo ya quedo confirmado para despacho operativo.',
     })
     return
   }
@@ -1995,7 +1995,7 @@ async function assignCrewToOperation({
     notes: persistentAssignmentPatch.notes,
   })
 
-  const promotedWorkflowStage = ''
+  const promotedWorkflowStage = currentWorkflowId === 'flight_confirmed' ? 'tracking_live' : ''
   const visibleWorkflowStage = currentWorkflowId === 'tracking_live' ? 'tracking_live' : promotedWorkflowStage
 
   if (promotedWorkflowStage) {

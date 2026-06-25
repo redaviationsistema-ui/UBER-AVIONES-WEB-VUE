@@ -8,7 +8,6 @@ import ConciergeFloatingButton from '../ConciergeFloatingButton.vue'
 import FlightSearchHero from '../FlightSearchHero.vue'
 import { featuredAirports } from '../../../utils/airports'
 import {
-  buildCommercialSnapshot,
   buildFlightPricingFormula,
   normalizeAttentionLevel,
   normalizePackageCode,
@@ -54,7 +53,7 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const ui = useUiStore()
-const COMMERCIAL_ACCESS_AMOUNT_LABEL = 'USD $115 / mes'
+const COMMERCIAL_ACCESS_AMOUNT_LABEL = 'Monto por confirmar'
 
 const tripType = ref('Ida')
 const selectedPriorityType = ref('essential')
@@ -396,6 +395,7 @@ const selectedReservationPriceLabel = computed(() => {
       : {}
 
   return (
+    (selectedReservation.value?.total_amount ? formatCurrency(selectedReservation.value.total_amount) : '') ||
     (selectedReservation.value?.selected_card_price
       ? formatCurrency(selectedReservation.value.selected_card_price)
       : '') ||
@@ -425,8 +425,11 @@ const selectedReservationPriceValue = computed(() => {
       : {}
 
   return (
+    Number(selectedReservation.value?.total_amount || 0) ||
     Number(selectedReservation.value?.selected_card_price || 0) ||
+    Number(pricingContext.total_amount || 0) ||
     Number(pricingContext.selected_card_price || 0) ||
+    Number(snapshotRecord.total_amount || 0) ||
     Number(snapshotRecord.selected_card_price || 0) ||
     moneyValue(selectedReservation.value?.formatted_final_price) ||
     moneyValue(selectedReservation.value?.final_price_display) ||
@@ -436,13 +439,143 @@ const selectedReservationPriceValue = computed(() => {
   )
 })
 const paymentSummaryAmountLabel = computed(() => {
-  if (commercialAccessCheckoutReturnMode.value) {
-    return COMMERCIAL_ACCESS_AMOUNT_LABEL
+  if (paymentBreakdownTotalValue.value > 0) {
+    return formatDetailedCurrencyByCode(
+      paymentBreakdownTotalValue.value,
+      paymentBreakdownCurrency.value,
+    )
   }
   if (selectedReservationPriceValue.value > 0) {
-    return formatCurrency(selectedReservationPriceValue.value)
+    return formatDetailedCurrencyByCode(
+      selectedReservationPriceValue.value,
+      paymentBreakdownCurrency.value,
+    )
   }
-  return selectedReservationPriceLabel.value || 'Monto por confirmar'
+  if (selectedReservationPriceLabel.value) {
+    return selectedReservationPriceLabel.value
+  }
+  return commercialAccessCheckoutReturnMode.value ? COMMERCIAL_ACCESS_AMOUNT_LABEL : 'Monto por confirmar'
+})
+const paymentBreakdownCurrency = computed(() => {
+  if (commercialAccessCheckoutReturnMode.value) {
+    return (
+      commercialAccessSnapshot.value?.latestPayment?.currency ||
+      commercialAccessSnapshot.value?.paymentPreview?.currency ||
+      commercialAccessSnapshot.value?.paymentPreview?.billing_plan?.currency ||
+      commercialAccessSnapshot.value?.latestPayment?.billing_plan?.currency ||
+      'USD'
+    )
+  }
+
+  return (
+    selectedReservation.value?.currency ||
+    selectedReservation.value?.pricing_context?.currency ||
+    selectedReservation.value?.aircraft_snapshot?.currency ||
+    'USD'
+  )
+})
+const paymentBreakdownRows = computed(() => {
+  if (commercialAccessCheckoutReturnMode.value) {
+    const latestPayment = commercialAccessSnapshot.value?.latestPayment || {}
+    const paymentPreview = commercialAccessSnapshot.value?.paymentPreview || {}
+    const baseAmount = Number(
+      latestPayment.base_amount || paymentPreview.base_amount || paymentPreview.billing_plan?.amount || 0,
+    )
+    const stripeFee = Number(latestPayment.stripe_fee || paymentPreview.stripe_fee || 0)
+    const administrativeFee = Number(
+      latestPayment.administrative_fee || paymentPreview.administrative_fee || 0,
+    )
+    const totalAmount = Number(
+      latestPayment.total_amount || latestPayment.amount || paymentPreview.total_amount || 0,
+    )
+
+    return [
+      baseAmount > 0
+        ? { key: 'base_amount', label: 'Base amount', value: formatDetailedCurrencyByCode(baseAmount, paymentBreakdownCurrency.value) }
+        : null,
+      stripeFee > 0
+        ? { key: 'stripe_fee', label: 'Stripe fee', value: formatDetailedCurrencyByCode(stripeFee, paymentBreakdownCurrency.value) }
+        : null,
+      administrativeFee > 0
+        ? { key: 'administrative_fee', label: 'Administrative fee', value: formatDetailedCurrencyByCode(administrativeFee, paymentBreakdownCurrency.value) }
+        : null,
+      totalAmount > 0
+        ? { key: 'total_amount', label: 'Total amount', value: formatDetailedCurrencyByCode(totalAmount, paymentBreakdownCurrency.value), total: true }
+        : null,
+    ].filter(Boolean)
+  }
+
+  const reservation = selectedReservation.value || {}
+  const pricingContext =
+    reservation.pricing_context && typeof reservation.pricing_context === 'object'
+      ? reservation.pricing_context
+      : {}
+  const snapshotRecord =
+    reservation.aircraft_snapshot && typeof reservation.aircraft_snapshot === 'object'
+      ? reservation.aircraft_snapshot
+      : {}
+
+  const flightCost = Number(
+    reservation.flight_cost ||
+      pricingContext.flight_cost ||
+      snapshotRecord.flight_cost ||
+      reservation.base_amount ||
+      pricingContext.base_amount ||
+      snapshotRecord.base_amount ||
+      0,
+  )
+  const stripeFee = Number(
+    reservation.stripe_fee || pricingContext.stripe_fee || snapshotRecord.stripe_fee || 0,
+  )
+  const administrativeFee = Number(
+    reservation.administrative_fee ||
+      pricingContext.administrative_fee ||
+      snapshotRecord.administrative_fee ||
+      0,
+  )
+  const totalAmount = Number(
+    reservation.total_amount ||
+      pricingContext.total_amount ||
+      snapshotRecord.total_amount ||
+      selectedReservationPriceValue.value ||
+      0,
+  )
+
+  return [
+    flightCost > 0
+      ? { key: 'flight_cost', label: 'Flight cost', value: formatDetailedCurrencyByCode(flightCost, paymentBreakdownCurrency.value) }
+      : null,
+    stripeFee > 0
+      ? { key: 'stripe_fee', label: 'Stripe fee', value: formatDetailedCurrencyByCode(stripeFee, paymentBreakdownCurrency.value) }
+      : null,
+    administrativeFee > 0
+      ? { key: 'administrative_fee', label: 'Administrative fee', value: formatDetailedCurrencyByCode(administrativeFee, paymentBreakdownCurrency.value) }
+      : null,
+    totalAmount > 0
+      ? { key: 'total_amount', label: 'Total amount', value: formatDetailedCurrencyByCode(totalAmount, paymentBreakdownCurrency.value), total: true }
+      : null,
+  ].filter(Boolean)
+})
+const paymentBreakdownTotalValue = computed(() => {
+  const explicitTotal = paymentBreakdownRows.value.find((item) => item.total)
+  if (explicitTotal) {
+    return Number(
+      explicitTotal.key === 'total_amount'
+        ? commercialAccessCheckoutReturnMode.value
+          ? commercialAccessSnapshot.value?.latestPayment?.total_amount ||
+            commercialAccessSnapshot.value?.latestPayment?.amount ||
+            commercialAccessSnapshot.value?.paymentPreview?.total_amount ||
+            0
+          : selectedReservation.value?.total_amount ||
+            selectedReservation.value?.pricing_context?.total_amount ||
+            selectedReservation.value?.aircraft_snapshot?.total_amount ||
+            selectedReservationPriceValue.value ||
+            0
+        : 0,
+    )
+  }
+
+  return selectedReservationPriceValue.value
 })
 const paymentReservationPassengerCount = computed(() => {
   return Number(
@@ -565,6 +698,7 @@ const commercialAccessCheckoutFacts = computed(() => {
   const state = buildCommercialAccessUiState(auth.access?.commercial_access || auth.access)
   const accessSource = auth.access?.commercial_access || auth.access
   const latestPayment = commercialAccessSnapshot.value.latestPayment
+  const paymentPreview = commercialAccessSnapshot.value.paymentPreview
   const expiryMeta = resolveCommercialAccessExpiryMeta(accessSource)
   const paymentBrand = normalizeCardBrand(latestPayment?.card_brand || '')
   const paymentLast4 = String(latestPayment?.card_last4 || '').trim()
@@ -623,7 +757,12 @@ const commercialAccessCheckoutFacts = computed(() => {
     },
     {
       label: 'Monto mensual',
-      value: COMMERCIAL_ACCESS_AMOUNT_LABEL,
+      value:
+        paymentBreakdownRows.value.find((item) => item.key === 'total_amount')?.value ||
+        (paymentPreview?.total_amount
+          ? formatDetailedCurrencyByCode(paymentPreview.total_amount, paymentBreakdownCurrency.value)
+          : '') ||
+        COMMERCIAL_ACCESS_AMOUNT_LABEL,
       tone: 'premium',
     },
     {
@@ -901,6 +1040,9 @@ function extractCommercialAccessLatestPayment(source = null) {
     id: payment.id ?? null,
     status: payment.status ?? '',
     amount: payment.amount ?? null,
+    base_amount: payment.base_amount ?? null,
+    stripe_fee: payment.stripe_fee ?? null,
+    total_amount: payment.total_amount ?? null,
     currency: payment.currency ?? '',
     card_brand: payment.card_brand ?? '',
     card_last4: payment.card_last4 ?? '',
@@ -924,6 +1066,39 @@ function extractCommercialAccessLatestPayment(source = null) {
             currency: payment.billingPlan.currency ?? '',
           }
         : null,
+  }
+}
+
+function extractCommercialAccessPaymentPreview(source = null) {
+  const candidates = [
+    source?.payment_preview,
+    source?.paymentPreview,
+    source?.commercial_access?.payment_preview,
+    source?.commercialAccess?.payment_preview,
+    source?.access?.commercial_access?.payment_preview,
+    source?.access?.commercialAccess?.payment_preview,
+    auth.access?.commercial_access?.payment_preview,
+    auth.access?.payment_preview,
+  ].filter(isPlainObject)
+
+  const preview = candidates[0] || null
+  if (!preview) return null
+
+  return {
+    base_amount: preview.base_amount ?? null,
+    stripe_fee: preview.stripe_fee ?? null,
+    administrative_fee: preview.administrative_fee ?? null,
+    total_amount: preview.total_amount ?? null,
+    currency: preview.currency ?? '',
+    billing_plan: isPlainObject(preview.billing_plan)
+      ? {
+          id: preview.billing_plan.id ?? null,
+          code: preview.billing_plan.code ?? '',
+          name: preview.billing_plan.name ?? '',
+          amount: preview.billing_plan.amount ?? null,
+          currency: preview.billing_plan.currency ?? '',
+        }
+      : null,
   }
 }
 
@@ -1192,6 +1367,7 @@ const commercialAccessSnapshot = computed(() => {
       commercial.free_quotes_used ?? access.free_quotes_used ?? user.free_quotes_used ?? 0,
     ),
     latestPayment: extractCommercialAccessLatestPayment({ access, user }),
+    paymentPreview: extractCommercialAccessPaymentPreview({ access, user }),
   }
 })
 const hasCommercialTrialQuoteAvailable = computed(() => {
@@ -1691,6 +1867,7 @@ function syncCommercialAccessState(accessSource = null) {
   const state = buildCommercialAccessUiState(accessSource)
   const commercial = extractCommercialAccessFields(accessSource)
   const latestPayment = extractCommercialAccessLatestPayment(accessSource)
+  const paymentPreview = extractCommercialAccessPaymentPreview(accessSource)
   const currentCommercial = auth.access?.commercial_access || {}
   const accessExpiresAt =
     commercial.access_expires_at ??
@@ -1727,6 +1904,7 @@ function syncCommercialAccessState(accessSource = null) {
         billing_period_end: billingPeriodEnd,
         grace_period_ends_at: gracePeriodEndsAt,
         latest_payment: latestPayment || currentCommercial.latest_payment || null,
+        payment_preview: paymentPreview || currentCommercial.payment_preview || null,
       },
       access_status: state.status,
       has_paid_access: state.hasPaidAccess,
@@ -1737,6 +1915,7 @@ function syncCommercialAccessState(accessSource = null) {
       billing_period_end: billingPeriodEnd,
       grace_period_ends_at: gracePeriodEndsAt,
       latest_payment: latestPayment || auth.access?.latest_payment || null,
+      payment_preview: paymentPreview || auth.access?.payment_preview || null,
     },
     userPatch: {
       access_status: state.status,
@@ -2171,6 +2350,19 @@ function formatCurrency(value) {
     style: 'currency',
     currency: 'USD',
     maximumFractionDigits: 0,
+  }).format(Number(value || 0))
+}
+
+function formatCurrencyByCode(value, currency = 'USD') {
+  return formatDetailedCurrencyByCode(value, currency, 0)
+}
+
+function formatDetailedCurrencyByCode(value, currency = 'USD', maximumFractionDigits = 2) {
+  return new Intl.NumberFormat('es-MX', {
+    style: 'currency',
+    currency: String(currency || 'USD').toUpperCase(),
+    maximumFractionDigits,
+    minimumFractionDigits: maximumFractionDigits > 0 ? 2 : 0,
   }).format(Number(value || 0))
 }
 
@@ -4781,27 +4973,6 @@ async function requestReservation(aircraft = selectedAircraft.value) {
       Number(activeItinerarySummary.value.passengers || searchForm.passengers || 0) || 1
     const pricing = aircraftPricingForType(aircraft, selectedPriorityType.value)
     const selectedCardPrice = Number((pricing.finalPrice + RESULTS_SURCHARGE_USD).toFixed(2))
-    const basePricingContext = buildCommercialSnapshot(
-      {
-        packageCode: pricing.priorityType,
-        priorityType: pricing.priorityType,
-        attentionLevel: 'normal',
-        overnightNights: activeItinerarySummary.value.days || 0,
-        catering: activeItinerarySummary.value.catering || '',
-        wifi: activeItinerarySummary.value.wifi || 'none',
-        groundTransport: activeItinerarySummary.value.groundTransport || 'none',
-        pets: activeItinerarySummary.value.pets || '',
-        specialBaggage: activeItinerarySummary.value.specialBaggage || '',
-      },
-      pricing,
-      aircraft,
-    )
-    const pricingContext = {
-      ...basePricingContext,
-      selected_card_price: selectedCardPrice,
-      total: selectedCardPrice,
-      final_price: selectedCardPrice,
-    }
     const reservationPayload = {
       trip_type: tripTypeKey.value,
       trip_label: tripType.value,
@@ -4820,46 +4991,6 @@ async function requestReservation(aircraft = selectedAircraft.value) {
       provider_id: aircraft.provider_id || aircraft.provider?.id || null,
       priority_type: pricing.priorityType,
       priority_multiplier: pricing.priorityMultiplier,
-      base_price: Number(pricing.basePrice.toFixed(2)),
-      operational_fee: Number(pricing.operationalFees.toFixed(2)),
-      priority_price: Number(pricing.priorityPrice.toFixed(2)),
-      final_price: Number(selectedCardPrice.toFixed(2)),
-      selected_card_price: Number(selectedCardPrice.toFixed(2)),
-      pricing_context: pricingContext,
-      pricing_formula_version: pricingContext.pricing_formula_version,
-      commercial_margin: pricingContext.commercial_margin,
-      priority_factor: pricingContext.priority_factor,
-      billable_hours: pricingContext.billable_hours,
-      real_flight_hours: pricingContext.real_flight_hours,
-      minimum_hours: pricingContext.minimum_hours,
-      minimum_route_price: pricingContext.minimum_route_price,
-      subtotal_before_multipliers: pricingContext.subtotal_before_multipliers,
-      extra_services_total: pricingContext.extra_services_total,
-      subtotal: Number(
-        (pricingContext.subtotal_before_multipliers || pricing.basePrice || 0).toFixed(2),
-      ),
-      total: Number(selectedCardPrice.toFixed(2)),
-      estimated_total: Number(selectedCardPrice.toFixed(2)),
-      aircraft_snapshot: {
-        ...aircraft,
-        aircraft: selectedAircraftModel,
-        model: selectedAircraftModel,
-        category: aircraft.category || aircraft.cabin || '',
-        capacity: aircraft.capacity || '',
-        base_price: Number(pricing.basePrice.toFixed(2)),
-        operational_fee: Number(pricing.operationalFees.toFixed(2)),
-        priority_price: Number(pricing.priorityPrice.toFixed(2)),
-        subtotal_before_multipliers: Number(
-          (pricingContext.subtotal_before_multipliers || pricing.basePrice || 0).toFixed(2),
-        ),
-        subtotal: Number(
-          (pricingContext.subtotal_before_multipliers || pricing.basePrice || 0).toFixed(2),
-        ),
-        selected_card_price: Number(selectedCardPrice.toFixed(2)),
-        total: Number(selectedCardPrice.toFixed(2)),
-        final_price: Number(selectedCardPrice.toFixed(2)),
-        estimated_total: Number(selectedCardPrice.toFixed(2)),
-      },
       source_database: aircraft.source_database || null,
       source_table: aircraft.source_table || null,
       legs: activeItinerarySummary.value.legs.map((leg) => ({ ...leg })),
@@ -4885,7 +5016,7 @@ async function requestReservation(aircraft = selectedAircraft.value) {
           reservation?.flight_request?.id ||
           reservation?.data?.id ||
           reservation?.id,
-        selected_card_price: Number(selectedCardPrice.toFixed(2)),
+        client_preview_total: Number(selectedCardPrice.toFixed(2)),
         flight_request_final_price:
           storedFlightRequest?.final_price ||
           storedFlightRequest?.pricing_context?.final_price ||
@@ -5874,15 +6005,15 @@ watch(
             </div>
 
             <div class="payment-totals">
-              <p>
-                <span>Subtotal</span>
-                <strong>{{ paymentSummaryAmountLabel }}</strong>
+              <p
+                v-for="item in paymentBreakdownRows"
+                :key="item.key"
+                :class="{ 'payment-totals__total': item.total }"
+              >
+                <span>{{ item.label }}</span>
+                <strong>{{ item.value }}</strong>
               </p>
-              <p>
-                <span>Impuestos estimados</span>
-                <strong>{{ formatCurrency(0) }}</strong>
-              </p>
-              <p class="payment-totals__total">
+              <p v-if="!paymentBreakdownRows.length" class="payment-totals__total">
                 <span>Importe a pagar hoy</span>
                 <strong>{{ paymentSummaryAmountLabel }}</strong>
               </p>

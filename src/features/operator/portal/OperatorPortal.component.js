@@ -2345,6 +2345,71 @@ const requestOperationalAlerts = computed(() => {
 })
 
 const selectedRequestAircraftComparison = computed(() => buildRequestAircraftComparison(selectedRequest.value))
+const providerOperationalReleaseAircraftOptions = computed(() => {
+  const request = getActiveProviderReleaseRequest()
+  if (!request) return []
+
+  const preferredAircraftIds = [
+    request.aircraftId,
+    providerOperationalReleaseForm.aircraftId,
+    request.raw?.assigned_aircraft_id,
+    request.raw?.aircraft_id,
+    request.raw?.aircraft?.id,
+    request.raw?.selected_aircraft_id,
+    request.raw?.matched_aircraft_id,
+    request.raw?.preferred_aircraft_id,
+    request.raw?.provider_operational_release?.aircraft_id,
+    request.raw?.operational_release?.aircraft_id,
+    request.raw?.visibility_payload?.aircraft_id,
+    request.raw?.visibility_payload?.selected_aircraft_id,
+    request.raw?.visibility_payload?.provider_operational_release?.aircraft_id,
+  ]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+
+  const matchedById = preferredAircraftIds
+    .map((targetId) => aircraft.value.find((item) => String(item.id || '') === targetId))
+    .find(Boolean)
+
+  if (matchedById) return [matchedById]
+
+  const aircraftLabelCandidates = [
+    request.aircraft,
+    request.raw?.aircraft_model,
+    request.raw?.assigned_aircraft,
+    request.raw?.aircraft,
+    request.raw?.visibility_payload?.aircraft_model,
+    pickPreferredRequestMatch(request.raw?.matches)?.aircraft?.model,
+    pickPreferredRequestMatch(request.raw?.matches)?.aircraft?.name,
+  ]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+
+  const matchedByLabel = aircraftLabelCandidates
+    .map((label) =>
+      aircraft.value.find((item) => {
+        const itemName = String(item.name || '').trim().toLowerCase()
+        const itemRegistration = String(item.registration || '').trim().toLowerCase()
+        const normalizedLabel = label.toLowerCase()
+        return (
+          normalizedLabel === itemName ||
+          normalizedLabel.includes(itemName) ||
+          (itemRegistration && normalizedLabel.includes(itemRegistration))
+        )
+      }),
+    )
+    .find(Boolean)
+
+  if (matchedByLabel) return [matchedByLabel]
+
+  const suggestedAircraft = getRequestSuggestedAircraft(request)
+  const matchedSuggestedAircraft =
+    aircraft.value.find((item) => suggestedAircraft.label.includes(item.registration || '')) ||
+    aircraft.value.find((item) => suggestedAircraft.label.includes(item.name || '')) ||
+    null
+
+  return matchedSuggestedAircraft ? [matchedSuggestedAircraft] : []
+})
 
 const providerOperationalBinaryStatusOptions = [
   { value: 'pending', label: 'Pendiente' },
@@ -2490,6 +2555,113 @@ function createEmptyProviderOperationalReleaseForm() {
   }
 }
 
+function normalizeProviderOperationalBinaryStatus(value, fallback = 'pending') {
+  if (typeof value === 'boolean') {
+    return value ? 'confirmed' : fallback
+  }
+
+  const normalized = String(value ?? '')
+    .trim()
+    .toLowerCase()
+
+  if (!normalized) return fallback
+
+  if (
+    [
+      'confirmed',
+      'confirmado',
+      'si',
+      'sí',
+      'yes',
+      'true',
+      '1',
+      'available',
+      'ready',
+      'approved',
+      'aprobado',
+    ].includes(normalized)
+  ) {
+    return 'confirmed'
+  }
+
+  if (
+    [
+      'needs_support',
+      'need_support',
+      'support',
+      'requires_support',
+      'requiere_apoyo',
+      'requiere apoyo',
+    ].includes(normalized)
+  ) {
+    return 'needs_support'
+  }
+
+  return fallback
+}
+
+function normalizeProviderOperationalCrewOverallStatus(value, fallback = 'pending') {
+  const normalized = String(value ?? '')
+    .trim()
+    .toLowerCase()
+
+  if (!normalized) return fallback
+  if (
+    ['confirmed', 'confirmada', 'confirmado', 'si', 'sí', 'yes', 'true', '1'].includes(
+      normalized,
+    )
+  ) {
+    return 'confirmed'
+  }
+  if (
+    ['not_available', 'not available', 'no_disponible', 'no disponible', 'unavailable'].includes(
+      normalized,
+    )
+  ) {
+    return 'not_available'
+  }
+  if (
+    [
+      'red_aviation_review',
+      'red aviation review',
+      'requiere revision de red aviation',
+      'requiere revisión de red aviation',
+      'review',
+      'needs_review',
+    ].includes(normalized)
+  ) {
+    return 'red_aviation_review'
+  }
+  return fallback
+}
+
+function normalizeProviderOperationalAircraftOverallStatus(value, fallback = 'preparing') {
+  const normalized = String(value ?? '')
+    .trim()
+    .toLowerCase()
+
+  if (!normalized) return fallback
+  if (['ready', 'lista', 'lista para operacion', 'lista para operación'].includes(normalized)) {
+    return 'ready'
+  }
+  if (['available', 'disponible'].includes(normalized)) return 'available'
+  if (
+    ['not_available', 'not available', 'no_disponible', 'no disponible', 'unavailable'].includes(
+      normalized,
+    )
+  ) {
+    return 'not_available'
+  }
+  if (
+    ['maintenance', 'requiere mantenimiento', 'mantenimiento', 'needs_maintenance'].includes(
+      normalized,
+    )
+  ) {
+    return 'maintenance'
+  }
+  return fallback
+}
+
 function syncProviderOperationalDerivedStatuses() {
   if (providerOperationalReleaseHydrating.value) return
 
@@ -2597,15 +2769,16 @@ function normalizeProviderOperationalRelease(request = {}) {
       ? operationalStatus
       : 'pending',
     aircraftId: aircraftCandidate ? String(aircraftCandidate) : '',
-    aircraftOverallStatus:
+    aircraftOverallStatus: normalizeProviderOperationalAircraftOverallStatus(
       source.aircraft_overall_status ||
-      source.aircraft_operational_status ||
-      source.aircraftOverallStatus ||
-      (raw.operational_ready || source.operational_ready
-        ? 'ready'
-        : raw.aircraft_confirmed || source.aircraft_confirmed
-          ? 'available'
-          : 'preparing'),
+        source.aircraft_operational_status ||
+        source.aircraftOverallStatus ||
+        (raw.operational_ready || source.operational_ready
+          ? 'ready'
+          : raw.aircraft_confirmed || source.aircraft_confirmed
+            ? 'available'
+            : 'preparing'),
+    ),
     availabilityConfirmed: Boolean(
       source.availability_confirmed ?? source.availabilityConfirmed ?? raw.aircraft_confirmed,
     ),
@@ -2613,29 +2786,34 @@ function normalizeProviderOperationalRelease(request = {}) {
     routeCoverageConfirmed: Boolean(
       source.route_coverage_confirmed ?? source.routeCoverageConfirmed,
     ),
-    captainStatus:
+    captainStatus: normalizeProviderOperationalBinaryStatus(
       source.captain_status ||
-      source.captain_assigned_status ||
-      source.captainStatus ||
-      (source.pilot_id || source.pilotId ? 'confirmed' : 'pending'),
-    copilotStatus:
+        source.captain_assigned_status ||
+        source.captainStatus ||
+        (source.pilot_id || source.pilotId ? 'confirmed' : 'pending'),
+    ),
+    copilotStatus: normalizeProviderOperationalBinaryStatus(
       source.copilot_status ||
-      source.copilot_assigned_status ||
-      source.copilotStatus ||
-      (source.copilot_id || source.copilotId ? 'confirmed' : 'pending'),
-    crewAvailabilityStatus:
+        source.copilot_assigned_status ||
+        source.copilotStatus ||
+        (source.copilot_id || source.copilotId ? 'confirmed' : 'pending'),
+    ),
+    crewAvailabilityStatus: normalizeProviderOperationalBinaryStatus(
       source.crew_availability_status ||
-      source.crewAvailabilityStatus ||
-      ((source.crew_available ?? source.crewAvailable) ? 'confirmed' : 'pending'),
-    crewRequirementsStatus:
+        source.crewAvailabilityStatus ||
+        (source.crew_available ?? source.crewAvailable),
+    ),
+    crewRequirementsStatus: normalizeProviderOperationalBinaryStatus(
       source.crew_requirements_status ||
-      source.crewRequirementsStatus ||
-      ((source.crew_requirements_confirmed ?? source.crewRequirementsConfirmed) ? 'confirmed' : 'pending'),
-    crewOverallStatus:
+        source.crewRequirementsStatus ||
+        (source.crew_requirements_confirmed ?? source.crewRequirementsConfirmed),
+    ),
+    crewOverallStatus: normalizeProviderOperationalCrewOverallStatus(
       source.crew_overall_status ||
-      source.crew_general_status ||
-      source.crewOverallStatus ||
-      (raw.crew_confirmed || source.crew_confirmed ? 'confirmed' : 'pending'),
+        source.crew_general_status ||
+        source.crewOverallStatus ||
+        (raw.crew_confirmed || source.crew_confirmed ? 'confirmed' : 'pending'),
+    ),
     crewScheduleConfirmed: Boolean(
       source.crew_schedule_confirmed ?? source.crewScheduleConfirmed,
     ),
@@ -2711,6 +2889,17 @@ function getProviderOperationalReleaseOverrideKeys(request = {}) {
     .filter(Boolean)
 }
 
+function areProviderOperationalReleasesEquivalent(backendRelease = {}, localOverride = {}) {
+  const backendNormalized = normalizeProviderOperationalRelease({
+    provider_operational_release: backendRelease,
+  })
+  const localNormalized = normalizeProviderOperationalRelease({
+    provider_operational_release: localOverride,
+  })
+
+  return JSON.stringify(backendNormalized) === JSON.stringify(localNormalized)
+}
+
 function mergeRequestWithLocalOperationalRelease(raw = {}) {
   const overrideKeys = getProviderOperationalReleaseOverrideKeys(raw)
   const localOverride = overrideKeys
@@ -2725,7 +2914,14 @@ function mergeRequestWithLocalOperationalRelease(raw = {}) {
   const backendTimestamp = String(backendRelease?.updated_at || '').trim()
   const localTimestamp = String(localOverride.updated_at || '').trim()
 
-  if (backendRelease && backendTimestamp && localTimestamp && backendTimestamp >= localTimestamp) {
+  if (
+    backendRelease &&
+    backendTimestamp &&
+    localTimestamp &&
+    (backendTimestamp > localTimestamp ||
+      (backendTimestamp === localTimestamp &&
+        areProviderOperationalReleasesEquivalent(backendRelease, localOverride)))
+  ) {
     overrideKeys.forEach((key) => {
       delete providerOperationalReleaseLocalOverrides[key]
     })
@@ -2841,6 +3037,7 @@ function scheduleProviderOperationalReleaseAutosave() {
 
   const request = getActiveProviderReleaseRequest()
   if (!request || !canManageProviderOperationalRelease(request)) return
+  if (!isProviderOperationalReady()) return
 
   clearProviderOperationalReleaseAutosaveTimer()
   providerOperationalReleaseAutosaveTimer = window.setTimeout(() => {
@@ -2856,6 +3053,11 @@ async function persistProviderOperationalReleaseDraft() {
     !providerOperationalReleaseDirty.value ||
     props.section !== 'release-provider'
   ) {
+    return
+  }
+
+  if (!isProviderOperationalReady()) {
+    providerOperationalReleaseAutosaveQueued.value = false
     return
   }
 
@@ -2877,7 +3079,7 @@ async function flushProviderOperationalReleaseDraft() {
 }
 
 function isProviderOperationalStatusConfirmed(value = '') {
-  return String(value || '').trim().toLowerCase() === 'confirmed'
+  return normalizeProviderOperationalBinaryStatus(value) === 'confirmed'
 }
 
 function isProviderAircraftConfirmedReady() {
@@ -4980,6 +5182,37 @@ function findLinkedOperationForRequest(request = {}) {
       return operationIds.some((value) => candidateIds.includes(value))
     }) || null
   )
+}
+
+function hasAssignedCrewForRequest(request = {}) {
+  const linkedOperation = findLinkedOperationForRequest(request)
+  const linkedCrewId = String(
+    linkedOperation?.crewId ||
+      linkedOperation?.raw?.crew_id ||
+      linkedOperation?.raw?.sobrecargo_id ||
+      linkedOperation?.raw?.crew_member_id ||
+      linkedOperation?.raw?.sobrecargo_user_id ||
+      '',
+  ).trim()
+  const linkedCrewName = String(
+    linkedOperation?.crew ||
+      linkedOperation?.raw?.crew_name ||
+      linkedOperation?.raw?.crew_label ||
+      linkedOperation?.raw?.sobrecargo_name ||
+      '',
+  ).trim()
+  const requestCrewId = String(
+    request?.raw?.crew_id ||
+      request?.raw?.sobrecargo_id ||
+      request?.raw?.crew_member_id ||
+      request?.raw?.sobrecargo_user_id ||
+      '',
+  ).trim()
+  const requestCrewName = String(
+    request?.raw?.crew_name || request?.raw?.crew_label || request?.raw?.sobrecargo_name || '',
+  ).trim()
+
+  return Boolean(linkedCrewId || linkedCrewName || requestCrewId || requestCrewName)
 }
 
 function normalizeIncidentFile(raw = {}, index = 0) {
@@ -9109,6 +9342,19 @@ async function saveProviderOperationalRelease(statusOverride = '', options = {})
     const nextWorkflowStage =
       workflowStageOverride ||
       (requestWorkflowId === 'flight_confirmed' ? 'tracking_live' : 'flight_confirmed')
+
+    if (nextWorkflowStage === 'tracking_live' && !hasAssignedCrewForRequest(request)) {
+      const assignmentMessage =
+        'Asigna primero la sobrecargo desde administracion antes de mover el vuelo a tracking en vivo.'
+
+      if (background) {
+        providerOperationalReleaseFeedback.value = assignmentMessage
+        return
+      }
+
+      return showError('Sobrecargo pendiente', assignmentMessage)
+    }
+
     const sharedWorkflowPayload = buildWorkflowApiPayload(nextWorkflowStage)
     sharedWorkflowStatus = sharedWorkflowPayload.status
     Object.assign(payload, sharedWorkflowPayload, {
@@ -9992,6 +10238,7 @@ watch(
       filteredRequests,
       selectedRequest,
       releaseProviderRequest,
+      providerOperationalReleaseAircraftOptions,
       operationWorkflowOptions,
       requestOperationalAlerts,
       selectedRequestAircraftComparison,

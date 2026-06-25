@@ -92,7 +92,7 @@ describe('inferEngineType', () => {
 })
 
 describe('buildFlightRequestPayload', () => {
-  it('preserves the exact selected aircraft model in the reservation payload', () => {
+  it('preserves the exact selected aircraft model and omits client-side price fields', () => {
     const payload = buildFlightRequestPayload({
       trip_type: 'one_way',
       trip_label: 'Ida',
@@ -124,11 +124,13 @@ describe('buildFlightRequestPayload', () => {
     expect(payload.aircraft_id).toBe(91)
     expect(payload.provider_id).toBe(14)
     expect(payload.match_id).toBe('match-91')
-    expect(payload.base_price).toBe(11000)
-    expect(payload.subtotal).toBe(13400)
-    expect(payload.total).toBe(15900)
-    expect(payload.estimated_total).toBe(15900)
-    expect(payload.final_price).toBe(15900)
+    expect(payload.base_price).toBeUndefined()
+    expect(payload.subtotal).toBeUndefined()
+    expect(payload.total).toBeUndefined()
+    expect(payload.estimated_total).toBeUndefined()
+    expect(payload.final_price).toBeUndefined()
+    expect(payload.selected_card_price).toBeUndefined()
+    expect(payload.pricing_context).toBeUndefined()
   })
 })
 

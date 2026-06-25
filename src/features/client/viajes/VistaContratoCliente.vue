@@ -201,7 +201,8 @@ function formatCurrency(value) {
   return new Intl.NumberFormat('es-MX', {
     style: 'currency',
     currency: 'USD',
-    maximumFractionDigits: 0,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   }).format(Number(value || 0))
 }
 
@@ -330,6 +331,7 @@ function resolveReservationFinalPrice(reservation = {}) {
   const preferredMatch = pickPreferredClientMatch(reservation) || {}
 
   return (
+    reservation.total_amount ||
     reservation.selected_card_price ||
     pricingContext.selected_card_price ||
     reservation.final_price ||
@@ -355,6 +357,49 @@ function resolveReservationFinalPrice(reservation = {}) {
     preferredMatch.quote ||
     0
   )
+}
+
+function resolveReservationChargeBreakdown(reservation = {}) {
+  const pricingContext =
+    reservation.pricing_context && typeof reservation.pricing_context === 'object'
+      ? reservation.pricing_context
+      : {}
+  const snapshotRecord =
+    reservation.aircraft_snapshot && typeof reservation.aircraft_snapshot === 'object'
+      ? reservation.aircraft_snapshot
+      : {}
+
+  const flightCost = Number(
+    reservation.flight_cost ||
+      pricingContext.flight_cost ||
+      snapshotRecord.flight_cost ||
+      reservation.base_amount ||
+      pricingContext.base_amount ||
+      snapshotRecord.base_amount ||
+      0,
+  )
+  const stripeFee = Number(
+    reservation.stripe_fee || pricingContext.stripe_fee || snapshotRecord.stripe_fee || 0,
+  )
+  const administrativeFee = Number(
+    reservation.administrative_fee ||
+      pricingContext.administrative_fee ||
+      snapshotRecord.administrative_fee ||
+      0,
+  )
+  const totalAmount = Number(
+    reservation.total_amount ||
+      pricingContext.total_amount ||
+      snapshotRecord.total_amount ||
+      0,
+  )
+
+  return {
+    flightCost,
+    stripeFee,
+    administrativeFee,
+    totalAmount,
+  }
 }
 
 const reservationCode = computed(() => {
@@ -767,14 +812,27 @@ const excludesItems = [
   'Tiempos de espera extraordinarios, permisos especiales o costos por reprogramación.',
 ]
 
-const coverSummaryRows = computed(() => [
-  { label: 'Cliente', value: customerLabel.value },
-  { label: 'Reserva', value: reservationCode.value },
-  { label: 'Ruta', value: routeDisplay.value },
-  { label: 'Aeronave', value: aircraftLabel.value },
-  { label: 'Salida', value: departureDate.value },
-  { label: 'Total', value: finalPrice.value },
-])
+const coverSummaryRows = computed(() => {
+  const breakdown = resolveReservationChargeBreakdown(props.reservation || {})
+
+  return [
+    { label: 'Cliente', value: customerLabel.value },
+    { label: 'Reserva', value: reservationCode.value },
+    { label: 'Ruta', value: routeDisplay.value },
+    { label: 'Aeronave', value: aircraftLabel.value },
+    { label: 'Salida', value: departureDate.value },
+    ...(breakdown.flightCost > 0
+      ? [{ label: 'Flight cost', value: formatCurrency(breakdown.flightCost) }]
+      : []),
+    ...(breakdown.stripeFee > 0
+      ? [{ label: 'Stripe fee', value: formatCurrency(breakdown.stripeFee) }]
+      : []),
+    ...(breakdown.administrativeFee > 0
+      ? [{ label: 'Administrative fee', value: formatCurrency(breakdown.administrativeFee) }]
+      : []),
+    { label: 'Total', value: finalPrice.value },
+  ]
+})
 
 const bankAccounts = [
   {

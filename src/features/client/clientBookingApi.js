@@ -314,6 +314,18 @@ function asNumber(value, fallback = 0) {
   return Number.isFinite(amount) ? amount : fallback
 }
 
+function resolveServerAmount(record = {}, keys = [], fallback = 0) {
+  for (const key of keys) {
+    const value = record?.[key]
+    const amount = asNumber(value, Number.NaN)
+    if (Number.isFinite(amount) && amount > 0) {
+      return amount
+    }
+  }
+
+  return fallback
+}
+
 function resolveHourlyRate(raw = {}) {
   const hourlyRate = asNumber(
     raw.hourly_rate ||
@@ -847,6 +859,31 @@ function normalizeMatches(payload, itinerary = {}, requestMeta = {}) {
       total: pricing.hasFormulaInputs
         ? Number(pricing.total.toFixed(2))
         : match.total || match.final_price || '',
+      flight_cost: resolveServerAmount(
+        match,
+        ['flight_cost', 'client_flight_cost'],
+        resolveServerAmount(backendPricing, ['flight_cost', 'client_flight_cost'], 0),
+      ),
+      base_amount: resolveServerAmount(
+        match,
+        ['base_amount'],
+        resolveServerAmount(backendPricing, ['base_amount'], 0),
+      ),
+      stripe_fee: resolveServerAmount(
+        match,
+        ['stripe_fee'],
+        resolveServerAmount(backendPricing, ['stripe_fee'], 0),
+      ),
+      administrative_fee: resolveServerAmount(
+        match,
+        ['administrative_fee'],
+        resolveServerAmount(backendPricing, ['administrative_fee'], 0),
+      ),
+      total_amount: resolveServerAmount(
+        match,
+        ['total_amount'],
+        resolveServerAmount(backendPricing, ['total_amount'], resolvedTotal),
+      ),
       subtotal: pricing.hasFormulaInputs
         ? Number(pricing.subtotal.toFixed(2))
         : match.subtotal || '',
@@ -1950,6 +1987,43 @@ export function normalizeTrip(request = {}, options = {}) {
       preferredMatch?.price,
     0,
   )
+  const resolvedFlightCost = asNumber(
+    request.flight_cost ||
+      pricingContext?.flight_cost ||
+      snapshotRecord?.flight_cost ||
+      preferredMatch?.flight_cost ||
+      preferredMatch?.client_flight_cost,
+    0,
+  )
+  const resolvedBaseAmount = asNumber(
+    request.base_amount ||
+      pricingContext?.base_amount ||
+      snapshotRecord?.base_amount ||
+      preferredMatch?.base_amount,
+    0,
+  )
+  const resolvedStripeFee = asNumber(
+    request.stripe_fee ||
+      pricingContext?.stripe_fee ||
+      snapshotRecord?.stripe_fee ||
+      preferredMatch?.stripe_fee,
+    0,
+  )
+  const resolvedAdministrativeFee = asNumber(
+    request.administrative_fee ||
+      pricingContext?.administrative_fee ||
+      snapshotRecord?.administrative_fee ||
+      preferredMatch?.administrative_fee,
+    0,
+  )
+  const resolvedTotalAmount = asNumber(
+    request.total_amount ||
+      pricingContext?.total_amount ||
+      snapshotRecord?.total_amount ||
+      preferredMatch?.total_amount ||
+      resolvedFinalPrice,
+    0,
+  )
   const resolvedBasePrice = asNumber(
     request.base_price ||
       request.flight_base ||
@@ -2017,6 +2091,11 @@ export function normalizeTrip(request = {}, options = {}) {
     final_price: resolvedFinalPrice,
     final_price_display: resolvedFinalPrice > 0 ? asMoney(resolvedFinalPrice) : '',
     formatted_final_price: resolvedFinalPrice > 0 ? asMoney(resolvedFinalPrice) : '',
+    flight_cost: resolvedFlightCost || null,
+    base_amount: resolvedBaseAmount || null,
+    stripe_fee: resolvedStripeFee || null,
+    administrative_fee: resolvedAdministrativeFee || null,
+    total_amount: resolvedTotalAmount || null,
     selected_card_price:
       asNumber(
         request.selected_card_price ||
@@ -2329,14 +2408,6 @@ export function buildFlightRequestPayload(itinerary = {}) {
     itinerary.attention_level || itinerary.priority_level || '',
   )
   const priorityMultiplier = asNumber(itinerary.priority_multiplier || 1, 1)
-  const basePrice = asNumber(itinerary.flight_base || itinerary.base_price || 0, 0)
-  const operationalFee = asNumber(itinerary.expense_fee || itinerary.operational_fee || 0, 0)
-  const priorityPrice = asNumber(itinerary.priority_price || 0, 0)
-  const finalPrice = asNumber(itinerary.total || itinerary.final_price || 0, 0)
-  const subtotalBeforeMultipliers = asNumber(
-    itinerary.subtotal || itinerary.subtotal_before_multipliers || basePrice,
-    0,
-  )
   const selectedAircraftModel = String(
     itinerary.assigned_aircraft_model ||
       itinerary.aircraft_model ||
@@ -2346,43 +2417,6 @@ export function buildFlightRequestPayload(itinerary = {}) {
       itinerary.preference ||
       '',
   ).trim()
-  const pricingContext =
-    itinerary.pricing_context && typeof itinerary.pricing_context === 'object'
-      ? itinerary.pricing_context
-      : buildCommercialSnapshot(
-          {
-            packageCode: priorityType,
-            priorityType,
-            attentionLevel,
-            overnightNights: itinerary.overnight_nights || itinerary.days || 0,
-            repositioningRequired: preserveExplicitBoolean(itinerary.repositioningRequired),
-            catering: itinerary.catering || '',
-            wifi: itinerary.wifi || 'none',
-            groundTransport: itinerary.ground_transport || itinerary.groundTransport || 'none',
-            pets: itinerary.pets || '',
-            specialBaggage: itinerary.special_baggage || itinerary.specialBaggage || '',
-          },
-          {
-            billableHours: itinerary.billable_hours,
-            realFlightHours: itinerary.real_flight_hours,
-            minimumHours: itinerary.minimum_hours,
-            flightBase: basePrice,
-            basePrice,
-            repositioning: itinerary.repositioning_cost || itinerary.repositioning_fee,
-            expenseFee: operationalFee,
-            ivaAmount: itinerary.iva_amount || itinerary.taxes || itinerary.tax,
-            subtotal: itinerary.subtotal || itinerary.subtotal_before_multipliers,
-            operationalCostBreakdown: operationalFee,
-            extraServicesTotal: itinerary.extra_services_total,
-            subtotalBeforeMultipliers: itinerary.subtotal_before_multipliers,
-            commercialMargin: itinerary.commercial_margin || priorityMultiplier,
-            attentionFactor: itinerary.priority_factor,
-            total: finalPrice,
-            finalPrice,
-          },
-          itinerary.aircraft_snapshot || itinerary,
-        )
-
   return {
     origin: firstLeg.origin || itinerary.origin || '',
     base_airport: firstLeg.origin || itinerary.origin || '',
@@ -2411,13 +2445,6 @@ export function buildFlightRequestPayload(itinerary = {}) {
     priority_type: priorityType,
     attention_level: attentionLevel || null,
     priority_multiplier: priorityMultiplier,
-    base_price: basePrice || null,
-    operational_fee: operationalFee || null,
-    priority_price: priorityPrice,
-    subtotal: subtotalBeforeMultipliers || null,
-    estimated_total: finalPrice || null,
-    total: finalPrice || null,
-    final_price: finalPrice || null,
     time_display_mode: itinerary.time_display_mode || 'direct',
     billing_hours_mode: itinerary.billing_hours_mode || 'operational',
     flight_base_source: itinerary.flight_base_source || 'billable_hours',
@@ -2427,23 +2454,8 @@ export function buildFlightRequestPayload(itinerary = {}) {
       itinerary.include_return_to_base_in_billed_hours ?? true,
     include_overnight_in_billed_hours:
       itinerary.include_overnight_in_billed_hours ?? false,
-    selected_card_price: asNumber(itinerary.selected_card_price || finalPrice || 0, 0) || null,
-    pricing_formula_version: pricingContext.pricing_formula_version,
-    pricing_context: pricingContext,
-    commercial_margin: pricingContext.commercial_margin || null,
-    priority_factor: pricingContext.priority_factor || null,
-    billable_hours: pricingContext.billable_hours || null,
-    real_flight_hours: pricingContext.real_flight_hours || null,
-    minimum_hours: pricingContext.minimum_hours || null,
-    minimum_route_price: pricingContext.minimum_route_price || null,
-    extra_services_total: pricingContext.extra_services_total || null,
-    subtotal_before_multipliers: pricingContext.subtotal_before_multipliers || null,
     source_database: itinerary.source_database || null,
     source_table: itinerary.source_table || null,
-    aircraft_snapshot:
-      itinerary.aircraft_snapshot && typeof itinerary.aircraft_snapshot === 'object'
-        ? itinerary.aircraft_snapshot
-        : null,
     requirements:
       normalizedLegs.length > 1
         ? inferredClosedRoute && tripType === 'multi_leg'
@@ -2453,21 +2465,14 @@ export function buildFlightRequestPayload(itinerary = {}) {
     pets: itinerary.pets || null,
     special_baggage: itinerary.special_baggage || itinerary.specialBaggage || null,
     overnight_nights:
-      pricingContext.extras?.overnight_nights ||
-      itinerary.overnight_nights ||
-      itinerary.days ||
-      null,
+      itinerary.overnight_nights || itinerary.days || null,
     notes: [
       itinerary.trip_label || tripType || '',
       flightPackage || priorityType,
       attentionLevel,
-      pricingContext.pricing_formula_version || '',
       itinerary.pets === 'Si' ? 'Mascotas a bordo' : '',
       itinerary.special_baggage || itinerary.specialBaggage || '',
-      `Minimo ruta ${pricingContext.minimum_route_price || 0}`,
-      `Noches ${pricingContext.extras?.overnight_nights || itinerary.overnight_nights || itinerary.days || 0}`,
-      `Subtotal ${pricingContext.subtotal_before_multipliers || 0}`,
-      `Total ${pricingContext.final_price || finalPrice || 0}`,
+      `Noches ${itinerary.overnight_nights || itinerary.days || 0}`,
     ]
       .filter(Boolean)
       .join(' · '),

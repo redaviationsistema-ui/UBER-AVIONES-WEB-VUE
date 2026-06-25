@@ -928,7 +928,9 @@ function operationIncidentLabel(operation = {}) {
 }
 
 function canAssignCrew(operation = {}) {
-  return resolveWorkflowState(operation.workflowStatus || operation.status || '').id === 'tracking_live'
+  return ['flight_confirmed', 'tracking_live'].includes(
+    resolveWorkflowState(operation.workflowStatus || operation.status || '').id,
+  )
 }
 
 function isOperationClosed(operation = {}) {
@@ -1548,7 +1550,7 @@ function auditEntryTone(entry = {}) {
               {{ assignmentErrors[selectedOperation.id] }}
             </p>
             <p v-else-if="!canAssignCrew(selectedOperation)" class="muted">
-              Completa el flujo cuando la operacion entre a seguimiento activo.
+              La asignacion se habilita cuando el vuelo ya esta confirmado para despacho operativo.
             </p>
           </article>
 
