@@ -16,6 +16,7 @@ import { resolveWorkflowState } from '../../../utils/flightWorkflow'
 import {
   cancelClientAccessPayment,
   createClientAccessCheckout,
+  createClientCheckout,
   createClientFlightRequest,
   getClientAccessPaymentSuccess,
   getClientAccessStatus,
@@ -84,6 +85,7 @@ let signedContractSyncTimer = null
 let reservationConfirmedRedirectTimer = null
 const appliedSignedContractReturnKey = ref('')
 const appliedCommercialAccessCheckoutKey = ref('')
+const appliedReservationCheckoutKey = ref('')
 let commercialAccessStatusRequestPromise = null
 const CLIENT_TRIPS_TIMEOUT_MS = Number(import.meta.env.VITE_CLIENT_TRIPS_TIMEOUT_MS || 45000)
 const CLIENT_QUOTES_TIMEOUT_MS = Number(import.meta.env.VITE_CLIENT_QUOTES_TIMEOUT_MS || 45000)
@@ -369,6 +371,18 @@ const commercialAccessCheckoutReturnMode = computed(() => {
 const commercialAccessCheckoutReturnPending = computed(
   () =>
     commercialAccessCheckoutReturnMode.value &&
+    Boolean(normalizeRouteQueryValue(route.query.checkout)),
+)
+const reservationCheckoutReturnMode = computed(() => {
+  if (props.section !== 'pago') return false
+  if (commercialAccessCheckoutReturnMode.value) return false
+  if (!routeId.value) return false
+
+  return Boolean(normalizeRouteQueryValue(route.query.checkout))
+})
+const reservationCheckoutReturnPending = computed(
+  () =>
+    reservationCheckoutReturnMode.value &&
     Boolean(normalizeRouteQueryValue(route.query.checkout)),
 )
 const reservationWorkflowStageId = computed(() =>
@@ -805,7 +819,7 @@ const paymentMethodCards = [
   {
     id: 'stripe',
     label: 'Stripe',
-    note: 'PaymentIntent, Stripe Elements y confirmacion segura dentro de la app.',
+    note: 'Checkout seguro fuera de la app con el total real del vuelo.',
     icon: 'card',
   },
   {
@@ -818,7 +832,7 @@ const paymentMethodCards = [
 const paymentForm = reactive({
   contactEmail: '',
 })
-const selectedPaymentMethod = ref('stripe')
+const selectedPaymentMethod = ref('')
 const paymentCardBrand = ref('')
 const paymentSubmitting = ref(false)
 const paymentProofUploading = ref(false)
@@ -3671,6 +3685,18 @@ function buildCommercialAccessReturnUrl() {
   })
 }
 
+function buildReservationCheckoutReturnUrl(checkoutState = 'success', reservationId = '') {
+  const targetId = String(reservationId || reservationContextId.value || flightRequestContextId.value || '').trim()
+  return buildAbsoluteClientRoute({
+    name: targetId ? 'cliente-detalle' : 'cliente',
+    params: targetId ? { section: 'pago', id: targetId } : { section: 'pago' },
+    query: {
+      checkout: checkoutState,
+      session_id: '{CHECKOUT_SESSION_ID}',
+    },
+  }).replaceAll('%7B', '{').replaceAll('%7D', '}')
+}
+
 function escapeHtml(value = '') {
   return String(value || '')
     .replaceAll('&', '&amp;')
@@ -4442,6 +4468,116 @@ async function finalizeCommercialAccessCheckoutReturn() {
   }
 }
 
+async function finalizeReservationCheckoutReturn() {
+  const checkoutState = normalizeRouteQueryValue(route.query.checkout).toLowerCase()
+  const rawSessionId = normalizeRouteQueryValue(
+    route.query.session_id || route.query.checkout_session_id,
+  )
+  const sessionId =
+    rawSessionId && !rawSessionId.includes('CHECKOUT_SESSION_ID') && !/[{}]/.test(rawSessionId)
+      ? rawSessionId
+      : ''
+
+  if (!checkoutState) return
+  if (!reservationCheckoutReturnMode.value) return
+
+  const appliedKey = `${checkoutState}:${routeId.value}:${sessionId}`
+  if (appliedReservationCheckoutKey.value === appliedKey) return
+
+  appliedReservationCheckoutKey.value = appliedKey
+  paymentInlineError.value = ''
+
+  if (['cancel', 'canceled', 'cancelled'].includes(checkoutState)) {
+    destroyStripePaymentElement()
+    ui.pushToast({
+      tone: 'warning',
+      title: 'Pago cancelado',
+      message: 'El checkout del vuelo fue cancelado antes de completarse.',
+    })
+
+    await router.replace({
+      name: 'cliente-detalle',
+      params: { section: 'pago', id: routeId.value },
+    })
+    return
+  }
+
+  if (checkoutState !== 'success') return
+
+  paymentSubmitting.value = true
+
+  try {
+    let paidReservation = null
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await refreshReservations({ silent: true }).catch(() => null)
+
+      paidReservation =
+        reservations.value.find((reservation) => {
+          const reservationId = resolveEntityIdentifier(reservation?.id)
+          const flightRequestId = resolveEntityIdentifier(reservation?.flight_request_id)
+          const status = String(
+            reservation?.payment_status ||
+              reservation?.payment_order?.status ||
+              reservation?.status ||
+              reservation?.workflow_status ||
+              '',
+          )
+            .trim()
+            .toLowerCase()
+
+          return (
+            [reservationId, flightRequestId].includes(String(routeId.value || '').trim()) &&
+            isSuccessfulAccessPaymentStatus(status)
+          )
+        }) || null
+
+      if (paidReservation) break
+      if (attempt < 4) await delay(1500)
+    }
+
+    if (paidReservation) {
+      mergeReservationUpdate({
+        ...paidReservation,
+        status: 'payment_confirmed',
+        workflow_status: 'payment_confirmed',
+        payment_status: 'Pagado',
+      })
+
+      ui.pushToast({
+        tone: 'success',
+        title: 'Pago confirmado',
+        message: 'Stripe confirmo el pago del vuelo y la reserva ya quedo actualizada.',
+      })
+
+      await router.replace({
+        name: 'cliente-detalle',
+        params: { section: 'reserva-confirmada', id: paidReservation.id || routeId.value },
+      })
+      return
+    }
+
+    ui.pushToast({
+      tone: 'info',
+      title: 'Pago en validacion',
+      message:
+        'Stripe recibio el pago. Estamos esperando el webhook del backend para confirmar la reserva.',
+    })
+  } catch (error) {
+    appliedReservationCheckoutKey.value = ''
+    paymentInlineError.value =
+      error?.message || 'No pudimos validar automaticamente el pago del vuelo.'
+
+    ui.pushToast({
+      tone: 'error',
+      title: 'No se pudo validar el pago',
+      message: paymentInlineError.value,
+    })
+  } finally {
+    paymentSubmitting.value = false
+  }
+}
+
 async function handleAssistedPaymentProofUpload() {
   const reservationId = reservationContextId.value
   const flightRequestId = flightRequestContextId.value
@@ -4751,6 +4887,11 @@ async function handlePaymentSubmit() {
     return
   }
 
+  if (reservationCheckoutReturnPending.value) {
+    await finalizeReservationCheckoutReturn()
+    return
+  }
+
   if (commercialAccessPaymentMode.value) {
     paymentInlineError.value = ''
 
@@ -4819,6 +4960,11 @@ async function handlePaymentSubmit() {
   }
 
   paymentInlineError.value = ''
+
+  if (!selectedPaymentMethod.value) {
+    paymentInlineError.value = 'Selecciona primero si pagaras con Stripe o en efectivo.'
+    return
+  }
 
   if (!paymentForm.contactEmail.trim()) {
     paymentInlineError.value = 'Agrega un correo electronico de contacto para continuar.'
@@ -4891,197 +5037,66 @@ async function handlePaymentSubmit() {
       return
     }
 
-    if (!paymentCardComplete.value) {
-      throw new Error('Completa correctamente los datos de la tarjeta antes de continuar.')
-    }
+    destroyStripePaymentElement()
 
-    let paymentIntentPayload = null
-
-    if (!stripeIntentSecret || !resolveStripePublishableKey()) {
-      paymentIntentPayload = await createClientPaymentIntent(
-        flightRequestId,
-        {
-          contact_email: paymentForm.contactEmail.trim() || customerEmail.value,
-        },
-        { timeoutMs: 30000 },
-      )
-
-      cacheStripePaymentIntent(paymentIntentPayload, 'reservation')
-    }
-
-    if (!stripeClient || !stripeElements || !stripeCardNumberElement) {
-      await ensureStripePaymentElement(paymentIntentPayload?.publishable_key || '')
-    }
-
-    if (!stripeClient || !stripeCardNumberElement) {
-      throw new Error('El formulario de tarjeta segura todavia no esta listo.')
-    }
-
-    if (!stripeIntentSecret) {
-      const payload = await createClientPaymentIntent(
-        flightRequestId,
-        {
-          contact_email: paymentForm.contactEmail.trim() || customerEmail.value,
-        },
-        { timeoutMs: 30000 },
-      )
-
-      cacheStripePaymentIntent(payload, 'reservation')
-
-      if (!stripeIntentSecret) {
-        throw new Error('El backend no devolvio client_secret para confirmar el pago.')
-      }
-    }
-
-    const result = await stripeClient.confirmCardPayment(stripeIntentSecret, {
-      payment_method: {
-        card: stripeCardNumberElement,
-        billing_details: {
-          name: customerDisplayName.value,
-          email: paymentForm.contactEmail.trim(),
-        },
+    const successUrl = buildReservationCheckoutReturnUrl('success', reservationId || flightRequestId)
+    const cancelUrl = buildReservationCheckoutReturnUrl('cancelled', reservationId || flightRequestId)
+    const payload = await createClientCheckout(
+      flightRequestId,
+      {
+        contact_email: paymentForm.contactEmail.trim() || customerEmail.value,
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+        successUrl,
+        cancelUrl,
       },
-      receipt_email: paymentForm.contactEmail.trim(),
-    })
+      { timeoutMs: 30000 },
+    )
 
-    if (typeof console !== 'undefined') {
-      console.log('[client-payment-registration] stripe-confirm-card-payment:response', {
-        reservation_id: reservationId || '',
-        flight_request_id: flightRequestId || '',
-        contact_email: paymentForm.contactEmail.trim(),
-        payment_intent_id: result?.paymentIntent?.id || '',
-        payment_intent_status: result?.paymentIntent?.status || '',
-        payment_method_id: result?.paymentIntent?.payment_method || '',
-        result,
-      })
-    }
+    const redirectUrl = String(
+      payload?.checkout_url ||
+        payload?.checkoutUrl ||
+        payload?.data?.checkout_url ||
+        payload?.data?.checkoutUrl ||
+        '',
+    ).trim()
 
-    if (result.error) {
-      throw new Error(result.error.message || 'Stripe no pudo confirmar el pago.')
-    }
+    const checkoutSessionId = String(
+      payload?.checkout_session_id ||
+        payload?.checkoutSessionId ||
+        payload?.data?.checkout_session_id ||
+        payload?.data?.checkoutSessionId ||
+        '',
+    ).trim()
 
-    paymentLastReference.value = result.paymentIntent?.id || paymentLastReference.value
+    paymentLastReference.value = checkoutSessionId || paymentLastReference.value
 
     mergeReservationUpdate({
       id: reservationId || flightRequestId,
       flight_request_id:
         resolveEntityIdentifier(selectedReservation.value?.flight_request_id) || flightRequestId,
-      status:
-        result.paymentIntent?.status === 'succeeded' ? 'payment_confirmed' : 'payment_pending',
-      workflow_status:
-        result.paymentIntent?.status === 'succeeded' ? 'pago confirmado' : 'pago pendiente',
-      payment_status: result.paymentIntent?.status === 'succeeded' ? 'Pagado' : 'Pago en revision',
+      status: 'pending_payment',
+      booking_status: 'pending_payment',
+      workflow_status: 'pago pendiente',
+      payment_method: 'stripe',
+      payment_status: 'pending',
+      payment_order: {
+        ...selectedReservation.value?.payment_order,
+        status: 'pending',
+        method: 'stripe',
+        payment_method: 'stripe',
+        checkout_session_id: checkoutSessionId || undefined,
+        checkout_url: redirectUrl || undefined,
+      },
       updated_at: new Date().toISOString(),
     })
 
-    if (result.paymentIntent?.status === 'succeeded') {
-      let persistedConfirmedReservation = null
-
-      try {
-        persistedConfirmedReservation = await markClientTripPaymentConfirmed(
-          reservationId || flightRequestId,
-          {
-            reservation_id: reservationId,
-            flight_request_id: flightRequestId,
-            payment_intent_id: result.paymentIntent?.id || '',
-            brand: normalizeCardBrand(paymentCardBrand.value),
-          },
-          { timeoutMs: 30000 },
-        )
-
-        if (typeof console !== 'undefined') {
-          console.log('[payment-confirmed-sync] Backend confirmo el pago', {
-            reservation_id: reservationId || '',
-            flight_request_id: flightRequestId || '',
-            payment_intent_id: result.paymentIntent?.id || '',
-            card_brand: normalizeCardBrand(paymentCardBrand.value),
-            persisted_reservation: persistedConfirmedReservation,
-          })
-        }
-      } catch (persistError) {
-        if (typeof console !== 'undefined') {
-          console.error('[payment-confirmed-sync] No se pudo guardar el pago confirmado en backend', {
-            reservation_id: reservationId || '',
-            flight_request_id: flightRequestId || '',
-            payment_intent_id: result.paymentIntent?.id || '',
-            card_brand: normalizeCardBrand(paymentCardBrand.value),
-            error: persistError,
-          })
-        }
-
-        ui.pushToast({
-          tone: 'warning',
-          title: 'Pago confirmado, sincronizacion pendiente',
-          message:
-            persistError?.message ||
-            'Stripe confirmo el cargo, pero el backend todavia no guardo el nuevo estado del pago.',
-        })
-      }
-
-      const confirmedPaymentReservation = {
-        ...selectedReservation.value,
-        ...persistedConfirmedReservation,
-        id: reservationId || resolveEntityIdentifier(selectedReservation.value?.id) || flightRequestId,
-        flight_request_id:
-          resolveEntityIdentifier(
-            persistedConfirmedReservation?.flight_request_id ||
-              selectedReservation.value?.flight_request_id,
-          ) || flightRequestId,
-        is_reservation: true,
-        status: 'payment_confirmed',
-        workflow_status: 'payment_confirmed',
-        contract_status: selectedReservation.value?.contract_status || 'signed',
-        payment_status: 'Pagado',
-        payment_order: {
-          ...selectedReservation.value?.payment_order,
-          status: 'paid',
-          payment_intent_id: result.paymentIntent?.id || '',
-          brand: normalizeCardBrand(paymentCardBrand.value),
-        },
-        payment_brand: normalizeCardBrand(paymentCardBrand.value),
-        updated_at: new Date().toISOString(),
-      }
-
-      mergeReservationUpdate(confirmedPaymentReservation)
-
-      try {
-        await refreshReservations({ silent: true })
-      } finally {
-        // Si el webhook/backend tarda unos segundos, mantenemos la vista del cliente consistente.
-        mergeReservationUpdate(confirmedPaymentReservation)
-      }
-
-      try {
-        await sendPaymentInvoiceNotification({
-          reservationId: flightRequestId,
-          paymentIntentId: result.paymentIntent?.id || '',
-          paymentStatus: result.paymentIntent?.status || '',
-        })
-      } catch (invoiceError) {
-        ui.pushToast({
-          tone: 'warning',
-          title: 'Pago confirmado, factura pendiente',
-          message:
-            invoiceError?.message ||
-            'El pago se confirmo, pero no logramos avisar al modulo de factura automaticamente.',
-        })
-      }
-
-      ui.pushToast({
-        tone: 'success',
-        title: 'Pago confirmado',
-        message: 'La tarjeta fue autorizada pago exitoso.',
-      })
-      go('viajes', confirmedPaymentReservation.id)
-      return
+    if (!redirectUrl) {
+      throw new Error('El backend no devolvio la URL de Stripe Checkout para pagar el vuelo.')
     }
 
-    ui.pushToast({
-      tone: 'success',
-      title: 'Pago enviado',
-      message:
-        'Stripe recibio la autorizacion. Estamos esperando la confirmacion final del webhook.',
-    })
+    window.location.assign(redirectUrl)
+    return
   } catch (error) {
     paymentInlineError.value =
       error?.message || 'No fue posible iniciar el flujo de pago. Intenta de nuevo.'
@@ -5168,7 +5183,13 @@ watch(
     if (props.section !== 'pago' || commercialAccessCheckoutReturnMode.value) return
 
     const persistedMethod = resolveReservationPaymentMethod(selectedReservation.value)
-    selectedPaymentMethod.value = persistedMethod === 'assisted_cash' ? 'assisted' : 'stripe'
+    if (persistedMethod === 'assisted_cash') {
+      selectedPaymentMethod.value = 'assisted'
+    } else if (persistedMethod === 'stripe') {
+      selectedPaymentMethod.value = 'stripe'
+    } else {
+      selectedPaymentMethod.value = ''
+    }
     assistedPaymentOrderReady.value = persistedMethod === 'assisted_cash'
   },
   { immediate: true },
@@ -5203,29 +5224,8 @@ watch(
     }
 
     if (section === 'pago' && method === 'stripe') {
-      await nextTick()
-      if (stripeViewContext !== 'reservation') {
-        destroyStripePaymentElement()
-        stripeViewContext = 'reservation'
-      }
-      if (!resolveStripePublishableKey() && flightRequestContextId.value) {
-        try {
-          const payload = await createClientPaymentIntent(
-            flightRequestContextId.value,
-            {
-              contact_email: paymentForm.contactEmail.trim() || customerEmail.value,
-            },
-            { timeoutMs: 30000 },
-          )
-          cacheStripePaymentIntent(payload, 'reservation')
-        } catch (error) {
-          paymentInlineError.value =
-            error?.message || 'No se pudo preparar el pago seguro con Stripe.'
-          return
-        }
-      }
-
-      await ensureStripePaymentElement()
+      destroyStripePaymentElement()
+      stripeViewContext = 'reservation_checkout'
       return
     }
 
@@ -5949,6 +5949,7 @@ watch(
   ],
   () => {
     void finalizeCommercialAccessCheckoutReturn()
+    void finalizeReservationCheckoutReturn()
   },
   { immediate: true },
 )
@@ -6344,18 +6345,6 @@ watch(
             </section>
 
             <section class="payment-section">
-              <h3>Informacion de contacto</h3>
-              <label class="payment-field payment-field--stacked">
-                <span>Correo electronico</span>
-                <input
-                  v-model="paymentForm.contactEmail"
-                  type="email"
-                  placeholder="cliente@empresa.com"
-                />
-              </label>
-            </section>
-
-            <section class="payment-section">
               <h3>Metodo de pago</h3>
               <div v-if="!commercialAccessCheckoutReturnMode" class="payment-method-grid">
                 <button
@@ -6381,108 +6370,22 @@ watch(
                 </div>
 
                 <div v-else-if="selectedPaymentMethod === 'stripe'" class="payment-mode-panel__copy">
-                  <strong>Metodo de pago</strong>
-                  <div class="payment-card-frame">
-                    <label class="payment-card-field payment-card-field--full payment-card-field--dark">
-                      <span>Numero de tarjeta</span>
-                      <div class="payment-card-field__brands" aria-hidden="true">
-                        <span class="brand-chip brand-chip--detected">
-                          <img
-                            v-if="paymentCardVisualLogo"
-                            :src="paymentCardVisualLogo"
-                            :alt="paymentCardVisualLabel"
-                            class="brand-chip__logo"
-                          />
-                          {{ paymentCardVisualLabel }}
-                        </span>
-                      </div>
-                      <div
-                        v-if="paymentElementLoading"
-                        class="payment-element-shell payment-element-shell--loading payment-element-shell--full payment-element-shell--dark"
-                      >
-                        Cargando formulario seguro de tarjeta...
-                      </div>
-                      <div
-                        v-show="!paymentElementLoading"
-                        ref="paymentCardNumberHost"
-                        class="payment-element-shell payment-element-shell--full payment-element-shell--dark"
-                      ></div>
-                    </label>
+                  <strong>Stripe Checkout seguro</strong>
+                  <p>
+                    Al continuar te llevaremos a Stripe para pagar el costo del vuelo con el total
+                    calculado por el backend. La reserva se actualizara cuando Stripe confirme el
+                    pago.
+                  </p>
+                </div>
 
-                    <div class="payment-card-field-grid payment-card-field-grid--dark">
-                      <label class="payment-card-field payment-card-field--dark">
-                        <span>Fecha de caducidad</span>
-                        <div
-                          v-if="paymentElementLoading"
-                          class="payment-element-shell payment-element-shell--loading payment-element-shell--dark"
-                        >
-                          Cargando...
-                        </div>
-                        <div
-                          v-show="!paymentElementLoading"
-                          ref="paymentCardExpiryHost"
-                          class="payment-element-shell payment-element-shell--dark"
-                        ></div>
-                      </label>
-
-                      <label class="payment-card-field payment-card-field--dark payment-card-field--with-icon">
-                        <span>Codigo de seguridad</span>
-                        <span class="payment-card-field__security" aria-hidden="true">
-                          <svg viewBox="0 0 24 24">
-                            <rect
-                              x="3"
-                              y="5"
-                              width="18"
-                              height="14"
-                              rx="2.5"
-                              fill="none"
-                              stroke="currentColor"
-                              stroke-width="1.8"
-                            />
-                            <path
-                              d="M3 10h18"
-                              fill="none"
-                              stroke="currentColor"
-                              stroke-linecap="round"
-                              stroke-width="1.8"
-                            />
-                            <path
-                              d="M13 15h6"
-                              fill="none"
-                              stroke="currentColor"
-                              stroke-linecap="round"
-                              stroke-width="1.8"
-                            />
-                            <text
-                              x="13.5"
-                              y="20"
-                              fill="currentColor"
-                              font-size="6"
-                              font-weight="700"
-                            >
-                              123
-                            </text>
-                          </svg>
-                        </span>
-                        <div
-                          v-if="paymentElementLoading"
-                          class="payment-element-shell payment-element-shell--loading payment-element-shell--dark"
-                        >
-                          Cargando...
-                        </div>
-                        <div
-                          v-show="!paymentElementLoading"
-                          ref="paymentCardCvcHost"
-                          class="payment-element-shell payment-element-shell--dark"
-                        ></div>
-                      </label>
-                    </div>
-                  </div>
+                <div v-else-if="selectedPaymentMethod === 'assisted'" class="payment-mode-panel__copy">
+                  <strong>Pago en efectivo</strong>
+                  <p>Pago manual con comprobante sujeto a validacion administrativa.</p>
                 </div>
 
                 <div v-else class="payment-mode-panel__copy">
-                  <strong>Pago en efectivo</strong>
-                  <p>Pago manual con comprobante sujeto a validacion administrativa.</p>
+                  <strong>Selecciona un metodo</strong>
+                  <p>Elige Stripe o pago en efectivo para continuar con esta reserva.</p>
                 </div>
               </div>
 
@@ -6584,6 +6487,18 @@ watch(
               </div>
 
               <p v-if="paymentInlineError" class="payment-inline-error">{{ paymentInlineError }}</p>
+            </section>
+
+            <section class="payment-section">
+              <h3>Informacion de contacto</h3>
+              <label class="payment-field payment-field--stacked">
+                <span>Correo electronico</span>
+                <input
+                  v-model="paymentForm.contactEmail"
+                  type="email"
+                  placeholder="cliente@empresa.com"
+                />
+              </label>
             </section>
           </div>
 
@@ -6725,23 +6640,31 @@ watch(
             <button
               class="payment-submit"
               type="button"
-              :disabled="paymentSubmitting || commercialAccessCheckoutReturnPending"
+              :disabled="
+                paymentSubmitting ||
+                commercialAccessCheckoutReturnPending ||
+                reservationCheckoutReturnPending
+              "
               @click="handlePaymentSubmit"
             >
               {{
                 commercialAccessCheckoutReturnPending
                   ? 'Validando pago...'
+                  : reservationCheckoutReturnPending
+                    ? 'Validando pago...'
                   : paymentSubmitting
                   ? 'Procesando...'
                   : commercialAccessCheckoutReturnMode
                     ? commercialAccessCtaLabel
+                    : !selectedPaymentMethod
+                    ? 'Selecciona metodo de pago'
                     : selectedPaymentMethod === 'assisted'
                     ? assistedPrimaryCtaLabel
-                    : 'Pagar ahora'
+                    : 'Continuar a Stripe'
               }}
             </button>
 
-            
+
           </aside>
         </article>
 
@@ -6845,7 +6768,7 @@ watch(
       </section>
 
       <section v-else class="screen">
-       
+
 
         <template v-if="activeSection === 'perfil'">
           <section class="profile-hero-shell">
