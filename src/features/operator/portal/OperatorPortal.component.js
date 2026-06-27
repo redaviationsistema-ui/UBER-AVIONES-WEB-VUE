@@ -17,6 +17,7 @@ import {
   SHARED_WORKFLOW_STEPS,
 } from '../../../utils/flightWorkflow'
 import { emitWorkflowSync, subscribeWorkflowSync } from '../../../lib/workflowSync'
+import { getAdminReservations } from '../../admin/adminReservationsApi'
 import { deriveClientWorkflowStatus } from '../../client/clientBookingApi'
 import OperatorCrewSection from '../secciones/personal/OperatorCrewSection.vue'
 import { useAuthStore } from '../../../stores/auth'
@@ -3809,7 +3810,71 @@ function pickRequestsCollection(payload) {
   return pickRequestsCollectionState(payload).collection
 }
 
+function normalizeProviderReference(value) {
+  const normalized = String(value ?? '').trim()
+  return normalized || ''
+}
+
+function getCurrentProviderReferenceSet() {
+  return new Set(
+    [providerId.value, companyId.value]
+      .map((value) => normalizeProviderReference(value))
+      .filter(Boolean),
+  )
+}
+
+function requestBelongsToCurrentProvider(request = {}) {
+  const providerReferences = getCurrentProviderReferenceSet()
+  if (!providerReferences.size) return false
+
+  const candidates = [
+    request.providerId,
+    request.provider_id,
+    request.proveedor_id,
+    request.assigned_provider_id,
+    request.provider?.id,
+    request.proveedor?.id,
+    request.raw?.providerId,
+    request.raw?.provider_id,
+    request.raw?.proveedor_id,
+    request.raw?.assigned_provider_id,
+    request.raw?.provider?.id,
+    request.raw?.proveedor?.id,
+    request.raw?.visibility_payload?.selected_provider_id,
+  ]
+    .map((value) => normalizeProviderReference(value))
+    .filter(Boolean)
+
+  return candidates.some((value) => providerReferences.has(value))
+}
+
+async function fetchFallbackProviderRequests(timeoutMs = OPERATOR_SECTION_TIMEOUT_MS) {
+  try {
+    const reservations = await getAdminReservations({ timeoutMs })
+    const filteredReservations = reservations.filter((request) =>
+      requestBelongsToCurrentProvider(request),
+    )
+
+    if (filteredReservations.length) {
+      activeRequestsRouteFamily.value = 'operator'
+    }
+
+    return filteredReservations
+  } catch (error) {
+    if (isSkippableIncidentLoadError(error)) {
+      return []
+    }
+    throw error
+  }
+}
+
 function applyRequestsResponse(payload) {
+  if (Array.isArray(payload?.__normalizedRequests)) {
+    requests.value = payload.__normalizedRequests
+    sectionLoadState.solicitudes = true
+    return
+  }
+
   const { collection, found } = pickRequestsCollectionState(payload)
   if (found || !requests.value.length) {
     requests.value = collection.map(normalizeRequest)
@@ -3849,6 +3914,13 @@ async function fetchRequestsPayload(timeoutMs = OPERATOR_SECTION_TIMEOUT_MS) {
       if (!canTryNext) {
         throw error
       }
+    }
+  }
+
+  const fallbackRequests = await fetchFallbackProviderRequests(timeoutMs)
+  if (fallbackRequests.length) {
+    return {
+      __normalizedRequests: fallbackRequests,
     }
   }
 
@@ -5091,7 +5163,12 @@ function normalizeRequest(raw = {}, index = 0) {
     operationId: raw.operation?.id || raw.operation_id || raw.operaciones?.[0]?.id || '',
     internalComment: raw.internal_comment || raw.notes || raw.comment || '',
     requestCode: raw.request_code || raw.code || '',
-    providerId: raw.provider_id || raw.provider?.id || raw.visibility_payload?.selected_provider_id || '',
+    providerId:
+      raw.provider_id ||
+      raw.assigned_provider_id ||
+      raw.provider?.id ||
+      raw.visibility_payload?.selected_provider_id ||
+      '',
     tripType: raw.trip_type || raw.flight_type || '',
     flightPackage: raw.flight_package || raw.package_name || raw.package || '',
     serviceTier,
@@ -8679,6 +8756,10 @@ async function savePricing(id) {
 
 async function reloadRequestsList(timeoutMs = OPERATOR_SECTION_TIMEOUT_MS) {
   const response = await fetchRequestsPayload(timeoutMs)
+  if (Array.isArray(response?.__normalizedRequests)) {
+    requests.value = response.__normalizedRequests
+    return
+  }
   const { collection, found } = pickRequestsCollectionState(response)
   if (found || !requests.value.length) {
     requests.value = collection.map(normalizeRequest)
