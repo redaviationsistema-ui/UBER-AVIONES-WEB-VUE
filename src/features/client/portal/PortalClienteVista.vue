@@ -5824,9 +5824,82 @@ function upsertReservationDetail(reservation) {
   reservations.value = nextReservations
 }
 
+function reservationHasAircraftImage(reservation = {}) {
+  if (!reservation || typeof reservation !== 'object') return false
+
+  const snapshot =
+    reservation.aircraft_snapshot && typeof reservation.aircraft_snapshot === 'object'
+      ? reservation.aircraft_snapshot
+      : {}
+  const visibilityPayload =
+    reservation.visibility_payload && typeof reservation.visibility_payload === 'object'
+      ? reservation.visibility_payload
+      : {}
+  const aircraftRecord =
+    visibilityPayload.aircraft && typeof visibilityPayload.aircraft === 'object'
+      ? visibilityPayload.aircraft
+      : {}
+  const imageCollections = [
+    reservation.images,
+    reservation.matched_options,
+    reservation.matches,
+    snapshot.images,
+    snapshot.gallery,
+    snapshot.gallery_images,
+    aircraftRecord.images,
+    aircraftRecord.gallery,
+    aircraftRecord.gallery_images,
+  ]
+
+  if (
+    reservation.aircraft_image ||
+    reservation.image_url ||
+    visibilityPayload.aircraft_image ||
+    snapshot.main_image ||
+    snapshot.main_image_url ||
+    snapshot.image_url ||
+    aircraftRecord.main_image ||
+    aircraftRecord.main_image_url ||
+    aircraftRecord.image_url
+  ) {
+    return true
+  }
+
+  return imageCollections.some(
+    (collection) => Array.isArray(collection) && collection.some((item) => item && typeof item === 'object'),
+  )
+}
+
+function reservationNeedsMediaHydration(reservation = {}) {
+  if (!reservation?.summary_only) return false
+  if (!reservation.aircraft && !reservation.aircraft_model && !reservation.assigned_aircraft_model) return false
+  return !reservationHasAircraftImage(reservation)
+}
+
+async function hydrateReservationCardDetail(reservation) {
+  const reservationId = String(reservation?.flight_request_id || reservation?.id || '').trim()
+
+  if (!reservationId || reservationDetailRequestIds.has(reservationId)) {
+    return
+  }
+
+  reservationDetailRequestIds.add(reservationId)
+
+  try {
+    const detail = await getClientTrip(reservationId, {
+      timeoutMs: CLIENT_TRIPS_TIMEOUT_MS,
+    })
+    upsertReservationDetail(detail)
+  } catch {
+    // La card puede permanecer en modo resumen hasta el siguiente refresh manual.
+  } finally {
+    reservationDetailRequestIds.delete(reservationId)
+  }
+}
+
 async function hydrateSelectedReservationDetail() {
   const reservation = selectedReservation.value
-  const reservationId = String(reservation?.id || reservation?.flight_request_id || '').trim()
+  const reservationId = String(reservation?.flight_request_id || reservation?.id || '').trim()
 
   if (!reservation?.summary_only || !reservationId || reservationDetailRequestIds.has(reservationId)) {
     return
@@ -5843,6 +5916,14 @@ async function hydrateSelectedReservationDetail() {
     // La vista puede seguir mostrando el resumen actual y reintentar despues.
   } finally {
     reservationDetailRequestIds.delete(reservationId)
+  }
+}
+
+async function hydrateReservationsMissingMedia() {
+  const candidates = reservations.value.filter(reservationNeedsMediaHydration).slice(0, 4)
+
+  for (const reservation of candidates) {
+    await hydrateReservationCardDetail(reservation)
   }
 }
 
@@ -5973,6 +6054,14 @@ watch(
   () => selectedReservation.value?.id || selectedReservation.value?.flight_request_id || '',
   () => {
     void hydrateSelectedReservationDetail()
+  },
+  { immediate: true },
+)
+
+watch(
+  reservations,
+  () => {
+    void hydrateReservationsMissingMedia()
   },
   { immediate: true },
 )

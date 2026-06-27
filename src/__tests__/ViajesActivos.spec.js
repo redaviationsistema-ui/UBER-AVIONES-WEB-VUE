@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 
-import { describe, expect, it, vi, afterEach } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import ViajesActivos from '../features/client/viajes/ViajesActivos.vue'
 
@@ -45,7 +45,9 @@ describe('ViajesActivos', () => {
       initialTab: 'historial',
     })
 
-    const activeTab = wrapper.findAll('.tabs button').find((button) => button.classes().includes('active'))
+    const activeTab = wrapper
+      .findAll('.tabs button')
+      .find((button) => button.classes().includes('active'))
 
     expect(activeTab?.text()).toBe('Proximos')
     expect(wrapper.text()).toContain('Esperando proveedor')

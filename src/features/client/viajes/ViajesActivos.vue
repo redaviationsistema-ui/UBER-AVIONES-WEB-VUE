@@ -245,35 +245,14 @@ function departureLine(reservation = {}) {
   return reservation.date ? formatTripDate(reservation.date) : 'Horario por confirmar'
 }
 
-const ACTIVE_WORKFLOW_IDS = ['payment_confirmed', 'flight_confirmed', 'tracking_live']
-const HISTORY_WORKFLOW_IDS = ['completed', 'cancelled', 'rejected']
-const UPCOMING_WORKFLOW_IDS = [
-  'draft',
-  'quoted',
-  'package_selected',
-  'reserved',
-  'provider_pending',
-  'provider_accepted',
-  'contract_pending',
-  'contract_signed',
-  'payment_pending',
-]
-
-function countdownLabel(reservation = {}) {
-  const value = reservation?.date || ''
+function countdownLabel(value = '') {
   if (!value) return ''
 
   const target = new Date(value)
   if (Number.isNaN(target.getTime())) return ''
 
-  const stateId = workflowId(reservationWorkflowValue(reservation))
   const diffMs = target.getTime() - Date.now()
-
-  if (diffMs <= 0) {
-    if (stateId === 'completed') return 'Finalizado'
-    if (['tracking_live', 'flight_confirmed'].includes(stateId)) return 'En curso'
-    return 'Pendiente de actualizar'
-  }
+  if (diffMs <= 0) return 'En curso'
 
   const totalHours = Math.floor(diffMs / 3600000)
   const days = Math.floor(totalHours / 24)
@@ -552,19 +531,33 @@ function conciergeEnabled(reservation = {}) {
 function reservationTab(reservation = {}) {
   const state = resolveWorkflowState(reservationWorkflowValue(reservation))
 
-  if (HISTORY_WORKFLOW_IDS.includes(state.id)) {
+  if (['completed', 'cancelled', 'rejected'].includes(state.id)) {
     return 'historial'
   }
 
-  if (ACTIVE_WORKFLOW_IDS.includes(state.id)) {
+  if (isReservationPast(reservation)) {
+    return 'historial'
+  }
+
+  if (['payment_confirmed', 'flight_confirmed', 'tracking_live'].includes(state.id)) {
     return 'activos'
   }
 
-  if (UPCOMING_WORKFLOW_IDS.includes(state.id)) {
+  if (
+    [
+      'draft',
+      'quoted',
+      'package_selected',
+      'reserved',
+      'provider_pending',
+      'provider_accepted',
+      'contract_pending',
+      'contract_signed',
+      'payment_pending',
+    ].includes(state.id)
+  ) {
     return 'proximos'
   }
-
-  if (isReservationPast(reservation)) return 'historial'
 
   return 'proximos'
 }
@@ -657,7 +650,7 @@ watch(
             >
             <span v-if="routeSegmentsLabel(reservation)">🗺 {{ routeSegmentsLabel(reservation) }}</span>
             <span v-if="overnightLabel(reservation)">🌙 {{ overnightLabel(reservation) }}</span>
-            <span v-if="countdownLabel(reservation)">⏳ {{ countdownLabel(reservation) }}</span>
+            <span v-if="countdownLabel(reservation.date)">⏳ {{ countdownLabel(reservation.date) }}</span>
           </div>
         </div>
         <span
