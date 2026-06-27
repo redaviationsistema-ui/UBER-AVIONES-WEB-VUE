@@ -517,6 +517,10 @@ function reservationTab(reservation = {}) {
     return 'historial'
   }
 
+  if (['payment_confirmed', 'flight_confirmed', 'tracking_live'].includes(state.id)) {
+    return 'activos'
+  }
+
   if (
     [
       'draft',
@@ -537,11 +541,13 @@ function reservationTab(reservation = {}) {
 }
 
 const tabOptions = [
+  { key: 'activos', label: 'Activos' },
+  { key: 'proximos', label: 'Proximos' },
   { key: 'historial', label: 'Historial' },
 ]
 
 function normalizeTabKey(value = '') {
-  return tabOptions.some((tab) => tab.key === value) ? value : 'historial'
+  return tabOptions.some((tab) => tab.key === value) ? value : 'proximos'
 }
 
 const filteredReservations = computed(() =>
