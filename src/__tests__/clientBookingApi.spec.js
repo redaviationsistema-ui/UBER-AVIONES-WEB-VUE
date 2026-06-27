@@ -550,6 +550,25 @@ describe('normalizeTrip', () => {
     expect(trip.amenities).toEqual(['Cabina', 'Asientos'])
   })
 
+  it('resolves aircraft images from alternative backend fields used in visibility payloads', () => {
+    const trip = normalizeTrip({
+      id: 95,
+      origin: 'MMTO',
+      destination: 'MMSD',
+      departure_datetime: '2026-05-19T09:00:00',
+      aircraft_model: 'HAWKER 800XPI',
+      visibility_payload: {
+        aircraft: {
+          model: 'HAWKER 800XPI',
+          main_image_url: 'https://example.com/hawker-main.png',
+        },
+      },
+    })
+
+    expect(trip.aircraft).toBe('HAWKER 800XPI')
+    expect(trip.aircraft_image).toBe('https://example.com/hawker-main.png')
+  })
+
   it('keeps pricing context and aircraft snapshot so the contract can render the stored total', () => {
     const trip = normalizeTrip({
       id: 93,

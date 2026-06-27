@@ -1093,12 +1093,35 @@ function normalizeMediaUrl(url = '') {
   return resolveMediaUrl(url)
 }
 
+function extractImageCandidate(value) {
+  if (!value) return ''
+  if (typeof value === 'string') return value
+  if (typeof value !== 'object') return ''
+
+  return (
+    value.url ||
+    value.path ||
+    value.file_url ||
+    value.fileUrl ||
+    value.public_url ||
+    value.publicUrl ||
+    value.image_url ||
+    value.imageUrl ||
+    value.main_image_url ||
+    value.mainImageUrl ||
+    value.src ||
+    ''
+  )
+}
+
 function getPrimaryImageValue(raw = {}) {
   if (typeof raw === 'string') return raw
 
   return (
     raw.main_image ||
+    raw.main_image_url ||
     raw.mainImage ||
+    raw.mainImageUrl ||
     raw.image_url ||
     raw.imageUrl ||
     raw.image ||
@@ -1111,6 +1134,8 @@ function getPrimaryImageValue(raw = {}) {
     raw.coverImage ||
     raw.cover_photo ||
     raw.coverPhoto ||
+    raw.featured_image ||
+    raw.featuredImage ||
     raw.thumbnail ||
     raw.thumbnail_url ||
     raw.thumbnailUrl ||
@@ -1118,6 +1143,8 @@ function getPrimaryImageValue(raw = {}) {
     raw.exteriorImage ||
     raw.interior_image ||
     raw.interiorImage ||
+    raw.gallery_exterior ||
+    raw.gallery_interior ||
     ''
   )
 }
@@ -1148,15 +1175,7 @@ function normalizeAircraftImages(raw = {}) {
     .map((image, index) => {
       const imageRecord = typeof image === 'string' ? { url: image } : image || {}
       const imageUrl = normalizeMediaUrl(
-        getPrimaryImageValue(imageRecord) ||
-          imageRecord.url ||
-          imageRecord.path ||
-          imageRecord.file_url ||
-          imageRecord.fileUrl ||
-          imageRecord.public_url ||
-          imageRecord.publicUrl ||
-          imageRecord.src ||
-          '',
+        getPrimaryImageValue(imageRecord) || extractImageCandidate(imageRecord) || '',
       )
       if (!imageUrl) return null
 
@@ -2146,6 +2165,7 @@ export function normalizeTrip(request = {}, options = {}) {
       request.aircraft_capacity || snapshotRecord?.capacity || aircraftRecord?.capacity || '',
     aircraft_image: resolveMediaUrl(
       request.aircraft_image ||
+        request.visibility_payload?.aircraft_image ||
         resolvePrimaryAircraftImage(snapshotRecord) ||
         resolvePrimaryAircraftImage(aircraftRecord) ||
         preferredMatch?.image_url ||

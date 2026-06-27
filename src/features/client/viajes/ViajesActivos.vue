@@ -245,14 +245,35 @@ function departureLine(reservation = {}) {
   return reservation.date ? formatTripDate(reservation.date) : 'Horario por confirmar'
 }
 
-function countdownLabel(value = '') {
+const ACTIVE_WORKFLOW_IDS = ['payment_confirmed', 'flight_confirmed', 'tracking_live']
+const HISTORY_WORKFLOW_IDS = ['completed', 'cancelled', 'rejected']
+const UPCOMING_WORKFLOW_IDS = [
+  'draft',
+  'quoted',
+  'package_selected',
+  'reserved',
+  'provider_pending',
+  'provider_accepted',
+  'contract_pending',
+  'contract_signed',
+  'payment_pending',
+]
+
+function countdownLabel(reservation = {}) {
+  const value = reservation?.date || ''
   if (!value) return ''
 
   const target = new Date(value)
   if (Number.isNaN(target.getTime())) return ''
 
+  const stateId = workflowId(reservationWorkflowValue(reservation))
   const diffMs = target.getTime() - Date.now()
-  if (diffMs <= 0) return 'En curso'
+
+  if (diffMs <= 0) {
+    if (stateId === 'completed') return 'Finalizado'
+    if (['tracking_live', 'flight_confirmed'].includes(stateId)) return 'En curso'
+    return 'Pendiente de actualizar'
+  }
 
   const totalHours = Math.floor(diffMs / 3600000)
   const days = Math.floor(totalHours / 24)
@@ -304,12 +325,35 @@ function workflowSupportLines(reservation = {}) {
   return lines
 }
 
+function extractImageCandidate(value) {
+  if (!value) return ''
+  if (typeof value === 'string') return value
+  if (typeof value !== 'object') return ''
+
+  return (
+    value.url ||
+    value.path ||
+    value.file_url ||
+    value.fileUrl ||
+    value.public_url ||
+    value.publicUrl ||
+    value.image_url ||
+    value.imageUrl ||
+    value.main_image_url ||
+    value.mainImageUrl ||
+    value.src ||
+    ''
+  )
+}
+
 function getPrimaryImageValue(raw = {}) {
   if (typeof raw === 'string') return raw
 
   return (
     raw.main_image ||
+    raw.main_image_url ||
     raw.mainImage ||
+    raw.mainImageUrl ||
     raw.image_url ||
     raw.imageUrl ||
     raw.image ||
@@ -318,9 +362,15 @@ function getPrimaryImageValue(raw = {}) {
     raw.photo ||
     raw.photo_url ||
     raw.photoUrl ||
+    raw.cover_image ||
+    raw.coverImage ||
+    raw.featured_image ||
+    raw.featuredImage ||
     raw.thumbnail ||
     raw.thumbnail_url ||
     raw.thumbnailUrl ||
+    raw.gallery_exterior ||
+    raw.gallery_interior ||
     ''
   )
 }
@@ -353,15 +403,7 @@ function resolvePrimaryAircraftImage(raw = {}) {
   for (const image of images) {
     const imageRecord = typeof image === 'string' ? { url: image } : image || {}
     const candidate = resolveMediaUrl(
-      getPrimaryImageValue(imageRecord) ||
-        imageRecord.url ||
-        imageRecord.path ||
-        imageRecord.file_url ||
-        imageRecord.fileUrl ||
-        imageRecord.public_url ||
-        imageRecord.publicUrl ||
-        imageRecord.src ||
-        '',
+      getPrimaryImageValue(imageRecord) || extractImageCandidate(imageRecord) || '',
     )
 
     if (candidate) return candidate
@@ -385,6 +427,7 @@ function reservationAircraftImage(reservation = {}) {
   return (
     resolveMediaUrl(reservation.aircraft_image || '') ||
     resolveMediaUrl(reservation.image_url || '') ||
+    resolveMediaUrl(reservation.visibility_payload?.aircraft_image || '') ||
     resolveMediaUrl(reservation.aircraft_photo || '') ||
     resolveMediaUrl(reservation.aircraft_photo_url || '') ||
     resolveMediaUrl(reservation.aircraft_thumbnail || '') ||
@@ -509,33 +552,19 @@ function conciergeEnabled(reservation = {}) {
 function reservationTab(reservation = {}) {
   const state = resolveWorkflowState(reservationWorkflowValue(reservation))
 
-  if (['completed', 'cancelled', 'rejected'].includes(state.id)) {
+  if (HISTORY_WORKFLOW_IDS.includes(state.id)) {
     return 'historial'
   }
 
-  if (isReservationPast(reservation)) {
-    return 'historial'
-  }
-
-  if (['payment_confirmed', 'flight_confirmed', 'tracking_live'].includes(state.id)) {
+  if (ACTIVE_WORKFLOW_IDS.includes(state.id)) {
     return 'activos'
   }
 
-  if (
-    [
-      'draft',
-      'quoted',
-      'package_selected',
-      'reserved',
-      'provider_pending',
-      'provider_accepted',
-      'contract_pending',
-      'contract_signed',
-      'payment_pending',
-    ].includes(state.id)
-  ) {
+  if (UPCOMING_WORKFLOW_IDS.includes(state.id)) {
     return 'proximos'
   }
+
+  if (isReservationPast(reservation)) return 'historial'
 
   return 'proximos'
 }
@@ -628,7 +657,7 @@ watch(
             >
             <span v-if="routeSegmentsLabel(reservation)">🗺 {{ routeSegmentsLabel(reservation) }}</span>
             <span v-if="overnightLabel(reservation)">🌙 {{ overnightLabel(reservation) }}</span>
-            <span v-if="countdownLabel(reservation.date)">⏳ {{ countdownLabel(reservation.date) }}</span>
+            <span v-if="countdownLabel(reservation)">⏳ {{ countdownLabel(reservation) }}</span>
           </div>
         </div>
         <span
