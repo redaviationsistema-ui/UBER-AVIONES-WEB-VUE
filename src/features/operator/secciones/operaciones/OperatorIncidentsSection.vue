@@ -335,7 +335,7 @@ defineEmits(['update-field', 'create', 'escalate', 'resolve', 'close'])
   gap: 1rem;
   padding: 1rem;
   border-radius: 18px;
-  background: #faf8f3;
+  background: var(--surface-premium);
   border: 1px solid rgba(201, 169, 107, 0.12);
 }
 
@@ -349,7 +349,7 @@ defineEmits(['update-field', 'create', 'escalate', 'resolve', 'close'])
 }
 
 .is-high .status-line {
-  background: #ea580c;
+  background: var(--state-warning);
 }
 
 .is-medium .status-line {

@@ -268,7 +268,7 @@ function onImageSelected(field, event) {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   border: 1px solid #ece3d1;
   border-radius: 20px;
-  background: linear-gradient(180deg, #fffdf8 0%, #faf7f0 100%);
+  background: var(--surface-premium);
 }
 
 .flow-step {
@@ -323,7 +323,7 @@ function onImageSelected(field, event) {
   padding: 0.85rem;
   border: 1px solid #ece3d1;
   border-radius: 18px;
-  background: #fffdfa;
+  background: var(--surface-premium);
 }
 
 .image-field strong {
@@ -342,7 +342,7 @@ function onImageSelected(field, event) {
   padding: 1rem;
   border: 1px solid #ece3d1;
   border-radius: 18px;
-  background: #faf7f0;
+  background: var(--surface-premium);
 }
 
 .fleet-grid {
@@ -354,7 +354,7 @@ function onImageSelected(field, event) {
   padding: 0.9rem;
   border: 1px solid #ece3d1;
   border-radius: 18px;
-  background: #fffdfa;
+  background: var(--surface-premium);
 }
 
 .preview-image {

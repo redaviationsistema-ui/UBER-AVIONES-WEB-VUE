@@ -24,7 +24,7 @@ export const roleSections = {
     { id: 'soporte', label: 'Concierge', icon: 'alert' },
   ],
   operator: [
-    { id: 'dashboard', label: 'Resumen proveedor', icon: 'overview' },
+    { id: 'dashboard', label: 'Centro Operativo', icon: 'overview' },
     { id: 'empresa', label: 'Mi empresa', icon: 'account' },
     { id: 'aeronaves', label: 'Aeronaves', icon: 'jet' },
     { id: 'costos', label: 'Costos base', icon: 'wallet' },

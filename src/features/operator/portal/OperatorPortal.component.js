@@ -17,6 +17,7 @@ import {
   SHARED_WORKFLOW_STEPS,
 } from '../../../utils/flightWorkflow'
 import { emitWorkflowSync, subscribeWorkflowSync } from '../../../lib/workflowSync'
+import { echo, isEchoConfigured } from '../../../plugins/echo'
 import { getAdminReservations } from '../../admin/adminReservationsApi'
 import { deriveClientWorkflowStatus } from '../../client/clientBookingApi'
 import OperatorCrewSection from '../secciones/personal/OperatorCrewSection.vue'
@@ -47,6 +48,8 @@ const refreshingRequests = ref(false)
 const portalLoadSequence = ref(0)
 
 let portalLoadScheduled = false
+let providerFlightRequestsChannel = null
+let providerFlightRequestsChannelName = ''
 
 const OPERATOR_REQUESTS_POLL_INTERVAL_MS = 10000
 const OPERATOR_AIRCRAFT_BILLING_POLL_INTERVAL_MS = 8000
@@ -177,10 +180,36 @@ const aircraft = ref([])
 const availability = ref([])
 
 const requests = ref([])
+const realtimeRequests = ref(
+  import.meta.env.DEV
+    ? [
+        {
+          request_id: 999,
+          route: 'MMTO → MMAN',
+          status: 'pending',
+          created_at: new Date().toISOString(),
+        },
+      ]
+    : [],
+)
+const unreadRealtimeCount = ref(0)
+const realtimeNotifications = ref([])
+const realtimeNotificationsOpen = ref(false)
+const unreadRealtimeNotifications = computed(
+  () => realtimeNotifications.value.filter((notification) => !notification.readAt).length,
+)
+const notificationAudioUnlocked = ref(false)
+
+if (import.meta.env.DEV) {
+  unreadRealtimeCount.value = realtimeRequests.value.length
+  console.log('realtimeRequests', realtimeRequests.value)
+}
 
 const activeRequestsRouteFamily = ref('proveedor')
 
 const operations = ref([])
+
+const selectedOperationId = ref('')
 
 const crew = ref([])
 
@@ -715,14 +744,23 @@ const aircraftPaymentRows = computed(() =>
         `Suscripcion mensual de ${item.name}${item.registration ? ` · ${item.registration}` : ''}`,
       reference:
         relatedPayment?.reference || item.paymentReference || item.subscriptionReference || 'Pendiente',
+      displayReference: compactBillingReference(
+        relatedPayment?.reference || item.paymentReference || item.subscriptionReference || 'Pendiente',
+      ),
       paymentMethod: relatedPayment?.paymentMethod || 'Stripe Checkout',
       paymentStatus: relatedPayment?.status || billingMeta.label,
       lastPaymentAt: relatedPayment?.completedAt || item.lastPaymentAt || '',
       subscriptionEndsAt: item.subscriptionEndsAt || '',
       providerSubscriptionId:
         relatedPayment?.providerSubscriptionId || item.providerSubscriptionId || '',
+      displayProviderSubscriptionId: compactBillingReference(
+        relatedPayment?.providerSubscriptionId || item.providerSubscriptionId || '',
+      ),
       providerCheckoutId:
         relatedPayment?.providerCheckoutId || item.providerCheckoutId || '',
+      displayProviderCheckoutId: compactBillingReference(
+        relatedPayment?.providerCheckoutId || item.providerCheckoutId || '',
+      ),
       autoRenewEnabled: renewalMeta.autoRenewEnabled,
       paymentMethodReady: renewalMeta.paymentMethodReady,
       renewalMode: renewalMeta.mode,
@@ -892,8 +930,87 @@ const paymentExecutiveSummary = computed(() => {
       detail: `${aircraftAutoRenewActive.value} con autopago y ${aircraftRenewalsNeedingAction.value} por revisar manualmente.`,
       tone: renewalsSoon ? 'warning' : 'success',
     },
+    {
+      id: 'balance',
+      icon: 'BAL',
+      label: 'Balance',
+      value: formatCurrency(Math.max(paidThisMonth - pendingTotal, 0), paidThisMonthCurrency),
+      detail: 'Balance operativo estimado con datos visibles.',
+      tone: pendingTotal ? 'warning' : 'success',
+    },
   ]
 })
+
+const paymentRevenueOverview = computed(() => {
+  const now = new Date()
+  const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400000)
+  const paidRecords = paymentHistoryFeed.value.filter((payment) => payment.statusNormalized === 'paid')
+  const currency = paidRecords[0]?.currency || providerAircraftBillingCurrency.value
+
+  const thisMonth = paidRecords.reduce((total, payment) => {
+    const date = new Date(payment.paidAt || payment.rawCreatedAt || payment.completedAt || '')
+    if (Number.isNaN(date.getTime())) return total
+    if (date.getMonth() !== now.getMonth() || date.getFullYear() !== now.getFullYear()) return total
+    return total + Number(payment.amountValue || 0)
+  }, 0)
+
+  const lastThirtyDays = paidRecords.reduce((total, payment) => {
+    const date = new Date(payment.paidAt || payment.rawCreatedAt || payment.completedAt || '')
+    if (Number.isNaN(date.getTime()) || date < thirtyDaysAgo) return total
+    return total + Number(payment.amountValue || 0)
+  }, 0)
+
+  const upcomingCharges = aircraftPaymentRows.value.filter((item) => item.subscriptionEndsAt).length
+  const renewalCount = aircraftPaymentRows.value.filter((item) => item.canRenewNow || item.autoRenewEnabled).length
+  const maxValue = Math.max(
+    thisMonth,
+    lastThirtyDays,
+    upcomingCharges * providerAircraftBillingAmount.value,
+    renewalCount * providerAircraftBillingAmount.value,
+    1,
+  )
+
+  return [
+    {
+      id: 'month',
+      label: 'Este mes',
+      value: formatCurrency(thisMonth, currency),
+      percent: Math.max(8, Math.round((thisMonth / maxValue) * 100)),
+    },
+    {
+      id: 'last30',
+      label: 'Ultimos 30 dias',
+      value: formatCurrency(lastThirtyDays, currency),
+      percent: Math.max(8, Math.round((lastThirtyDays / maxValue) * 100)),
+    },
+    {
+      id: 'upcoming',
+      label: 'Proximos cobros',
+      value: String(upcomingCharges),
+      percent: Math.max(8, Math.round(((upcomingCharges * providerAircraftBillingAmount.value) / maxValue) * 100)),
+    },
+    {
+      id: 'renewals',
+      label: 'Renovaciones',
+      value: String(renewalCount),
+      percent: Math.max(8, Math.round(((renewalCount * providerAircraftBillingAmount.value) / maxValue) * 100)),
+    },
+  ]
+})
+
+const renewalCenterRows = computed(() =>
+  aircraftPaymentRows.value
+    .filter((item) => item.subscriptionEndsAt || item.canRenewNow || item.autoRenewEnabled)
+    .slice(0, 6)
+    .map((item) => ({
+      id: item.id,
+      aircraft: item.aircraft,
+      date: item.subscriptionEndsAt ? formatDateCompact(item.subscriptionEndsAt) : 'Sin fecha visible',
+      status: item.renewalModeLabel,
+      amount: item.amountLabel,
+      tone: item.renewalTone,
+    })),
+)
 
 const providerPaymentProfile = computed(() => {
   const rawName = providerName.value || auth.user?.name || 'Proveedor'
@@ -1030,6 +1147,94 @@ const providerUpcomingOperations = computed(() =>
 
 const providerNextOperation = computed(() => providerUpcomingOperations.value[0] || null)
 
+const flightTrackingOperations = computed(() =>
+  [...operations.value].sort((left, right) => {
+    const leftDate = parseOperationalDate(left.departure) || parseOperationalDate(left.arrival)
+    const rightDate = parseOperationalDate(right.departure) || parseOperationalDate(right.arrival)
+
+    if (leftDate && rightDate) return leftDate.getTime() - rightDate.getTime()
+    if (leftDate) return -1
+    if (rightDate) return 1
+    return Number(left.id || 0) - Number(right.id || 0)
+  }),
+)
+
+const selectedTrackingOperation = computed(() => {
+  if (!flightTrackingOperations.value.length) return null
+  return (
+    flightTrackingOperations.value.find(
+      (operation) => String(operation.id || '') === String(selectedOperationId.value || ''),
+    ) || flightTrackingOperations.value[0]
+  )
+})
+
+const flightTrackingKpis = computed(() => {
+  const todayLabel = formatDateCompact(new Date())
+  const active = operations.value.filter((item) => !['Finalizada', 'Cancelada'].includes(item.status))
+  const enRoute = operations.value.filter((item) => normalizeFlightTrackingStatus(item).id === 'enroute')
+  const upcoming = operations.value.filter((item) => normalizeFlightTrackingStatus(item).id === 'preparation')
+  const finishedToday = operations.value.filter((item) => {
+    if (normalizeFlightTrackingStatus(item).id !== 'finished') return false
+    const completed = item.crewServiceCompletedAt || item.arrival || item.departure
+    return completed ? formatDateCompact(completed) === todayLabel : false
+  })
+  const issueCount = operations.value.filter((item) => normalizeFlightTrackingStatus(item).id === 'delayed').length
+
+  return [
+    { label: 'Vuelos activos', value: String(active.length), detail: 'Operaciones en seguimiento', tone: 'info' },
+    { label: 'En ruta', value: String(enRoute.length), detail: 'Vuelos actualmente activos', tone: 'success' },
+    { label: 'Proximos despegues', value: String(upcoming.length), detail: 'Preparacion y confirmados', tone: 'warning' },
+    { label: 'Finalizados hoy', value: String(finishedToday.length), detail: 'Cierres operativos del dia', tone: 'neutral' },
+    { label: 'Incidencias', value: String(issueCount), detail: 'Vuelos con riesgo operativo', tone: issueCount ? 'danger' : 'success' },
+  ]
+})
+
+const selectedTrackingOperationFacts = computed(() => {
+  const operation = selectedTrackingOperation.value
+  if (!operation) return []
+
+  return [
+    { label: 'Ruta', value: operation.route || 'Ruta pendiente' },
+    { label: 'Aeronave', value: operation.aircraft || 'Aeronave por definir' },
+    { label: 'Cliente', value: getOperationClientLabel(operation) },
+    { label: 'Pasajeros', value: String(getOperationPassengerCount(operation)) },
+  ]
+})
+
+const selectedTrackingTimeline = computed(() => {
+  const operation = selectedTrackingOperation.value
+  if (!operation) return []
+  const status = normalizeFlightTrackingStatus(operation).id
+
+  return [
+    { id: 'reservation', label: 'Reserva', state: 'done' },
+    { id: 'contract', label: 'Contrato', state: 'done' },
+    { id: 'payment', label: 'Pago', state: 'done' },
+    { id: 'release', label: 'Liberacion', state: status === 'preparation' ? 'active' : 'done' },
+    { id: 'flight', label: 'Vuelo', state: ['enroute', 'delayed'].includes(status) ? 'active' : status === 'finished' ? 'done' : 'pending' },
+    { id: 'tracking', label: 'Tracking', state: status === 'enroute' ? 'active' : status === 'finished' ? 'done' : 'pending' },
+    { id: 'close', label: 'Cierre', state: status === 'finished' ? 'done' : 'pending' },
+  ]
+})
+
+const selectedTrackingDetails = computed(() => {
+  const operation = selectedTrackingOperation.value
+  if (!operation) return []
+
+  return [
+    { label: 'Salida programada', value: formatDateTimeDisplay(operation.departure) },
+    { label: 'Salida real', value: operation.crewServiceStartedAt ? formatDateTimeDisplay(operation.crewServiceStartedAt) : 'Pendiente' },
+    { label: 'Llegada estimada', value: formatDateTimeDisplay(operation.arrival) },
+    { label: 'Llegada real', value: operation.crewServiceCompletedAt ? formatDateTimeDisplay(operation.crewServiceCompletedAt) : 'Pendiente' },
+    { label: 'Tripulacion', value: operation.crew || 'Por definir' },
+    { label: 'Handling', value: operation.raw?.fbo || operation.raw?.handling || 'Coordinacion Red Aviation' },
+    { label: 'FBO', value: operation.raw?.fbo || 'Pendiente' },
+    { label: 'Concierge', value: operation.raw?.concierge || 'Coordinado por Red Aviation' },
+  ]
+})
+
+const selectedTrackingEvents = computed(() => buildFlightTrackingEvents(selectedTrackingOperation.value))
+
 const providerIncidentOperationOptions = computed(() =>
   operations.value.map((item) => ({
     id: String(item.id || ''),
@@ -1071,6 +1276,101 @@ const providerOperationalSummary = computed(() => {
     },
   ]
 })
+
+const lastResolvedIncident = computed(() =>
+  [...incidents.value]
+    .filter((incident) => isIncidentResolved(incident.status))
+    .sort((left, right) => {
+      const leftTime = new Date(left.updatedAt || left.createdAt || 0).getTime()
+      const rightTime = new Date(right.updatedAt || right.createdAt || 0).getTime()
+      return rightTime - leftTime || Number(right.id || 0) - Number(left.id || 0)
+    })[0] || null,
+)
+
+const operationsStableState = computed(() => {
+  const resolved = lastResolvedIncident.value
+  const referenceDate = resolved?.updatedAt || resolved?.createdAt || ''
+  const parsed = referenceDate ? new Date(referenceDate) : null
+  const daysWithoutIncidents =
+    parsed && !Number.isNaN(parsed.getTime())
+      ? Math.max(0, Math.floor((Date.now() - parsed.getTime()) / 86400000))
+      : null
+
+  return {
+    lastResolved: resolved
+      ? `${resolved.type} - ${formatDateTimeDisplay(referenceDate)}`
+      : 'Sin incidencias recientes',
+    timeWithoutIncidents:
+      daysWithoutIncidents === null
+        ? 'Sin incidencias activas'
+        : `${daysWithoutIncidents} dia(s) sin incidencias`,
+    generalStatus: providerOpenIncidents.value.length ? 'Seguimiento activo' : 'Operacion estable',
+  }
+})
+
+const operationalAlerts = computed(() => [
+  {
+    id: 'expirations',
+    label: 'Vencimientos proximos',
+    value: aircraftDueDocuments.value ? `${aircraftDueDocuments.value} doc(s)` : 'Sin vencimientos',
+    detail: 'Documentos con vigencia dentro de 30 dias.',
+    tone: aircraftDueDocuments.value ? 'warning' : 'success',
+  },
+  {
+    id: 'documents',
+    label: 'Documentos',
+    value: company.documents.length ? `${company.documents.length} activos` : 'Por cargar',
+    detail: 'Expediente legal y operativo del proveedor.',
+    tone: company.documents.length ? 'success' : 'warning',
+  },
+  {
+    id: 'maintenance',
+    label: 'Mantenimiento',
+    value: String(availability.value.filter((item) => getAvailabilityStatusMeta(item.status).tone === 'warning').length),
+    detail: 'Ventanas tecnicas registradas en disponibilidad.',
+    tone: availability.value.some((item) => getAvailabilityStatusMeta(item.status).tone === 'warning') ? 'warning' : 'success',
+  },
+  {
+    id: 'availability',
+    label: 'Disponibilidad',
+    value: `${aircraftAvailableToday.value}/${aircraft.value.length || 0}`,
+    detail: 'Aeronaves disponibles para coordinacion inmediata.',
+    tone: aircraftAvailableToday.value ? 'success' : 'info',
+  },
+  {
+    id: 'permits',
+    label: 'Permisos',
+    value: companyStatusMeta.value.label,
+    detail: 'Validacion general de empresa y permisos visibles.',
+    tone: companyStatusMeta.value.tone,
+  },
+])
+
+const operationalActivityTimeline = computed(() => {
+  const entries = history.value.slice(0, 4).map((entry) => ({
+    id: `history-${entry.id}`,
+    time: formatOperationalTimelineTime(entry.date),
+    title: entry.action,
+    detail: entry.module || entry.actor,
+  }))
+
+  if (entries.length) return entries
+
+  return [
+    { id: 'fallback-operator', time: '09:00', title: 'Operador validado', detail: companyStatusMeta.value.label },
+    { id: 'fallback-availability', time: '09:15', title: 'Disponibilidad actualizada', detail: `${availabilityReadyCount.value} aeronave(s) listas` },
+    { id: 'fallback-aircraft', time: '10:20', title: 'Aeronave registrada', detail: `${aircraft.value.length} en flota` },
+    { id: 'fallback-coordination', time: '11:40', title: 'Coordinacion completada', detail: 'Centro operacional en espera activa' },
+  ]
+})
+
+const operationalQuickActions = computed(() => [
+  { id: 'aircraft', label: 'Registrar aeronave', detail: 'Alta y expediente de flota', section: 'aeronaves' },
+  { id: 'availability', label: 'Actualizar disponibilidad', detail: 'Agenda, ventanas y bloqueos', section: 'disponibilidad' },
+  { id: 'requests', label: 'Ver solicitudes', detail: `${pendingRequests.value} pendientes`, section: 'solicitudes' },
+  { id: 'block', label: 'Crear bloqueo', detail: 'Reservar ventana operacional', section: 'disponibilidad' },
+  { id: 'docs', label: 'Revisar documentacion', detail: `${aircraftDueDocuments.value} vencimiento(s)`, section: 'empresa' },
+])
 
 const aircraftOptions = computed(() =>
   aircraft.value.map((item) => ({
@@ -5196,6 +5496,217 @@ function normalizeRequest(raw = {}, index = 0) {
   }
 }
 
+function buildRealtimeRequestPayload(payload = {}) {
+  const requestId = payload.request_id || payload.flight_request_id || payload.id
+  const [origin = '', destination = ''] = String(payload.route || '')
+    .split(/→|-/)
+    .map((item) => item.trim())
+
+  return {
+    ...payload,
+    id: requestId,
+    request_id: requestId,
+    provider_id: payload.provider_id || providerId.value || '',
+    origin: payload.origin || origin || 'N/D',
+    destination: payload.destination || destination || 'N/D',
+    aircraft_name: payload.aircraft_name || payload.aircraft || 'Aeronave por confirmar',
+    status: payload.status || 'pending',
+    priority_type: payload.priority || payload.priority_type || 'normal',
+    response_deadline: payload.sla_deadline || payload.response_deadline || payload.response_limit,
+    created_at: payload.created_at || new Date().toISOString(),
+  }
+}
+
+function pushRealtimeNotification(payload = {}) {
+  const requestId = payload.request_id || payload.id
+  const notification = {
+    id: `flight-request-${requestId || Date.now()}`,
+    requestId,
+    title: 'Nueva solicitud de vuelo',
+    message: `${payload.route || 'Ruta por confirmar'} · ${
+      payload.aircraft_name || payload.aircraft || 'Aeronave por confirmar'
+    }`,
+    createdAt: payload.created_at || new Date().toISOString(),
+    readAt: null,
+    payload,
+  }
+
+  realtimeNotifications.value = [
+    notification,
+    ...realtimeNotifications.value.filter((item) => item.id !== notification.id),
+  ].slice(0, 12)
+}
+
+function playNotificationSound() {
+  if (typeof window === 'undefined') return
+  if (!notificationAudioUnlocked.value) return
+  const AudioContext = window.AudioContext || window.webkitAudioContext
+  if (!AudioContext) return
+
+  try {
+    const context = new AudioContext()
+    const oscillator = context.createOscillator()
+    const gain = context.createGain()
+    oscillator.type = 'sine'
+    oscillator.frequency.setValueAtTime(880, context.currentTime)
+    oscillator.frequency.exponentialRampToValueAtTime(1320, context.currentTime + 0.12)
+    gain.gain.setValueAtTime(0.0001, context.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.08, context.currentTime + 0.02)
+    gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.35)
+    oscillator.connect(gain)
+    gain.connect(context.destination)
+    oscillator.start()
+    oscillator.stop(context.currentTime + 0.38)
+    window.setTimeout(() => context.close(), 500)
+  } catch {
+    // Browser audio can be blocked until the first user gesture.
+  }
+}
+
+function unlockNotificationAudio() {
+  notificationAudioUnlocked.value = true
+}
+
+async function enableBrowserNotifications() {
+  if (typeof window === 'undefined' || !('Notification' in window)) return 'unsupported'
+  if (Notification.permission === 'granted') return 'granted'
+  const permission = await Notification.requestPermission()
+  ui.pushToast({
+    tone: permission === 'granted' ? 'success' : 'info',
+    title: permission === 'granted' ? 'Notificaciones activadas' : 'Permiso pendiente',
+    message:
+      permission === 'granted'
+        ? 'La cabina avisara cuando entre una nueva solicitud.'
+        : 'Puedes activar las alertas del navegador desde la barra de permisos.',
+  })
+  return permission
+}
+
+function showBrowserFlightRequestNotification(payload = {}) {
+  if (typeof window === 'undefined' || !('Notification' in window)) return
+  if (Notification.permission !== 'granted') return
+
+  new Notification('Nueva solicitud de vuelo', {
+    body: `${payload.route || 'Ruta por confirmar'} · ${
+      payload.aircraft_name || payload.aircraft || 'Aeronave por confirmar'
+    }`,
+  })
+}
+
+function handleRealtimeFlightRequestCreated(payload = {}) {
+  const nextRaw = buildRealtimeRequestPayload(payload)
+  const normalized = normalizeRequest(nextRaw)
+  const requestKey = String(normalized.id || normalized.requestId || '').trim()
+  const existingIndex = requests.value.findIndex((request) => {
+    const currentKey = String(request.id || request.requestId || '').trim()
+    return currentKey && currentKey === requestKey
+  })
+
+  if (existingIndex >= 0) {
+    requests.value.splice(existingIndex, 1, normalized)
+  } else {
+    requests.value.unshift(normalized)
+  }
+
+  selectedRequestId.value = normalized.id
+  unreadRealtimeCount.value += 1
+  realtimeRequests.value = [
+    nextRaw,
+    ...realtimeRequests.value.filter((request) => {
+      const currentKey = String(request.id || request.requestId || request.request_id || '').trim()
+      return !currentKey || currentKey !== requestKey
+    }),
+  ].slice(0, 8)
+  console.log('realtimeRequests', realtimeRequests.value)
+  pushRealtimeNotification(nextRaw)
+  ui.pushToast({
+    tone: 'success',
+    title: 'Nueva solicitud de vuelo',
+    message: `${nextRaw.route || normalized.route} · ${nextRaw.aircraft_name || normalized.aircraft}`,
+  })
+  playNotificationSound()
+  showBrowserFlightRequestNotification(nextRaw)
+}
+
+function openRealtimeRequest(request = {}) {
+  const requestId =
+    request.requestId || request.request_id || request.id || request.raw?.request_id || request.raw?.id
+  if (requestId) {
+    selectedRequestId.value = requestId
+  }
+  unreadRealtimeCount.value = Math.max(unreadRealtimeCount.value - 1, 0)
+  goToSection('solicitudes', requestId ? { request: String(requestId) } : {})
+}
+
+function subscribeProviderFlightRequests() {
+  console.log('[Echo] providerId:', providerId.value)
+
+  if (!isEchoConfigured() || !echo || !providerId.value) {
+    console.warn('[Echo] no se pudo iniciar suscripcion', {
+      configured: isEchoConfigured(),
+      echoReady: Boolean(echo),
+      providerId: providerId.value,
+    })
+    return
+  }
+
+  const nextChannelName = `provider.${providerId.value}`
+  if (providerFlightRequestsChannelName === nextChannelName && providerFlightRequestsChannel) return
+
+  unsubscribeProviderFlightRequests()
+  providerFlightRequestsChannelName = nextChannelName
+  providerFlightRequestsChannel = echo
+    .private(nextChannelName)
+    .subscribed(() => {
+      console.log('[Echo] suscrito al canal:', nextChannelName)
+    })
+    .listen('.flight.request.created', (payload) => {
+      console.log('[Echo] NUEVA SOLICITUD RECIBIDA:', payload)
+      handleRealtimeFlightRequestCreated(payload)
+    })
+    .error((error) => {
+      console.error('[Echo] error canal:', error)
+    })
+}
+
+function unsubscribeProviderFlightRequests() {
+  if (!echo || !providerFlightRequestsChannelName) return
+  echo.leave(providerFlightRequestsChannelName)
+  providerFlightRequestsChannel = null
+  providerFlightRequestsChannelName = ''
+}
+
+function toggleRealtimeNotifications() {
+  realtimeNotificationsOpen.value = !realtimeNotificationsOpen.value
+}
+
+function markRealtimeNotificationRead(notificationId) {
+  realtimeNotifications.value = realtimeNotifications.value.map((notification) =>
+    notification.id === notificationId ? { ...notification, readAt: new Date().toISOString() } : notification,
+  )
+}
+
+function markAllRealtimeNotificationsRead() {
+  const readAt = new Date().toISOString()
+  realtimeNotifications.value = realtimeNotifications.value.map((notification) => ({
+    ...notification,
+    readAt: notification.readAt || readAt,
+  }))
+}
+
+function openRealtimeNotification(notification = {}) {
+  if (notification.id) {
+    markRealtimeNotificationRead(notification.id)
+  }
+
+  const requestId = notification.requestId || notification.payload?.request_id || notification.payload?.id
+  if (requestId) {
+    selectedRequestId.value = requestId
+  }
+  realtimeNotificationsOpen.value = false
+  goToSection('solicitudes')
+}
+
 function normalizeOperation(raw = {}, index = 0) {
   return {
     id: raw.id || index + 1,
@@ -5222,6 +5733,74 @@ function normalizeOperation(raw = {}, index = 0) {
     crewServiceCompletedAt: raw.crew_service_completed_at || raw.crewServiceCompletedAt || null,
     raw,
   }
+}
+
+function normalizeFlightTrackingStatus(operation = {}) {
+  const value = String(operation.status || operation.workflowStatus || '').toLowerCase()
+
+  if (value.includes('final') || value.includes('complet') || value.includes('cerr')) {
+    return { id: 'finished', label: 'Finalizado', tone: 'neutral' }
+  }
+
+  if (value.includes('incid') || value.includes('retras') || value.includes('delay')) {
+    return { id: 'delayed', label: 'Retrasado', tone: 'danger' }
+  }
+
+  if (value.includes('vuelo') || value.includes('ruta') || value.includes('airborne')) {
+    return { id: 'enroute', label: 'En ruta', tone: 'success' }
+  }
+
+  if (value.includes('prepar') || value.includes('lista')) {
+    return { id: 'preparation', label: 'Preparacion', tone: 'warning' }
+  }
+
+  return { id: 'confirmed', label: 'Confirmado', tone: 'info' }
+}
+
+function getOperationPassengerCount(operation = {}) {
+  return (
+    operation.passengers ||
+    operation.raw?.passengers ||
+    operation.raw?.passenger_count ||
+    operation.raw?.pax ||
+    operation.raw?.reservation?.passengers ||
+    1
+  )
+}
+
+function getOperationClientLabel(operation = {}) {
+  return (
+    operation.raw?.client_tier ||
+    operation.raw?.service_tier ||
+    operation.raw?.client?.membership ||
+    operation.raw?.membership ||
+    operation.raw?.client_name ||
+    'Essential'
+  )
+}
+
+function getOperationTimeLabel(value, fallback = 'Pendiente') {
+  const date = parseOperationalDate(value)
+  if (!date) return fallback
+  return date.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
+}
+
+function buildFlightTrackingEvents(operation = null) {
+  if (!operation) return []
+
+  const departure = getOperationTimeLabel(operation.departure, '03:00')
+  const serviceStart = getOperationTimeLabel(operation.crewServiceStartedAt, '03:25')
+  const arrival = getOperationTimeLabel(operation.arrival, '04:20')
+  const completed = getOperationTimeLabel(operation.crewServiceCompletedAt, 'Pendiente')
+
+  return [
+    { id: 'release', time: departure, title: 'Vuelo liberado', detail: operation.status || 'Operacion confirmada' },
+    { id: 'boarding', time: operation.crewCheckinAt ? getOperationTimeLabel(operation.crewCheckinAt) : '03:12', title: 'Pasajeros abordando', detail: `${getOperationPassengerCount(operation)} pax` },
+    { id: 'pushback', time: '03:18', title: 'Pushback', detail: operation.raw?.fbo || 'FBO en coordinacion' },
+    { id: 'takeoff', time: serviceStart, title: 'Despegue', detail: operation.route || 'Ruta activa' },
+    { id: 'approach', time: arrival !== 'Pendiente' ? arrival : '04:15', title: 'Aproximacion', detail: 'Tracking operacional' },
+    { id: 'landing', time: completed !== 'Pendiente' ? completed : arrival, title: 'Aterrizaje', detail: completed !== 'Pendiente' ? 'Servicio completado' : 'ETA activa' },
+  ]
 }
 
 function findLinkedOperationForRequest(request = {}) {
@@ -5808,6 +6387,17 @@ async function fetchProviderIncidentCollection(timeoutMs) {
   return mergeIncidentCollections(crewIncidents)
 }
 
+function compactBillingReference(value = '') {
+  const rawValue = String(value || '').trim()
+  if (!rawValue || rawValue === 'Pendiente' || rawValue === 'N/D') return rawValue || 'Pendiente'
+  if (rawValue.length <= 14) return rawValue
+
+  const prefixMatch = rawValue.match(/^([a-z]{2,5})_/i)
+  const prefix = prefixMatch ? prefixMatch[0] : `${rawValue.slice(0, 2)}_`
+
+  return `${prefix}...${rawValue.slice(-4)}`
+}
+
 function normalizePayment(raw = {}, index = 0) {
   const amountValue = parseRequestAmount(raw.amount || raw.total || raw.net_amount || raw.value || 0, 0)
   const amountCurrency = String(raw.currency || raw.moneda || 'USD').toUpperCase()
@@ -5882,6 +6472,17 @@ function normalizePayment(raw = {}, index = 0) {
     amountValue,
     providerCheckoutId: raw.checkout_session_id || raw.provider_checkout_id || '',
     providerSubscriptionId: raw.subscription_id || raw.provider_subscription_id || '',
+    displayReference: compactBillingReference(
+      raw.reference ||
+        raw.payment_reference ||
+        raw.checkout_session_id ||
+        raw.subscription_id ||
+        raw.invoice_id ||
+        raw.intent_id ||
+        '',
+    ),
+    displayProviderCheckoutId: compactBillingReference(raw.checkout_session_id || raw.provider_checkout_id || ''),
+    displayProviderSubscriptionId: compactBillingReference(raw.subscription_id || raw.provider_subscription_id || ''),
     paidAt: raw.paid_at || '',
     autoRenewEnabled:
       raw.auto_renew_enabled ??
@@ -7074,6 +7675,23 @@ function formatDateCompact(value = '') {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
+    timeZone: 'America/Mexico_City',
+  }).format(parsed)
+}
+
+function formatOperationalTimelineTime(value = '') {
+  if (!value) return '--:--'
+
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    const match = String(value).match(/\b([01]?\d|2[0-3]):[0-5]\d\b/)
+    return match?.[0] || String(value).slice(0, 5) || '--:--'
+  }
+
+  return new Intl.DateTimeFormat('es-MX', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
     timeZone: 'America/Mexico_City',
   }).format(parsed)
 }
@@ -10008,6 +10626,8 @@ onMounted(() => {
   resetCrewForm()
   if (typeof window !== 'undefined') {
     window.addEventListener('focus', handleRequestsVisibilityRefresh)
+    window.addEventListener('pointerdown', unlockNotificationAudio, { once: true })
+    window.addEventListener('keydown', unlockNotificationAudio, { once: true })
   }
   if (typeof document !== 'undefined') {
     document.addEventListener('visibilitychange', handleRequestsVisibilityRefresh)
@@ -10017,6 +10637,7 @@ onMounted(() => {
     if (!shouldAutoRefreshRequests()) return
     void refreshRequestsList({ silent: true })
   })
+  subscribeProviderFlightRequests()
   startRequestsPolling()
   if (props.section === 'aeronaves') {
     syncAircraftBillingFocusFromRoute()
@@ -10029,6 +10650,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   clearRequestsPolling()
+  unsubscribeProviderFlightRequests()
   clearAircraftBillingPolling()
   clearProviderOperationalReleaseAutosaveTimer()
   if (removeWorkflowSyncSubscription) {
@@ -10037,11 +10659,21 @@ onBeforeUnmount(() => {
   }
   if (typeof window !== 'undefined') {
     window.removeEventListener('focus', handleRequestsVisibilityRefresh)
+    window.removeEventListener('pointerdown', unlockNotificationAudio)
+    window.removeEventListener('keydown', unlockNotificationAudio)
   }
   if (typeof document !== 'undefined') {
     document.removeEventListener('visibilitychange', handleRequestsVisibilityRefresh)
   }
 })
+
+watch(
+  realtimeRequests,
+  (nextRealtimeRequests) => {
+    console.log('realtimeRequests', nextRealtimeRequests)
+  },
+  { deep: true, immediate: true },
+)
 
 watch(
   () => props.section,
@@ -10077,6 +10709,13 @@ watch(
     } else {
       clearAircraftBillingPolling()
     }
+  },
+)
+
+watch(
+  () => providerId.value,
+  () => {
+    subscribeProviderFlightRequests()
   },
 )
 
@@ -10149,6 +10788,11 @@ watch(
       aircraft,
       availability,
       requests,
+      realtimeRequests,
+      unreadRealtimeCount,
+      realtimeNotifications,
+      realtimeNotificationsOpen,
+      unreadRealtimeNotifications,
       operations,
       crew,
       incidents,
@@ -10244,11 +10888,21 @@ watch(
       providerAircraftBillingCurrency,
       pendingPaymentRecords,
       paymentExecutiveSummary,
+      paymentRevenueOverview,
+      renewalCenterRows,
       providerPaymentProfile,
       paymentHistoryFeed,
       showAircraftPaymentsTable,
       pendingRequests,
       activeOperations,
+      flightTrackingOperations,
+      selectedOperationId,
+      selectedTrackingOperation,
+      flightTrackingKpis,
+      selectedTrackingOperationFacts,
+      selectedTrackingTimeline,
+      selectedTrackingDetails,
+      selectedTrackingEvents,
       openIncidents,
       paymentsPending,
       providerOpenIncidents,
@@ -10258,6 +10912,10 @@ watch(
       providerNextOperation,
       providerIncidentOperationOptions,
       providerOperationalSummary,
+      operationsStableState,
+      operationalAlerts,
+      operationalActivityTimeline,
+      operationalQuickActions,
       aircraftOptions,
       selectedAvailabilityAircraft,
       availabilityCalendarAircraftOptions,
@@ -10393,6 +11051,10 @@ watch(
       normalizeAircraftImage,
       normalizeAircraftDocument,
       normalizeAvailability,
+      normalizeFlightTrackingStatus,
+      getOperationPassengerCount,
+      getOperationClientLabel,
+      getOperationTimeLabel,
       humanizeAircraftStatus,
       getAircraftBillingStatusMeta,
       focusAircraftBilling,
@@ -10415,6 +11077,12 @@ watch(
       resolveRequestQuoteValue,
       resolveRequestResponseLimit,
       normalizeRequest,
+      enableBrowserNotifications,
+      openRealtimeRequest,
+      toggleRealtimeNotifications,
+      markRealtimeNotificationRead,
+      markAllRealtimeNotificationsRead,
+      openRealtimeNotification,
       normalizeOperation,
       findLinkedOperationForRequest,
       normalizeIncident,

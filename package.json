@@ -20,7 +20,9 @@
     "@tensorflow/tfjs-converter": "^4.22.0",
     "@zxing/browser": "^0.2.0",
     "@zxing/library": "^0.22.0",
+    "laravel-echo": "^2.3.7",
     "pinia": "^3.0.4",
+    "pusher-js": "^8.5.0",
     "tesseract.js": "^7.0.0",
     "vue": "^3.5.32",
     "vue-router": "^5.0.4"

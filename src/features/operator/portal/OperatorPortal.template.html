@@ -1,12 +1,42 @@
   <div class="operator-portal-page">
   
 
-    <section v-if="section === 'dashboard'" class="page-grid">
+    <section v-if="section === 'dashboard'" class="page-grid operator-dashboard-luxury">
+      <article
+        v-if="realtimeRequests.length"
+        class="surface realtime-flight-request-banner"
+      >
+        <div class="realtime-flight-request-banner__signal" aria-hidden="true">
+          <span></span>
+        </div>
+        <div class="realtime-flight-request-banner__content">
+          <p class="eyebrow">Live Flight Request</p>
+          <h2>Nueva solicitud de vuelo</h2>
+          <div class="realtime-flight-request-banner__meta">
+            <strong>{{ realtimeRequests[0].route }}</strong>
+            <span>#{{ realtimeRequests[0].requestId || realtimeRequests[0].request_id || realtimeRequests[0].id }}</span>
+            <span>{{ realtimeRequests[0].status }}</span>
+          </div>
+        </div>
+        <div class="realtime-flight-request-banner__actions">
+          <span v-if="unreadRealtimeCount" class="realtime-flight-request-banner__count">
+            {{ unreadRealtimeCount }} nueva{{ unreadRealtimeCount === 1 ? '' : 's' }}
+          </span>
+          <button
+            type="button"
+            class="primary-action"
+            @click="openRealtimeRequest(realtimeRequests[0])"
+          >
+            Ver solicitud
+          </button>
+        </div>
+      </article>
+
       <article class="surface dashboard-hero-premium">
-        <div class="section-head">
+        <div class="section-head dashboard-hero-head">
           <div>
-            <p class="eyebrow">Centro operativo</p>
-            <h2>{{ providerName }}</h2>
+            <p class="eyebrow">Luxury Executive Aviation SaaS</p>
+            <h1>{{ providerName }}</h1>
             <p class="muted">
               Operador {{ companyStatusMeta.label.toLowerCase() }} · {{ aircraft.length }} aeronaves
               · {{ companyOperationalBase }}
@@ -19,10 +49,25 @@
 
         <p class="muted helper-copy">{{ dashboardGlobalStatus.detail }}</p>
 
+        <div class="dashboard-hero-facts">
+          <article>
+            <span>Estado operacional</span>
+            <strong>{{ companyStatusMeta.headline }}</strong>
+          </article>
+          <article>
+            <span>Aeronaves registradas</span>
+            <strong>{{ aircraft.length }}</strong>
+          </article>
+          <article>
+            <span>Base principal</span>
+            <strong>{{ companyOperationalBase }}</strong>
+          </article>
+        </div>
+
         <div class="company-progress-card">
           <div class="company-progress-head">
             <div>
-              <span class="mini-label">Configuracion del operador</span>
+              <span class="mini-label">Centro operativo</span>
               <strong
                 >{{ dashboardCompletion.completed }} de {{ dashboardCompletion.total }} modulos
                 completados</strong
@@ -45,6 +90,7 @@
             class="company-alert"
             :data-tone="alert.tone"
           >
+            <span class="company-alert-icon" aria-hidden="true"></span>
             <strong>{{ alert.title }}</strong>
             <button type="button" class="ghost-link-button" @click="goToSection(alert.section)">
               {{ alert.action }}
@@ -58,9 +104,10 @@
             :key="action.id"
             type="button"
             class="quick-action-card"
+            :data-action="action.id"
             @click="action.action()"
           >
-            <span>{{ action.icon }}</span>
+            <span class="quick-action-icon" aria-hidden="true"></span>
             <strong>{{ action.label }}</strong>
             <small>{{ action.detail }}</small>
           </button>
@@ -69,11 +116,11 @@
 
       <div class="dashboard-layout">
         <div class="dashboard-main-column">
-          <article class="surface">
+          <article class="surface dashboard-kpi-panel">
             <div class="section-head">
               <div>
-                <p class="eyebrow">Estado operacional</p>
-                <h2>Indicadores vivos del operador</h2>
+                <p class="eyebrow">Indicadores</p>
+                <h2>KPI ejecutivo del operador</h2>
               </div>
             </div>
 
@@ -84,7 +131,7 @@
                 class="metric-card dashboard-metric-card"
                 :data-tone="card.tone"
               >
-                <span>{{ card.icon }} {{ card.label }}</span>
+                <span>{{ card.label }}</span>
                 <strong>{{ card.value }}</strong>
                 <p class="metric-status">{{ card.status }}</p>
                 <small>{{ card.detail }}</small>
@@ -92,11 +139,11 @@
             </div>
           </article>
 
-          <article class="surface">
+          <article class="surface dashboard-workflow-panel">
             <div class="section-head">
               <div>
-                <p class="eyebrow">Checklist</p>
-                <h2>Por donde empezar</h2>
+                <p class="eyebrow">Workflow</p>
+                <h2>Activacion premium</h2>
               </div>
             </div>
 
@@ -107,21 +154,41 @@
                 type="button"
                 class="checklist-card"
                 :data-tone="item.status"
+                :data-section="item.id"
                 @click="goToSection(item.section)"
               >
+                <span class="checklist-icon" aria-hidden="true"></span>
                 <div>
-                  <strong>{{ item.icon }} {{ item.label }}</strong>
+                  <strong>{{ item.label }}</strong>
                   <p>{{ item.detail }}</p>
                 </div>
-                <span>{{ item.cta }}</span>
+                <div class="checklist-progress">
+                  <strong>
+                    {{
+                      item.status === 'complete'
+                        ? '100%'
+                        : item.status === 'warning'
+                          ? '72%'
+                          : item.status === 'neutral'
+                            ? '84%'
+                            : '35%'
+                    }}
+                  </strong>
+                  <span>{{ item.cta }}</span>
+                </div>
               </button>
             </div>
           </article>
         </div>
 
         <div class="dashboard-side-column">
-          <article class="surface">
-            
+          <article class="surface dashboard-executive-feed">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">Bitacora</p>
+                <h2>Actividad reciente</h2>
+              </div>
+            </div>
 
             <div class="ops-timeline">
               <article
@@ -139,32 +206,46 @@
             </div>
           </article>
 
-          <article class="surface">
+          <article class="surface dashboard-executive-panel">
             <div class="section-head">
               <div>
-                <p class="eyebrow">Prioridades</p>
-                <h2>Lectura rapida</h2>
+                <p class="eyebrow">Panel ejecutivo</p>
+                <h2>Readiness operacional</h2>
               </div>
+            </div>
+
+            <div class="executive-jet-visual" aria-hidden="true">
+              <span class="jet-wing jet-wing--top"></span>
+              <span class="jet-body"></span>
+              <span class="jet-window jet-window--one"></span>
+              <span class="jet-window jet-window--two"></span>
+              <span class="jet-window jet-window--three"></span>
+              <span class="jet-tail"></span>
+              <span class="jet-wing jet-wing--bottom"></span>
             </div>
 
             <div class="priority-list">
               <article class="priority-item priority-item--static">
-                <strong>Empresa</strong>
+                <strong>Estado del operador</strong>
                 <span>{{ companyStatusMeta.headline }}</span>
               </article>
               <article class="priority-item priority-item--static">
-                <strong>Flota</strong>
+                <strong>Estado de flota</strong>
                 <span
                   >{{ activeAircraft }} aeronaves activas y {{ fleetGroupedByStatus.revision }} en
                   revision.</span
                 >
               </article>
               <article class="priority-item priority-item--static">
-                <strong>Operacion</strong>
+                <strong>Estado operacional</strong>
                 <span
                   >{{ pendingRequests }} solicitudes pendientes y {{ activeOperations }} operaciones
                   activas.</span
                 >
+              </article>
+              <article class="priority-item priority-item--static">
+                <strong>Proximas acciones</strong>
+                <span>{{ dashboardAlerts[0]?.action || 'Mantener monitoreo ejecutivo' }}</span>
               </article>
             </div>
           </article>
@@ -172,16 +253,23 @@
       </div>
     </section>
 
-    <section v-else-if="section === 'empresa'" class="page-grid two-columns">
+    <section v-else-if="section === 'empresa'" class="page-grid two-columns operator-certification-luxury">
       <article class="surface company-shell">
         <div class="section-head">
           <div>
-            <p class="eyebrow">Perfil de operador</p>
-            <h2>{{ providerName }}</h2>
+            <p class="eyebrow">RED AVIATION</p>
+            <h2>Operador Aeronautico Certificado</h2>
+            <strong class="operator-certification-name">{{ providerName }}</strong>
             <p class="muted">
               Operador activo · {{ companyOperationalBase }} · {{ aircraft.length }} aeronaves ·
               {{ companyStatusMeta.label }}
             </p>
+          </div>
+          <div class="operator-certification-badges">
+            <span>Operador activo</span>
+            <span>Base principal</span>
+            <span>Flota</span>
+            <span>Estado</span>
           </div>
           <span class="status-pill" :data-tone="companyStatusMeta.tone">{{
             companyStatusMeta.label
@@ -221,7 +309,7 @@
           <section class="company-form-section">
             <div class="section-head compact-head">
               <div>
-                <p class="eyebrow">Informacion fiscal</p>
+                <p class="eyebrow">Corporate Identity</p>
                 <h3>Identidad corporativa</h3>
               </div>
             </div>
@@ -277,7 +365,7 @@
           <section class="company-form-section">
             <div class="section-head compact-head">
               <div>
-                <p class="eyebrow">Contacto operativo</p>
+                <p class="eyebrow">Operations Communication</p>
                 <h3>Canal de coordinacion</h3>
               </div>
             </div>
@@ -311,7 +399,7 @@
           <section class="company-form-section">
             <div class="section-head compact-head">
               <div>
-                <p class="eyebrow">Representante legal</p>
+                <p class="eyebrow">Authorized Representative</p>
                 <h3>Responsable autorizado</h3>
               </div>
             </div>
@@ -334,7 +422,7 @@
           <section class="company-form-section">
             <div class="section-head compact-head">
               <div>
-                <p class="eyebrow">Pricing global</p>
+                <p class="eyebrow">Commercial Settings</p>
                 <h3>Jet A, utilidad y fee fijo</h3>
               </div>
             </div>
@@ -385,7 +473,7 @@
           <section class="company-form-section">
             <div class="section-head compact-head">
               <div>
-                <p class="eyebrow">Documentacion</p>
+                <p class="eyebrow">Legal Document Center</p>
                 <h3>Carga legal y respaldo</h3>
               </div>
             </div>
@@ -430,7 +518,7 @@
       <article class="surface company-status-shell">
         <div class="section-head">
           <div>
-            <p class="eyebrow">Validacion operativa</p>
+            <p class="eyebrow">Operator Validation Center</p>
             <h2>Centro de validacion de operador aeronautico</h2>
           </div>
           <span class="status-pill" :data-tone="companyStatusMeta.tone">{{
@@ -439,6 +527,10 @@
         </div>
 
         <article class="company-verification-card">
+          <div class="operator-readiness-widget" :style="{ '--score': companyOnboardingProgress.percent }">
+            <strong>{{ companyOnboardingProgress.percent }}%</strong>
+            <span>Operator Readiness Score</span>
+          </div>
           <span class="mini-label">Confidence</span>
           <h3>{{ companyStatusMeta.headline }}</h3>
           <p class="muted">
@@ -486,7 +578,7 @@
 
         <div class="status-list">
           <div class="status-row">
-            <span>Observaciones Admin</span>
+            <span>Administrative Timeline</span>
             <strong>{{
               company.adminNotes || 'Sin observaciones de administracion por ahora.'
             }}</strong>
@@ -520,27 +612,41 @@
       </article>
     </section>
 
-    <section v-else-if="section === 'aeronaves'" class="page-grid">
+    <section v-else-if="section === 'aeronaves'" class="page-grid fleet-operations-luxury">
       <article class="surface fleet-hero">
-        <div>
-          <p class="eyebrow">Centro de flota</p>
-          <h2>Operaciones, disponibilidad y alta premium de aeronaves</h2>
-          <p class="muted">
-            La flota vive primero como activo operativo: disponibilidad hoy, estado documental,
-            siguiente mision y capacidad comercial en una sola lectura.
-          </p>
+        <div class="fleet-hero-content">
+          <div>
+            <p class="eyebrow">Fleet Operations & Commercial Readiness</p>
+            <h1>Aeronaves Operativas</h1>
+            <p class="muted">
+              Centro ejecutivo para disponibilidad, control comercial y readiness documental de flota.
+            </p>
+          </div>
+
+          <div class="hero-actions">
+            <span class="badge">Empresa: {{ company.reviewStatus }}</span>
+            <button
+              type="button"
+              class="primary-action"
+              :disabled="!providerCanRegisterAircraft"
+              @click="openAircraftWizard()"
+            >
+              + Registrar aeronave
+            </button>
+          </div>
         </div>
 
-        <div class="hero-actions">
-          <span class="badge">Empresa: {{ company.reviewStatus }}</span>
-          <button
-            type="button"
-            class="primary-action"
-            :disabled="!providerCanRegisterAircraft"
-            @click="openAircraftWizard()"
+        <div class="fleet-kpi-grid fleet-hero-kpis">
+          <article
+            v-for="kpi in aircraftOperationalKpis"
+            :key="`hero-${kpi.label}`"
+            class="fleet-kpi-card"
+            :data-tone="kpi.tone"
           >
-            + Registrar aeronave
-          </button>
+            <span>{{ kpi.label }}</span>
+            <strong>{{ kpi.value }}</strong>
+            <p>{{ kpi.detail }}</p>
+          </article>
         </div>
       </article>
 
@@ -549,7 +655,7 @@
         podras registrar aeronaves y activar la mensualidad por cada una.
       </article>
 
-      <div class="fleet-kpi-grid">
+      <div class="fleet-kpi-grid fleet-kpi-grid--secondary">
         <article
           v-for="kpi in aircraftOperationalKpis"
           :key="kpi.label"
@@ -566,9 +672,9 @@
         <article class="surface fleet-section-card fleet-section-card--catalog">
           <div class="fleet-toolbar">
             <div>
-              <p class="eyebrow">Flota activa</p>
-              <h2>Aeronaves operativas y readiness comercial</h2>
-              <p class="muted">Vista compacta para revisar estado, base, tarifa y disponibilidad sin saturar la pantalla.</p>
+              <p class="eyebrow">Command center</p>
+              <h2>Flota ejecutiva</h2>
+              <p class="muted">Busqueda, filtros y lectura comercial sin saturar la cabina operativa.</p>
             </div>
             <div class="fleet-toolbar-actions">
               <button type="button" class="ghost-button" @click="exportAircraftCatalog()">Exportar</button>
@@ -655,10 +761,15 @@
               <div class="fleet-compact-body">
                 <div class="fleet-compact-title">
                   <strong>{{ item.name }}</strong>
+                  <p class="fleet-category-line">{{ item.category || 'Categoria pendiente' }}</p>
                   <p>{{ item.category || 'Categoria pendiente' }} · {{ item.registration || 'Sin matricula' }} · Base: {{ item.base || 'Sin base' }}</p>
                 </div>
 
                 <div class="fleet-compact-stats">
+                  <div class="fleet-base-stat">
+                    <span>Base</span>
+                    <strong>{{ item.base || 'Sin base' }}</strong>
+                  </div>
                   <div>
                     <span>Capacidad</span>
                     <strong>{{ item.capacity || 'N/D' }} pax</strong>
@@ -688,7 +799,9 @@
                   </span>
                 </div>
 
-                <div class="fleet-compact-info-grid">
+                <details class="fleet-compact-details" @click.stop>
+                  <summary>Panel operativo</summary>
+                  <div class="fleet-compact-info-grid">
                   <div class="fleet-compact-info-card">
                     <span>Estado comercial</span>
                     <strong>{{ getAircraftCommercialMeta(item).label }}</strong>
@@ -718,13 +831,14 @@
                   </div>
                 </div>
 
-                <p class="fleet-compact-missing">
-                  {{ getAircraftMissingItemsLabel(item) }}
-                </p>
+                  <p class="fleet-compact-missing">
+                    {{ getAircraftMissingItemsLabel(item) }}
+                  </p>
+                </details>
 
                 <div class="fleet-card-actions" @click.stop>
                   <button type="button" class="ghost-button" @click="openAircraftWizard(item, 'view')">
-                    Ver detalle
+                    Ver
                   </button>
                   <button type="button" class="ghost-button" @click="openAircraftWizard(item, 'edit')">
                     Editar
@@ -787,13 +901,19 @@
           <div class="wizard-sticky-head">
             <div class="wizard-header">
               <div class="wizard-hero-copy">
-                <p class="eyebrow">Registro premium</p>
-                <h2>{{ aircraftWizardTitle }}</h2>
+                <p class="eyebrow">REGISTRO PREMIUM</p>
+                <h2>
+                  <span>{{ aircraftForm.name || 'Aeronave ejecutiva' }}</span>
+                  <small>
+                    {{ aircraftForm.category || 'Categoria pendiente' }} &bull;
+                    {{ aircraftForm.base || 'Base pendiente' }}
+                  </small>
+                </h2>
                 <p class="muted">
                   {{
                     aircraftWizardReadOnly
                       ? 'Consulta completa de la aeronave: navega por general, operacion, galeria, documentacion y revision sin editar.'
-                      : 'Onboarding operativo estilo dispatch: primero datos, luego galeria, expediente y revision.'
+                      : 'Configure la informacion operativa, comercial y documental de la aeronave.'
                   }}
                 </p>
                 <div class="wizard-hero-meta">
@@ -820,8 +940,13 @@
                   </div>
                 </div>
 
-                <button type="button" class="ghost-button wizard-close-button" @click="closeAircraftWizard">
-                  Cerrar
+                <button
+                  type="button"
+                  class="ghost-button wizard-close-button"
+                  aria-label="Cerrar registro premium"
+                  @click="closeAircraftWizard"
+                >
+                  <span aria-hidden="true">X</span>
                 </button>
               </div>
             </div>
@@ -832,6 +957,7 @@
                 :key="step.id"
                 type="button"
                 class="wizard-step"
+                :title="step.description"
                 :class="{
                   active: aircraftWizardStep === step.id,
                   complete: aircraftWizardStep > step.id,
@@ -860,7 +986,7 @@
               <div v-if="aircraftWizardStep === 1" class="wizard-panel">
               <div class="section-head">
                 <div>
-                  <p class="eyebrow">Paso 1</p>
+                  <p class="eyebrow">Aircraft Identity</p>
                   <h3>Informacion general</h3>
                 </div>
               </div>
@@ -953,7 +1079,7 @@
               <div v-else-if="aircraftWizardStep === 2" class="wizard-panel">
               <div class="section-head">
                 <div>
-                  <p class="eyebrow">Paso 2</p>
+                  <p class="eyebrow">Operational Configuration</p>
                   <h3>Operacion y pricing</h3>
                 </div>
               </div>
@@ -1021,7 +1147,7 @@
               <div v-else-if="aircraftWizardStep === 3" class="wizard-panel">
               <div class="section-head">
                 <div>
-                  <p class="eyebrow">Paso 3</p>
+                  <p class="eyebrow">Gallery Center</p>
                   <h3>Galeria comercial</h3>
                 </div>
                 <span class="badge">{{ countSelectedImageFiles() }} archivo(s)</span>
@@ -1093,7 +1219,7 @@
               <div v-else-if="aircraftWizardStep === 4" class="wizard-panel">
               <div class="section-head">
                 <div>
-                  <p class="eyebrow">Paso 4</p>
+                  <p class="eyebrow">Document Center</p>
                   <h3>Biblioteca documental y multimedia</h3>
                   <p class="muted compact-copy">
                     Carga multiples imagenes o PDF por categoria. Las imagenes compatibles se optimizan a WebP antes de enviarse.
@@ -1233,13 +1359,13 @@
               <div v-else class="wizard-panel">
               <div class="section-head">
                 <div>
-                  <p class="eyebrow">Paso 5</p>
+                  <p class="eyebrow">Executive Aircraft Summary</p>
                   <h3>Resumen y envio</h3>
                 </div>
               </div>
 
               <div class="wizard-review-grid">
-                <article class="wizard-review-card">
+                <article class="wizard-review-card" data-summary="aircraft">
                   <span class="mini-label">Aeronave</span>
                   <strong>{{ aircraftForm.name || 'Sin modelo' }}</strong>
                   <p class="muted">
@@ -1247,7 +1373,7 @@
                     {{ aircraftForm.base || 'Sin base' }}
                   </p>
                 </article>
-                <article class="wizard-review-card">
+                <article class="wizard-review-card" data-summary="operation">
                   <span class="mini-label">Operacion</span>
                   <strong
                     >{{ aircraftForm.capacity || 0 }} pax ·
@@ -1258,14 +1384,14 @@
                     {{ inferredAircraftMinimumHours }} hr
                   </p>
                 </article>
-                <article class="wizard-review-card">
+                <article class="wizard-review-card" data-summary="gallery">
                   <span class="mini-label">Galeria</span>
                   <strong>{{ countSelectedImageFiles() }} archivos listos</strong>
                   <p class="muted">
                     Principal, cabina, asientos y amenidades listas para sincronizar.
                   </p>
                 </article>
-                <article class="wizard-review-card">
+                <article class="wizard-review-card" data-summary="dossier">
                   <span class="mini-label">Expediente</span>
                   <strong>{{ documentForm.files.length ? `${documentForm.files.length} archivo(s) listos` : 'Sin nuevo documento' }}</strong>
                   <p class="muted">
@@ -1273,6 +1399,41 @@
                     
                   </p>
                 </article>
+              </div>
+
+              <div class="wizard-executive-table">
+                <div>
+                  <span>Modelo</span>
+                  <strong>{{ aircraftForm.name || 'Sin modelo' }}</strong>
+                </div>
+                <div>
+                  <span>Matricula</span>
+                  <strong>{{ aircraftForm.registration || 'Sin matricula' }}</strong>
+                </div>
+                <div>
+                  <span>Base</span>
+                  <strong>{{ aircraftForm.base || 'Sin base' }}</strong>
+                </div>
+                <div>
+                  <span>Capacidad</span>
+                  <strong>{{ aircraftForm.capacity || 0 }} pax</strong>
+                </div>
+                <div>
+                  <span>Tarifa</span>
+                  <strong>{{ formatCurrency(aircraftForm.hourlyPrice) }}</strong>
+                </div>
+                <div>
+                  <span>Galeria</span>
+                  <strong>{{ countSelectedImageFiles() }} archivo(s)</strong>
+                </div>
+                <div>
+                  <span>Documentos</span>
+                  <strong>{{ documentForm.files.length }} nuevo(s)</strong>
+                </div>
+                <div>
+                  <span>Facturacion</span>
+                  <strong>{{ inferredAircraftMinimumHours }} hr minimo</strong>
+                </div>
               </div>
 
               <p v-if="formErrors.aircraft._form" class="form-feedback form-feedback-error">
@@ -1286,15 +1447,25 @@
 
             <aside class="wizard-sidebar">
               <article class="wizard-sidebar-card wizard-sidebar-card--hero">
+                <div class="wizard-sidebar-jet-image" aria-hidden="true"></div>
                 <span class="mini-label">Snapshot</span>
                 <strong>{{ aircraftForm.name || 'Aeronave en construccion' }}</strong>
                 <p class="muted">
                   {{ aircraftForm.category || 'Categoria pendiente' }} ·
                   {{ aircraftForm.manufacturer || 'Fabricante pendiente' }}
                 </p>
+                <div class="wizard-sidebar-facts">
+                  <span>{{ aircraftForm.manufacturer || 'Fabricante pendiente' }}</span>
+                  <span>{{ aircraftForm.category || 'Categoria pendiente' }}</span>
+                  <span>{{ aircraftForm.capacity || 0 }} pasajeros</span>
+                </div>
                 <div class="wizard-sidebar-highlight">
                   <span>{{ aircraftForm.registration || 'Sin matricula' }}</span>
                   <span>{{ aircraftForm.base || 'Base pendiente' }}</span>
+                </div>
+                <div class="wizard-readiness-score">
+                  <span>Readiness score</span>
+                  <strong>{{ aircraftWizardCompletion }}%</strong>
                 </div>
               </article>
 
@@ -1317,7 +1488,7 @@
 
               <article class="wizard-sidebar-card">
                 <span class="mini-label">Consejo</span>
-                <strong>Que desbloquea este modal</strong>
+                <strong>Aircraft Readiness Advisor</strong>
                 <p class="muted">
                   Una vez completa la carga, la aeronave queda lista para revision documental,
                   activacion mensual y posterior visibilidad para clientes.
@@ -1333,7 +1504,7 @@
               :disabled="aircraftWizardStep === 1 || aircraftWizardSubmitting"
               @click="previousAircraftWizardStep"
             >
-              Anterior
+              &larr; Anterior
             </button>
             <div class="wizard-footer-actions">
               <button
@@ -1343,7 +1514,7 @@
                 :disabled="aircraftWizardSubmitting"
                 @click="nextAircraftWizardStep"
               >
-                Continuar
+                Continuar &rarr;
               </button>
               <button
                 v-else
@@ -1490,12 +1661,12 @@
       </article>
     </section>
 
-    <section v-else-if="section === 'disponibilidad'" class="page-grid">
+    <section v-else-if="section === 'disponibilidad'" class="page-grid availability-control-luxury">
       <article class="surface availability-hero">
         <div>
-          <p class="eyebrow">Control de disponibilidad</p>
-          <h2>Centro de control operativo de flota</h2>
-          <p class="muted">Gestiona disponibilidad y bloqueos operativos.</p>
+          <p class="eyebrow">Fleet Availability Operations Center</p>
+          <h2>Control de Disponibilidad</h2>
+          <p class="muted">Centro ejecutivo para disponibilidad, bloqueos, vuelos y mantenimiento de flota.</p>
         </div>
         <span class="status-pill" :data-tone="availabilityGlobalStatus.tone">{{
           availabilityGlobalStatus.title
@@ -1509,6 +1680,7 @@
           class="fleet-kpi-card"
           :data-tone="card.tone"
         >
+          <span class="availability-kpi-icon" :data-label="card.label" aria-hidden="true"></span>
           <span>{{ card.label }}</span>
           <strong>{{ card.value }}</strong>
           <p>{{ card.detail }}</p>
@@ -1520,12 +1692,12 @@
           <article class="surface fleet-section-card">
             <div class="section-head">
               <div>
-                <p class="eyebrow">Bloqueo operativo</p>
-                <h2>Wizard compacto de disponibilidad</h2>
+                <p class="eyebrow">Flight Restriction Wizard</p>
+                <h2>Bloqueo operativo</h2>
               </div>
             </div>
 
-            <div class="company-progress-steps">
+            <div class="company-progress-steps availability-stepper">
               <span
                 v-for="step in availabilityFormSteps"
                 :key="step.id"
@@ -1633,7 +1805,7 @@
           <article class="surface fleet-section-card">
             <div class="section-head">
               <div>
-                <p class="eyebrow">Calendario semanal</p>
+                <p class="eyebrow">Fleet Availability Timeline</p>
                 <h2>Disponibilidad visual de la flota</h2>
               </div>
             </div>
@@ -1721,13 +1893,14 @@
           <article class="surface fleet-section-card">
             <div class="section-head">
               <div>
-                <p class="eyebrow">Agenda operacional</p>
-                <h2>Bloqueos y ocupacion</h2>
+                <p class="eyebrow">Operational Timeline</p>
+                <h2>Agenda operacional</h2>
               </div>
             </div>
 
             <div v-if="availability.length" class="availability-records">
               <article v-for="item in availability" :key="item.id" class="availability-record-card">
+                <span class="availability-record-icon" :data-status="item.status" aria-hidden="true"></span>
                 <div class="card-top">
                   <div>
                     <strong>{{ item.aircraft }}</strong>
@@ -1772,11 +1945,11 @@
       </div>
     </section>
 
-    <section v-else-if="section === 'solicitudes'" class="page-grid">
+    <section v-else-if="section === 'solicitudes'" class="page-grid flight-ops-command-luxury">
       <article class="surface requests-dispatch-surface">
         <div class="section-head">
           <div>
-            <p class="eyebrow">Centro de despacho</p>
+            <p class="eyebrow">Flight Operations Center</p>
             <h2>Solicitudes operativas</h2>
             <p v-if="false" class="muted helper-copy">
               Escanea la cola, prioriza urgencias y acepta o rechaza solicitudes desde una sola bandeja.
@@ -1784,6 +1957,73 @@
             <p class="muted helper-copy">{{ getRequestHelperCopy(selectedRequest) }}</p>
           </div>
           <div class="requests-head-actions">
+            <div class="provider-notification-center">
+              <button
+                type="button"
+                class="provider-notification-trigger"
+                :class="{ 'has-unread': unreadRealtimeNotifications > 0 }"
+                @click="toggleRealtimeNotifications"
+              >
+                <span class="provider-notification-trigger__icon" aria-hidden="true">AL</span>
+                <span class="provider-notification-trigger__label">Alertas</span>
+                <strong v-if="unreadRealtimeNotifications">{{ unreadRealtimeNotifications }}</strong>
+              </button>
+              <div
+                v-if="realtimeNotificationsOpen"
+                class="provider-notification-dropdown"
+              >
+                <div class="provider-notification-dropdown__head">
+                  <div>
+                    <p class="eyebrow">Live operations</p>
+                    <h3>Notificaciones</h3>
+                  </div>
+                  <button
+                    type="button"
+                    class="provider-notification-link"
+                    @click="markAllRealtimeNotificationsRead"
+                  >
+                    Leer todas
+                  </button>
+                </div>
+
+                <div v-if="realtimeNotifications.length" class="provider-notification-list">
+                  <article
+                    v-for="notification in realtimeNotifications"
+                    :key="notification.id"
+                    class="provider-notification-item"
+                    :class="{ 'is-unread': !notification.readAt }"
+                    @click="openRealtimeNotification(notification)"
+                  >
+                    <span class="provider-notification-item__signal" aria-hidden="true"></span>
+                    <div>
+                      <strong>{{ notification.title }}</strong>
+                      <p>{{ notification.message }}</p>
+                      <small>{{ notification.createdAt }}</small>
+                    </div>
+                    <button
+                      v-if="!notification.readAt"
+                      type="button"
+                      class="provider-notification-link"
+                      @click.stop="markRealtimeNotificationRead(notification.id)"
+                    >
+                      Leida
+                    </button>
+                  </article>
+                </div>
+
+                <div v-else class="provider-notification-empty">
+                  <strong>Centro listo</strong>
+                  <p>No hay alertas nuevas de solicitudes.</p>
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              class="provider-notification-permission"
+              @click="enableBrowserNotifications"
+            >
+              Activar avisos
+            </button>
             <button
               type="button"
               class="archive-toggle"
@@ -1910,6 +2150,7 @@
 
               <strong>Solicitud #{{ request.id }}</strong>
               <p class="request-queue-route">{{ getRequestRouteLabel(request) }}</p>
+              <p class="request-queue-aircraft">{{ getRequestSuggestedAircraft(request).label }}</p>
 
               <div class="request-queue-meta">
                 <span>{{ request.passengers || 0 }} pax</span>
@@ -1921,7 +2162,7 @@
                   {{ getRequestServiceTierLabel(request) }}
                 </span>
                 <span>{{ getRequestQuoteLabel(request) }}</span>
-                <span>{{ getRequestResponseCountdown(request).label }}</span>
+                <span>SLA: {{ getRequestResponseCountdown(request).label }}</span>
               </div>
             </article>
 
@@ -2098,7 +2339,7 @@
       </article>
     </section>
 
-    <section v-else-if="section === 'release-provider'" class="page-grid">
+    <section v-else-if="section === 'release-provider'" class="page-grid flight-release-luxury">
       <div
         v-if="savingProviderOperationalRelease"
         class="operator-section-loading-modal"
@@ -2120,15 +2361,26 @@
         </div>
       </div>
 
-      <article class="surface requests-dispatch-surface">
+      <article class="surface requests-dispatch-surface flight-release-hero">
         <div class="section-head">
           <div>
-            <p class="eyebrow">Liberacion</p>
-            <h2>Liberacion operativa del proveedor</h2>
+            <p class="eyebrow">Flight Operational Release Center</p>
+            <h2>Liberacion Operativa</h2>
+            <div v-if="releaseProviderRequest" class="flight-release-hero-meta">
+              <strong>{{ getRequestRouteLabel(releaseProviderRequest) }}</strong>
+              <span>{{ getProviderOperationalReleaseAircraftLabel() }}</span>
+              <span>{{ formatDateTimeDisplay(releaseProviderRequest.date) }}</span>
+            </div>
             <p class="muted helper-copy">
               Aqui el proveedor confirma aeronave y liberacion operativa. Red Aviation coordina a
               la sobrecargo y centraliza toda actualizacion al cliente.
             </p>
+            <div v-if="releaseProviderRequest" class="flight-release-badges">
+              <span>Operador</span>
+              <span>Aeronave</span>
+              <span>Estado</span>
+              <span>Ruta</span>
+            </div>
           </div>
           <div class="requests-head-actions">
             <button type="button" class="ghost-button" @click="goToSection('solicitudes')">
@@ -2202,15 +2454,19 @@
 
               <div class="provider-release-status-strip">
                 <span class="progress-chip" :data-tone="getProviderOperationalAircraftSectionStatus().tone">
+                  <i aria-hidden="true"></i>
                   Aeronave {{ getProviderOperationalAircraftSectionStatus().label }}
                 </span>
                 <span class="progress-chip" :data-tone="getProviderOperationalCrewSectionStatus().tone">
+                  <i aria-hidden="true"></i>
                   Tripulacion {{ getProviderOperationalCrewSectionStatus().label }}
                 </span>
                 <span class="progress-chip" :data-tone="getProviderOperationalDispatchSectionStatus().tone">
+                  <i aria-hidden="true"></i>
                   Handling {{ getProviderOperationalDispatchSectionStatus().label }}
                 </span>
                 <span class="progress-chip" :data-tone="getProviderOperationalReadinessSectionStatus().tone">
+                  <i aria-hidden="true"></i>
                   Alistamiento {{ getProviderOperationalReadinessSectionStatus().label }}
                 </span>
               </div>
@@ -2244,6 +2500,7 @@
                   }"
                   @click="setProviderOperationalActiveStep(step.id)"
                 >
+                  <span class="flight-release-step-icon" :data-step="step.id" aria-hidden="true"></span>
                   <div class="provider-release-step__main">
                     <span class="provider-release-step__index">{{ step.number }}</span>
                     <div>
@@ -2676,14 +2933,131 @@
       </article>
     </section>
 
-    <section v-else-if="section === 'operaciones'" class="page-grid">
-      <article class="surface">
+    <section v-else-if="section === 'operaciones'" class="page-grid flight-tracking-luxury">
+      <article class="surface flight-tracking-shell">
         <div class="section-head">
           <div>
             <p class="eyebrow">Operaciones</p>
-            <h2>Seguimiento de vuelos confirmados</h2>
+            <h2>Centro de seguimiento de vuelos ejecutivos</h2>
+            <p class="muted helper-copy">
+              Monitorea vuelos confirmados, estados de tracking, eventos operativos y cierre de servicio.
+            </p>
           </div>
         </div>
+
+        <div class="flight-tracking-kpis">
+          <article
+            v-for="card in flightTrackingKpis"
+            :key="card.label"
+            class="flight-tracking-kpi"
+            :data-tone="card.tone"
+          >
+            <span>{{ card.label }}</span>
+            <strong>{{ card.value }}</strong>
+            <p>{{ card.detail }}</p>
+          </article>
+        </div>
+
+        <div v-if="flightTrackingOperations.length" class="flight-tracking-layout">
+          <aside class="flight-tracking-queue">
+            <article
+              v-for="operation in flightTrackingOperations"
+              :key="operation.id"
+              class="flight-tracking-queue-card"
+              :class="{ 'is-active': selectedTrackingOperation?.id === operation.id }"
+              :data-status="normalizeFlightTrackingStatus(operation).id"
+              @click="selectedOperationId = String(operation.id)"
+            >
+              <div class="flight-tracking-queue-top">
+                <strong>{{ operation.route }}</strong>
+                <span class="status-pill" :data-tone="normalizeFlightTrackingStatus(operation).tone">
+                  {{ normalizeFlightTrackingStatus(operation).label }}
+                </span>
+              </div>
+              <p>{{ operation.aircraft }}</p>
+              <div class="flight-tracking-queue-meta">
+                <span>{{ getOperationPassengerCount(operation) }} pax</span>
+                <span>ETD {{ getOperationTimeLabel(operation.departure) }}</span>
+                <span>ETA {{ getOperationTimeLabel(operation.arrival) }}</span>
+              </div>
+            </article>
+          </aside>
+
+          <article v-if="selectedTrackingOperation" class="flight-command-workspace">
+            <div class="flight-command-head">
+              <div>
+                <p class="eyebrow">Flight Command Workspace</p>
+                <h3>{{ selectedTrackingOperation.route }}</h3>
+                <p class="muted">
+                  {{ selectedTrackingOperation.aircraft }} ·
+                  {{ getOperationPassengerCount(selectedTrackingOperation) }} pax ·
+                  {{ normalizeFlightTrackingStatus(selectedTrackingOperation).label }}
+                </p>
+              </div>
+              <span class="status-pill" :data-tone="normalizeFlightTrackingStatus(selectedTrackingOperation).tone">
+                {{ normalizeFlightTrackingStatus(selectedTrackingOperation).label }}
+              </span>
+            </div>
+
+            <div class="flight-command-facts">
+              <article v-for="item in selectedTrackingOperationFacts" :key="item.label">
+                <span>{{ item.label }}</span>
+                <strong>{{ item.value }}</strong>
+              </article>
+            </div>
+
+            <div class="flight-tracking-workflow">
+              <article
+                v-for="step in selectedTrackingTimeline"
+                :key="step.id"
+                :data-state="step.state"
+              >
+                <span>{{ step.state === 'done' ? '✓' : step.state === 'active' ? '●' : '○' }}</span>
+                <strong>{{ step.label }}</strong>
+              </article>
+            </div>
+
+            <div class="flight-command-grid">
+              <section class="flight-live-map">
+                <div>
+                  <span class="mini-label">Live Flight Tracking</span>
+                  <strong>{{ selectedTrackingOperation.route }}</strong>
+                  <p class="muted">
+                    {{ getOperationTimeLabel(selectedTrackingOperation.departure) }} →
+                    {{ getOperationTimeLabel(selectedTrackingOperation.arrival) }}
+                  </p>
+                </div>
+              </section>
+
+              <section class="flight-tracking-details">
+                <article v-for="item in selectedTrackingDetails" :key="item.label">
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.value }}</strong>
+                </article>
+              </section>
+            </div>
+
+            <section class="flight-events-timeline">
+              <div class="section-head compact-head">
+                <div>
+                  <p class="eyebrow">Tracking y eventos</p>
+                  <h3>Eventos operativos</h3>
+                </div>
+              </div>
+              <article v-for="event in selectedTrackingEvents" :key="event.id">
+                <span>{{ event.time }}</span>
+                <div>
+                  <strong>{{ event.title }}</strong>
+                  <p class="muted">{{ event.detail }}</p>
+                </div>
+              </article>
+            </section>
+          </article>
+        </div>
+
+        <p v-else class="empty-state">
+          Sin vuelos confirmados en seguimiento. Cuando existan operaciones activas apareceran aqui.
+        </p>
 
         <div class="list-grid">
           <article v-for="operation in operations" :key="operation.id" class="list-card">
@@ -2951,11 +3325,36 @@
             </article>
           </div>
 
-          <article v-else class="list-card operator-incidents-empty">
-            <strong>No hay incidencias abiertas</strong>
-            <p class="muted">
-              La operacion del proveedor no tiene reportes activos por atender en este momento.
-            </p>
+          <article v-else class="list-card operator-incidents-empty operations-stable-card">
+            <div class="operations-stable-radar" aria-hidden="true">
+              <span></span>
+            </div>
+            <div class="operations-stable-copy">
+              <span class="eyebrow">Operacion estable</span>
+              <strong>OPERACION ESTABLE</strong>
+              <p class="muted">
+                No existen incidencias activas. La flota se encuentra operando dentro de parametros normales.
+              </p>
+            </div>
+            <div class="operations-stable-grid">
+              <div>
+                <span>Ultima incidencia resuelta</span>
+                <strong>{{ operationsStableState.lastResolved }}</strong>
+              </div>
+              <div>
+                <span>Tiempo sin incidencias</span>
+                <strong>{{ operationsStableState.timeWithoutIncidents }}</strong>
+              </div>
+              <div>
+                <span>Estado general</span>
+                <strong>{{ operationsStableState.generalStatus }}</strong>
+              </div>
+            </div>
+            <div class="operations-stable-icons">
+              <span data-icon="radar">Radar</span>
+              <span data-icon="tower">Torre de control</span>
+              <span data-icon="ops">Flight operations</span>
+            </div>
           </article>
         </article>
 
@@ -2987,10 +3386,83 @@
               </article>
             </div>
 
-            <article v-else class="timeline-item operator-upcoming-item operator-upcoming-item--empty">
-              <strong>Sin operaciones proximas</strong>
-              <p class="muted">Cuando el proveedor tenga vuelos confirmados apareceran aqui para seguimiento rapido.</p>
+            <article v-else class="timeline-item operator-upcoming-item operator-upcoming-item--empty upcoming-activity-card">
+              <span class="eyebrow">Proxima actividad operacional</span>
+              <strong>PROXIMA ACTIVIDAD OPERACIONAL</strong>
+              <p class="muted">
+                Actualmente no existen vuelos confirmados pendientes de coordinacion.
+              </p>
+              <div class="upcoming-readiness-list">
+                <span>Flota disponible</span>
+                <span>Sin conflictos</span>
+                <span>Sin bloqueos</span>
+              </div>
             </article>
+          </article>
+
+          <article class="surface operator-side-card operational-alerts-card">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">Operational Alerts</p>
+                <h2>Centro de alertas</h2>
+              </div>
+            </div>
+            <div class="operational-alerts-list">
+              <article
+                v-for="alert in operationalAlerts"
+                :key="alert.id"
+                class="operational-alert-item"
+                :data-tone="alert.tone"
+              >
+                <span class="operational-alert-icon" :data-alert="alert.id" aria-hidden="true"></span>
+                <div>
+                  <strong>{{ alert.label }}</strong>
+                  <p class="muted">{{ alert.detail }}</p>
+                </div>
+                <small>{{ alert.value }}</small>
+              </article>
+            </div>
+          </article>
+
+          <article class="surface operator-side-card operational-timeline-card">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">Ultimas actividades operativas</p>
+                <h2>Timeline</h2>
+              </div>
+            </div>
+            <div class="operational-activity-timeline">
+              <article v-for="entry in operationalActivityTimeline" :key="entry.id">
+                <time>{{ entry.time }}</time>
+                <div>
+                  <strong>{{ entry.title }}</strong>
+                  <p class="muted">{{ entry.detail }}</p>
+                </div>
+              </article>
+            </div>
+          </article>
+
+          <article class="surface operator-side-card operational-quick-card">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">Acciones rapidas</p>
+                <h2>Coordination shortcuts</h2>
+              </div>
+            </div>
+            <div class="operational-quick-grid">
+              <button
+                v-for="action in operationalQuickActions"
+                :key="action.id"
+                type="button"
+                class="operational-quick-action"
+                :data-action="action.id"
+                @click="goToSection(action.section)"
+              >
+                <span aria-hidden="true"></span>
+                <strong>{{ action.label }}</strong>
+                <small>{{ action.detail }}</small>
+              </button>
+            </div>
           </article>
         </aside>
       </div>
@@ -3145,19 +3617,19 @@
       </div>
     </section>
 
-    <section v-else-if="section === 'pagos'" class="page-grid">
-      <article class="surface">
+    <section v-else-if="section === 'pagos'" class="page-grid payments-cockpit-page">
+      <article class="surface payments-cockpit-shell">
         <div class="payments-premium-hero">
           <div class="payments-premium-hero__copy">
-            <p class="eyebrow">Pagos / liquidaciones</p>
-            <h2>Cabina financiera del proveedor</h2>
+            <p class="eyebrow">Financial Operations Center</p>
+            <h2>RED AVIATION</h2>
             <p class="muted">
-              Monitorea liquidaciones, renovaciones de aeronaves y proximos cobros desde una sola vista operativa.
+              Executive Aviation Financial Cockpit para cobros, renovaciones y suscripciones de flota.
             </p>
             <div class="payments-premium-nav">
-              <span>Operacion</span>
-              <span>Coordinacion</span>
-              <span>Control</span>
+              <span>Revenue</span>
+              <span>Fleet billing</span>
+              <span>Renewals</span>
             </div>
           </div>
 
@@ -3195,12 +3667,70 @@
             class="payments-executive-card"
             :data-tone="item.tone"
           >
-            <span class="payments-executive-card__icon">{{ item.icon }}</span>
+            <span class="payments-executive-card__icon">{{ item.label.slice(0, 3).toUpperCase() }}</span>
             <p>{{ item.label }}</p>
             <strong>{{ item.value }}</strong>
             <small>{{ item.detail }}</small>
           </article>
         </div>
+
+        <div class="payments-cockpit-grid">
+          <aside class="payments-financial-sidebar" aria-label="Resumen financiero">
+            <div class="payments-sidebar-head">
+              <span class="eyebrow">Resumen financiero</span>
+              <strong>{{ providerAircraftBillingCurrency }}</strong>
+            </div>
+            <button
+              v-for="tab in paymentTabs"
+              :key="`side-${tab.id}`"
+              type="button"
+              class="payments-sidebar-link"
+              :class="{ active: paymentsTab === tab.id }"
+              @click="setPaymentsTab(tab.id)"
+            >
+              <span>{{ tab.label }}</span>
+              <strong>{{ tab.count }}</strong>
+            </button>
+            <div class="payments-sidebar-summary">
+              <span>Cobrado</span>
+              <span>Pendiente</span>
+              <span>Renovaciones</span>
+              <span>Suscripciones</span>
+              <span>Historial</span>
+            </div>
+          </aside>
+
+          <main class="payments-transaction-workspace">
+            <div class="payments-workspace-head">
+              <div>
+                <p class="eyebrow">Transaction Center</p>
+                <h3>Executive Aviation Financial Cockpit</h3>
+              </div>
+              <span class="payments-status-badge" data-tone="info">Live ledger</span>
+            </div>
+
+            <section class="payments-revenue-panel">
+              <div class="card-top">
+                <div>
+                  <strong>Revenue Overview</strong>
+                  <p class="muted">Este mes, ultimos 30 dias, proximos cobros y renovaciones.</p>
+                </div>
+              </div>
+              <div class="payments-revenue-bars">
+                <article
+                  v-for="item in paymentRevenueOverview"
+                  :key="item.id"
+                  class="payments-revenue-row"
+                  :style="{ '--bar': `${item.percent}%` }"
+                >
+                  <div>
+                    <span>{{ item.label }}</span>
+                    <strong>{{ item.value }}</strong>
+                  </div>
+                  <div class="payments-revenue-track"><span></span></div>
+                </article>
+              </div>
+            </section>
 
         <div class="payments-tabs" role="tablist" aria-label="Vistas de pagos proveedor">
           <button
@@ -3216,14 +3746,39 @@
           </button>
         </div>
 
-        <div v-if="paymentsTab === 'operations'" class="list-grid">
+            <section class="payments-renewal-center">
+              <div class="card-top">
+                <div>
+                  <strong>Renewal Center</strong>
+                  <p class="muted">Aeronave, fecha, estado y monto de renovacion.</p>
+                </div>
+                <span class="badge">{{ renewalCenterRows.length }} monitoreadas</span>
+              </div>
+              <div class="payments-renewal-table">
+                <article v-for="item in renewalCenterRows" :key="item.id" class="payments-renewal-row">
+                  <strong>{{ item.aircraft }}</strong>
+                  <span>{{ item.date }}</span>
+                  <span class="payments-status-badge" :data-tone="item.tone">{{ item.status }}</span>
+                  <strong>{{ item.amount }}</strong>
+                </article>
+                <p v-if="!renewalCenterRows.length" class="empty-state">
+                  Sin renovaciones visibles por ahora.
+                </p>
+              </div>
+            </section>
+
+        <div v-if="paymentsTab === 'operations'" class="list-grid payments-transaction-group">
+          <div class="payments-group-head">
+            <span class="eyebrow">Pagos confirmados</span>
+            <strong>Liquidaciones operativas</strong>
+          </div>
           <article v-for="payment in operationalPayments" :key="payment.id" class="list-card payments-operation-card">
             <div class="card-top">
               <div>
                 <strong>{{ payment.flight }}</strong>
                 <p class="muted">{{ payment.completedAt }} · {{ payment.amount }}</p>
               </div>
-              <span class="payments-status-badge" :data-tone="payment.statusNormalized === 'paid' ? 'success' : payment.statusNormalized === 'pending' ? 'warning' : 'info'">
+              <span class="payments-status-badge" :data-tone="payment.statusNormalized === 'paid' ? 'success' : payment.statusNormalized === 'pending' ? 'warning' : payment.statusNormalized === 'failed' ? 'danger' : 'info'">
                 {{ payment.statusNormalized === 'paid' ? 'Pagado' : payment.statusNormalized === 'pending' ? 'Pendiente' : payment.status }}
               </span>
             </div>
@@ -3231,7 +3786,7 @@
             <p class="muted">{{ payment.description }}</p>
             <div class="fleet-inline-metrics">
               <span>{{ payment.paymentMethod }}</span>
-              <span>{{ payment.reference || 'Sin referencia' }}</span>
+              <span>{{ payment.displayReference || 'Sin referencia' }}</span>
               <span>{{ payment.client }}</span>
             </div>
             <div class="inline-actions">
@@ -3243,7 +3798,11 @@
           </p>
         </div>
 
-        <div v-else-if="paymentsTab === 'pending'" class="list-grid">
+        <div v-else-if="paymentsTab === 'pending'" class="list-grid payments-transaction-group">
+          <div class="payments-group-head">
+            <span class="eyebrow">Pagos pendientes</span>
+            <strong>Acciones por liberar</strong>
+          </div>
           <article v-for="item in pendingPaymentRecords" :key="item.id" class="list-card payments-pending-card" :data-tone="item.tone">
             <div class="card-top">
               <div>
@@ -3286,22 +3845,26 @@
           </p>
         </div>
 
-        <div v-else-if="paymentsTab === 'history'" class="list-grid">
+        <div v-else-if="paymentsTab === 'history'" class="list-grid payments-transaction-group">
+          <div class="payments-group-head">
+            <span class="eyebrow">Historial</span>
+            <strong>Pagos confirmados y eventos Stripe</strong>
+          </div>
           <article v-for="payment in paymentHistoryFeed" :key="payment.id" class="list-card payments-history-card">
             <div class="card-top">
               <div>
                 <strong>{{ payment.statusNormalized === 'paid' ? 'Pago realizado' : payment.status }}</strong>
                 <p class="muted">{{ formatDateCompact(payment.paidAt || payment.rawCreatedAt || payment.completedAt) }} · {{ payment.amount }}</p>
               </div>
-              <span class="payments-status-badge" :data-tone="payment.statusNormalized === 'paid' ? 'success' : payment.statusNormalized === 'pending' ? 'warning' : 'info'">
+              <span class="payments-status-badge" :data-tone="payment.statusNormalized === 'paid' ? 'success' : payment.statusNormalized === 'pending' ? 'warning' : payment.statusNormalized === 'failed' ? 'danger' : 'info'">
                 {{ payment.statusNormalized === 'paid' ? 'Pagado' : payment.status }}
               </span>
             </div>
             <p class="muted">{{ payment.description }}</p>
             <div class="fleet-inline-metrics">
               <span>{{ payment.paymentMethod }}</span>
-              <span>{{ payment.providerCheckoutId || payment.reference || 'Sin referencia' }}</span>
-              <span>{{ payment.providerSubscriptionId || payment.client }}</span>
+              <span>{{ payment.displayProviderCheckoutId || payment.displayReference || 'Sin referencia' }}</span>
+              <span>{{ payment.displayProviderSubscriptionId || payment.client }}</span>
             </div>
           </article>
           <p v-if="!paymentHistoryFeed.length" class="empty-state">
@@ -3309,7 +3872,11 @@
           </p>
         </div>
 
-        <div v-else class="list-grid payments-aircraft-layout">
+        <div v-else class="list-grid payments-aircraft-layout payments-transaction-group">
+          <div class="payments-group-head">
+            <span class="eyebrow">Suscripciones</span>
+            <strong>Billing por aeronave</strong>
+          </div>
           <article v-if="selectedPaymentsAircraft && filteredAircraftPaymentRows.length" class="list-card aircraft-payment-hero payments-aircraft-hero">
             <div class="card-top">
               <div>
@@ -3345,7 +3912,7 @@
               </div>
               <div>
                 <span class="mini-label">Referencia activa</span>
-                <strong>{{ latestSelectedAircraftPayment?.providerSubscriptionId || latestSelectedAircraftPayment?.reference || filteredAircraftPaymentRows[0].reference }}</strong>
+                <strong>{{ latestSelectedAircraftPayment?.displayProviderSubscriptionId || latestSelectedAircraftPayment?.displayReference || filteredAircraftPaymentRows[0].displayReference }}</strong>
               </div>
               <div>
                 <span class="mini-label">Modo de renovacion</span>
@@ -3416,7 +3983,7 @@
                 </div>
                 <div>
                   <span class="mini-label">Referencia</span>
-                  <strong>{{ payment.reference }}</strong>
+                  <strong>{{ payment.displayReference }}</strong>
                 </div>
                 <div>
                   <span class="mini-label">Renovacion</span>
@@ -3505,6 +4072,8 @@
           <p v-if="!filteredAircraftPaymentRows.length" class="empty-state">
             Aun no hay aeronaves registradas para seguimiento de suscripcion.
           </p>
+        </div>
+          </main>
         </div>
       </article>
     </section>

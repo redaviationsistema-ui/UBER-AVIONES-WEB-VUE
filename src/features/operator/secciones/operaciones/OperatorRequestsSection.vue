@@ -424,7 +424,7 @@ function formatDetailValue(request, row) {
   justify-content: space-between;
   padding: 1rem;
   border-radius: 18px;
-  background: #faf8f3;
+  background: var(--surface-premium);
   border: 1px solid rgba(201, 169, 107, 0.18);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
   cursor: pointer;
@@ -438,7 +438,7 @@ function formatDetailValue(request, row) {
 
 .request-row.is-selected {
   border-color: rgba(17, 17, 17, 0.18);
-  background: #fffdf8;
+  background: var(--surface-premium);
 }
 
 .request-main {
@@ -514,7 +514,7 @@ function formatDetailValue(request, row) {
   padding: 0.9rem;
   border: 1px solid #ece5d6;
   border-radius: 16px;
-  background: #fffdfa;
+  background: var(--surface-premium);
 }
 
 .detail-item strong {
@@ -527,7 +527,7 @@ function formatDetailValue(request, row) {
   padding: 1rem;
   border: 1px solid #ece5d6;
   border-radius: 16px;
-  background: #faf8f3;
+  background: var(--surface-premium);
 }
 
 .detail-block pre {
@@ -550,7 +550,7 @@ function formatDetailValue(request, row) {
   padding: 0 0.7rem;
   border-radius: 999px;
   color: #8c6a1f;
-  background: #f4ead1;
+  background: var(--surface-premium);
   font-size: 0.78rem;
   font-weight: 800;
 }

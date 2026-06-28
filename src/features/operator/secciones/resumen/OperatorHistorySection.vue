@@ -147,7 +147,7 @@ defineProps({
   display: grid;
   gap: 0.35rem;
   border-radius: 18px;
-  background: #faf8f3;
+  background: var(--surface-premium);
   border: 1px solid rgba(201, 169, 107, 0.14);
 }
 
@@ -174,7 +174,7 @@ defineProps({
   border: 1px solid rgba(201, 169, 107, 0.28);
   border-radius: 999px;
   padding: 0.5rem 0.85rem;
-  background: #fff;
+  background: var(--surface-premium);
   font-weight: 700;
   cursor: pointer;
 }
@@ -197,7 +197,7 @@ defineProps({
   align-items: center;
   padding: 1rem;
   border-radius: 18px;
-  background: #faf8f3;
+  background: var(--surface-premium);
   border: 1px solid rgba(201, 169, 107, 0.12);
 }
 

@@ -161,7 +161,7 @@ defineEmits(['update-field', 'create'])
   gap: 0.3rem;
   padding: 0.95rem;
   border-radius: 16px;
-  background: #faf8f3;
+  background: var(--surface-premium);
 }
 
 .reports-title {
