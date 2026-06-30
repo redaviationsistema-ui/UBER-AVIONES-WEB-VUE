@@ -472,8 +472,17 @@ const auditQueue = computed(() =>
 const totalAuditEntries = computed(() => props.auditEntries.length)
 
 const isOperationsView = computed(() => props.viewMode === 'operations')
+const isInFlightView = computed(() => props.viewMode === 'in-flight')
+const inFlightOperations = computed(() =>
+  assignedOperations.value.filter((operation) => String(operation.crew || operation.crewId || '').trim()),
+)
 const tabs = computed(() =>
-  isOperationsView.value
+  isInFlightView.value
+    ? [
+        { id: 'assigned', label: 'En vuelo', count: inFlightOperations.value.length },
+        { id: 'audit', label: 'Bitacora', count: totalAuditEntries.value },
+      ]
+    : isOperationsView.value
     ? [
         { id: 'validation', label: 'Sobrecargos', count: filteredCrewMembers.value.length },
         { id: 'assigned', label: 'Vuelos', count: assignedOperations.value.length },
@@ -499,8 +508,8 @@ const selectedCrew = computed(
 
 const selectedOperation = computed(
   () =>
-    assignedOperations.value.find((operation) => operation.id === selectedOperationId.value) ||
-    assignedOperations.value[0] ||
+    (isInFlightView.value ? inFlightOperations.value : assignedOperations.value).find((operation) => operation.id === selectedOperationId.value) ||
+    (isInFlightView.value ? inFlightOperations.value[0] : assignedOperations.value[0]) ||
     null,
 )
 
@@ -541,7 +550,7 @@ watch(
 )
 
 watch(
-  () => assignedOperations.value,
+  () => (isInFlightView.value ? inFlightOperations.value : assignedOperations.value),
   (operations) => {
     if (!operations.length) {
       selectedOperationId.value = null
@@ -576,13 +585,20 @@ watch(
   () => props.viewMode,
   (mode) => {
     if (!hasInitializedViewMode) {
-      activeTab.value = mode === 'operations' ? 'assigned' : 'validation'
+      activeTab.value = ['operations', 'in-flight'].includes(mode) ? 'assigned' : 'validation'
       hasInitializedViewMode = true
       return
     }
 
     if (mode === 'operations') {
       if (!['validation', 'assigned', 'audit'].includes(activeTab.value)) {
+        activeTab.value = 'assigned'
+      }
+      return
+    }
+
+    if (mode === 'in-flight') {
+      if (!['assigned', 'audit'].includes(activeTab.value)) {
         activeTab.value = 'assigned'
       }
       return
@@ -1113,7 +1129,9 @@ function auditEntryTone(entry = {}) {
           <p class="eyebrow">Centro de despacho</p>
           <p class="muted">
             {{
-              isOperationsView
+              isInFlightView
+                ? 'Vista dedicada para seguir vuelos con sobrecargo asignado sin interferir con la seleccion de expedientes.'
+                : isOperationsView
                 ? 'Vista separada para seleccionar vuelo, asignar sobrecargo y seguir la trazabilidad operativa.'
                 : 'Lista compacta, filtros rapidos y panel de detalle para operar con velocidad.'
             }}
@@ -1273,9 +1291,9 @@ function auditEntryTone(entry = {}) {
             <div class="table-head">
               <div>
                 <p class="eyebrow">Operacion por vuelo</p>
-                <h4>Asignacion y seguimiento de sobrecargos</h4>
+                <h4>{{ isInFlightView ? 'Sobrecargos actualmente en vuelo' : 'Asignacion y seguimiento de sobrecargos' }}</h4>
               </div>
-              <span class="badge badge-muted">{{ assignedOperations.length }} vuelos</span>
+              <span class="badge badge-muted">{{ isInFlightView ? inFlightOperations.length : assignedOperations.length }} vuelos</span>
             </div>
 
             <div class="table-wrap">
@@ -1292,7 +1310,7 @@ function auditEntryTone(entry = {}) {
                 </thead>
                 <tbody>
                   <tr
-                    v-for="operation in assignedOperations"
+                    v-for="operation in isInFlightView ? inFlightOperations : assignedOperations"
                     :key="operation.id"
                     :class="{ 'is-selected': operation.id === selectedOperation?.id }"
                     @click="selectOperation(operation.id)"
@@ -1329,7 +1347,7 @@ function auditEntryTone(entry = {}) {
             </div>
 
             <p v-if="!assignedOperations.length" class="empty-state">
-              No hay vuelos operativos para mostrar en esta mesa.
+              {{ isInFlightView ? 'No hay sobrecargos en vuelo para mostrar con los filtros actuales.' : 'No hay vuelos operativos para mostrar en esta mesa.' }}
             </p>
           </div>
 

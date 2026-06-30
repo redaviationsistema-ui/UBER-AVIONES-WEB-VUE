@@ -3,7 +3,7 @@
 
     <section v-if="section === 'dashboard'" class="page-grid operator-dashboard-luxury">
       <article
-        v-if="realtimeRequests.length"
+        v-if="visibleRealtimeRequests.length"
         class="surface realtime-flight-request-banner"
       >
         <div class="realtime-flight-request-banner__signal" aria-hidden="true">
@@ -13,19 +13,19 @@
           <p class="eyebrow">Live Flight Request</p>
           <h2>Nueva solicitud de vuelo</h2>
           <div class="realtime-flight-request-banner__meta">
-            <strong>{{ realtimeRequests[0].route }}</strong>
-            <span>#{{ realtimeRequests[0].requestId || realtimeRequests[0].request_id || realtimeRequests[0].id }}</span>
-            <span>{{ realtimeRequests[0].status }}</span>
+            <strong>{{ visibleRealtimeRequests[0].route }}</strong>
+            <span>#{{ visibleRealtimeRequests[0].requestId || visibleRealtimeRequests[0].request_id || visibleRealtimeRequests[0].id }}</span>
+            <span>{{ visibleRealtimeRequests[0].status }}</span>
           </div>
         </div>
         <div class="realtime-flight-request-banner__actions">
-          <span v-if="unreadRealtimeCount" class="realtime-flight-request-banner__count">
-            {{ unreadRealtimeCount }} nueva{{ unreadRealtimeCount === 1 ? '' : 's' }}
+          <span v-if="visibleUnreadRealtimeCount" class="realtime-flight-request-banner__count">
+            {{ visibleUnreadRealtimeCount }} nueva{{ visibleUnreadRealtimeCount === 1 ? '' : 's' }}
           </span>
           <button
             type="button"
             class="primary-action"
-            @click="openRealtimeRequest(realtimeRequests[0])"
+            @click="openRealtimeRequest(visibleRealtimeRequests[0])"
           >
             Ver solicitud
           </button>
@@ -35,7 +35,6 @@
       <article class="surface dashboard-hero-premium">
         <div class="section-head dashboard-hero-head">
           <div>
-            <p class="eyebrow">Luxury Executive Aviation SaaS</p>
             <h1>{{ providerName }}</h1>
             <p class="muted">
               Operador {{ companyStatusMeta.label.toLowerCase() }} · {{ aircraft.length }} aeronaves
@@ -157,7 +156,45 @@
                 :data-section="item.id"
                 @click="goToSection(item.section)"
               >
-                <span class="checklist-icon" aria-hidden="true"></span>
+                <span class="checklist-icon" :data-icon="item.id" aria-hidden="true">
+                  <svg v-if="item.id === 'empresa'" viewBox="0 0 48 48" fill="none">
+                    <path d="M24 8L34 12V21C34 29 29 35 24 38C19 35 14 29 14 21V12L24 8Z"></path>
+                    <path d="M19 23L22.5 26.5L29 19.5"></path>
+                  </svg>
+                  <svg v-else-if="item.id === 'aeronaves'" viewBox="0 0 48 48" fill="none">
+                    <path d="M8 25L40 19"></path>
+                    <path d="M18 23.5L25 13L29 12L27.5 21.5"></path>
+                    <path d="M17 27.5L24.5 34"></path>
+                    <path d="M13 28.5L11 23.5"></path>
+                    <path d="M28 22L36 28"></path>
+                  </svg>
+                  <svg v-else-if="item.id === 'costos'" viewBox="0 0 48 48" fill="none">
+                    <ellipse cx="24" cy="16" rx="9" ry="4"></ellipse>
+                    <path d="M15 16V24C15 26.2 19 28 24 28C29 28 33 26.2 33 24V16"></path>
+                    <path d="M15 24V32C15 34.2 19 36 24 36C29 36 33 34.2 33 32V24"></path>
+                    <path d="M24 20V32"></path>
+                    <path d="M20.5 24.5H27.5"></path>
+                  </svg>
+                  <svg v-else-if="item.id === 'disponibilidad'" viewBox="0 0 48 48" fill="none">
+                    <circle cx="24" cy="24" r="12"></circle>
+                    <path d="M24 24L31.5 17.5"></path>
+                    <path d="M24 24L18.5 29.5"></path>
+                    <circle cx="24" cy="24" r="2.5"></circle>
+                  </svg>
+                  <svg v-else-if="item.id === 'solicitudes'" viewBox="0 0 48 48" fill="none">
+                    <rect x="13" y="10" width="22" height="28" rx="5"></rect>
+                    <path d="M19 10H29"></path>
+                    <path d="M18 20H30"></path>
+                    <path d="M18 26H30"></path>
+                    <path d="M18 32H25"></path>
+                    <path d="M29 31L31 33L35 28"></path>
+                  </svg>
+                  <svg v-else viewBox="0 0 48 48" fill="none">
+                    <circle cx="24" cy="24" r="14"></circle>
+                    <path d="M24 10L35 24L24 38L13 24L24 10Z"></path>
+                    <path d="M18 24L22 28L30 20"></path>
+                  </svg>
+                </span>
                 <div>
                   <strong>{{ item.label }}</strong>
                   <p>{{ item.detail }}</p>
@@ -1986,9 +2023,9 @@
                   </button>
                 </div>
 
-                <div v-if="realtimeNotifications.length" class="provider-notification-list">
+                <div v-if="activeRealtimeNotifications.length" class="provider-notification-list">
                   <article
-                    v-for="notification in realtimeNotifications"
+                    v-for="notification in activeRealtimeNotifications"
                     :key="notification.id"
                     class="provider-notification-item"
                     :class="{ 'is-unread': !notification.readAt }"
@@ -2038,18 +2075,9 @@
           </div>
         </div>
 
-        <div class="fleet-kpi-grid request-kpi-grid">
-          <article
-            v-for="card in requestKpis"
-            :key="card.label"
-            class="metric-card request-kpi-card"
-            :data-tone="card.tone"
-          >
-            <span>{{ card.label }}</span>
-            <strong>{{ card.value }}</strong>
-            <small>{{ card.detail }}</small>
-          </article>
-        </div>
+    
+
+    
 
         <div class="requests-toolbar">
           <label class="request-search">
@@ -2129,6 +2157,16 @@
           class="requests-dispatch-layout"
         >
           <aside class="requests-queue">
+            <div class="requests-queue-head">
+              <div>
+                <p class="eyebrow">Bandeja viva</p>
+                <strong>{{ filteredRequests.length }} solicitudes visibles</strong>
+              </div>
+              <span class="status-pill status-pill--ghost" data-tone="neutral">
+                {{ requestStatusTabs.find((tab) => tab.id === requestStatusFilter)?.label || 'Pendientes' }}
+              </span>
+            </div>
+
             <article
               v-for="request in filteredRequests"
               :key="request.id"
@@ -2150,6 +2188,7 @@
 
               <strong>Solicitud #{{ request.id }}</strong>
               <p class="request-queue-route">{{ getRequestRouteLabel(request) }}</p>
+              <p class="request-queue-client">{{ getRequestClientLabel(request) }}</p>
               <p class="request-queue-aircraft">{{ getRequestSuggestedAircraft(request).label }}</p>
 
               <div class="request-queue-meta">
@@ -2167,7 +2206,7 @@
             </article>
 
             <p v-if="!filteredRequests.length" class="empty-state">
-              No hay solicitudes activas que coincidan con los filtros actuales.
+              No hay solicitudes que coincidan con el filtro actual.
             </p>
           </aside>
 
@@ -2184,7 +2223,10 @@
             </p>
           </div>
 
-              <div class="request-detail-actions">
+              <div
+                v-if="getRequestStatusMeta(selectedRequest).queue === 'pending'"
+                class="request-detail-actions"
+              >
                 <button
                   type="button"
                   class="ghost-button"
@@ -2217,14 +2259,17 @@
                   {{ isUpdatingRequestStatus(selectedRequest.id, 'accept') ? 'Guardando...' : getRequestPrimaryActionLabel(selectedRequest) }}
                 </button>
               </div>
+              <div v-else class="request-detail-status-chip">
+                <span
+                  class="status-pill"
+                  :data-tone="getRequestStatusMeta(selectedRequest).tone"
+                >
+                  {{ getRequestStatusMeta(selectedRequest).headline }}
+                </span>
+              </div>
             </div>
 
-            <p class="muted helper-copy">
-              Esta es la zona ciega del proveedor para confirmar aeronave y operacion. La
-              coordinacion con la sobrecargo la hace Red Aviation y el cliente solo recibe
-              actualizaciones del administrador.
-            </p>
-
+           
             <div
               v-if="requestOperationalAlerts.length"
               class="dashboard-alert-strip request-alert-strip"
@@ -2324,12 +2369,37 @@
               <button
                 type="button"
                 class="primary-action"
-                :disabled="resolveWorkflowState(resolveRequestWorkflowValue(selectedRequest)).id !== 'flight_confirmed'"
+                :disabled="!['flight_confirmed', 'tracking_live'].includes(resolveWorkflowState(resolveRequestWorkflowValue(selectedRequest)).id)"
                 @click="openProviderRelease(selectedRequest)"
               >
                 Abrir Liberacion
               </button>
             </article>
+          </article>
+
+          <article v-else class="request-detail-empty">
+            <p class="eyebrow">Workspace</p>
+            <strong>La bandeja quedo sin resultados con este filtro.</strong>
+            <p>
+              Restablece la vista para volver a ver solicitudes activas o abre archivadas si
+              acabas de rechazar una operacion.
+            </p>
+            <div class="request-detail-empty__actions">
+              <button
+                type="button"
+                class="ghost-button"
+                @click="requestSearch = ''; requestPriorityFilter = 'all'; requestStatusFilter = 'pending'"
+              >
+                Limpiar filtros
+              </button>
+              <button
+                type="button"
+                class="ghost-button"
+                @click="archivedTrayOpen = !archivedTrayOpen"
+              >
+                {{ archivedTrayOpen ? 'Ocultar archivadas' : 'Ver archivadas' }}
+              </button>
+            </div>
           </article>
         </div>
 

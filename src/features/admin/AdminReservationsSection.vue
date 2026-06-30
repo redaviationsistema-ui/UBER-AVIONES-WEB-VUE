@@ -17,6 +17,7 @@ const props = defineProps({
   auditEntries: { type: Array, default: () => [] },
   isFlowLoading: { type: Boolean, default: false },
   flowLoadingLabel: { type: String, default: '' },
+  flowErrorMessage: { type: String, default: '' },
   isContentRefreshing: { type: Boolean, default: false },
   headerEyebrow: { type: String, default: 'Flujo del cliente' },
   headerTitle: { type: String, default: 'Control administrativo del flujo del cliente' },
@@ -1030,6 +1031,10 @@ function submitResume(reservation) {
                 placeholder="Explica por que se movio el flujo o que validacion se completo"
               ></textarea>
             </label>
+
+            <p v-if="props.flowErrorMessage" class="form-feedback form-feedback-error">
+              {{ props.flowErrorMessage }}
+            </p>
 
             <button
               type="button"

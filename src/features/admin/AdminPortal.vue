@@ -69,6 +69,7 @@ const rawSectionRecords = reactive({
 })
 const reservationFlowLoading = ref(false)
 const reservationFlowLoadingLabel = ref('')
+const reservationFlowErrorMessage = ref('')
 const reservationContentRefreshing = ref(false)
 const clientTableRefreshing = ref(false)
 let removeWorkflowSyncSubscription = null
@@ -321,6 +322,15 @@ const adminSections = {
     fields: ['Sobrecargo', 'Base', 'Dia', 'Estado', 'Comentario'],
     details: ['Semana operativa', 'Bloqueos', 'Operaciones ligadas', 'Bitacora'],
     edits: ['Estado', 'Comentario administrativo'],
+  },
+  'sobrecargos-en-vuelo': {
+    eyebrow: 'Sobrecargos',
+    title: 'Sobrecargos en vuelo',
+    description: 'Monitorea vuelos con sobrecargo asignado y sigue su trazabilidad operativa en una mesa separada.',
+    actions: ['Ver detalle', 'Reasignar sobrecargo', 'Actualizar seguimiento', 'Consultar bitacora'],
+    fields: ['Vuelo', 'Fecha', 'Aeronave', 'Sobrecargo', 'Estado crew'],
+    details: ['Ruta', 'Cliente', 'Presentacion', 'Incidencias', 'Trazabilidad'],
+    edits: ['Sobrecargo', 'Hora de presentacion', 'Lugar de presentacion', 'Nota operativa'],
   },
   reservas: {
     eyebrow: 'Reservas',
@@ -723,6 +733,7 @@ const normalizedSectionSources = computed(() => ({
   sobrecargos: crewMembers.value,
   disponibilidad: crewMembers.value,
   'sobrecargo-operaciones': crewMembers.value,
+  'sobrecargos-en-vuelo': crewMembers.value,
   reservas: operations.value,
   liberaciones: operations.value,
 }))
@@ -751,6 +762,12 @@ const dynamicSectionHighlights = computed(() => ({
     { label: 'En servicio', value: formatCount(crewInServiceCount.value), detail: 'Tripulacion ya ligada a una operacion activa.' },
     { label: 'Aprobados', value: formatCount(approvedCrewCount.value), detail: 'Perfiles con expediente validado por admin.' },
     { label: 'Con alerta', value: formatCount(crewAlertsCount.value), detail: 'Casos que requieren seguimiento adicional.' },
+  ],
+  'sobrecargos-en-vuelo': [
+    { label: 'En servicio', value: formatCount(crewInServiceCount.value), detail: 'Sobrecargos ya ligados a una operacion activa.' },
+    { label: 'Disponibles', value: formatCount(availableCrewCount.value), detail: 'Tripulacion libre para nuevas asignaciones.' },
+    { label: 'Aprobados', value: formatCount(approvedCrewCount.value), detail: 'Perfiles que ya pueden operar.' },
+    { label: 'Con alerta', value: formatCount(crewAlertsCount.value), detail: 'Casos con seguimiento operativo o documental.' },
   ],
   reservas: [
     { label: 'Activas', value: formatCount(activeReservationsCount.value), detail: 'Reservas y vuelos que siguen en flujo operativo.' },
@@ -1580,7 +1597,7 @@ async function loadPortalSection(section) {
     return
   }
 
-  if (section === 'sobrecargos' || section === 'disponibilidad' || section === 'sobrecargo-operaciones') {
+  if (section === 'sobrecargos' || section === 'disponibilidad' || section === 'sobrecargo-operaciones' || section === 'sobrecargos-en-vuelo') {
     if (section === 'disponibilidad') {
       await loadOperations({
         silent: true,
@@ -1628,7 +1645,7 @@ function shouldAutoRefreshCrewSection() {
 function shouldWarmCrewSection(section = props.section) {
   if (IS_LOCAL_ADMIN_DEV) return false
 
-  return !['ejecutivo', 'sobrecargos', 'disponibilidad', 'sobrecargo-operaciones', 'reservas', 'liberaciones'].includes(section)
+  return !['ejecutivo', 'sobrecargos', 'disponibilidad', 'sobrecargo-operaciones', 'sobrecargos-en-vuelo', 'reservas', 'liberaciones'].includes(section)
 }
 
 function shouldThrottlePortalSectionLoad(section = props.section, force = false) {
@@ -2170,6 +2187,27 @@ function updateReservationLocalState(reservationId, patch) {
   return nextRecord
 }
 
+function resolveAdminFlowErrorMessage(error) {
+  const workflowErrors = error?.payload?.errors?.workflow_status
+  if (Array.isArray(workflowErrors) && workflowErrors[0]) {
+    return workflowErrors[0]
+  }
+
+  const genericErrors = error?.payload?.errors
+  if (genericErrors && typeof genericErrors === 'object') {
+    const firstFieldErrors = Object.values(genericErrors).find(
+      (value) => Array.isArray(value) && value.length,
+    )
+    if (Array.isArray(firstFieldErrors) && firstFieldErrors[0]) {
+      return firstFieldErrors[0]
+    }
+  }
+
+  return isTimeoutLikeError(error)
+    ? 'El backend tardo demasiado en responder. El cambio de flujo no fue confirmado.'
+    : error?.message || 'El backend no confirmo el cambio de etapa.'
+}
+
 function applyExternalWorkflowSync(payload = {}) {
   const reservationId = Number(payload.reservationId || payload.requestId || 0)
   const nextStage = String(payload.nextStage || '').trim()
@@ -2208,6 +2246,7 @@ async function handleUpdateReservationFlow({ reservationId, nextStage, note }) {
   try {
     reservationFlowLoading.value = true
     reservationFlowLoadingLabel.value = normalizeWorkflowLabel(nextStage)
+    reservationFlowErrorMessage.value = ''
     const updatedReservation = await updateAdminReservationStage(currentReservation, nextStage, note, {
       timeoutMs: ADMIN_FLOW_UPDATE_TIMEOUT_MS,
     })
@@ -2230,12 +2269,11 @@ async function handleUpdateReservationFlow({ reservationId, nextStage, note }) {
       message: `La reserva #${reservationId} ya quedo en ${normalizeWorkflowLabel(nextStage)}.`,
     })
   } catch (error) {
+    reservationFlowErrorMessage.value = resolveAdminFlowErrorMessage(error)
     ui.pushToast({
       tone: 'error',
       title: 'No se pudo actualizar el flujo',
-      message: isTimeoutLikeError(error)
-        ? 'El backend tardó demasiado en responder. El cambio de flujo no fue confirmado.'
-        : error?.message || 'El backend no confirmó el cambio de etapa.',
+      message: reservationFlowErrorMessage.value,
     })
   } finally {
     reservationFlowLoading.value = false
@@ -2558,6 +2596,18 @@ watch(
     @assign-crew="assignCrewToOperation"
     @audit-crew="auditCrew"
   />
+  <AdminCrewOperationsSection
+    v-else-if="section === 'sobrecargos-en-vuelo'"
+    :crew-members="crewMembers"
+    :operations="operations"
+    :audit-entries="crewAuditEntries"
+    view-mode="in-flight"
+    @approve-crew="approveCrew"
+    @reject-crew="rejectCrew"
+    @suspend-crew="suspendCrew"
+    @assign-crew="assignCrewToOperation"
+    @audit-crew="auditCrew"
+  />
   <AdminCrewAvailabilitySection
     v-else-if="section === 'disponibilidad'"
     :crew-members="crewMembers"
@@ -2572,6 +2622,7 @@ watch(
     :audit-entries="reservationAuditEntries"
     :is-flow-loading="reservationFlowLoading"
     :flow-loading-label="reservationFlowLoadingLabel"
+    :flow-error-message="reservationFlowErrorMessage"
     :is-content-refreshing="reservationContentRefreshing"
     :show-provider-release-panel="false"
     @update-flow="handleUpdateReservationFlow"
