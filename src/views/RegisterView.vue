@@ -8,7 +8,7 @@ import {
   roleLabels,
 } from '../features/register/registrationSteps'
 import '../features/register/registerWizard.css'
-import { resolveDashboardPathByRole } from '../lib/authRouting'
+import { resolveDashboardPathByRole, resolvePostRegistrationDashboard } from '../lib/authRouting'
 import { useAuthStore } from '../stores/auth'
 
 const RegisterClientStep = defineAsyncComponent(
@@ -37,6 +37,11 @@ const errorModalMessage = ref('')
 const errorModalDetails = ref([])
 const form = reactive({
   name: '',
+  companyName: '',
+  commercialName: '',
+  legalName: '',
+  companyPhone: '',
+  companyEmail: '',
   email: '',
   phone: '',
   birthDate: '',
@@ -99,10 +104,13 @@ const wizardSteps = computed(() => buildRegistrationSteps(form.role))
 const selectedStep = computed(() => wizardSteps.value[currentStep.value] || wizardSteps.value[0])
 const selectedRoleLabel = computed(() => roleLabels[form.role] || 'Cliente')
 const isLastStep = computed(() => currentStep.value === wizardSteps.value.length - 1)
+const isProviderRole = computed(() => form.role === 'provider')
 const registerIntroCopy = computed(() =>
   form.role === 'sobrecargo'
     ? 'Define primero el rol de acceso, completa los datos del usuario, registra la licencia de sobrecargo y al final crea el correo y la contrasena.'
-    : 'Define primero el rol de acceso, completa los datos del usuario, registra la selfie biometrica y al final crea el correo y la contrasena. Si el rol es cliente, entrara primero a una cotizacion gratis y despues podra activar la membresia mensual de USD $115.',
+    : isProviderRole.value
+      ? 'Define primero el rol de acceso, captura la empresa y su representante legal, registra la documentacion y al final crea el correo y la contrasena.'
+      : 'Define primero el rol de acceso, completa los datos del usuario, registra la selfie biometrica y al final crea el correo y la contrasena. Si el rol es cliente, entrara primero a una cotizacion gratis y despues podra activar la membresia mensual de USD $115.',
 )
 const loginRoute = computed(() =>
   form.role === 'client'
@@ -112,7 +120,6 @@ const loginRoute = computed(() =>
 
 const currentStepId = computed(() => selectedStep.value?.id || wizardSteps.value[0]?.id || '')
 const isCrewRole = computed(() => form.role === 'sobrecargo')
-const CREW_COMPANY_NAME = 'Red Aviation'
 
 function documentTypeForRole(role) {
   return role === 'sobrecargo' ? 'Licencia de sobrecargo' : 'INE'
@@ -269,7 +276,19 @@ function validateCurrentStep() {
 
   if (currentStepId.value === 'perfil') {
     if (!form.name.trim() || !form.phone.trim()) {
-      errorMessage.value = 'Completa nombre y telefono del usuario.'
+      errorMessage.value = isProviderRole.value
+        ? 'Completa nombre y telefono del representante legal.'
+        : 'Completa nombre y telefono del usuario.'
+      return false
+    }
+
+    if (isProviderRole.value && !form.companyName.trim()) {
+      errorMessage.value = 'Completa el nombre comercial de la empresa para continuar con el registro.'
+      return false
+    }
+
+    if (isProviderRole.value && (!form.companyPhone.trim() || !form.companyEmail.trim())) {
+      errorMessage.value = 'Completa telefono y email de la empresa.'
       return false
     }
 
@@ -306,7 +325,7 @@ function validateCurrentStep() {
       }
     }
 
-    if (!isCrewRole.value) {
+    if (!isCrewRole.value && !isProviderRole.value) {
       const biometricCaptureReady =
         Boolean(form.selfieFile) &&
         Boolean(form.selfiePreviewUrl) &&
@@ -348,8 +367,31 @@ function normalizeErrorDetails(error) {
     return []
   }
 
+  function resolveFieldLabel(field) {
+    if (field === 'email') return 'Correo electrónico'
+    if (field === 'company_name') return 'Nombre comercial de la empresa'
+    return field
+  }
+
+  function translateFieldMessage(field, message) {
+    const normalizedMessage = String(message || '').trim().toLowerCase()
+
+    if (field === 'email' && normalizedMessage.includes('has already been taken')) {
+      return 'El correo electrónico ingresado ya se encuentra registrado.'
+    }
+
+    if (
+      field === 'company_name' &&
+      normalizedMessage.includes('company name field is required when role is provider')
+    ) {
+      return 'El nombre comercial de la empresa es obligatorio para continuar con el registro de operador.'
+    }
+
+    return String(message || '').replace(/^The\s+/i, '')
+  }
+
   return Object.entries(fieldErrors).flatMap(([field, messages]) => {
-    const fieldLabel = field === 'email' ? 'Correo' : field
+    const fieldLabel = resolveFieldLabel(field)
 
     if (!Array.isArray(messages)) {
       return []
@@ -357,14 +399,13 @@ function normalizeErrorDetails(error) {
 
     return messages
       .filter(Boolean)
-      .map((message) => `${fieldLabel}: ${String(message).replace(/^The\s+/i, '')}`)
+      .map((message) => `${fieldLabel}: ${translateFieldMessage(field, message)}`)
   })
 }
 
 function openErrorModal(error) {
-  errorModalTitle.value = 'No fue posible crear la cuenta'
-  errorModalMessage.value =
-    error?.payload?.message || error?.message || 'Ocurrio un error al registrar el usuario.'
+  errorModalTitle.value = 'No fue posible completar el registro'
+  errorModalMessage.value = 'Detectamos información que requiere corrección antes de crear la cuenta.'
   errorModalDetails.value = normalizeErrorDetails(error)
   errorModalOpen.value = true
 }
@@ -408,16 +449,20 @@ function limitTextPayload(value, maxLength = 4000) {
 function resolveRegistrationRoleFields(role) {
   if (role === 'sobrecargo') {
     return {
-      role: 'provider',
-      operationalRole: 'sobrecargo',
-      companyName: CREW_COMPANY_NAME,
+      role: 'sobrecargo',
+      operationalRole: '',
+      companyName: '',
+      commercialName: '',
+      legalName: '',
     }
   }
 
   return {
     role,
     operationalRole: '',
-    companyName: '',
+    companyName: form.companyName,
+    commercialName: form.commercialName,
+    legalName: form.legalName,
   }
 }
 
@@ -425,11 +470,13 @@ function buildRegistrationPayload() {
   const formData = new FormData()
   const limitedScanRaw = limitTextPayload(form.ineScanRaw, isCrewRole.value ? 4000 : 12000)
   const registrationRole = resolveRegistrationRoleFields(form.role)
+  const representativeName = isProviderRole.value ? form.name : form.name
+  const representativePhone = isProviderRole.value ? form.phone : form.phone
 
   const baseFields = {
-    name: form.name,
+    name: representativeName,
     email: form.email,
-    phone: form.phone,
+    phone: representativePhone,
     birth_date: form.birthDate,
     nationality: form.nationality,
     base: form.base,
@@ -440,12 +487,24 @@ function buildRegistrationPayload() {
     role: registrationRole.role,
     operational_role: registrationRole.operationalRole,
     company_name: registrationRole.companyName,
+    nombre_empresa: registrationRole.companyName,
+    commercial_name: registrationRole.commercialName,
+    nombre_comercial: registrationRole.commercialName,
+    legal_name: registrationRole.legalName,
+    razon_social: registrationRole.legalName,
+    company_phone: form.companyPhone,
+    company_email: form.companyEmail,
+    rfc: form.billingRfc,
+    representative_name: representativeName,
+    representative_phone: representativePhone,
+    legal_representative: representativeName,
     document_type: form.documentType,
     document_number: form.documentNumber,
     document_issue_date: form.documentIssueDate,
     document_expiration: form.documentExpiration,
     document_status: form.documentStatus,
     identity_validation_required: form.identityValidationRequired,
+    curp: form.ineCurp,
     ine_curp: form.ineCurp,
     ine_cic: form.ineCic,
     ine_ocr: form.ineOcr,
@@ -462,7 +521,7 @@ function buildRegistrationPayload() {
     license_document_status: form.documentStatus,
   }
 
-  if (!isCrewRole.value) {
+  if (!isCrewRole.value && !isProviderRole.value) {
     Object.assign(baseFields, {
       identity_verification_status: form.identityVerificationStatus,
       identity_verification_message: form.identityVerificationMessage,
@@ -491,6 +550,9 @@ function buildRegistrationPayload() {
 
   if (isCrewRole.value) {
     appendFormValue(formData, 'license_file', form.ineFront)
+  } else if (isProviderRole.value) {
+    appendFormValue(formData, 'ine_front', form.ineFront)
+    appendFormValue(formData, 'ine_back', form.ineBack)
   } else {
     appendFormValue(formData, 'ine_front', form.ineFront)
     appendFormValue(formData, 'ine_back', form.ineBack)
@@ -535,10 +597,7 @@ async function submit() {
     })
     await auth.refreshSession()
     const providerStatus = String(response?.provider_status || '').trim().toLowerCase()
-    const targetDashboard =
-      form.role === 'provider' && providerStatus === 'pending_validation'
-        ? '/operador/empresa'
-        : resolveDashboardPathByRole(form.role)
+    const targetDashboard = resolvePostRegistrationDashboard(form.role, response, auth.dashboardPath)
 
     successMessage.value =
       form.role === 'client'
@@ -549,7 +608,7 @@ async function submit() {
             : 'Operador creado correctamente. Entrando a su panel operativo.'
           : 'Sobrecargo creado correctamente. Entrando a su panel correspondiente.'
 
-    router.push(targetDashboard || auth.dashboardPath)
+    router.push(targetDashboard || resolveDashboardPathByRole(form.role) || auth.dashboardPath)
   } catch (error) {
     errorMessage.value = error.message || 'No fue posible crear el usuario.'
     openErrorModal(error)

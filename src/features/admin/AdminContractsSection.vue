@@ -1,10 +1,14 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import ClientContractPreview from '../client/ClientContractPreview.vue'
+import { resolveRoleSectionPath } from '../../data/roleFlows'
 
 const props = defineProps({
   contracts: { type: Array, default: () => [] },
 })
+
+const router = useRouter()
 
 const filters = ref({
   query: '',
@@ -260,6 +264,29 @@ function openContractDetail(contract, tab = 'summary') {
 
 function closeContractDetail() {
   detailModalOpen.value = false
+}
+
+function handleContractAction(action) {
+  if (!selectedContract.value) return
+
+  if (action === 'summary') {
+    detailTab.value = 'summary'
+    return
+  }
+
+  if (action === 'document') {
+    detailTab.value = 'document'
+    return
+  }
+
+  if (action === 'history') {
+    detailTab.value = 'history'
+    return
+  }
+
+  if (action === 'payment') {
+    router.push(resolveRoleSectionPath('admin', 'pagos'))
+  }
 }
 
 function buildContractReservation(contract) {
@@ -743,10 +770,10 @@ function buildAuditTrail(contract, reservation, timeline) {
             <article class="detail-card">
               <h3>Acciones</h3>
               <div class="action-stack">
-                <button type="button" class="primary-action">Enviar contrato</button>
-                <button type="button" class="secondary-action">Solicitar firma</button>
-                <button type="button" class="secondary-action">Confirmar pago</button>
-                <button type="button" class="secondary-action">Ver documento</button>
+                <button type="button" class="primary-action" @click="handleContractAction('summary')">Enviar contrato</button>
+                <button type="button" class="secondary-action" @click="handleContractAction('document')">Solicitar firma</button>
+                <button type="button" class="secondary-action" @click="handleContractAction('payment')">Confirmar pago</button>
+                <button type="button" class="secondary-action" @click="handleContractAction('document')">Ver documento</button>
               </div>
             </article>
           </div>

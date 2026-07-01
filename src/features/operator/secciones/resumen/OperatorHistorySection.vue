@@ -1,8 +1,23 @@
 <script setup>
-defineProps({
+import { computed, ref } from 'vue'
+
+const props = defineProps({
   historySummary: { type: Object, required: true },
   historyEntries: { type: Array, required: true },
 })
+
+const activeFilter = ref('all')
+
+function resolveHistoryCategory(item = {}) {
+  const source = `${item.action || ''} ${item.comment || ''} ${item.previousState || ''} ${item.newState || ''}`.toLowerCase()
+  if (source.includes('incid')) return 'incidents'
+  if (source.includes('asign') || source.includes('tripul') || source.includes('crew')) return 'assignments'
+  return 'operations'
+}
+
+const filteredHistoryEntries = computed(() =>
+  props.historyEntries.filter((item) => activeFilter.value === 'all' || resolveHistoryCategory(item) === activeFilter.value),
+)
 </script>
 
 <template>
@@ -61,15 +76,15 @@ defineProps({
         </div>
 
         <div class="filters">
-          <button class="filter-chip active">Todos</button>
-          <button class="filter-chip">Operaciones</button>
-          <button class="filter-chip">Incidencias</button>
-          <button class="filter-chip">Asignaciones</button>
+          <button type="button" class="filter-chip" :class="{ active: activeFilter === 'all' }" @click="activeFilter = 'all'">Todos</button>
+          <button type="button" class="filter-chip" :class="{ active: activeFilter === 'operations' }" @click="activeFilter = 'operations'">Operaciones</button>
+          <button type="button" class="filter-chip" :class="{ active: activeFilter === 'incidents' }" @click="activeFilter = 'incidents'">Incidencias</button>
+          <button type="button" class="filter-chip" :class="{ active: activeFilter === 'assignments' }" @click="activeFilter = 'assignments'">Asignaciones</button>
         </div>
       </div>
 
       <div class="history-list">
-        <article v-for="item in historyEntries" :key="item.id" class="history-row">
+        <article v-for="item in filteredHistoryEntries" :key="item.id" class="history-row">
           <span class="timeline-dot"></span>
 
           <div class="history-main">

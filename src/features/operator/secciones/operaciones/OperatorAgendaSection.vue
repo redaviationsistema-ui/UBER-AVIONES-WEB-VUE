@@ -1,5 +1,7 @@
 <script setup>
-defineProps({
+import { computed, ref } from 'vue'
+
+const props = defineProps({
   agendaForm: { type: Object, required: true },
   agendaErrors: { type: Object, required: true },
   agendaItems: { type: Array, required: true },
@@ -11,6 +13,31 @@ defineProps({
 })
 
 defineEmits(['update-field', 'create'])
+
+const activeRange = ref('today')
+
+function normalizeDate(value) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  date.setHours(0, 0, 0, 0)
+  return date
+}
+
+const filteredAgendaItems = computed(() => {
+  if (activeRange.value === 'week') return props.agendaItems
+
+  const now = new Date()
+  now.setHours(0, 0, 0, 0)
+  const tomorrow = new Date(now)
+  tomorrow.setDate(now.getDate() + 1)
+
+  return props.agendaItems.filter((item) => {
+    const itemDate = normalizeDate(item.date)
+    if (!itemDate) return activeRange.value === 'today'
+    if (activeRange.value === 'tomorrow') return itemDate.getTime() === tomorrow.getTime()
+    return itemDate.getTime() === now.getTime()
+  })
+})
 </script>
 
 <template>
@@ -61,15 +88,15 @@ defineEmits(['update-field', 'create'])
           </div>
 
           <div class="agenda-filters">
-            <button class="filter-chip active">Hoy</button>
-            <button class="filter-chip">Mañana</button>
-            <button class="filter-chip">Semana</button>
+            <button type="button" class="filter-chip" :class="{ active: activeRange === 'today' }" @click="activeRange = 'today'">Hoy</button>
+            <button type="button" class="filter-chip" :class="{ active: activeRange === 'tomorrow' }" @click="activeRange = 'tomorrow'">Mañana</button>
+            <button type="button" class="filter-chip" :class="{ active: activeRange === 'week' }" @click="activeRange = 'week'">Semana</button>
           </div>
         </div>
 
         <div class="timeline-grid">
           <article
-            v-for="item in agendaItems"
+            v-for="item in filteredAgendaItems"
             :key="item.id"
             class="timeline-row"
             :class="{

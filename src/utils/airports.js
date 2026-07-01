@@ -9,6 +9,7 @@ function compact(parts) {
 export const featuredAirports = [
   { code: 'MMMX', iata: 'MEX', name: 'Aeropuerto Internacional Benito Juarez', city: 'Ciudad de Mexico', country: 'Mexico', latitude: 19.4361, longitude: -99.0719, climb_descent_adjustment_minutes: 10 },
   { code: 'MMTO', iata: 'TLC', name: 'Aeropuerto Internacional de Toluca', city: 'Toluca', country: 'Mexico', latitude: 19.3371, longitude: -99.5660, climb_descent_adjustment_minutes: 5 },
+  { code: 'MMMM', iata: 'MLM', name: 'Aeropuerto Internacional General Francisco J. Mujica', city: 'Morelia', country: 'Mexico', latitude: 19.8499, longitude: -101.0250, climb_descent_adjustment_minutes: 5 },
   { code: 'MMMY', iata: 'MTY', name: 'Aeropuerto Internacional de Monterrey', city: 'Monterrey', country: 'Mexico', latitude: 25.7785, longitude: -100.1070, climb_descent_adjustment_minutes: 0 },
   { code: 'MMGL', iata: 'GDL', name: 'Aeropuerto Internacional de Guadalajara', city: 'Guadalajara', country: 'Mexico', latitude: 20.5218, longitude: -103.3112, climb_descent_adjustment_minutes: 0 },
   { code: 'MMSD', iata: 'SJD', name: 'Aeropuerto Internacional de Los Cabos', city: 'Los Cabos', country: 'Mexico', latitude: 23.1518, longitude: -109.7210, climb_descent_adjustment_minutes: 5 },

@@ -158,7 +158,7 @@ export function createOperatorPortalRequestsDomain(ctx = {}) {
     if (workflowState === 'payment_pending')
       return 'El pago esta pendiente o en revision antes de liberar el vuelo.'
     if (workflowState === 'payment_confirmed')
-      return 'Pago confirmado. El proveedor confirma aeronave y operacion; Red Aviation coordina con la sobrecargo y mantiene informado al cliente.'
+      return 'Pago confirmado. El proveedor confirma aeronave y operacion; la plataforma coordina con la sobrecargo y mantiene informado al cliente.'
     if (workflowState === 'flight_confirmed')
       return 'La aeronave y la operacion ya quedaron confirmadas por el proveedor; el admin sigue la coordinacion con sobrecargo y cliente.'
     if (workflowState === 'tracking_live')

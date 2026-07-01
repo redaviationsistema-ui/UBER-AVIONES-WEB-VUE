@@ -340,6 +340,21 @@ function reservationStageLabel(reservation) {
   return workflowStageTitle(effectiveWorkflowValue(reservation))
 }
 
+function formatReservationDate(value = '') {
+  const normalized = String(value || '').trim()
+  if (!normalized) return 'Sin fecha'
+
+  const parsed = new Date(normalized)
+  if (Number.isNaN(parsed.getTime())) return normalized
+
+  return new Intl.DateTimeFormat('es-MX', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(parsed)
+}
+
 function getProviderReleaseSource(reservation = {}) {
   const raw = reservation?.raw && typeof reservation.raw === 'object' ? reservation.raw : {}
   return (
@@ -675,7 +690,7 @@ function submitResume(reservation) {
             </div>
 
             <div class="card-meta">
-              <span>{{ reservation.departure }}</span>
+              <span>{{ formatReservationDate(reservation.departure) }}</span>
               <span>{{ humanizeContractStatus(reservation.contractStatus) }}</span>
             </div>
           </button>
@@ -973,7 +988,6 @@ function submitResume(reservation) {
         <div v-if="props.showAdminFlowPanel" class="flow-shell">
           <div class="section-mini-head">
             <h4>Flujo visible para el admin</h4>
-            <p>El admin puede llevar el caso al paso correcto aun cuando el cliente necesite ajustes o validaciones extra.</p>
           </div>
 
           <article class="signature-callout" :class="`signature-callout--${signatureStatus.tone}`">
@@ -1422,6 +1436,26 @@ function submitResume(reservation) {
   gap: 1rem;
 }
 
+.reservations-panel,
+.detail-panel,
+.reservation-list,
+.reservation-card,
+.card-head,
+.card-head > div,
+.route-line,
+.card-tags,
+.card-meta,
+.card-meta span,
+.mini-badge,
+.badge {
+  min-width: 0;
+}
+
+.reservation-list {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  align-items: start;
+}
+
 .provider-release-note-shell {
   display: grid;
   gap: 0.45rem;
@@ -1442,6 +1476,7 @@ function submitResume(reservation) {
   padding: 1rem;
   text-align: left;
   cursor: pointer;
+  overflow: hidden;
   transition:
     border-color 0.2s ease,
     box-shadow 0.2s ease,
@@ -1555,6 +1590,15 @@ function submitResume(reservation) {
 .card-meta {
   color: #4f4638;
   font-size: 0.94rem;
+}
+
+.card-head strong,
+.route-line,
+.card-meta span,
+.mini-badge,
+.badge {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .card-tags {

@@ -425,7 +425,7 @@ function stageTone(state = '') {
                 <span class="badge">{{ item.responseStatus }}</span>
                 <span class="badge">{{ item.crewStatusLabel || item.missionStatus }}</span>
               </div>
-              <button class="ghost-button action-button row-select-button" type="button">
+              <button class="ghost-button action-button row-select-button" type="button" @click.stop="selectedAssignmentId = item.id">
                 Ver detalle
               </button>
             </div>

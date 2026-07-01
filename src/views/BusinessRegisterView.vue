@@ -1,3 +1,21 @@
+<script setup>
+import { ref } from 'vue'
+import { useRouter } from 'vue-router'
+
+const router = useRouter()
+const identifier = ref('')
+
+function continueFlow(source = 'direct') {
+  router.push({
+    name: 'membresias-contacto',
+    query: {
+      identifier: identifier.value,
+      source,
+    },
+  })
+}
+</script>
+
 <template>
   <main class="register-page">
     <header class="simple-header">
@@ -7,9 +25,9 @@
     <section class="register-box">
       <h1>¿Cuál es tu teléfono o correo electrónico?</h1>
 
-      <input type="text" placeholder="Ingresa tu teléfono o correo electrónico" />
+      <input v-model="identifier" type="text" placeholder="Ingresa tu teléfono o correo electrónico" />
 
-      <button>Continuar</button>
+      <button type="button" @click="continueFlow()">Continuar</button>
 
       <div class="divider">
         <span></span>
@@ -17,8 +35,8 @@
         <span></span>
       </div>
 
-      <button class="social">Continúa con Google</button>
-      <button class="social">Continúa con Apple</button>
+      <button type="button" class="social" @click="continueFlow('google')">Continúa con Google</button>
+      <button type="button" class="social" @click="continueFlow('apple')">Continúa con Apple</button>
 
       <p>
         Al continuar, aceptas recibir información sobre vuelos privados, membresías, paquetes

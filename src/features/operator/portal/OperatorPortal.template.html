@@ -1,7 +1,41 @@
   <div class="operator-portal-page">
-  
+    <div
+      v-if="operatorRouteSectionLoadingVisible"
+      class="operator-route-loading-overlay"
+      role="status"
+      aria-live="polite"
+      :aria-label="operatorRouteSectionLoadingMeta.title"
+    >
+      <div class="operator-route-loading-shell">
+        <div class="operator-route-loading-spinner" aria-hidden="true">
+          <span v-for="segment in 12" :key="`operator-route-loading-segment-${segment}`"></span>
+        </div>
+        <p class="eyebrow">{{ operatorRouteSectionLoadingMeta.eyebrow }}</p>
+        <h2>{{ operatorRouteSectionLoadingMeta.title }}</h2>
+        <p class="muted">{{ operatorRouteSectionLoadingMeta.detail }}</p>
+      </div>
+    </div>
 
     <section v-if="section === 'dashboard'" class="page-grid operator-dashboard-luxury">
+      <div
+        v-if="loading && !sectionLoadState.dashboard"
+        class="dashboard-loading-overlay"
+        role="status"
+        aria-live="polite"
+        aria-label="Cargando dashboard del operador"
+      >
+        <div class="dashboard-loading-shell">
+          <div class="dashboard-loading-spinner" aria-hidden="true">
+            <span v-for="segment in 12" :key="`dashboard-loading-segment-${segment}`"></span>
+          </div>
+          <p class="eyebrow">Centro operativo</p>
+          <h2>Preparando dashboard del operador</h2>
+          <p class="muted">
+            Estamos sincronizando la empresa, la flota y las solicitudes activas.
+          </p>
+        </div>
+      </div>
+
       <article
         v-if="visibleRealtimeRequests.length"
         class="surface realtime-flight-request-banner"
@@ -251,15 +285,7 @@
               </div>
             </div>
 
-            <div class="executive-jet-visual" aria-hidden="true">
-              <span class="jet-wing jet-wing--top"></span>
-              <span class="jet-body"></span>
-              <span class="jet-window jet-window--one"></span>
-              <span class="jet-window jet-window--two"></span>
-              <span class="jet-window jet-window--three"></span>
-              <span class="jet-tail"></span>
-              <span class="jet-wing jet-wing--bottom"></span>
-            </div>
+            
 
             <div class="priority-list">
               <article class="priority-item priority-item--static">
@@ -294,8 +320,8 @@
       <article class="surface company-shell">
         <div class="section-head">
           <div>
-            <p class="eyebrow">RED AVIATION</p>
-            <h2>Operador Aeronautico Certificado</h2>
+            <p class="eyebrow">Perfil de empresa</p>
+            <h2>{{ providerName }}</h2>
             <strong class="operator-certification-name">{{ providerName }}</strong>
             <p class="muted">
               Operador activo · {{ companyOperationalBase }} · {{ aircraft.length }} aeronaves ·
@@ -571,7 +597,7 @@
           <span class="mini-label">Confidence</span>
           <h3>{{ companyStatusMeta.headline }}</h3>
           <p class="muted">
-            Tu empresa esta habilitada para operar dentro del ecosistema Red Aviation con foco en
+            Tu empresa esta habilitada para operar dentro de la plataforma con foco en
             cumplimiento legal, readiness documental y alta de flota.
           </p>
           <div class="company-checklist">
@@ -1000,7 +1026,7 @@
                   complete: aircraftWizardStep > step.id,
                 }"
                 :disabled="aircraftWizardSubmitting"
-                @click="aircraftWizardStep = step.id"
+                @click="goToAircraftWizardStep(step.id)"
               >
                 <span>{{ String(step.id).padStart(2, '0') }}</span>
                 <strong>{{ step.label }}</strong>
@@ -1019,6 +1045,10 @@
                 </div>
                 <p class="wizard-stage-detail">{{ aircraftWizardModeMeta.detail }}</p>
               </div>
+
+              <p v-if="aircraftWizardStepError" class="form-feedback form-feedback-error">
+                {{ aircraftWizardStepError }}
+              </p>
 
               <div v-if="aircraftWizardStep === 1" class="wizard-panel">
               <div class="section-head">
@@ -1601,7 +1631,7 @@
       </div>
     </section>
 
-    <section v-else-if="section === 'costos'" class="page-grid">
+    <section v-else-if="section === 'costos'" class="page-grid operator-costs-luxury">
       <article class="surface">
         <div class="section-head">
           <div>
@@ -1612,7 +1642,8 @@
         </div>
 
         <p class="muted helper-copy">
-          Cada fila representa una aeronave. Aqui capturas costos base y parametros operativos; Red Aviation conserva el control del precio final y los margenes.
+          Cada fila representa una aeronave. Aqui capturas costos base y parametros operativos; la
+          plataforma conserva el control del precio final y los margenes.
         </p>
 
         <div v-if="aircraftPricingRows.length" class="table-shell pricing-table-shell">
@@ -2317,46 +2348,6 @@
               <p class="muted">{{ selectedRequestWorkflowPreview.detail }}</p>
             </article> -->
 
-            <div class="request-summary-grid">
-              <article class="request-summary-card">
-                <span class="mini-label">Estado</span>
-                <strong>{{ getRequestStatusMeta(selectedRequest).headline }}</strong>
-                <p class="muted">{{ getRequestStatusCopy(selectedRequest) }}</p>
-              </article>
-              <article class="request-summary-card">
-                <span class="mini-label">Etapa visible</span>
-                <strong>{{ selectedRequestWorkflowPreview.label }}</strong>
-                <p class="muted">{{ selectedRequestWorkflowPreview.detail }}</p>
-              </article>
-              <article class="request-summary-card">
-                <span class="mini-label">Paquete / servicio</span>
-                <strong>{{ getRequestServiceTierLabel(selectedRequest) }}</strong>
-                <p class="muted">{{ getRequestTripTypeLabel(selectedRequest) }}</p>
-              </article>
-              <article class="request-summary-card">
-                <span class="mini-label">SLA</span>
-                <strong>{{ getRequestResponseCountdown(selectedRequest).label }}</strong>
-                <p class="muted">{{ formatDateTimeDisplay(selectedRequest.responseLimit) }}</p>
-              </article>
-              <article class="request-summary-card">
-                <span class="mini-label">Aeronave sugerida</span>
-                <strong>{{ selectedRequestAircraftComparison.label }}</strong>
-                <p class="muted">{{ selectedRequestAircraftComparison.detail }}</p>
-              </article>
-              <article class="request-summary-card">
-                <span class="mini-label">Liberacion operativa</span>
-                <strong>
-                  {{
-                    getProviderOperationalReleaseStatusMeta(getProviderOperationalReleaseCurrentStatus()).label
-                  }}
-                </strong>
-                <p class="muted">
-                  {{ getProviderOperationalReleaseProgress().done }} / {{ getProviderOperationalReleaseProgress().total }}
-                  checkpoints completos.
-                </p>
-              </article>
-            </div>
-
             <article class="provider-release-cta">
               <div>
                 <span class="mini-label"> Liberacion</span>
@@ -2442,7 +2433,7 @@
               <span>{{ formatDateTimeDisplay(releaseProviderRequest.date) }}</span>
             </div>
             <p class="muted helper-copy">
-              Aqui el proveedor confirma aeronave y liberacion operativa. Red Aviation coordina a
+              Aqui el proveedor confirma aeronave y liberacion operativa. La plataforma coordina a
               la sobrecargo y centraliza toda actualizacion al cliente.
             </p>
             <div v-if="releaseProviderRequest" class="flight-release-badges">
@@ -2476,7 +2467,7 @@
             <article class="request-summary-card">
               <span class="mini-label">Etapa compartida</span>
               <strong>{{ normalizeWorkflowLabel(resolveRequestWorkflowValue(releaseProviderRequest)) }}</strong>
-              <p class="muted">Aqui el proveedor valida operacion y Red Aviation coordina sobrecargo y cliente.</p>
+              <p class="muted">Aqui el proveedor valida operacion y la plataforma coordina sobrecargo y cliente.</p>
             </article>
             <article class="request-summary-card">
               <span class="mini-label">Aeronave</span>
@@ -2492,7 +2483,7 @@
                 <h4>Confirmacion operacional de vuelo</h4>
                 <p class="muted">
                   El proveedor confirma aeronave, despacho y salida operativa. La coordinacion con
-                  la sobrecargo y cualquier comunicacion al cliente se mantiene dentro de Red Aviation.
+                  la sobrecargo y cualquier comunicacion al cliente se mantiene dentro de la plataforma.
                 </p>
               </div>
               <span
@@ -2507,7 +2498,7 @@
               <strong>Importante:</strong>
               <p>
                 El proveedor solo confirma aeronave, Tripulacion y despacho operativo.
-                Red Aviation coordina cliente, concierge, sobrecargo y liberacion final del vuelo.
+                La plataforma coordina cliente, concierge, sobrecargo y liberacion final del vuelo.
               </p>
             </article>
 
@@ -2648,7 +2639,7 @@
                     </span>
                   </div>
                   <p class="provider-release-note">
-                    El proveedor confirma estados operativos. Red Aviation mantiene nombres, contacto y coordinacion final.
+                    El proveedor confirma estados operativos. La plataforma mantiene nombres, contacto y coordinacion final.
                   </p>
                   <div class="provider-release-inline-grid">
                     <label>
@@ -2751,7 +2742,7 @@
                   </div>
                   <div class="provider-release-actions provider-release-actions--inline">
                     <button type="button" class="ghost-button" @click="requestProviderOperationalSupport()">
-                      Solicitar apoyo a Red Aviation
+                      Solicitar apoyo administrativo
                     </button>
                   </div>
                 </article>
@@ -2915,7 +2906,7 @@
                       </select>
                     </label>
                     <label>
-                      <span>Red Aviation</span>
+                      <span>Soporte administrativo</span>
                       <input type="text" value="Recibe alerta administrativa" disabled />
                     </label>
                   </div>
@@ -2934,7 +2925,7 @@
                       :disabled="savingProviderOperationalIssue"
                       @click="submitProviderOperationalIssue()"
                     >
-                      {{ savingProviderOperationalIssue ? 'Reportando...' : 'Reportar a Red Aviation' }}
+                      {{ savingProviderOperationalIssue ? 'Reportando...' : 'Reportar a soporte administrativo' }}
                     </button>
                   </div>
                 </article>
@@ -3166,7 +3157,7 @@
       </article>
     </section>
 
-    <section v-else-if="section === 'tripulacion'" class="page-grid">
+    <section v-else-if="section === 'tripulacion'" class="page-grid operator-crew-luxury">
       <OperatorCrewSection
         :crew-form="crewForm"
         :crew-errors="formErrors.crew"
@@ -3262,25 +3253,6 @@
     </section>
 
     <section v-else-if="section === 'incidencias'" class="page-grid operator-incidents-dashboard">
-      <div
-        v-if="isIncidentsSectionLoading"
-        class="operator-section-loading-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="operator-incidents-loading-title"
-      >
-        <div class="operator-section-loading-surface">
-          <div class="operator-section-loading-orb" aria-hidden="true">
-            <span></span>
-            <span></span>
-            <span></span>
-          </div>
-          <p class="eyebrow">Portal proveedor</p>
-          <h3 id="operator-incidents-loading-title">Cargando incidencias</h3>
-          <p class="muted">Estamos reuniendo reportes, prioridades, responsables y seguimiento operativo.</p>
-        </div>
-      </div>
-
       <article class="surface operator-incidents-overview">
         <div class="section-head operator-incidents-overview__head">
           <div>
@@ -3692,7 +3664,7 @@
         <div class="payments-premium-hero">
           <div class="payments-premium-hero__copy">
             <p class="eyebrow">Financial Operations Center</p>
-            <h2>RED AVIATION</h2>
+            <h2>{{ providerName }}</h2>
             <p class="muted">
               Executive Aviation Financial Cockpit para cobros, renovaciones y suscripciones de flota.
             </p>
@@ -4148,7 +4120,7 @@
       </article>
     </section>
 
-    <section v-else-if="section === 'historial'" class="page-grid">
+    <section v-else-if="section === 'historial'" class="page-grid operator-history-luxury">
       <article class="surface">
         <div class="section-head">
           <div>
@@ -4167,7 +4139,7 @@
       </article>
     </section>
 
-    <section v-else class="page-grid two-columns">
+    <section v-else class="page-grid two-columns operator-settings-luxury">
       <article class="surface">
         <div class="section-head">
           <div>

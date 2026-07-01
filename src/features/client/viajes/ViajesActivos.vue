@@ -140,8 +140,17 @@ function airportDisplay(code = '') {
 }
 
 function airportDisplayFromPayload(code = '', airportPayload = null) {
-  if (airportPayload?.city && (airportPayload?.code || airportPayload?.iata)) {
-    return `${airportPayload.city} (${airportPayload.code || airportPayload.iata})`
+  const payloadCode = String(airportPayload?.code || airportPayload?.iata || code || '')
+    .trim()
+    .toUpperCase()
+  const payloadCity = String(airportPayload?.city || airportPayload?.name || '').trim()
+
+  if (payloadCity && payloadCode) {
+    return `${payloadCity} (${payloadCode})`
+  }
+
+  if (payloadCity) {
+    return payloadCity
   }
 
   return airportDisplay(code)
@@ -152,8 +161,8 @@ function itinerarySegments(reservation = {}) {
     return reservation.legs.map((leg) => ({
       key: leg.id || `leg-${leg.leg_order}`,
       order: leg.leg_order || '',
-      origin: airportDisplay(leg.origin),
-      destination: airportDisplay(leg.destination),
+      origin: airportDisplayFromPayload(leg.origin, leg.originAirport),
+      destination: airportDisplayFromPayload(leg.destination, leg.destinationAirport),
       departure: leg.departure_datetime || '',
     }))
   }
@@ -163,8 +172,11 @@ function itinerarySegments(reservation = {}) {
       {
         key: 'base-leg',
         order: 1,
-        origin: airportDisplay(reservation.origin),
-        destination: airportDisplay(reservation.destination),
+        origin: airportDisplayFromPayload(reservation.origin, reservation.originAirport),
+        destination: airportDisplayFromPayload(
+          reservation.destination,
+          reservation.destinationAirport,
+        ),
         departure: reservation.date || '',
       },
       ...reservation.requirements.map((leg, index) => ({
@@ -217,8 +229,11 @@ function routeDisplay(reservation = {}) {
     if (routePoints.length) return routePoints.join(' -> ')
   }
 
-  const origin = airportDisplay(reservation.origin || '')
-  const destination = airportDisplay(reservation.destination || '')
+  const origin = airportDisplayFromPayload(reservation.origin || '', reservation.originAirport)
+  const destination = airportDisplayFromPayload(
+    reservation.destination || '',
+    reservation.destinationAirport,
+  )
 
   if (!origin && !destination) {
     return snapshotRoute || reservation.route || reservation.title || `Vuelo privado #${reservation.id}`
@@ -245,14 +260,23 @@ function departureLine(reservation = {}) {
   return reservation.date ? formatTripDate(reservation.date) : 'Horario por confirmar'
 }
 
-function countdownLabel(value = '') {
+function countdownLabel(reservation = {}) {
+  const value = reservation?.date || reservation?.departure_datetime || ''
   if (!value) return ''
 
   const target = new Date(value)
   if (Number.isNaN(target.getTime())) return ''
 
   const diffMs = target.getTime() - Date.now()
-  if (diffMs <= 0) return 'En curso'
+  if (diffMs <= 0) {
+    const stateId = workflowId(reservationWorkflowValue(reservation))
+
+    if (['provider_pending', 'provider_accepted', 'contract_pending', 'contract_signed', 'payment_pending'].includes(stateId)) {
+      return 'Pendiente de actualizar'
+    }
+
+    return 'En curso'
+  }
 
   const totalHours = Math.floor(diffMs / 3600000)
   const days = Math.floor(totalHours / 24)
@@ -343,11 +367,17 @@ function getPrimaryImageValue(raw = {}) {
     raw.photoUrl ||
     raw.cover_image ||
     raw.coverImage ||
+    raw.cover_photo ||
+    raw.coverPhoto ||
     raw.featured_image ||
     raw.featuredImage ||
     raw.thumbnail ||
     raw.thumbnail_url ||
     raw.thumbnailUrl ||
+    raw.exterior_image ||
+    raw.exteriorImage ||
+    raw.interior_image ||
+    raw.interiorImage ||
     raw.gallery_exterior ||
     raw.gallery_interior ||
     ''
@@ -391,6 +421,48 @@ function resolvePrimaryAircraftImage(raw = {}) {
   return resolveMediaUrl(getPrimaryImageValue(raw)) || ''
 }
 
+function resolveAircraftImageFromCollections(collections = []) {
+  for (const collection of collections) {
+    if (!Array.isArray(collection)) continue
+
+    for (const item of collection) {
+      if (!item) continue
+
+      const nestedAircraftRecord =
+        item.aircraft && typeof item.aircraft === 'object' ? item.aircraft : {}
+      const nestedVisibilityPayload =
+        item.visibility_payload && typeof item.visibility_payload === 'object'
+          ? item.visibility_payload
+          : {}
+      const nestedVisibilityAircraft =
+        nestedVisibilityPayload.aircraft && typeof nestedVisibilityPayload.aircraft === 'object'
+          ? nestedVisibilityPayload.aircraft
+          : {}
+      const nestedSnapshot =
+        item.aircraft_snapshot && typeof item.aircraft_snapshot === 'object'
+          ? item.aircraft_snapshot
+          : nestedVisibilityPayload.aircraft_snapshot &&
+              typeof nestedVisibilityPayload.aircraft_snapshot === 'object'
+            ? nestedVisibilityPayload.aircraft_snapshot
+            : {}
+
+      const candidate =
+        resolveMediaUrl(item.aircraft_image || '') ||
+        resolveMediaUrl(item.image_url || '') ||
+        resolvePrimaryAircraftImage(item) ||
+        resolvePrimaryAircraftImage(nestedSnapshot) ||
+        resolvePrimaryAircraftImage(nestedAircraftRecord) ||
+        resolvePrimaryAircraftImage(nestedVisibilityAircraft) ||
+        resolveMediaUrl(nestedVisibilityPayload.aircraft_image || '') ||
+        ''
+
+      if (candidate) return candidate
+    }
+  }
+
+  return ''
+}
+
 function reservationAircraftName(reservation = {}) {
   return (
     reservation.aircraft ||
@@ -403,19 +475,100 @@ function reservationAircraftName(reservation = {}) {
 }
 
 function reservationAircraftImage(reservation = {}) {
+  const visibilityPayload =
+    reservation.visibility_payload && typeof reservation.visibility_payload === 'object'
+      ? reservation.visibility_payload
+      : {}
+  const visibilityAircraftRecord =
+    visibilityPayload.aircraft && typeof visibilityPayload.aircraft === 'object'
+      ? visibilityPayload.aircraft
+      : {}
+  const visibilitySnapshotRecord =
+    visibilityPayload.aircraft_snapshot && typeof visibilityPayload.aircraft_snapshot === 'object'
+      ? visibilityPayload.aircraft_snapshot
+      : {}
+  const contractSnapshot =
+    reservation.contract?.terms_snapshot?.aircraft_snapshot &&
+    typeof reservation.contract.terms_snapshot.aircraft_snapshot === 'object'
+      ? reservation.contract.terms_snapshot.aircraft_snapshot
+      : reservation.contract?.terms_snapshot?.client_contract_snapshot?.aircraft_snapshot &&
+          typeof reservation.contract.terms_snapshot.client_contract_snapshot.aircraft_snapshot ===
+            'object'
+        ? reservation.contract.terms_snapshot.client_contract_snapshot.aircraft_snapshot
+        : {}
+
   return (
     resolveMediaUrl(reservation.aircraft_image || '') ||
     resolveMediaUrl(reservation.image_url || '') ||
-    resolveMediaUrl(reservation.visibility_payload?.aircraft_image || '') ||
+    resolveMediaUrl(visibilityPayload.aircraft_image || '') ||
     resolveMediaUrl(reservation.aircraft_photo || '') ||
     resolveMediaUrl(reservation.aircraft_photo_url || '') ||
     resolveMediaUrl(reservation.aircraft_thumbnail || '') ||
     resolvePrimaryAircraftImage(reservation.aircraft_snapshot || {}) ||
+    resolvePrimaryAircraftImage(visibilitySnapshotRecord) ||
+    resolvePrimaryAircraftImage(visibilityAircraftRecord) ||
+    resolveAircraftImageFromCollections([
+      reservation.matched_options,
+      reservation.matches,
+      reservation.images,
+    ]) ||
     resolvePrimaryAircraftImage(reservation.contract?.terms_snapshot?.aircraft_snapshot || {}) ||
+    resolvePrimaryAircraftImage(contractSnapshot) ||
     resolveMediaUrl(reservation.contract?.terms_snapshot?.aircraft_image || '') ||
     resolveMediaUrl(reservation.contract?.terms_snapshot?.client_contract_snapshot?.aircraft_image || '') ||
     ''
   )
+}
+
+function escapeSvgText(value = '') {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function aircraftPlaceholderDataUri(reservation = {}) {
+  const aircraftName = reservationAircraftName(reservation) || 'Aeronave privada'
+  const aircraftCategory = reservationAircraftCategory(reservation) || 'Servicio ejecutivo'
+  const title = escapeSvgText(aircraftName)
+  const subtitle = escapeSvgText(aircraftCategory)
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 420" role="img" aria-label="${title}">
+      <defs>
+        <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#1d1b19" />
+          <stop offset="100%" stop-color="#635848" />
+        </linearGradient>
+        <linearGradient id="line" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stop-color="#f2d79b" />
+          <stop offset="100%" stop-color="#b88a35" />
+        </linearGradient>
+      </defs>
+      <rect width="640" height="420" rx="34" fill="url(#bg)" />
+      <circle cx="522" cy="94" r="88" fill="rgba(255,255,255,0.06)" />
+      <circle cx="110" cy="320" r="120" fill="rgba(255,255,255,0.04)" />
+      <path d="M150 216h170l96-66c18-12 41-11 57 3l22 19-66 34 66 34-22 19c-16 14-39 15-57 3l-96-66H150l-44 36-34-10 22-40-22-40 34-10 44 36Z" fill="url(#line)" opacity="0.96"/>
+      <path d="M145 216h352" stroke="rgba(255,255,255,0.18)" stroke-width="8" stroke-linecap="round"/>
+      <text x="56" y="322" fill="#f6edde" font-size="38" font-family="Manrope, Arial, sans-serif" font-weight="800">${title}</text>
+      <text x="56" y="360" fill="rgba(246,237,222,0.72)" font-size="24" font-family="Manrope, Arial, sans-serif">${subtitle}</text>
+    </svg>
+  `
+
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`
+}
+
+function reservationAircraftVisualUrl(reservation = {}) {
+  return reservationAircraftImage(reservation) || aircraftPlaceholderDataUri(reservation)
+}
+
+function handleAircraftImageError(event, reservation = {}) {
+  const target = event?.target
+  if (!target || target.dataset.fallbackApplied === 'true') return
+
+  target.dataset.fallbackApplied = 'true'
+  target.src = aircraftPlaceholderDataUri(reservation)
 }
 
 function reservationAircraftCapacity(reservation = {}) {
@@ -535,7 +688,10 @@ function reservationTab(reservation = {}) {
     return 'historial'
   }
 
-  if (isReservationPast(reservation)) {
+  if (
+    isReservationPast(reservation) &&
+    ['payment_confirmed', 'flight_confirmed', 'tracking_live'].includes(state.id)
+  ) {
     return 'historial'
   }
 
@@ -650,7 +806,7 @@ watch(
             >
             <span v-if="routeSegmentsLabel(reservation)">🗺 {{ routeSegmentsLabel(reservation) }}</span>
             <span v-if="overnightLabel(reservation)">🌙 {{ overnightLabel(reservation) }}</span>
-            <span v-if="countdownLabel(reservation.date)">⏳ {{ countdownLabel(reservation.date) }}</span>
+            <span v-if="countdownLabel(reservation)">⏳ {{ countdownLabel(reservation) }}</span>
           </div>
         </div>
         <span
@@ -689,17 +845,20 @@ watch(
       </div>
 
       <div class="executive-grid">
-        <article v-if="reservationAircraftName(reservation) || reservationAircraftImage(reservation)" class="executive-card executive-card--aircraft">
+        <article
+          v-if="reservationAircraftName(reservation) || reservationAircraftImage(reservation)"
+          class="executive-card executive-card--aircraft"
+        >
           <div
             class="executive-card__media"
             :class="{ 'executive-card__media--placeholder': !reservationAircraftImage(reservation) }"
           >
             <img
-              v-if="reservationAircraftImage(reservation)"
-              :src="reservationAircraftImage(reservation)"
+              :src="reservationAircraftVisualUrl(reservation)"
               :alt="reservationAircraftName(reservation) || 'Aeronave'"
+              loading="lazy"
+              @error="handleAircraftImageError($event, reservation)"
             />
-            <span v-else>Jet privado</span>
           </div>
           <div class="executive-card__copy">
             <strong>🛩 {{ reservationAircraftName(reservation) || 'Aeronave por confirmar' }}</strong>

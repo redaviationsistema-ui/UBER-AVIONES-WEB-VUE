@@ -65,7 +65,7 @@ export const roleSections = {
     { id: 'liberaciones', label: 'Liberaciones', icon: 'clipboard' },
     { id: 'suscripciones', label: 'Suscripciones', icon: 'wallet' },
     { id: 'contratos', label: 'Contratos', icon: 'link' },
-    { id: 'pagos', label: 'Pagos / Finanzas', icon: 'wallet' },
+    { id: 'pagos', label: 'Pagos y Finanzas', icon: 'wallet' },
     { id: 'incidencias', label: 'Incidencias', icon: 'alert' },
     { id: 'documentos', label: 'Documentos', icon: 'clipboard' },
     { id: 'configuracion', label: 'Configuracion', icon: 'grid' },
@@ -82,26 +82,26 @@ export const roleSectionGroups = {
   crew: [
     { label: 'Centro Operativo', ids: ['dashboard'] },
     { label: 'Disponibilidad', ids: ['disponibilidad'] },
-    { label: 'Seguimiento', ids: ['incidencias', 'historial', 'documentos'] },
+    { label: 'Seguimiento', ids: ['incidencias', 'historial'] },
     { label: 'Operacion', ids: ['asignaciones', 'calendario'] },
     { label: 'Cuenta', ids: ['perfil', 'configuracion'] },
   ],
   operator: [
     {
       label: 'Operacion',
-      ids: ['dashboard', 'empresa', 'aeronaves', 'costos', 'disponibilidad', 'solicitudes', 'release-provider', 'operaciones'],
+      ids: ['aeronaves', 'costos', 'disponibilidad', 'release-provider', 'empresa', 'operaciones', 'dashboard', 'solicitudes'],
     },
-    { label: 'Coordinacion', ids: ['tripulacion', 'incidencias'] },
+    { label: 'Coordinacion', ids: ['incidencias'] },
     { label: 'Control', ids: ['pagos', 'historial', 'configuracion'] },
   ],
   admin: [
-    { label: 'Cliente y Comercial', ids: ['clientes', 'reservas', 'contratos', 'pricing', 'paquetes', 'suscripciones', 'pagos'] },
+    { label: 'Cliente y Comercial', ids: ['clientes', 'reservas', 'contratos', 'suscripciones', 'pagos'] },
     {
       label: 'Operacion y Proveedores',
-      ids: ['proveedores', 'aeronaves', 'pagos-proveedor', 'operadores', 'liberaciones', 'documentos', 'notificaciones'],
+      ids: ['proveedores', 'aeronaves', 'pagos-proveedor', 'operadores', 'liberaciones', 'documentos'],
     },
     { label: 'Sobrecargos', ids: ['sobrecargos', 'disponibilidad', 'sobrecargo-operaciones', 'sobrecargos-en-vuelo', 'incidencias'] },
-    { label: 'Control Interno', ids: ['ejecutivo', 'importaciones', 'usuarios', 'analytics', 'configuracion'] },
+    { label: 'Control Interno', ids: ['ejecutivo', 'importaciones', 'usuarios', 'configuracion'] },
   ],
 }
 
@@ -129,6 +129,45 @@ export function buildMenuGroups(role, sections = roleSections[role] || []) {
   }
 
   return groups
+}
+
+export function findMenuGroupBySection(
+  role,
+  section,
+  sections = roleSections[role] || [],
+  groups = buildMenuGroups(role, sections),
+) {
+  return groups.find((group) => group.items.some((item) => item.id === section)) || null
+}
+
+export function validateRoleSectionsConfig(
+  sectionsByRole = roleSections,
+  groupsByRole = roleSectionGroups,
+) {
+  const errors = []
+
+  Object.entries(sectionsByRole).forEach(([role, sections]) => {
+    const ids = sections.map((item) => item.id)
+    const duplicates = ids.filter((id, index) => ids.indexOf(id) !== index)
+
+    duplicates.forEach((id) => {
+      errors.push(`[${role}] id duplicado: ${id}`)
+    })
+
+    const sectionIdSet = new Set(ids)
+    const configuredGroupIds = (groupsByRole[role] || []).flatMap((group) => group.ids)
+
+    configuredGroupIds.forEach((id) => {
+      if (!sectionIdSet.has(id)) {
+        errors.push(`[${role}] grupo referencia una seccion inexistente: ${id}`)
+      }
+    })
+  })
+
+  return {
+    valid: errors.length === 0,
+    errors,
+  }
 }
 
 export function resolveSection(role, section) {

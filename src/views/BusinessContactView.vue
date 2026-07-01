@@ -1,3 +1,25 @@
+<script setup>
+import { reactive, ref } from 'vue'
+
+const submitted = ref(false)
+const form = reactive({
+  nombre: '',
+  apellido: '',
+  correo: '',
+  telefono: '',
+  empresa: '',
+  pais: 'País',
+  cliente: 'Tipo de cliente',
+  frecuencia: 'Frecuencia de vuelos',
+  interes: 'Interés principal',
+  mensaje: '',
+})
+
+function submitContactForm() {
+  submitted.value = true
+}
+</script>
+
 <template>
   <main class="contact-page">
     <header class="simple-header">
@@ -7,52 +29,53 @@
     </header>
 
     <section class="contact-layout">
-      <form class="contact-card">
+      <form class="contact-card" @submit.prevent="submitContactForm">
         <h1>Contáctanos</h1>
         <p>Recibe atención personalizada para membresías corporativas y vuelos privados.</p>
 
         <div class="two-cols">
-          <input placeholder="Nombre" />
-          <input placeholder="Apellido" />
+          <input v-model="form.nombre" placeholder="Nombre" />
+          <input v-model="form.apellido" placeholder="Apellido" />
         </div>
 
-        <input placeholder="Correo electrónico de trabajo" />
-        <input placeholder="Número de teléfono" />
+        <input v-model="form.correo" placeholder="Correo electrónico de trabajo" />
+        <input v-model="form.telefono" placeholder="Número de teléfono" />
 
         <div class="two-cols">
-          <input placeholder="Nombre de la empresa" />
+          <input v-model="form.empresa" placeholder="Nombre de la empresa" />
 
-          <select>
+          <select v-model="form.pais">
             <option>País</option>
             <option>México</option>
             <option>Estados Unidos</option>
           </select>
         </div>
 
-        <select>
+        <select v-model="form.cliente">
           <option>Tipo de cliente</option>
           <option>Empresa</option>
           <option>Cliente privado</option>
           <option>Operador aéreo</option>
         </select>
 
-        <select>
+        <select v-model="form.frecuencia">
           <option>Frecuencia de vuelos</option>
           <option>Ocasional</option>
           <option>Mensual</option>
           <option>Semanal</option>
         </select>
 
-        <select>
+        <select v-model="form.interes">
           <option>Interés principal</option>
           <option>Membresía corporativa</option>
           <option>Vuelos privados</option>
           <option>Renta de aeronaves</option>
         </select>
 
-        <textarea placeholder="¿Cómo podemos ayudarte?"></textarea>
+        <textarea v-model="form.mensaje" placeholder="¿Cómo podemos ayudarte?"></textarea>
 
-        <button type="button">Enviar</button>
+        <button type="submit">Enviar</button>
+        <p v-if="submitted" class="success-message">Tu solicitud ya quedó registrada para seguimiento comercial.</p>
       </form>
 
       <section class="benefits">
@@ -166,6 +189,12 @@ textarea {
   border: 1.5px solid #222;
   border-radius: 4px;
   font-size: 0.95rem;
+}
+
+.success-message {
+  margin: 0;
+  color: #0b6b46;
+  font-weight: 700;
 }
 
 textarea {

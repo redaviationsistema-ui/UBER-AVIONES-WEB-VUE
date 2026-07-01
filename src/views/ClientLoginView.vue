@@ -25,6 +25,7 @@ const premiumBenefits = [
   'Gestion de membresias y beneficios',
   'Soporte especializado 24/7',
   'Atencion personalizada para cada trayecto',
+  'Usar una sola familia de iconos outline, por ejemplo Lucide, Heroicons o Phosphor Icons.',
 ]
 
 const trustMetrics = [

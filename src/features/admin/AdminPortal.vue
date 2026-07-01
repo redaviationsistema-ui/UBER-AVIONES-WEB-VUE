@@ -6,13 +6,7 @@ import { fallbackAdminFlags, fallbackAdminKpis } from '../../data/platform'
 import { useUiStore } from '../../stores/ui'
 import { normalizeWorkflowLabel, resolveWorkflowState, SHARED_WORKFLOW_STEPS } from '../../utils/flightWorkflow'
 import { emitWorkflowSync, subscribeWorkflowSync } from '../../lib/workflowSync'
-import {
-  delayAdminReservation,
-  getAdminReservations,
-  persistAdminReservationPatch,
-  resumeAdminReservation,
-  updateAdminReservationStage,
-} from './adminReservationsApi'
+import { resolveProviderRepresentativeName } from '../../lib/providerReview'
 
 const AdminAlertsSection = defineAsyncComponent(() => import('./AdminAlertsSection.vue'))
 const AdminAircraftSubscriptionsSection = defineAsyncComponent(() => import('./AdminAircraftSubscriptionsSection.vue'))
@@ -90,11 +84,13 @@ const ADMIN_RESERVATIONS_TIMEOUT_MS = Number(import.meta.env.VITE_ADMIN_RESERVAT
 const ADMIN_FLOW_UPDATE_TIMEOUT_MS = Number(import.meta.env.VITE_ADMIN_FLOW_UPDATE_TIMEOUT_MS || 20000)
 const ADMIN_USERS_TIMEOUT_MS = Number(import.meta.env.VITE_ADMIN_USERS_TIMEOUT_MS || 45000)
 const ADMIN_CREW_TIMEOUT_MS = Number(import.meta.env.VITE_ADMIN_CREW_TIMEOUT_MS || 30000)
+const ADMIN_PROVIDERS_TIMEOUT_MS = Number(import.meta.env.VITE_ADMIN_PROVIDERS_TIMEOUT_MS || 20000)
 const ADMIN_RESERVATIONS_REFRESH_COOLDOWN_MS = 4000
 const ADMIN_CREW_REFRESH_COOLDOWN_MS = 30000
 const ADMIN_SECTION_REFRESH_THROTTLE_MS = Number(
   import.meta.env.VITE_ADMIN_SECTION_REFRESH_THROTTLE_MS || (IS_LOCAL_ADMIN_DEV ? 12000 : 5000),
 )
+const ADMIN_PROVIDERS_CACHE_KEY = 'red_admin_providers_cache_v1'
 const adminReservationsLoadWarningShown = ref(false)
 const clientUsers = computed(() =>
   (clients.value.length ? clients.value : users.value).filter((user) => {
@@ -102,6 +98,15 @@ const clientUsers = computed(() =>
     return role.includes('client') || role.includes('cliente')
   }),
 )
+let adminReservationsModulePromise = null
+
+async function loadAdminReservationsModule() {
+  if (!adminReservationsModulePromise) {
+    adminReservationsModulePromise = import('./adminReservationsApi')
+  }
+
+  return adminReservationsModulePromise
+}
 
 function getReservationRefreshTimestamp(section = props.section) {
   return section === 'liberaciones' ? lastReleasesRefreshAt : lastReservationsRefreshAt
@@ -839,16 +844,29 @@ function normalizeAdminProvider(item = {}) {
   const provider = item && typeof item === 'object' ? item : {}
   const user = provider.user && typeof provider.user === 'object' ? provider.user : {}
   const profile = user.profile && typeof user.profile === 'object' ? user.profile : {}
+  const aircraftMetrics =
+    provider.aircraft_metrics && typeof provider.aircraft_metrics === 'object'
+      ? provider.aircraft_metrics
+      : null
+
+  const representativeName = resolveProviderRepresentativeName({
+    ...provider,
+    user: {
+      ...user,
+      profile,
+    },
+  })
 
   return {
     ...provider,
     id: Number(provider.id || provider.provider_id || user.provider_id || 0),
     company_name:
       provider.company_name ||
+      provider.commercial_name ||
+      provider.legal_name ||
       provider.razon_social ||
       profile.company_name ||
       user.company_name ||
-      user.name ||
       'Proveedor',
     commercial_name:
       provider.commercial_name ||
@@ -856,16 +874,33 @@ function normalizeAdminProvider(item = {}) {
       provider.trade_name ||
       provider.nombre_comercial ||
       provider.company_name ||
+      provider.legal_name ||
       profile.company_name ||
-      user.name ||
       'Proveedor',
+    legal_name:
+      provider.legal_name ||
+      provider.razon_social ||
+      provider.company_name ||
+      profile.legal_name ||
+      profile.company_name ||
+      '',
+    representative_name:
+      representativeName === 'Sin representante' ? '' : representativeName,
     contact_name:
-      provider.contact_name ||
-      provider.contact ||
-      provider.owner_name ||
-      user.name ||
-      profile.legal_representative ||
-      'Sin contacto',
+      representativeName === 'Sin representante' ? 'Sin contacto' : representativeName,
+    company_phone:
+      provider.company_phone ||
+      provider.phone ||
+      profile.company_phone ||
+      user.phone ||
+      '',
+    company_email:
+      provider.company_email ||
+      provider.email ||
+      profile.company_email ||
+      user.email ||
+      '',
+    rfc: provider.rfc || profile.rfc || '',
     base_airport:
       provider.base_airport ||
       provider.base ||
@@ -887,6 +922,14 @@ function normalizeAdminProvider(item = {}) {
       provider.validation_status ||
       user.status ||
       'pending',
+    aircraft_metrics: aircraftMetrics
+      ? {
+          aircraft: Number(aircraftMetrics.aircraft || provider.aircraft_count || 0),
+          active: Number(aircraftMetrics.active || provider.active_aircraft_count || 0),
+          trial: Number(aircraftMetrics.trial || provider.trial_aircraft_count || 0),
+          pending: Number(aircraftMetrics.pending || provider.pending_aircraft_count || 0),
+        }
+      : null,
     user,
   }
 }
@@ -921,6 +964,58 @@ function providerCatalogKey(item = {}) {
   const normalized = normalizeAdminProvider(item)
   const companyKey = normalizeToken(normalized.commercial_name || normalized.company_name)
   return normalized.id > 0 ? `id:${normalized.id}` : companyKey ? `name:${companyKey}` : ''
+}
+
+function canUseSessionStorage() {
+  return typeof window !== 'undefined' && typeof window.sessionStorage !== 'undefined'
+}
+
+function writeProvidersCache(records = []) {
+  if (!canUseSessionStorage()) return
+
+  try {
+    window.sessionStorage.setItem(
+      ADMIN_PROVIDERS_CACHE_KEY,
+      JSON.stringify({
+        savedAt: Date.now(),
+        records,
+      }),
+    )
+  } catch {
+    // Ignore storage quota or serialization issues and keep the UI responsive.
+  }
+}
+
+function readProvidersCache() {
+  if (!canUseSessionStorage()) return []
+
+  try {
+    const raw = window.sessionStorage.getItem(ADMIN_PROVIDERS_CACHE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed?.records) ? mergeProviderCatalog(parsed.records) : []
+  } catch {
+    return []
+  }
+}
+
+function applyProvidersDataset(records = [], { cache = true } = {}) {
+  const nextProviders = mergeProviderCatalog(records)
+  rawSectionRecords.proveedores = records
+  providers.value = nextProviders
+
+  if (cache && nextProviders.length) {
+    writeProvidersCache(records)
+  }
+
+  return nextProviders
+}
+
+function applyFallbackProvidersFromAircraft(records = []) {
+  const fallbackProviders = deriveProvidersFromAircraft(records)
+  rawSectionRecords.proveedores = fallbackProviders
+  providers.value = fallbackProviders
+  return fallbackProviders
 }
 
 function mergeProviderCatalog(records = []) {
@@ -1340,26 +1435,86 @@ async function loadSubscriptionPayments() {
   }
 }
 
-async function loadProviders() {
+async function loadProviders(options = {}) {
   try {
     const response = await requestWithCandidates([
-      { method: 'get', path: '/admin/operators' },
-      { method: 'get', path: '/admin/providers' },
-      { method: 'get', path: '/admin/proveedores' },
+      { method: 'get', path: '/admin/operators', timeoutMs: options.timeoutMs || ADMIN_PROVIDERS_TIMEOUT_MS },
+      { method: 'get', path: '/admin/providers', timeoutMs: options.timeoutMs || ADMIN_PROVIDERS_TIMEOUT_MS },
+      { method: 'get', path: '/admin/proveedores', timeoutMs: options.timeoutMs || ADMIN_PROVIDERS_TIMEOUT_MS },
     ])
     const collection = pickCollection(response, ['operators', 'proveedores', 'providers'])
-    rawSectionRecords.proveedores = collection
-    providers.value = mergeProviderCatalog(collection)
+    return applyProvidersDataset(collection)
   } catch {
-    const fallbackProviders = deriveProvidersFromAircraft(aircraft.value)
-    rawSectionRecords.proveedores = fallbackProviders
-    providers.value = fallbackProviders
+    if (aircraft.value.length) {
+      return applyFallbackProvidersFromAircraft(aircraft.value)
+    }
+
+    if (options.preserveExisting !== false && providers.value.length) {
+      return providers.value
+    }
+
+    const cachedProviders = readProvidersCache()
+    if (cachedProviders.length) {
+      providers.value = cachedProviders
+      return cachedProviders
+    }
+
+    rawSectionRecords.proveedores = []
+    providers.value = []
+    return []
+  }
+}
+
+async function loadProvidersSectionData() {
+  if (!providers.value.length) {
+    const cachedProviders = readProvidersCache()
+    if (cachedProviders.length) {
+      providers.value = cachedProviders
+    }
+  }
+
+  const providersRequest = loadProviders({
+    preserveExisting: true,
+    timeoutMs: ADMIN_PROVIDERS_TIMEOUT_MS,
+  })
+  const aircraftRequest = loadAircraft()
+    .then(() => {
+      if (!providers.value.length && aircraft.value.length) {
+        applyFallbackProvidersFromAircraft(aircraft.value)
+      }
+    })
+    .catch(() => {})
+
+  if (providers.value.length) {
+    void Promise.allSettled([providersRequest, aircraftRequest])
+  } else {
+    await Promise.race([
+      providersRequest,
+      aircraftRequest,
+    ])
+  }
+
+  const hasEmbeddedAircraftMetrics = providers.value.some((provider) => {
+    const metrics = provider?.aircraft_metrics
+    return metrics && typeof metrics === 'object'
+  })
+
+  if (hasEmbeddedAircraftMetrics) {
+    return
+  }
+
+  if (!providers.value.length) {
+    await aircraftRequest
+  } else {
+    void aircraftRequest.then(() => {
+      if (!providers.value.length && aircraft.value.length) {
+        applyFallbackProvidersFromAircraft(aircraft.value)
+      }
+    })
   }
 
   if (!providers.value.length && aircraft.value.length) {
-    const fallbackProviders = deriveProvidersFromAircraft(aircraft.value)
-    rawSectionRecords.proveedores = fallbackProviders
-    providers.value = fallbackProviders
+    applyFallbackProvidersFromAircraft(aircraft.value)
   }
 }
 
@@ -1419,6 +1574,7 @@ async function loadOperations(options = {}) {
 
   reservationsRequestPromise = (async () => {
     try {
+      const { getAdminReservations } = await loadAdminReservationsModule()
       const nextOperations = await getAdminReservations({
         timeoutMs: options.timeoutMs || ADMIN_RESERVATIONS_TIMEOUT_MS,
       })
@@ -1467,6 +1623,7 @@ async function loadReleases(options = {}) {
 
   releasesRequestPromise = (async () => {
     try {
+      const { getAdminReservations } = await loadAdminReservationsModule()
       const nextOperations = await getAdminReservations({
         timeoutMs: options.timeoutMs || ADMIN_RESERVATIONS_TIMEOUT_MS,
       })
@@ -1564,8 +1721,9 @@ async function loadPortalSection(section) {
   }
 
   if (section === 'clientes') {
-    await reconcilePendingClientAccessPayments({ silent: true })
-    await Promise.all([loadClients(), loadAccessPayments()])
+    await loadClients()
+    void loadAccessPayments()
+    void reconcilePendingClientAccessPayments({ silent: true })
     return
   }
 
@@ -1575,8 +1733,7 @@ async function loadPortalSection(section) {
   }
 
   if (section === 'proveedores') {
-    await loadAircraft()
-    await loadProviders()
+    await loadProvidersSectionData()
     return
   }
 
@@ -1645,7 +1802,17 @@ function shouldAutoRefreshCrewSection() {
 function shouldWarmCrewSection(section = props.section) {
   if (IS_LOCAL_ADMIN_DEV) return false
 
-  return !['ejecutivo', 'sobrecargos', 'disponibilidad', 'sobrecargo-operaciones', 'sobrecargos-en-vuelo', 'reservas', 'liberaciones'].includes(section)
+  return ![
+    'ejecutivo',
+    'proveedores',
+    'aeronaves',
+    'sobrecargos',
+    'disponibilidad',
+    'sobrecargo-operaciones',
+    'sobrecargos-en-vuelo',
+    'reservas',
+    'liberaciones',
+  ].includes(section)
 }
 
 function shouldThrottlePortalSectionLoad(section = props.section, force = false) {
@@ -2018,6 +2185,7 @@ async function assignCrewToOperation({
 
   if (promotedWorkflowStage) {
     try {
+      const { updateAdminReservationStage } = await loadAdminReservationsModule()
       const updatedReservation = await updateAdminReservationStage(
         operation,
         promotedWorkflowStage,
@@ -2244,6 +2412,7 @@ async function handleUpdateReservationFlow({ reservationId, nextStage, note }) {
   if (!currentReservation) return
 
   try {
+    const { updateAdminReservationStage } = await loadAdminReservationsModule()
     reservationFlowLoading.value = true
     reservationFlowLoadingLabel.value = normalizeWorkflowLabel(nextStage)
     reservationFlowErrorMessage.value = ''
@@ -2288,6 +2457,7 @@ async function handleDelayReservationFlow({ reservationId, reason, eta, note, mo
   const nextMode = mode || 'delayed'
 
   try {
+    const { delayAdminReservation } = await loadAdminReservationsModule()
     const updatedReservation = await delayAdminReservation(
       currentReservation,
       { mode: nextMode, reason, eta, note },
@@ -2325,6 +2495,7 @@ async function handleResumeReservationFlow({ reservationId, note }) {
   if (!currentReservation) return
 
   try {
+    const { resumeAdminReservation } = await loadAdminReservationsModule()
     const updatedReservation = await resumeAdminReservation(currentReservation, note, {
       timeoutMs: 20000,
     })
@@ -2359,6 +2530,7 @@ async function handleMarkManualReservationPaid({ reservationId }) {
   if (!currentReservation) return
 
   try {
+    const { persistAdminReservationPatch } = await loadAdminReservationsModule()
     reservationFlowLoading.value = true
     reservationFlowLoadingLabel.value = 'Pago confirmado'
 
@@ -2506,14 +2678,7 @@ watch(
   <AdminExecutiveSection
     v-if="section === 'ejecutivo'"
     :kpis="executiveKpis"
-    :quick-actions="quickActions"
-    :control-areas="controlAreas"
     :analytics="executiveAnalytics"
-    :flow-steps="flowSteps"
-    :policies="policies"
-    :reservation-states="reservationStates"
-    :payment-states="paymentStates"
-    :incident-states="incidentStates"
   />
   <AdminImportsSection v-else-if="section === 'importaciones'" />
   <AdminUsersSection v-else-if="section === 'usuarios'" :users="users" @audit-user="auditUser" />
@@ -2666,3 +2831,368 @@ watch(
     :database-fields="resolvedAdminSectionConfig.databaseFields"
   />
 </template>
+
+<style scoped>
+:deep(.admin-executive-page),
+:deep(.admin-crud-page),
+:deep(.subscriptions-shell),
+:deep(.aircraft-admin-shell),
+:deep(.directory-shell),
+:deep(.availability-admin-shell) {
+  min-height: auto;
+  background: transparent;
+}
+
+:deep(.dashboard-hero),
+:deep(.imports-hero),
+:deep(.subscriptions-hero),
+:deep(.command-hero),
+:deep(.hero-card),
+:deep(.surface),
+:deep(.table-shell),
+:deep(.filters-shell),
+:deep(.section-card) {
+  border-radius: 24px;
+}
+
+:deep(.dashboard-hero),
+:deep(.imports-hero),
+:deep(.subscriptions-hero),
+:deep(.command-hero) {
+  border: 1px solid rgba(109, 137, 189, 0.14);
+  background:
+    radial-gradient(circle at top right, rgba(209, 223, 251, 0.42), transparent 26%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(245, 249, 255, 0.9));
+  box-shadow: 0 18px 44px rgba(48, 79, 132, 0.08);
+}
+
+:deep(.surface),
+:deep(.table-shell),
+:deep(.filters-shell),
+:deep(.section-card),
+:deep(.workstream-card),
+:deep(.signal-card),
+:deep(.state-card),
+:deep(.policy-card),
+:deep(.control-card),
+:deep(.insight-card),
+:deep(.empty-shell),
+:deep(.detail-hero-card),
+:deep(.detail-hero-card__route),
+:deep(.detail-hero-card__chips),
+:deep(.detail-hero-card),
+:deep(.detail-hero-card + .detail-hero-card) {
+  border-color: rgba(109, 137, 189, 0.12);
+  box-shadow: 0 16px 34px rgba(52, 82, 134, 0.06);
+}
+
+:deep(.page-grid),
+:deep(.provider-grid),
+:deep(.control-grid),
+:deep(.insights-grid),
+:deep(.workstreams-grid),
+:deep(.states-layout),
+:deep(.policies-grid),
+:deep(.hero-support-grid),
+:deep(.hero-actions-grid),
+:deep(.flow-grid),
+:deep(.kpi-grid) {
+  gap: 1rem;
+}
+
+:deep(.page-grid) {
+  align-items: start;
+}
+
+:deep(.page-head),
+:deep(.workspace-card),
+:deep(.provider-card),
+:deep(.reservation-card),
+:deep(.queue-stat),
+:deep(.summary-card),
+:deep(.kpi-card),
+:deep(.panel-card),
+:deep(.detail-card),
+:deep(.matrix-card),
+:deep(.log-card),
+:deep(.provider-payment-detail),
+:deep(.provider-payments-summary__card),
+:deep(.evidence-modal),
+:deep(.detail-modal__surface) {
+  border: 1px solid rgba(109, 137, 189, 0.14);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at top right, rgba(219, 230, 250, 0.3), transparent 28%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(246, 249, 255, 0.94));
+  box-shadow: 0 18px 38px rgba(47, 76, 126, 0.08);
+}
+
+:deep(.page-head) {
+  background:
+    radial-gradient(circle at top left, rgba(178, 201, 244, 0.22), transparent 28%),
+    linear-gradient(135deg, #f7faff 0%, #eef4fd 100%);
+}
+
+:deep(.section-head),
+:deep(.provider-card-top),
+:deep(.toolbar),
+:deep(.tabs-strip),
+:deep(.detail-tabs),
+:deep(.provider-payment-detail__badges),
+:deep(.card-head),
+:deep(.table-panel > .section-head:first-child) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+}
+
+:deep(.reservation-list),
+:deep(.provider-grid),
+:deep(.provider-status-section),
+:deep(.queue-summary),
+:deep(.compact-release-kpis),
+:deep(.info-grid),
+:deep(.provider-stats-inline) {
+  display: grid;
+  gap: 0.9rem;
+}
+
+:deep(.reservation-list),
+:deep(.queue-summary),
+:deep(.info-grid),
+:deep(.provider-stats-inline) {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+:deep(.provider-grid) {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+:deep(.field),
+:deep(.search-field),
+:deep(.toolbar-field),
+:deep(.toolbar-search) {
+  display: grid;
+  gap: 0.35rem;
+}
+
+:deep(.field span),
+:deep(.search-field span),
+:deep(.toolbar-field span) {
+  color: #4d678f;
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+:deep(.field input),
+:deep(.field select),
+:deep(.search-field input),
+:deep(.toolbar-field input),
+:deep(.toolbar-field select) {
+  min-height: 2.85rem;
+  padding: 0 0.9rem;
+  border: 1px solid rgba(109, 137, 189, 0.18);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #1d324f;
+}
+
+:deep(.filters-grid),
+:deep(.toolbar-actions),
+:deep(.hero-actions) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.75rem;
+}
+
+:deep(.badge),
+:deep(.mini-badge),
+:deep(.status-pill),
+:deep(.status-chip),
+:deep(.pill),
+:deep(.state-pill),
+:deep(.meta-pill),
+:deep(.role-chip),
+:deep(.summary-chip),
+:deep(.alert-pill),
+:deep(.step-chip) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2rem;
+  padding: 0 0.75rem;
+  border: 1px solid rgba(105, 133, 186, 0.16);
+  border-radius: 999px;
+  background: rgba(236, 242, 252, 0.92);
+  color: #35547f;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+}
+
+:deep(.tabs-strip),
+:deep(.detail-tabs),
+:deep(.release-tabs) {
+  padding: 0.35rem;
+  border: 1px solid rgba(109, 137, 189, 0.12);
+  border-radius: 18px;
+  background: rgba(241, 246, 255, 0.82);
+}
+
+:deep(.tabs-strip button),
+:deep(.detail-tabs button),
+:deep(.release-tabs button) {
+  min-height: 2.7rem;
+  padding: 0 0.95rem;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: #476188;
+  font-weight: 700;
+}
+
+:deep(.tabs-strip button[aria-selected='true']),
+:deep(.detail-tabs button.active),
+:deep(.release-tabs button.active) {
+  background: #ffffff;
+  color: #183252;
+  box-shadow: 0 10px 20px rgba(48, 82, 138, 0.1);
+}
+
+:deep(.reservation-card),
+:deep(.compact-row),
+:deep(.provider-card),
+:deep(.table-panel tr) {
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    border-color 0.18s ease,
+    background 0.18s ease;
+}
+
+:deep(.reservation-card:hover),
+:deep(.compact-row:hover),
+:deep(.provider-card:hover) {
+  transform: translateY(-2px);
+  box-shadow: 0 20px 42px rgba(49, 81, 133, 0.1);
+}
+
+:deep(.table-shell),
+:deep(.table-panel) {
+  overflow: hidden;
+}
+
+:deep(.table-shell table thead),
+:deep(.table-panel table thead) {
+  background: rgba(236, 243, 253, 0.88);
+}
+
+:deep(.table-shell table tbody tr),
+:deep(.table-panel table tbody tr) {
+  border-bottom: 1px solid rgba(110, 138, 188, 0.08);
+}
+
+:deep(.table-shell table tbody tr:hover),
+:deep(.table-panel table tbody tr:hover) {
+  background: rgba(242, 247, 255, 0.9);
+}
+
+:deep(.empty-state),
+:deep(.empty-shell) {
+  display: grid;
+  place-items: center;
+  min-height: 220px;
+  text-align: center;
+}
+
+:deep(.hero-center h1),
+:deep(.hero-copy h1),
+:deep(.hero-copy-panel h1),
+:deep(.command-hero h2),
+:deep(.subscriptions-hero h2) {
+  color: #11253f;
+}
+
+:deep(.hero-subtitle),
+:deep(.hero-copy p),
+:deep(.hero-center p),
+:deep(.command-hero p),
+:deep(.subscriptions-hero p) {
+  color: #627390;
+}
+
+:deep(table),
+:deep(.table-shell table) {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+:deep(th) {
+  color: #476189;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+:deep(td) {
+  color: #1d324f;
+}
+
+:deep(input),
+:deep(select),
+:deep(textarea) {
+  border-color: rgba(109, 137, 189, 0.18);
+  border-radius: 14px;
+  box-shadow: none;
+}
+
+:deep(button) {
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    border-color 0.18s ease;
+}
+
+:deep(button:hover) {
+  transform: translateY(-1px);
+}
+
+:deep(.hero-actions),
+:deep(.filters-actions),
+:deep(.toolbar-actions),
+:deep(.hero-metrics),
+:deep(.stats-grid) {
+  gap: 0.75rem;
+}
+
+@media (max-width: 760px) {
+  :deep(.dashboard-hero),
+  :deep(.imports-hero),
+  :deep(.subscriptions-hero),
+  :deep(.command-hero) {
+    border-radius: 20px;
+  }
+
+  :deep(.section-head),
+  :deep(.provider-card-top),
+  :deep(.toolbar),
+  :deep(.tabs-strip),
+  :deep(.detail-tabs) {
+    align-items: stretch;
+  }
+
+  :deep(.reservation-list),
+  :deep(.queue-summary),
+  :deep(.info-grid),
+  :deep(.provider-stats-inline),
+  :deep(.provider-grid) {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

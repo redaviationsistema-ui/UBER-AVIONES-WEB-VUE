@@ -1,5 +1,7 @@
 <script setup>
-import VistaContratoCliente from './viajes/VistaContratoCliente.vue'
+import { defineAsyncComponent } from 'vue'
+
+const VistaContratoCliente = defineAsyncComponent(() => import('./viajes/VistaContratoCliente.vue'))
 
 defineProps({
   reservation: { type: Object, default: null },

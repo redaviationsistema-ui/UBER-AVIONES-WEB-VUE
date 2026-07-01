@@ -614,6 +614,45 @@ describe('normalizeTrip', () => {
 })
 
 describe('getClientTrips', () => {
+  it('prefers the richer flight-requests endpoint before the legacy historial payload', async () => {
+    api.get.mockImplementation(async (path) => {
+      if (path === '/client/flight-requests') {
+        return {
+          flight_requests: [
+            {
+              id: 157,
+              aircraft_model: 'LEARJET 31A',
+              aircraft_image: 'https://example.com/learjet-31a.png',
+              status: 'reserved',
+              workflow_status: 'vuelo confirmado',
+            },
+          ],
+        }
+      }
+
+      if (path === '/cliente/historial') {
+        return {
+          reservations: [
+            {
+              id: 24,
+              flight_request_id: 157,
+              aircraft: 'LEARJET 31A',
+              status: 'confirmed',
+            },
+          ],
+        }
+      }
+
+      throw new Error(`Unexpected path: ${path}`)
+    })
+
+    const trips = await getClientTrips()
+
+    expect(api.get).toHaveBeenCalledWith('/client/flight-requests', expect.any(Object))
+    expect(trips).toHaveLength(1)
+    expect(trips[0].aircraft_image).toBe('https://example.com/learjet-31a.png')
+  })
+
   it('prefers the freshest reservation workflow when the request payload is stale', async () => {
     api.get.mockResolvedValue({
       reservations: [

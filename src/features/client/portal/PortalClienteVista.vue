@@ -1,11 +1,14 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import ActiveTrips from '../ActiveTrips.vue'
-import ClientContractPreview from '../ClientContractPreview.vue'
 import ClientTopNav from '../ClientTopNav.vue'
 import ConciergeFloatingButton from '../ConciergeFloatingButton.vue'
-import FlightSearchHero from '../FlightSearchHero.vue'
+import PortalClienteProfileScreen from './PortalClienteProfileScreen.vue'
+import PortalClienteReservationScreen from './PortalClienteReservationScreen.vue'
+import PortalClienteTripsScreen from './PortalClienteTripsScreen.vue'
+import { useClientPortalPayments } from './useClientPortalPayments'
+import { useClientPortalProfile } from './useClientPortalProfile'
+import { useClientPortalTrips } from './useClientPortalTrips'
 import { featuredAirports } from '../../../utils/airports'
 import {
   buildFlightPricingFormula,
@@ -70,6 +73,7 @@ const featuredDestinations = ref([])
 const flightPackages = ref([])
 const aircraftOptions = ref([])
 const reservations = ref([])
+const hasBootstrappedReservations = ref(false)
 const refreshingReservations = ref(false)
 const signingContract = ref(false)
 const submittedItinerary = ref(null)
@@ -80,6 +84,7 @@ const technicalAircraft = ref(null)
 let removeWorkflowSyncSubscription = null
 let workflowSyncRefreshTimer = null
 let reservationsRequestPromise = null
+let catalogRequestPromise = null
 const reservationDetailRequestIds = new Set()
 let signedContractSyncTimer = null
 let reservationConfirmedRedirectTimer = null
@@ -97,6 +102,21 @@ const externalContractFlowEnabled = String(
 const dedicatedDocusignSendPath = String(
   import.meta.env.VITE_CLIENT_CONTRACT_SEND_PATH || import.meta.env.VITE_CONTRACT_SEND_PATH || '',
 ).trim()
+
+function waitForPortalFirstPaint() {
+  if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+    return Promise.resolve()
+  }
+
+  return nextTick().then(
+    () =>
+      new Promise((resolve) => {
+        window.requestAnimationFrame(() => {
+          window.requestAnimationFrame(resolve)
+        })
+      }),
+  )
+}
 
 const searchForm = reactive({
   origin: '',
@@ -647,59 +667,6 @@ const customerPhone = computed(() => {
   const rawPhone = auth.user?.phone || auth.access?.phone || ''
   return String(rawPhone || '').trim()
 })
-const paymentHeroTitle = computed(() => {
-  if (commercialAccessCheckoutReturnMode.value) {
-    const accessSource = auth.access?.commercial_access || auth.access
-    const state = buildCommercialAccessUiState(accessSource)
-    if (state.isSuspended) return 'Reactiva tu suscripción'
-    if (state.isPastDue) return 'Actualiza tu método de pago'
-    if (isCommercialAccessExpired(accessSource)) return 'Reactiva tu acceso comercial'
-
-    const { daysUntil } = resolveCommercialAccessExpiryMeta(accessSource)
-    if ([0, 1, 3, 7].includes(daysUntil)) return 'Renueva tu acceso comercial'
-
-    return 'Activa tu acceso comercial'
-  }
-  if (!selectedReservation.value) return 'Checkout seguro'
-  return paymentReadyForCheckout.value ? 'Configura tu pago' : 'Pago bloqueado hasta firma'
-})
-const paymentHeroCopy = computed(() => {
-  if (commercialAccessCheckoutReturnMode.value) {
-    const accessSource = auth.access?.commercial_access || auth.access
-    const state = buildCommercialAccessUiState(accessSource)
-    const graceEndsAtLabel = formatAccessExpiryDate(resolveCommercialAccessGracePeriodEndDate(accessSource))
-    if (state.isSuspended) {
-      return 'Tu suscripción quedó suspendida. Usa esta cabina de pago para actualizar el método y reactivar el acceso comercial.'
-    }
-
-    if (state.isPastDue) {
-      return graceEndsAtLabel
-        ? `El cobro automático falló y tu cuenta está en gracia hasta el ${graceEndsAtLabel}. Actualiza el método ahora para evitar el bloqueo.`
-        : 'El cobro automático falló y tu cuenta está en periodo de gracia. Actualiza el método ahora para evitar el bloqueo.'
-    }
-
-    if (isCommercialAccessExpired(accessSource)) {
-      return 'Usa esta misma cabina de pago para reactivar tu acceso comercial y volver a cotizar vuelos privados.'
-    }
-
-    const { daysUntil } = resolveCommercialAccessExpiryMeta(accessSource)
-    if ([0, 1, 3, 7].includes(daysUntil)) {
-      return 'Usa esta misma cabina de pago para renovar tu acceso comercial antes de que venza y seguir operando sin interrupciones.'
-    }
-
-    return 'Usa esta misma cabina de pago para habilitar tu acceso comercial y seguir cotizando vuelos privados.'
-  }
-  if (selectedReservation.value) {
-    if (!paymentReadyForCheckout.value) {
-      return (
-        selectedReservationFrontendState.value.status_message ||
-        'Primero necesitamos confirmar la firma del contrato antes de habilitar el pago.'
-      )
-    }
-    return 'Confirma el metodo, revisa los datos de contacto y autoriza el cargo de tu reserva.'
-  }
-  return 'Pago protegido con Stripe o con validacion asistida del equipo administrativo.'
-})
 const paymentRouteHeadline = computed(() =>
   commercialAccessCheckoutReturnMode.value
     ? 'Renovacion de acceso comercial SKY GROUP'
@@ -710,111 +677,6 @@ const paymentDateLabel = computed(() =>
     ? accessRenewalDateLabel.value
     : itineraryDateLine(activeItinerarySummary.value),
 )
-const paymentFeatureList = computed(() =>
-  commercialAccessCheckoutReturnMode.value
-    ? [
-        {
-          icon: 'shield',
-          title: 'Cuenta comercial protegida',
-          copy: 'Renueva o reactiva tu acceso comercial dentro del mismo portal del cliente.',
-        },
-        {
-          icon: 'route',
-          title: 'Operacion continua',
-          copy: 'Despues de completar el pago podras seguir cotizando, reservando y pagando vuelos.',
-        },
-      ]
-    : [
-        {
-          icon: 'shield',
-          title: 'Pago protegido',
-          copy: 'Cobro seguro con trazabilidad operativa en tiempo real.',
-        },
-        {
-          icon: 'route',
-          title: 'Reserva priorizada',
-          copy: 'Resumen final antes de liberar la operacion al proveedor.',
-        },
-      ],
-)
-const commercialAccessCheckoutFacts = computed(() => {
-  const state = buildCommercialAccessUiState(auth.access?.commercial_access || auth.access)
-  const accessSource = auth.access?.commercial_access || auth.access
-  const latestPayment = commercialAccessSnapshot.value.latestPayment
-  const paymentPreview = commercialAccessSnapshot.value.paymentPreview
-  const expiryMeta = resolveCommercialAccessExpiryMeta(accessSource)
-  const paymentBrand = normalizeCardBrand(latestPayment?.card_brand || '')
-  const paymentLast4 = String(latestPayment?.card_last4 || '').trim()
-  const paymentMethod = paymentBrand
-    ? `${paymentBrand}${paymentLast4 ? ` terminacion ${paymentLast4}` : ''}`
-    : state.hasPaidAccess
-      ? 'Tarjeta registrada'
-      : 'Stripe Checkout seguro'
-
-  const accessStatusLabel = state.isSuspended
-    ? 'Suspendido'
-    : state.isPastDue
-      ? 'Past due · gracia activa'
-      : isCommercialAccessExpired(accessSource)
-    ? 'Vencido'
-    : state.hasPaidAccess && expiryMeta.daysUntil === 0
-      ? 'Activo · vence hoy'
-    : state.hasPaidAccess && expiryMeta.daysUntil === 1
-        ? 'Activo · vence mañana'
-        : state.hasPaidAccess && expiryMeta.daysUntil === 3
-          ? 'Activo · recordatorio 3 dias'
-          : state.hasPaidAccess && expiryMeta.daysUntil === 7
-            ? 'Activo · recordatorio 7 dias'
-        : state.hasPaidAccess
-          ? 'Activo'
-          : state.status === 'payment_pending'
-            ? 'Pago en validacion'
-            : state.status === 'payment_failed'
-              ? 'Pago rechazado'
-              : state.freeQuotesUsed >= state.freeQuoteLimit
-                ? 'Prueba consumida'
-                : 'Prueba disponible'
-
-  let validityLabel = expiryMeta.label ? formatAccessLongDate(expiryMeta.label) : 'Por confirmar'
-  if (state.hasPaidAccess && expiryMeta.daysUntil === 0) {
-    validityLabel = `Renueva hoy · ${validityLabel}`
-  } else if (state.hasPaidAccess && expiryMeta.daysUntil === 1) {
-    validityLabel = `Renueva mañana · ${validityLabel}`
-  }
-
-  return [
-    {
-      label: 'Estado de acceso',
-      value: accessStatusLabel,
-      tone: state.isSuspended ? 'danger' : state.hasPaidAccess ? 'success' : 'warning',
-    },
-    {
-      label: 'Vigencia actual',
-      value: validityLabel,
-      tone: 'premium',
-    },
-    {
-      label: 'Metodo registrado',
-      value: paymentMethod,
-      tone: 'neutral',
-    },
-    {
-      label: 'Monto mensual',
-      value:
-        paymentBreakdownRows.value.find((item) => item.key === 'total_amount')?.value ||
-        (paymentPreview?.total_amount
-          ? formatDetailedCurrencyByCode(paymentPreview.total_amount, paymentBreakdownCurrency.value)
-          : '') ||
-        COMMERCIAL_ACCESS_AMOUNT_LABEL,
-      tone: 'premium',
-    },
-    {
-      label: 'Ultimo pago',
-      value: latestPayment?.paid_at ? formatAccessLongDate(latestPayment.paid_at) : 'Sin cargo confirmado',
-      tone: 'neutral',
-    },
-  ]
-})
 const paymentMethodCards = [
   {
     id: 'stripe',
@@ -966,35 +828,6 @@ const CARD_BRAND_LOGOS = {
     '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="32" viewBox="0 0 96 32"><rect width="96" height="32" rx="8" fill="#fff"/><rect x=".5" y=".5" width="95" height="31" rx="7.5" fill="none" stroke="rgba(17,17,17,.12)"/><path fill="#222" d="M18 21V11h4.8c3.7 0 5.9 1.9 5.9 5s-2.2 5-5.9 5H18Zm3-2.4h1.7c1.9 0 3-1 3-2.6s-1.1-2.6-3-2.6H21v5.2ZM30 21V11h3v10h-3Zm4.8-1.3 1.1-2a6.8 6.8 0 0 0 3.3.9c1.2 0 1.7-.3 1.7-.8 0-1.7-5.9-.5-5.9-4.1 0-1.9 1.6-3.5 4.7-3.5 1.4 0 2.9.3 4 .8l-1 2.1a6.4 6.4 0 0 0-3-.7c-1.2 0-1.7.4-1.7.9 0 1.6 5.9.4 5.9 4 0 1.8-1.6 3.4-4.7 3.4-1.8 0-3.5-.4-4.4-1Zm14.8 1.5c-3.2 0-5.6-2.2-5.6-5.2s2.4-5.2 5.6-5.2c1.9 0 3.5.7 4.5 2l-1.9 1.7c-.6-.8-1.4-1.2-2.4-1.2-1.6 0-2.7 1.1-2.7 2.7s1.1 2.7 2.7 2.7c1 0 1.8-.4 2.4-1.2l1.9 1.7c-1 1.3-2.6 2-4.5 2Zm10.8 0c-3.3 0-5.7-2.2-5.7-5.2s2.4-5.2 5.7-5.2 5.7 2.2 5.7 5.2-2.4 5.2-5.7 5.2Zm0-2.5c1.5 0 2.7-1.1 2.7-2.7s-1.2-2.7-2.7-2.7-2.7 1.1-2.7 2.7 1.2 2.7 2.7 2.7Z"/><path fill="#F58220" d="M71 18.8c4.5 0 8.6-1.6 11.7-4.2-2.5-2.2-6.1-3.6-10-3.6-4.5 0-8.6 1.6-11.7 4.2 2.5 2.2 6.1 3.6 10 3.6Z"/></svg>',
   ),
 }
-
-const paymentMethodSummaryLabel = computed(() => {
-  if (commercialAccessCheckoutReturnMode.value) {
-    const latestPayment = commercialAccessSnapshot.value.latestPayment
-    const brand = normalizeCardBrand(latestPayment?.card_brand || '')
-    const last4 = String(latestPayment?.card_last4 || '').trim()
-
-    if (brand) return `${brand}${last4 ? ` terminacion ${last4}` : ''}`
-    if (isAssistedReservationPayment.value) return 'Pago en efectivo'
-    return 'Stripe Checkout seguro'
-  }
-
-  if (isAssistedReservationPayment.value) {
-    return paymentMethodCards.find((method) => method.id === 'assisted')?.label || 'Pago en efectivo'
-  }
-
-  const persistedBrand =
-    normalizeCardBrand(selectedReservation.value?.payment_order?.brand) ||
-    normalizeCardBrand(selectedReservation.value?.payment_order?.card_brand) ||
-    normalizeCardBrand(selectedReservation.value?.payment_brand) ||
-    normalizeCardBrand(selectedReservation.value?.card_brand)
-
-  const detectedBrand = normalizeCardBrand(paymentCardBrand.value)
-  const brandLabel = detectedBrand || persistedBrand
-
-  if (brandLabel) return brandLabel
-
-  return paymentMethodCards.find((method) => method.id === selectedPaymentMethod.value)?.label
-})
 
 const paymentCardVisualLabel = computed(() => {
   if (!isStripeReservationPayment.value) return ''
@@ -1470,6 +1303,31 @@ const commercialAccessSnapshot = computed(() => {
     latestPayment: extractCommercialAccessLatestPayment({ access, user }),
     paymentPreview: extractCommercialAccessPaymentPreview({ access, user }),
   }
+})
+const {
+  commercialAccessCheckoutFacts,
+  paymentFeatureList,
+  paymentHeroCopy,
+  paymentHeroTitle,
+  paymentMethodSummaryLabel,
+} = useClientPortalPayments({
+  auth,
+  buildCommercialAccessUiState,
+  commercialAccessCheckoutReturnMode,
+  commercialAccessSnapshot,
+  isAssistedReservationPayment,
+  isCommercialAccessExpired,
+  isStripeReservationPayment,
+  normalizeCardBrand,
+  paymentBreakdownCurrency,
+  paymentCardBrand,
+  paymentMethodCards,
+  paymentReadyForCheckout,
+  resolveCommercialAccessExpiryMeta,
+  resolveReservationPaymentMethod,
+  selectedPaymentMethod,
+  selectedReservation,
+  selectedReservationFrontendState,
 })
 const hasCommercialTrialQuoteAvailable = computed(() => {
   const commercial = commercialAccessSnapshot.value
@@ -2104,7 +1962,10 @@ function isSuccessfulAccessPaymentStatus(value = '') {
 async function refreshCommercialAccessStatus({ forceSessionRefresh = false } = {}) {
   if (!commercialAccessStatusRequestPromise) {
     commercialAccessStatusRequestPromise = (async () => {
-      const payload = await getClientAccessStatus({ timeoutMs: 30000 })
+      const payload = await getClientAccessStatus({
+        timeoutMs: 30000,
+        forceRefresh: forceSessionRefresh,
+      })
       syncCommercialAccessState(payload)
       return payload
     })().finally(() => {
@@ -2115,7 +1976,7 @@ async function refreshCommercialAccessStatus({ forceSessionRefresh = false } = {
   const payload = await commercialAccessStatusRequestPromise
 
   if (forceSessionRefresh) {
-    await auth.refreshSession()
+    await auth.refreshSession({ force: true, preferCache: false })
     syncCommercialAccessState(payload || auth.access?.commercial_access || auth.access)
   }
 
@@ -2134,112 +1995,36 @@ const activeSection = computed(() => {
   if (props.section === 'perfil') return 'perfil'
   return 'reservar'
 })
-const tripsInitialTab = computed(() => {
-  if (props.section === 'historial') return 'historial'
-  return 'proximos'
+const {
+  canRenderReservationWorkflow,
+  hasReservationsLoaded,
+  isResultsSection,
+  needsReservationContext,
+  tripsInitialTab,
+} = useClientPortalTrips({
+  commercialAccessCheckoutReturnMode,
+  hasBootstrappedReservations,
+  loadingServerData,
+  paymentReadyForCheckout,
+  props,
+  refreshingReservations,
+  reservations,
+  selectedReservation,
 })
-const needsReservationContext = computed(() => {
-  if (commercialAccessCheckoutReturnMode.value) return false
-  return ['contrato', 'pago', 'reserva-confirmada', 'soporte'].includes(props.section)
+const {
+  otherSectionCardCopy,
+  profileDisplayName,
+  profileEmail,
+  profileInitials,
+  profilePhone,
+  profileStats,
+  userFirstName,
+} = useClientPortalProfile({
+  auth,
+  hasActiveClientAccess,
+  reservations,
+  searchForm,
 })
-const hasReservationsLoaded = computed(
-  () =>
-    !loadingServerData.value && !refreshingReservations.value && Array.isArray(reservations.value),
-)
-const canRenderReservationWorkflow = computed(() => {
-  if (!needsReservationContext.value) return true
-  if (props.section === 'contrato') {
-    return Boolean(selectedReservation.value?.is_reservation)
-  }
-  if (props.section === 'pago') {
-    if (commercialAccessCheckoutReturnMode.value) return true
-    return Boolean(selectedReservation.value?.is_reservation) && paymentReadyForCheckout.value
-  }
-  return Boolean(selectedReservation.value)
-})
-const isResultsSection = computed(() =>
-  ['resultados', 'paquete-vuelo', 'aeronave', 'reserva'].includes(props.section),
-)
-const userFirstName = computed(() => {
-  const rawName = auth.user?.name || auth.user?.company_name || auth.userName || ''
-  const firstName = String(rawName).trim().split(/\s+/)[0] || ''
-  return firstName ? firstName.charAt(0).toUpperCase() + firstName.slice(1).toLowerCase() : ''
-})
-const profileDisplayName = computed(
-  () => auth.user?.name || auth.user?.company_name || auth.userName || 'Cliente privado',
-)
-const profileInitials = computed(() =>
-  String(profileDisplayName.value || '')
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0] || '')
-    .join('')
-    .toUpperCase() || 'CP',
-)
-function readProfileCandidate(...candidates) {
-  for (const candidate of candidates) {
-    if (candidate === null || candidate === undefined) continue
-
-    if (Array.isArray(candidate)) {
-      const normalized = candidate
-        .map((item) => String(item || '').trim())
-        .filter(Boolean)
-      if (normalized.length) return normalized.join(', ')
-      continue
-    }
-
-    if (typeof candidate === 'object') {
-      continue
-    }
-
-    const normalized = String(candidate || '').trim()
-    if (normalized) return normalized
-  }
-
-  return ''
-}
-
-const clientProfileRecord = computed(() => ({
-  ...(auth.access?.profile || {}),
-  ...(auth.user?.profile || {}),
-  ...(auth.user || {}),
-}))
-const profilePhone = computed(() =>
-  readProfileCandidate(
-    clientProfileRecord.value.phone,
-    clientProfileRecord.value.telefono,
-    auth.access?.phone,
-  ) || 'Por completar',
-)
-const profileEmail = computed(() =>
-  readProfileCandidate(clientProfileRecord.value.email, auth.access?.email) || 'Por completar',
-)
-const profileStats = computed(() => [
-  {
-    label: 'Vuelos',
-    value: String(reservations.value.length || 0),
-    caption: reservations.value.length ? 'Historial total' : 'Sin vuelos registrados',
-  },
-  {
-    label: 'Viajeros',
-    value: String(Math.max(1, Number(auth.user?.traveler_count || searchForm.passengers || 1))),
-    caption:
-      Math.max(1, Number(auth.user?.traveler_count || searchForm.passengers || 1)) === 1
-        ? 'Viajero frecuente'
-        : 'Viajeros frecuentes',
-  },
-  {
-    label: 'Facturación',
-    value: auth.user?.billing_email ? 'Configurada' : 'Pendiente',
-    caption: auth.user?.billing_email ? 'Cuenta comercial' : 'Datos por completar',
-  },
-  {
-    label: 'Concierge',
-    value: hasActiveClientAccess.value ? 'Activo' : 'Disponible',
-    caption: 'Atención premium',
-  },
-])
 const selectedPriorityMeta = computed(
   () => flightPackages.value.find((item) => item.code === selectedPriorityType.value) || null,
 )
@@ -2434,7 +2219,7 @@ function aircraftVisualStyle(imageUrl) {
   }
 
   return {
-    backgroundImage: `linear-gradient(135deg, rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0.45)), url('${imageUrl}')`,
+    backgroundImage: 'linear-gradient(135deg, rgba(15, 23, 42, 0.24), rgba(15, 23, 42, 0.08))',
   }
 }
 
@@ -2693,6 +2478,30 @@ function normalizePriorityCode(value = '') {
   return normalizePackageCode(value)
 }
 
+function airportHeadlineLabel(code = '', airport = null) {
+  const normalizedCode = String(code || airport?.code || airport?.iata || '')
+    .trim()
+    .toUpperCase()
+
+  const resolvedAirport = resolveAirportSelection(code, airport)
+  const city =
+    resolvedAirport?.city ||
+    resolvedAirport?.name ||
+    airport?.city ||
+    airport?.name ||
+    airportDisplayName(normalizedCode)
+
+  const resolvedCode = String(
+    resolvedAirport?.code || resolvedAirport?.iata || airport?.code || airport?.iata || normalizedCode,
+  )
+    .trim()
+    .toUpperCase()
+
+  if (city && resolvedCode) return `${city} (${resolvedCode})`
+  if (city) return city
+  return resolvedCode || 'Ruta por confirmar'
+}
+
 function airportDisplayName(code = '') {
   const normalizedCode = String(code || '')
     .trim()
@@ -2799,11 +2608,9 @@ function itineraryHeadline(summary) {
   const tripType = String(summary?.tripType || '').trim()
   const firstLeg = legs[0]
   const lastLeg = legs[legs.length - 1]
-  const firstOrigin = firstLeg.originAirport?.city || airportDisplayName(firstLeg.origin)
-  const firstDestination =
-    firstLeg.destinationAirport?.city || airportDisplayName(firstLeg.destination)
-  const lastDestination =
-    lastLeg.destinationAirport?.city || airportDisplayName(lastLeg.destination)
+  const firstOrigin = airportHeadlineLabel(firstLeg.origin, firstLeg.originAirport)
+  const firstDestination = airportHeadlineLabel(firstLeg.destination, firstLeg.destinationAirport)
+  const lastDestination = airportHeadlineLabel(lastLeg.destination, lastLeg.destinationAirport)
 
   if (tripType === 'Redondo' && firstOrigin && firstDestination) {
     return `${firstOrigin} → ${firstDestination} → ${firstOrigin}`
@@ -2811,8 +2618,8 @@ function itineraryHeadline(summary) {
 
   if (tripType === 'Multi-destino') {
     const routeStops = legs.reduce((stops, leg, index) => {
-      const origin = leg.originAirport?.city || airportDisplayName(leg.origin)
-      const destination = leg.destinationAirport?.city || airportDisplayName(leg.destination)
+      const origin = airportHeadlineLabel(leg.origin, leg.originAirport)
+      const destination = airportHeadlineLabel(leg.destination, leg.destinationAirport)
 
       if (index === 0 && origin) stops.push(origin)
       if (destination) stops.push(destination)
@@ -3154,11 +2961,14 @@ function aircraftBillingNote(aircraft = {}) {
       billableHours > 0 &&
       Math.abs(displayHours - billableHours) >= 0.05
     ) {
-      return `Tiempo estimado de vuelo ${formatDurationFromHours(displayHours)}. Horas cobrables ${formatDurationFromHours(billableHours)}.`
+      ///return `Tiempo estimado de vuelo ${formatDurationFromHours(displayHours)}. Horas cobrables ${formatDurationFromHours(billableHours)}.`
+          return ``
     }
 
     return ''
   }
+
+
 
   const formula = buildFlightPricingFormula(aircraft, aircraftPricingContext())
   const minimumHours = Number(formula.minimumHours || aircraft.minimum_hours || 0)
@@ -4346,9 +4156,12 @@ async function finalizeCommercialAccessCheckoutReturn() {
         { timeoutMs: 30000 },
       ).catch(() => null)
 
-      const latestAccessStatus = await getClientAccessStatus({ timeoutMs: 30000 }).catch(() => null)
+      const latestAccessStatus = await getClientAccessStatus({
+        timeoutMs: 30000,
+        forceRefresh: true,
+      }).catch(() => null)
 
-      await auth.refreshSession()
+      await auth.refreshSession({ force: true, preferCache: false })
       syncCommercialAccessState(latestAccessStatus || auth.access?.commercial_access || auth.access)
 
       ui.pushToast({
@@ -4402,7 +4215,7 @@ async function finalizeCommercialAccessCheckoutReturn() {
       }
     }
 
-    await auth.refreshSession()
+    await auth.refreshSession({ force: true, preferCache: false })
     await refreshReservations({ silent: true }).catch(() => null)
 
     const successAccessStatus = String(successPayload?.access?.status || '').trim().toLowerCase()
@@ -4410,7 +4223,7 @@ async function finalizeCommercialAccessCheckoutReturn() {
     let latestAccessStatus =
       successPayload?.access?.has_paid_access === true || successAccessStatus === 'active'
         ? successPayload
-        : await getClientAccessStatus({ timeoutMs: 30000 }).catch(() => null)
+        : await getClientAccessStatus({ timeoutMs: 30000, forceRefresh: true }).catch(() => null)
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const resolvedAccess = latestAccessStatus?.access || auth.access?.commercial_access || auth.access
@@ -4423,7 +4236,10 @@ async function finalizeCommercialAccessCheckoutReturn() {
       if (isActiveAccess) break
 
       await delay(1200)
-      latestAccessStatus = await getClientAccessStatus({ timeoutMs: 30000 }).catch(() => latestAccessStatus)
+      latestAccessStatus = await getClientAccessStatus({
+        timeoutMs: 30000,
+        forceRefresh: true,
+      }).catch(() => latestAccessStatus)
     }
 
     const resolvedAccess = latestAccessStatus?.access || auth.access?.commercial_access || auth.access
@@ -5027,11 +4843,30 @@ async function handlePaymentSubmit() {
         updated_at: new Date().toISOString(),
       })
 
+      let paymentInvoiceNotificationError = ''
+
+      try {
+        await sendPaymentInvoiceNotification({
+          reservationId: reservationId || flightRequestId,
+          paymentIntentId: paymentLastReference.value,
+          paymentStatus: 'pending_manual_payment',
+        })
+      } catch (notificationError) {
+        paymentInvoiceNotificationError =
+          notificationError?.message || 'No se pudo enviar la orden de pago por correo.'
+        console.warn('[payment-invoice-notification-warning]', {
+          reservationId: reservationId || flightRequestId,
+          flightRequestId,
+          message: paymentInvoiceNotificationError,
+        })
+      }
+
       ui.pushToast({
-        tone: 'success',
+        tone: paymentInvoiceNotificationError ? 'warning' : 'success',
         title: 'Pago asistido registrado',
-        message:
-          'La orden de pago ya quedo registrada. Ahora puedes generar el PDF y subir tu comprobante.',
+        message: paymentInvoiceNotificationError
+          ? 'La orden de pago quedo registrada, pero el correo no pudo enviarse. Aun puedes generar el PDF y compartirlo manualmente.'
+          : 'La orden de pago ya quedo registrada y fue enviada por correo. Ahora puedes generar el PDF y subir tu comprobante.',
       })
 
       return
@@ -5694,6 +5529,7 @@ async function requestReservation(aircraft = selectedAircraft.value) {
           (item) => String(item.id || item.flight_request_id || '').trim() !== createdReservationId,
         ),
       ]
+      hasBootstrappedReservations.value = true
     }
 
     const matchedReservation = reservations.value.find(
@@ -5724,7 +5560,7 @@ async function requestReservation(aircraft = selectedAircraft.value) {
     if (error?.payload?.access) {
       syncCommercialAccessState(error.payload.access?.commercial_access || error.payload.access)
     } else if (Number(error?.status || 0) === 402) {
-      await auth.refreshSession()
+      await auth.refreshSession({ force: true, preferCache: false })
     }
 
     const message =
@@ -5781,8 +5617,10 @@ async function refreshReservations({ silent = false } = {}) {
         query: { per_page: 10 },
       })
       reservations.value = trips
+      hasBootstrappedReservations.value = true
       return trips
     } finally {
+      hasBootstrappedReservations.value = true
       refreshingReservations.value = false
       reservationsRequestPromise = null
       if (!silent) {
@@ -5871,37 +5709,27 @@ function reservationHasAircraftImage(reservation = {}) {
 }
 
 function reservationNeedsMediaHydration(reservation = {}) {
-  if (!reservation?.summary_only) return false
-  if (!reservation.aircraft && !reservation.aircraft_model && !reservation.assigned_aircraft_model) return false
-  return !reservationHasAircraftImage(reservation)
-}
+  if (reservationHasAircraftImage(reservation)) return false
 
-async function hydrateReservationCardDetail(reservation) {
   const reservationId = String(reservation?.flight_request_id || reservation?.id || '').trim()
+  if (!reservationId) return false
 
-  if (!reservationId || reservationDetailRequestIds.has(reservationId)) {
-    return
-  }
-
-  reservationDetailRequestIds.add(reservationId)
-
-  try {
-    const detail = await getClientTrip(reservationId, {
-      timeoutMs: CLIENT_TRIPS_TIMEOUT_MS,
-    })
-    upsertReservationDetail(detail)
-  } catch {
-    // La card puede permanecer en modo resumen hasta el siguiente refresh manual.
-  } finally {
-    reservationDetailRequestIds.delete(reservationId)
-  }
+  return Boolean(
+    reservation?.summary_only ||
+      reservation?.aircraft ||
+      reservation?.aircraft_model ||
+      reservation?.assigned_aircraft_model ||
+      reservation?.visibility_payload?.aircraft_model,
+  )
 }
 
 async function hydrateSelectedReservationDetail() {
   const reservation = selectedReservation.value
   const reservationId = String(reservation?.flight_request_id || reservation?.id || '').trim()
 
-  if (!reservation?.summary_only || !reservationId || reservationDetailRequestIds.has(reservationId)) {
+  const shouldHydrate = reservation?.summary_only || reservationNeedsMediaHydration(reservation)
+
+  if (!shouldHydrate || !reservationId || reservationDetailRequestIds.has(reservationId)) {
     return
   }
 
@@ -5916,14 +5744,6 @@ async function hydrateSelectedReservationDetail() {
     // La vista puede seguir mostrando el resumen actual y reintentar despues.
   } finally {
     reservationDetailRequestIds.delete(reservationId)
-  }
-}
-
-async function hydrateReservationsMissingMedia() {
-  const candidates = reservations.value.filter(reservationNeedsMediaHydration).slice(0, 4)
-
-  for (const reservation of candidates) {
-    await hydrateReservationCardDetail(reservation)
   }
 }
 
@@ -5960,38 +5780,65 @@ async function handleManualReservationsRefresh() {
   await refreshReservations({ silent: true })
 }
 
-async function loadServerData() {
-  loadingServerData.value = true
+async function loadCatalogData({ silent = false } = {}) {
+  if (catalogRequestPromise) return catalogRequestPromise
+
+  if (!silent) {
+    loadingServerData.value = true
+  }
   serverSearchError.value = ''
 
-  try {
-    const [destinationsResult, plansResult] = await Promise.allSettled([
-      getClientDestinations(),
-      getClientFlightPackages(),
-    ])
+  catalogRequestPromise = (async () => {
+    try {
+      const [destinationsResult, plansResult] = await Promise.allSettled([
+        getClientDestinations(),
+        getClientFlightPackages(),
+      ])
 
-    const destinations = destinationsResult.status === 'fulfilled' ? destinationsResult.value : []
-    const plans = plansResult.status === 'fulfilled' ? plansResult.value : []
+      const destinations = destinationsResult.status === 'fulfilled' ? destinationsResult.value : []
+      const plans = plansResult.status === 'fulfilled' ? plansResult.value : []
 
-    featuredDestinations.value = destinations
-    flightPackages.value = plans
-    ensureDefaultPriority(plans)
-    await refreshReservations({ silent: true })
-  } finally {
-    loadingServerData.value = false
-  }
+      featuredDestinations.value = destinations
+      flightPackages.value = plans
+      ensureDefaultPriority(plans)
+      return {
+        destinations,
+        plans,
+      }
+    } finally {
+      catalogRequestPromise = null
+      if (!silent) {
+        loadingServerData.value = false
+      }
+    }
+  })()
+
+  return catalogRequestPromise
+}
+
+function shouldLoadReservationsForCurrentSection() {
+  return activeSection.value === 'viajes' || needsReservationContext.value
+}
+
+async function loadReservationsAfterPaint({ silent = false } = {}) {
+  await waitForPortalFirstPaint()
+  return refreshReservations({ silent })
 }
 
 onMounted(async () => {
   redirectLegacyInProgressSection()
   restoreQuotePreview()
   if (!auth.user?.id) {
-    await auth.refreshSession()
+    await auth.refreshSession({ preferCache: true })
   }
-  await refreshCommercialAccessStatus({ forceSessionRefresh: true }).catch(() => null)
+  await refreshCommercialAccessStatus({ forceSessionRefresh: false }).catch(() => null)
   ensureCommercialAccessPaymentRouteEligibility()
-  await loadServerData()
-  void hydrateSelectedReservationDetail()
+
+  if (activeSection.value === 'reservar') {
+    await loadCatalogData({ silent: false })
+  } else if (shouldLoadReservationsForCurrentSection()) {
+    void loadReservationsAfterPaint({ silent: false })
+  }
 
   removeWorkflowSyncSubscription = subscribeWorkflowSync((payload = {}) => {
     if (payload.scope !== 'reservation-workflow') return
@@ -6054,14 +5901,6 @@ watch(
   () => selectedReservation.value?.id || selectedReservation.value?.flight_request_id || '',
   () => {
     void hydrateSelectedReservationDetail()
-  },
-  { immediate: true },
-)
-
-watch(
-  reservations,
-  () => {
-    void hydrateReservationsMissingMedia()
   },
   { immediate: true },
 )
@@ -6142,6 +5981,12 @@ watch(
     if (shouldAutoRefreshTrips()) {
       void refreshReservations({ silent: true })
     }
+    if (activeSection.value === 'reservar' && !flightPackages.value.length) {
+      void loadCatalogData({ silent: true })
+    }
+    if (shouldLoadReservationsForCurrentSection() && !reservations.value.length) {
+      void loadReservationsAfterPaint({ silent: false })
+    }
     alignReservationWorkflowRoute()
   },
 )
@@ -6177,807 +6022,126 @@ watch(
     <main class="client-page">
       <div v-if="loadingServerData" class="loading-band">Cargando informacion del servidor...</div>
 
-      <section v-if="activeSection === 'reservar' && !isResultsSection" class="screen">
-        <article
-          class="commercial-access-banner"
-          :class="`commercial-access-banner--${commercialTrialNotice.tone}`"
-        >
-          <strong>{{ commercialTrialNotice.title }}</strong>
-          <p>{{ commercialTrialNotice.message }}</p>
-          <button
-            v-if="shouldShowCommercialAccessCta"
-            type="button"
-            class="commercial-access-banner__action"
-            @click="goToCommercialAccessPayment()"
-          >
-            {{ commercialAccessCtaLabel }}
-          </button>
-        </article>
+      <PortalClienteReservationScreen
+        v-if="activeSection === 'reservar'"
+        :active-itinerary-summary="activeItinerarySummary"
+        :active-result-filter="activeResultFilter"
+        :aircraft-billing-note="aircraftBillingNote"
+        :aircraft-capacity-label="aircraftCapacityLabel"
+        :aircraft-class-label="aircraftClassLabel"
+        :aircraft-includes="aircraftIncludes"
+        :aircraft-price-copy="aircraftPriceCopy"
+        :aircraft-speed-line="aircraftSpeedLine"
+        :aircraft-visual-style="aircraftVisualStyle"
+        :commercial-access-cta-label="commercialAccessCtaLabel"
+        :commercial-trial-notice="commercialTrialNotice"
+        :featured-aircraft="featuredAircraft"
+        :is-results-section="isResultsSection"
+        :itinerary-date-line="itineraryDateLine"
+        :itinerary-headline="itineraryHeadline"
+        :itinerary-summary="itinerarySummary"
+        :reservation-action-label="reservationActionLabel"
+        :reserving-aircraft-id="reservingAircraftId"
+        :result-filter-options="resultFilterOptions"
+        :search-form="searchForm"
+        :searching="searching"
+        :secondary-aircraft-options="secondaryAircraftOptions"
+        :server-search-error="serverSearchError"
+        :should-show-commercial-access-cta="shouldShowCommercialAccessCta"
+        :trip-type="tripType"
+        @add-leg="addLeg"
+        @go-commercial-access-payment="goToCommercialAccessPayment"
+        @remove-leg="removeLeg"
+        @request-reservation="requestReservation"
+        @select-form-airport="selectFormAirport"
+        @select-leg-airport="selectLegAirport"
+        @submit-search="submitSearch"
+        @update:active-result-filter="activeResultFilter = $event"
+        @update-form-field="updateSearchField"
+        @update-leg-field="updateLegField"
+        @update-trip-type="tripType = $event"
+      />
 
-        <FlightSearchHero
-          :form="searchForm"
-          :summary="itinerarySummary"
-          :trip-type="tripType"
-          @add-leg="addLeg"
-          @remove-leg="removeLeg"
-          @submit="submitSearch"
-          @select-form-airport="selectFormAirport"
-          @select-leg-airport="selectLegAirport"
-          @update-form-field="updateSearchField"
-          @update-leg-field="updateLegField"
-          @update-trip-type="tripType = $event"
-        />
+      <PortalClienteTripsScreen
+        v-else-if="activeSection === 'viajes'"
+        :assisted-payment-proof-file="assistedPaymentProofFile"
+        :assisted-payment-proof-input="assistedPaymentProofInput"
+        :assisted-payment-proof-name="assistedPaymentProofName"
+        :assisted-payment-proof-uploaded="assistedPaymentProofUploaded"
+        :assisted-primary-cta-label="assistedPrimaryCtaLabel"
+        :back-reservation-id="commercialAccessCheckoutReturnMode ? '' : reservationContextId"
+        :back-section="commercialAccessCheckoutReturnMode ? 'reservar' : 'contrato'"
+        :can-render-reservation-workflow="canRenderReservationWorkflow"
+        :can-upload-assisted-payment-proof="canUploadAssistedPaymentProof"
+        :commercial-access-checkout-facts="commercialAccessCheckoutFacts"
+        :commercial-access-checkout-return-mode="commercialAccessCheckoutReturnMode"
+        :commercial-access-checkout-return-pending="commercialAccessCheckoutReturnPending"
+        :commercial-access-cta-label="commercialAccessCtaLabel"
+        :customer-display-name="customerDisplayName"
+        :format-detailed-currency-by-code="formatDetailedCurrencyByCode"
+        :has-reservations-loaded="hasReservationsLoaded"
+        :payment-breakdown-amount-map="paymentBreakdownAmountMap"
+        :payment-breakdown-currency="paymentBreakdownCurrency"
+        :payment-breakdown-rows="paymentBreakdownRows"
+        :payment-date-label="paymentDateLabel"
+        :payment-feature-list="paymentFeatureList"
+        :payment-form="paymentForm"
+        :payment-hero-copy="paymentHeroCopy"
+        :payment-hero-title="paymentHeroTitle"
+        :payment-inline-error="paymentInlineError"
+        :payment-last-reference="paymentLastReference"
+        :payment-method-cards="paymentMethodCards"
+        :payment-method-summary-label="paymentMethodSummaryLabel"
+        :payment-proof-uploading="paymentProofUploading"
+        :payment-route-headline="paymentRouteHeadline"
+        :payment-submitting="paymentSubmitting"
+        :payment-summary-amount-label="paymentSummaryAmountLabel"
+        :props-section="props.section"
+        :refreshing-reservations="refreshingReservations"
+        :reservation-checkout-return-pending="reservationCheckoutReturnPending"
+        :reservation-context-id="reservationContextId"
+        :reservations="reservations"
+        :selected-payment-method="selectedPaymentMethod"
+        :selected-reservation="selectedReservation"
+        :selected-reservation-frontend-state="selectedReservationFrontendState"
+        :selected-trip-id="selectedTripId"
+        :signing-contract="signingContract"
+        :timeline="timeline"
+        :trips-initial-tab="tripsInitialTab"
+        @confirm-contract="handleContractConfirm"
+        @generate-assisted-payment-pdf="handleGenerateAssistedPaymentOrderPdf"
+        @go="go"
+        @manual-refresh="handleManualReservationsRefresh"
+        @open-concierge="goToConcierge($event)"
+        @open-contract="handleOpenContract"
+        @open-detail="go('viajes', $event)"
+        @open-payment="goToPayment($event)"
+        @payment-submit="handlePaymentSubmit"
+        @select-assisted-payment-proof="handleAssistedPaymentProofSelection"
+        @send-assisted-payment-email="handleSendAssistedPaymentOrderEmail"
+        @trigger-assisted-payment-proof-upload="triggerAssistedPaymentProofUpload"
+        @update:payment-contact-email="paymentForm.contactEmail = $event"
+        @update:selected-payment-method="selectedPaymentMethod = $event"
+        @upload-assisted-payment-proof="handleAssistedPaymentProofUpload"
+      />
 
-      </section>
-
-      <section v-else-if="activeSection === 'reservar' && isResultsSection" class="screen">
-          <article
-            class="commercial-access-banner"
-            :class="`commercial-access-banner--${commercialTrialNotice.tone}`"
-          >
-            <strong>{{ commercialTrialNotice.title }}</strong>
-            <p>{{ commercialTrialNotice.message }}</p>
-            <button
-              v-if="shouldShowCommercialAccessCta"
-              type="button"
-              class="commercial-access-banner__action"
-              @click="goToCommercialAccessPayment()"
-            >
-              {{ commercialAccessCtaLabel }}
-            </button>
-          </article>
-
-          <div class="screen-head results-head results-head-premium">
-            <span class="eyebrow">Luxury concierge selection</span>
-            <h2>{{ itineraryHeadline(activeItinerarySummary) }}</h2>
-            <p>{{ itineraryDateLine(activeItinerarySummary) }}</p>
-            <strong class="results-headline-hook"
-              >Tu asesor privado ha seleccionado las mejores opciones para esta ruta.</strong
-            >
-            <span class="results-subhook"
-              >Opciones verificadas segun velocidad, costo y nivel de experiencia.</span
-            >
-          </div>
-
-          <div class="filter-toolbar">
-            <div class="filter-toolbar__copy">
-              <span>Comparar por</span>
-              <strong>Prioriza criterio experto, inversion, rapidez o exclusividad.</strong>
-            </div>
-            <div class="filter-row">
-              <button
-                v-for="filter in resultFilterOptions"
-                :key="filter.key"
-                :aria-pressed="activeResultFilter === filter.key"
-                :class="{ 'active-filter': activeResultFilter === filter.key }"
-                type="button"
-                @click="activeResultFilter = filter.key"
-              >
-                <strong>{{ filter.label }}</strong>
-              </button>
-            </div>
-          </div>
-
-          <div v-if="searching" class="loading-band">Haciendo match con operadores activos...</div>
-          <div v-else-if="serverSearchError" class="empty-state">{{ serverSearchError }}</div>
-
-          <article v-if="featuredAircraft" class="aircraft-hero-card">
-            <div
-              class="aircraft-thumb aircraft-thumb-hero"
-              :class="{ 'aircraft-thumb--placeholder': !featuredAircraft.image_url }"
-              :style="aircraftVisualStyle(featuredAircraft.image_url)"
-            >
-              <img
-                v-if="featuredAircraft.image_url"
-                :src="featuredAircraft.image_url"
-                :alt="featuredAircraft.aircraft"
-                loading="lazy"
-              />
-              <span v-else class="aircraft-thumb__empty">Imagen en validación</span>
-              <span class="aircraft-thumb__badge">{{ aircraftClassLabel(featuredAircraft) }}</span>
-            </div>
-
-            <div class="aircraft-hero-copy">
-              <h3>{{ featuredAircraft.aircraft }}</h3>
-              <p class="aircraft-time-line">
-                {{ aircraftSpeedLine(featuredAircraft, activeItinerarySummary) }}
-              </p>
-              <p v-if="aircraftBillingNote(featuredAircraft)" class="aircraft-billing-note">
-                {{ aircraftBillingNote(featuredAircraft) }}
-              </p>
-              <p class="aircraft-capacity-line">{{ aircraftCapacityLabel(featuredAircraft) }}</p>
-              <p class="hero-price-label">Tarifa estimada total</p>
-              <strong class="hero-price">{{ aircraftPriceCopy(featuredAircraft) }}</strong>
-              <p class="hero-service-copy">Incluye operacion, logistica y servicio ejecutivo.</p>
-              <div class="hero-includes">
-                <span v-for="item in aircraftIncludes(featuredAircraft)" :key="item">{{
-                  item
-                }}</span>
-              </div>
-            </div>
-            <div class="hero-actions">
-              <button
-                type="button"
-                :disabled="Boolean(reservingAircraftId)"
-                @click="requestReservation(featuredAircraft)"
-              >
-                {{ reservationActionLabel(featuredAircraft) }}
-              </button>
-            </div>
-          </article>
-
-          <div v-if="secondaryAircraftOptions.length" class="aircraft-list aircraft-list-compact">
-            <article
-              v-for="aircraft in secondaryAircraftOptions"
-              :key="aircraft.id"
-              class="aircraft-card aircraft-card-compact"
-            >
-              <div
-                class="aircraft-thumb"
-                :class="{ 'aircraft-thumb--placeholder': !aircraft.image_url }"
-                :style="aircraftVisualStyle(aircraft.image_url)"
-              >
-                <img
-                  v-if="aircraft.image_url"
-                  :src="aircraft.image_url"
-                  :alt="aircraft.aircraft"
-                  loading="lazy"
-                />
-                <span v-else class="aircraft-thumb__empty">Imagen en validación</span>
-                <span class="aircraft-thumb__badge">{{ aircraftClassLabel(aircraft) }}</span>
-              </div>
-              <div class="aircraft-copy">
-                <div class="aircraft-card-head">
-                  <div class="aircraft-card-head__copy">
-                    <span class="eyebrow">Opcion privada</span>
-                    <h3>{{ aircraft.aircraft }}</h3>
-                    <p class="aircraft-time-line">
-                      {{ aircraftSpeedLine(aircraft, activeItinerarySummary) }}
-                    </p>
-                    <p v-if="aircraftBillingNote(aircraft)" class="aircraft-billing-note">
-                      {{ aircraftBillingNote(aircraft) }}
-                    </p>
-                    <p class="aircraft-capacity-line">{{ aircraftCapacityLabel(aircraft) }}</p>
-                  </div>
-                </div>
-                <p class="aircraft-price-line">
-                  <span>Tarifa estimada total</span>
-                  <strong>{{ aircraftPriceCopy(aircraft) }}</strong>
-                </p>
-              </div>
-              <div class="card-actions">
-                <button
-                  type="button"
-                  :disabled="Boolean(reservingAircraftId)"
-                  @click="requestReservation(aircraft)"
-                >
-                  {{ reservationActionLabel(aircraft) }}
-                </button>
-              </div>
-            </article>
-          </div>
-      </section>
-
-      <section v-else-if="activeSection === 'viajes'" class="screen">
-        <article
-          v-if="props.section === 'contrato' && canRenderReservationWorkflow"
-          class="document-panel"
-        >
-          <ClientContractPreview
-            :reservation="selectedReservation"
-            :reservation-id="reservationContextId"
-            :customer-name="customerDisplayName"
-            :submitting="signingContract"
-            @confirm="handleContractConfirm"
-          />
-        </article>
-
-        <article
-          v-else-if="props.section === 'contrato' && !canRenderReservationWorkflow"
-          class="document-panel confirmation-panel"
-        >
-          <span class="eyebrow">Contrato</span>
-          <h2>
-            {{ hasReservationsLoaded ? 'No encontramos una reserva activa' : 'Cargando contrato' }}
-          </h2>
-          <p v-if="hasReservationsLoaded">
-            Necesitamos una reserva valida para abrir el contrato. En cuanto tengas una reserva
-            activa, aparecera aqui automaticamente.
-          </p>
-          <p v-else>Estamos sincronizando tus reservas para preparar el contrato correcto.</p>
-          <div class="confirmation-actions">
-            <button type="button" @click="go('viajes')">Ver mis vuelos</button>
-            <button class="secondary-button" type="button" @click="go('reservar')">
-              Reservar vuelo
-            </button>
-          </div>
-        </article>
-
-        <article
-          v-else-if="props.section === 'pago' && canRenderReservationWorkflow"
-          class="payment-checkout"
-        >
-          <div class="payment-checkout__main">
-            <button
-              class="payment-back"
-              type="button"
-              @click="commercialAccessCheckoutReturnMode ? go('reservar') : go('contrato', reservationContextId)"
-            >
-              <span aria-hidden="true">←</span>
-              <span>{{ commercialAccessCheckoutReturnMode ? 'Volver a reservar' : 'Volver al contrato' }}</span>
-            </button>
-
-            <div class="payment-checkout__hero">
-              <span class="eyebrow">{{
-                commercialAccessCheckoutReturnMode ? 'Pago de acceso comercial' : `Pago ${reservationContextId}`
-              }}</span>
-              <h2>{{ paymentHeroTitle }}</h2>
-              <p>{{ paymentHeroCopy }}</p>
-              <div class="payment-trust-strip">
-                <template v-if="commercialAccessCheckoutReturnMode">
-                  <span v-for="item in commercialAccessCheckoutFacts.slice(0, 3)" :key="item.label">
-                    {{ item.label }}: {{ item.value }}
-                  </span>
-                </template>
-              </div>
-            </div>
-
-            <section v-if="commercialAccessCheckoutReturnMode" class="commercial-payment-brief">
-              <article
-                v-for="item in commercialAccessCheckoutFacts"
-                :key="item.label"
-                :class="['commercial-payment-brief__card', `commercial-payment-brief__card--${item.tone}`]"
-              >
-                <span>{{ item.label }}</span>
-                <strong>{{ item.value }}</strong>
-              </article>
-            </section>
-
-            <section class="payment-section">
-              <h3>Metodo de pago</h3>
-              <div v-if="!commercialAccessCheckoutReturnMode" class="payment-method-grid">
-                <button
-                  v-for="method in paymentMethodCards"
-                  :key="method.id"
-                  type="button"
-                  class="payment-method-card"
-                  :class="{ 'payment-method-card--active': selectedPaymentMethod === method.id }"
-                  @click="selectedPaymentMethod = method.id"
-                >
-                  <strong>{{ method.label }}</strong>
-                  <span>{{ method.note }}</span>
-                </button>
-              </div>
-
-              <div class="payment-mode-panel">
-                <div v-if="commercialAccessCheckoutReturnMode" class="payment-mode-panel__copy">
-                  <strong>Stripe Checkout seguro</strong>
-                  <p>
-                    Al continuar te llevaremos a la pagina segura de Stripe para completar la
-                    renovacion mensual de tu acceso comercial.
-                  </p>
-                </div>
-
-                <div v-else-if="selectedPaymentMethod === 'stripe'" class="payment-mode-panel__copy">
-                  <strong>Stripe Checkout seguro</strong>
-                  <p>
-                    Al continuar te llevaremos a Stripe para pagar el costo del vuelo con el total
-                    calculado por el backend. La reserva se actualizara cuando Stripe confirme el
-                    pago.
-                  </p>
-                </div>
-
-                <div v-else-if="selectedPaymentMethod === 'assisted'" class="payment-mode-panel__copy">
-                  <strong>Pago en efectivo</strong>
-                  <p>Pago manual con comprobante sujeto a validacion administrativa.</p>
-                </div>
-
-                <div v-else class="payment-mode-panel__copy">
-                  <strong>Selecciona un metodo</strong>
-                  <p>Elige Stripe o pago en efectivo para continuar con esta reserva.</p>
-                </div>
-              </div>
-
-              <div v-if="selectedPaymentMethod === 'assisted'" class="payment-wire-card">
-                <p>
-                  <span>Estado</span><strong>Pendiente de pago</strong>
-                </p>
-                <p>
-                  <span>Referencia</span><strong>{{ paymentLastReference || 'Pendiente' }}</strong>
-                </p>
-                <p>
-                  <span>Flight cost</span>
-                  <strong>{{
-                    formatDetailedCurrencyByCode(
-                      paymentBreakdownAmountMap.flight_cost || 0,
-                      paymentBreakdownCurrency,
-                    )
-                  }}</strong>
-                </p>
-                <p>
-                  <span>Administrative fee</span>
-                  <strong>{{
-                    formatDetailedCurrencyByCode(
-                      paymentBreakdownAmountMap.administrative_fee || 0,
-                      paymentBreakdownCurrency,
-                    )
-                  }}</strong>
-                </p>
-                <p>
-                  <span>Total amount</span><strong>{{ paymentSummaryAmountLabel }}</strong>
-                </p>
-              </div>
-
-              <div v-if="selectedPaymentMethod === 'assisted'" class="payment-assisted-actions">
-                <button
-                  type="button"
-                  class="secondary-button"
-                  :disabled="!canUploadAssistedPaymentProof"
-                  @click="handleGenerateAssistedPaymentOrderPdf"
-                >
-                  Descargar PDF
-                </button>
-
-                <input
-                  ref="assistedPaymentProofInput"
-                  type="file"
-                  accept=".pdf,image/*"
-                  class="payment-proof-input"
-                  @change="handleAssistedPaymentProofSelection"
-                />
-
-                <button
-                  type="button"
-                  class="ghost-button"
-                  :disabled="!canUploadAssistedPaymentProof"
-                  @click="triggerAssistedPaymentProofUpload"
-                >
-                  Seleccionar comprobante
-                </button>
-
-                <span v-if="assistedPaymentProofName" class="payment-proof-name">
-                  {{ assistedPaymentProofName }}
-                </span>
-
-                <button
-                  type="button"
-                  class="primary-action"
-                  :disabled="!canUploadAssistedPaymentProof || !assistedPaymentProofFile || paymentProofUploading"
-                  @click="handleAssistedPaymentProofUpload"
-                >
-                  {{
-                    paymentProofUploading
-                      ? 'Subiendo comprobante...'
-                      : 'Subir comprobante de pago'
-                  }}
-                </button>
-
-                <p v-if="assistedPaymentProofUploaded" class="payment-proof-hint">
-                  Ya existe un comprobante cargado para esta reserva.
-                </p>
-
-                <div class="payment-assisted-actions__row">
-                  <button
-                    type="button"
-                    class="ghost-button"
-                    :disabled="!canUploadAssistedPaymentProof"
-                    @click="handleSendAssistedPaymentOrderEmail"
-                  >
-                    Enviar por correo
-                  </button>
-                  <button
-                    type="button"
-                    class="ghost-button"
-                    @click="handleBackToReservation"
-                  >
-                    Volver a la reserva
-                  </button>
-                </div>
-              </div>
-
-              <p v-if="paymentInlineError" class="payment-inline-error">{{ paymentInlineError }}</p>
-            </section>
-
-            <section class="payment-section">
-              <h3>Informacion de contacto</h3>
-              <label class="payment-field payment-field--stacked">
-                <span>Correo electronico</span>
-                <input
-                  v-model="paymentForm.contactEmail"
-                  type="email"
-                  placeholder="cliente@empresa.com"
-                />
-              </label>
-            </section>
-          </div>
-
-          <aside class="payment-summary-card">
-            <span class="payment-summary-card__eyebrow">{{
-              commercialAccessCheckoutReturnMode ? 'Resumen de acceso' : 'Resumen de reserva'
-            }}</span>
-            <h3>{{ customerDisplayName }}</h3>
-            <p class="payment-summary-card__route">{{ paymentRouteHeadline }}</p>
-            <div class="payment-summary-flight">
-              <div class="payment-summary-flight__icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path
-                    d="M21 16l-8-4V5.5a1.5 1.5 0 0 0-3 0V12l-8 4 1 2 7-2.5V20l-2 1.5V23l4-1 4 1v-1.5L14 20v-4.5L21 18z"
-                    fill="currentColor"
-                  />
-                </svg>
-              </div>
-              <div>
-                <span>{{ commercialAccessCheckoutReturnMode ? 'Cuenta comercial protegida' : 'Vuelo privado protegido' }}</span>
-                <strong>{{ paymentDateLabel }}</strong>
-              </div>
-            </div>
-
-            <div class="payment-feature-list">
-              <article v-for="feature in paymentFeatureList" :key="feature.title">
-                <span class="payment-feature-list__icon" aria-hidden="true">
-                  <svg v-if="feature.icon === 'shield'" viewBox="0 0 24 24">
-                    <path
-                      d="M12 3l7 3v5c0 5.05-3.41 9.74-7 11-3.59-1.26-7-5.95-7-11V6l7-3z"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="1.8"
-                    />
-                  </svg>
-                  <svg v-else-if="feature.icon === 'concierge'" viewBox="0 0 24 24">
-                    <path
-                      d="M6 17a6 6 0 0 1 12 0"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-linecap="round"
-                      stroke-width="1.8"
-                    />
-                    <path
-                      d="M12 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM4 17h16"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="1.8"
-                    />
-                  </svg>
-                  <svg v-else-if="feature.icon === 'team'" viewBox="0 0 24 24">
-                    <path
-                      d="M16 19v-1a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v1"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="1.8"
-                    />
-                    <circle
-                      cx="10"
-                      cy="8"
-                      r="3"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="1.8"
-                    />
-                    <path
-                      d="M20 19v-1a4 4 0 0 0-3-3.87M16 5.13A3 3 0 0 1 16 11"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="1.8"
-                    />
-                  </svg>
-                  <svg v-else viewBox="0 0 24 24">
-                    <path
-                      d="M5 19h14M7 16l3-3 2 2 5-5"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="1.8"
-                    />
-                    <circle
-                      cx="7"
-                      cy="8"
-                      r="2"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="1.8"
-                    />
-                  </svg>
-                </span>
-                <p>
-                  <strong>{{ feature.title }}</strong>
-                  <span>{{ feature.copy }}</span>
-                </p>
-              </article>
-            </div>
-
-            <div class="payment-summary-meta">
-              <template v-if="commercialAccessCheckoutReturnMode">
-                <p v-for="item in commercialAccessCheckoutFacts.slice(0, 2)" :key="item.label">
-                  <span>{{ item.label }}</span>
-                  <strong>{{ item.value }}</strong>
-                </p>
-              </template>
-              <p>
-                <span>Fecha estimada</span>
-                <strong>{{ paymentDateLabel }}</strong>
-              </p>
-              <p>
-                <span>Metodo seleccionado</span>
-                <strong>{{ paymentMethodSummaryLabel }}</strong>
-              </p>
-            </div>
-
-            <div class="payment-totals">
-              <p
-                v-for="item in paymentBreakdownRows"
-                :key="item.key"
-                :class="{ 'payment-totals__total': item.total }"
-              >
-                <span>{{ item.label }}</span>
-                <strong>{{ item.value }}</strong>
-              </p>
-              <p v-if="!paymentBreakdownRows.length" class="payment-totals__total">
-                <span>Importe a pagar hoy</span>
-                <strong>{{ paymentSummaryAmountLabel }}</strong>
-              </p>
-            </div>
-
-            <button
-              class="payment-submit"
-              type="button"
-              :disabled="
-                paymentSubmitting ||
-                commercialAccessCheckoutReturnPending ||
-                reservationCheckoutReturnPending
-              "
-              @click="handlePaymentSubmit"
-            >
-              {{
-                commercialAccessCheckoutReturnPending
-                  ? 'Validando pago...'
-                  : reservationCheckoutReturnPending
-                    ? 'Validando pago...'
-                  : paymentSubmitting
-                  ? 'Procesando...'
-                  : commercialAccessCheckoutReturnMode
-                    ? commercialAccessCtaLabel
-                    : !selectedPaymentMethod
-                    ? 'Selecciona metodo de pago'
-                    : selectedPaymentMethod === 'assisted'
-                    ? assistedPrimaryCtaLabel
-                    : 'Continuar a Stripe'
-              }}
-            </button>
-
-
-          </aside>
-        </article>
-
-        <article
-          v-else-if="props.section === 'pago' && !canRenderReservationWorkflow"
-          class="document-panel confirmation-panel"
-        >
-          <span class="eyebrow">Pago</span>
-          <h2>
-            {{
-              hasReservationsLoaded
-                ? selectedReservation?.is_reservation
-                  ? 'Pago disponible despues de la firma'
-                  : 'No encontramos una reserva para pagar'
-                : 'Preparando checkout'
-            }}
-          </h2>
-          <p v-if="hasReservationsLoaded">
-            {{
-              selectedReservation?.is_reservation
-                ? selectedReservationFrontendState.status_message ||
-                  'El pago se habilitara cuando el contrato tenga ready_for_payment en true.'
-                : 'Primero necesitamos identificar una reserva activa para abrir el checkout.'
-            }}
-          </p>
-          <p v-else>Estamos cargando la informacion de tu reserva antes de abrir el pago.</p>
-          <div class="confirmation-actions">
-            <button
-              v-if="selectedReservation?.is_reservation"
-              type="button"
-              @click="go('contrato', reservationContextId)"
-            >
-              Volver al contrato
-            </button>
-            <button v-else type="button" @click="go('viajes')">Ver mis vuelos</button>
-            <button class="secondary-button" type="button" @click="go('reservar')">
-              Reservar vuelo
-            </button>
-          </div>
-        </article>
-
-        <article
-          v-else-if="props.section === 'reserva-confirmada' && canRenderReservationWorkflow"
-          class="document-panel confirmation-panel"
-        >
-          <span class="eyebrow">Reserva registrada</span>
-          <h2>Tu vuelo esta en proceso</h2>
-          <p>
-            Ya puedes dar seguimiento desde Mis vuelos. En este momento la solicitud sigue su flujo
-            operativo mientras recibimos la respuesta del proveedor asignado.
-          </p>
-          <div class="signature-box confirmation-box">
-            <strong>Estado actual</strong>
-            <span>Respuesta del proveedor.</span>
-          </div>
-          <div class="confirmation-actions">
-            <button type="button" @click="go('viajes', reservationContextId)">
-              Ver mis vuelos
-            </button>
-            <button class="secondary-button" type="button" @click="go('soporte')">
-              Asesor privado 24/7
-            </button>
-          </div>
-        </article>
-
-        <article
-          v-else-if="props.section === 'reserva-confirmada' && !canRenderReservationWorkflow"
-          class="document-panel confirmation-panel"
-        >
-          <span class="eyebrow">Reserva registrada</span>
-          <h2>
-            {{
-              hasReservationsLoaded ? 'No encontramos esa reserva' : 'Cargando estado de reserva'
-            }}
-          </h2>
-          <p v-if="hasReservationsLoaded">
-            La reserva que intentas abrir ya no esta disponible o todavia no se sincroniza.
-          </p>
-          <p v-else>Estamos consultando el estado mas reciente de tu reserva.</p>
-          <div class="confirmation-actions">
-            <button type="button" @click="go('viajes')">Ver mis vuelos</button>
-            <button class="secondary-button" type="button" @click="go('reservar')">
-              Reservar vuelo
-            </button>
-          </div>
-        </article>
-
-        <ActiveTrips
-          v-else
-          :reservations="reservations"
-          :selected-id="selectedTripId"
-          :initial-tab="tripsInitialTab"
-          :refreshing="refreshingReservations"
-          :timeline="timeline"
-          @refresh="handleManualReservationsRefresh"
-          @open-concierge="goToConcierge($event)"
-          @open-contract="handleOpenContract"
-          @open-detail="go('viajes', $event)"
-          @open-payment="goToPayment($event)"
-        />
-      </section>
-
-      <section v-else class="screen">
-
-
-        <template v-if="activeSection === 'perfil'">
-          <section class="profile-hero-shell">
-            <div class="profile-hero-card">
-              <div class="profile-hero-copy">
-                <span class="eyebrow">Miembro Executive</span>
-                <h3>Bienvenido, {{ userFirstName }}</h3>
-                <p>
-                  Tu expediente ya concentra identidad, facturación, preferencias de cabina y
-                  seguridad para reservar más rápido.
-                </p>
-              </div>
-
-              <div v-if="activePaymentBadge" class="profile-payment-badge">
-                <span class="profile-payment-badge__icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24">
-                    <path d="M12 2 4 5v6c0 5 3.4 9.7 8 11 4.6-1.3 8-6 8-11V5l-8-3Zm-1.2 13.6L7.6 12.4l1.4-1.4 1.8 1.8 4.2-4.2 1.4 1.4-5.6 5.6Z" fill="currentColor"/>
-                  </svg>
-                </span>
-                <strong>{{ activePaymentBadge }}</strong>
-              </div>
-
-              <div class="profile-member-chip">
-                <span class="profile-member-avatar">{{ profileInitials }}</span>
-                <div>
-                  <strong>{{ hasActiveClientAccess ? 'Executive Member' : 'Private Client' }}</strong>
-                  <small>{{ isCommercialAccessExpired(auth.access?.commercial_access || auth.access) ? 'Cuenta vencida' : hasActiveClientAccess ? 'Cuenta activa' : 'Cuenta privada' }}</small>
-                </div>
-              </div>
-            </div>
-
-            <div class="profile-kpi-grid">
-              <article v-for="item in profileStats" :key="item.label" class="profile-kpi-card">
-                <div class="profile-kpi-card__head">
-                  <span class="profile-kpi-icon" aria-hidden="true">
-                    <svg v-if="item.label === 'Vuelos'" viewBox="0 0 24 24">
-                      <path
-                        d="M21 16v-2l-8-5V4.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5L21 16Z"
-                        fill="currentColor"
-                      />
-                    </svg>
-                    <svg v-else-if="item.label === 'Viajeros'" viewBox="0 0 24 24">
-                      <path
-                        d="M9 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8Zm6 2a3 3 0 1 1 0-6 3 3 0 0 1 0 6ZM3 19c0-2.67 4-4 6-4s6 1.33 6 4v2H3v-2Zm12 2v-1.5c0-1.15-.44-2.15-1.18-2.94 2.37.2 5.18 1.17 5.18 3.44V21h-4Z"
-                        fill="currentColor"
-                      />
-                    </svg>
-                    <svg v-else-if="item.label === 'Facturación'" viewBox="0 0 24 24">
-                      <path
-                        d="M6 3h9l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm8 1.5V9h4.5L14 4.5ZM8 12h8v1.5H8V12Zm0 3h8v1.5H8V15Z"
-                        fill="currentColor"
-                      />
-                    </svg>
-                    <svg v-else viewBox="0 0 24 24">
-                      <path
-                        d="M12 2a7 7 0 0 1 7 7c0 5.25-7 13-7 13S5 14.25 5 9a7 7 0 0 1 7-7Zm0 9a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"
-                        fill="currentColor"
-                      />
-                    </svg>
-                  </span>
-                  <span>{{ item.label }}</span>
-                </div>
-                <strong>{{ item.value }}</strong>
-                <small>{{ item.caption }}</small>
-              </article>
-            </div>
-          </section>
-
-          <div class="profile-cards profile-cards--premium">
-            <article
-              class="profile-renewal-card"
-              :data-tone="commercialAccessRenewalPanel.tone"
-            >
-              <div class="profile-renewal-card__header">
-                <div>
-                  <span class="eyebrow">Renovación automática</span>
-                  <h3>{{ commercialAccessRenewalPanel.title }}</h3>
-                </div>
-                <strong>{{ activePlan }}</strong>
-              </div>
-
-              <p>{{ commercialAccessRenewalPanel.message }}</p>
-
-              <div class="profile-renewal-card__grid">
-                <article
-                  v-for="item in commercialAccessRenewalPanel.rows"
-                  :key="item.label"
-                  class="profile-renewal-card__fact"
-                >
-                  <span>{{ item.label }}</span>
-                  <strong>{{ item.value }}</strong>
-                </article>
-              </div>
-
-              <small>{{ commercialAccessRenewalPanel.outcome }}</small>
-            </article>
-          </div>
-
-          <form class="profile-form profile-form--premium">
-            <label><span class="profile-field-label"><span class="profile-field-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3a5 5 0 1 1 0 10 5 5 0 0 1 0-10Zm0 12c4.418 0 8 2.239 8 5v1H4v-1c0-2.761 3.582-5 8-5Z" fill="currentColor"/></svg></span>Nombre</span><input :value="profileDisplayName" readonly /></label>
-            <label><span class="profile-field-label"><span class="profile-field-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6.6 10.8a15.5 15.5 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.24c1.1.36 2.3.56 3.6.56a1 1 0 0 1 1 1V20a1 1 0 0 1-1 1C10.3 21 3 13.7 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.3.2 2.5.56 3.6a1 1 0 0 1-.24 1l-2.22 2.2Z" fill="currentColor"/></svg></span>Teléfono</span><input :value="profilePhone" readonly /></label>
-            <label class="profile-form__field profile-form__field--half"><span class="profile-field-label"><span class="profile-field-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 5h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Zm0 3v.5l8 4.5 8-4.5V8H4Z" fill="currentColor"/></svg></span>Correo</span><input :value="profileEmail" readonly /></label>
-          </form>
-        </template>
-
-        <div v-else class="profile-cards">
-          <article class="profile-highlight-card">
-            <span class="eyebrow">Reserva activa</span>
-            <h3>Tu cuenta ya puede buscar y cotizar</h3>
-            <p>Centraliza rutas, preferencias y seguimiento sin depender de una vista adicional.</p>
-          </article>
-          <article class="profile-highlight-card">
-            <span class="eyebrow">Siguiente paso</span>
-            <h3>Vuelve al cotizador</h3>
-            <p>
-              Usa el flujo de reserva para crear nuevas solicitudes y revisar tus vuelos vigentes.
-            </p>
-          </article>
-        </div>
-      </section>
+      <PortalClienteProfileScreen
+        v-else
+        :access-source="auth.access?.commercial_access || auth.access"
+        :active-payment-badge="activePaymentBadge"
+        :active-plan="activePlan"
+        :commercial-access-renewal-panel="commercialAccessRenewalPanel"
+        :has-active-client-access="hasActiveClientAccess"
+        :is-commercial-access-expired="isCommercialAccessExpired"
+        :other-section-card-copy="otherSectionCardCopy"
+        :profile-display-name="profileDisplayName"
+        :profile-email="profileEmail"
+        :profile-initials="profileInitials"
+        :profile-phone="profilePhone"
+        :profile-stats="profileStats"
+        :section="activeSection"
+        :user-first-name="userFirstName"
+      />
     </main>
 
     <nav class="mobile-bottom-nav" aria-label="Navegacion movil">

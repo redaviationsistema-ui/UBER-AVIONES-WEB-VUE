@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { requestWithCandidates } from '../../lib/backendCrud'
 import { resolveMediaUrl } from '../../lib/api'
 
@@ -9,6 +10,8 @@ const props = defineProps({
   mode: { type: String, default: 'aircraft' },
 })
 
+const route = useRoute()
+const router = useRouter()
 const emit = defineEmits(['approve-aircraft', 'reject-aircraft', 'suspend-aircraft'])
 
 const companyFilter = ref('Todas')
@@ -54,6 +57,12 @@ function providerName(item) {
     item.provider_name ||
     'Proveedor sin ligar'
   )
+}
+
+function providerIdValue(item = {}) {
+  return String(
+    item.provider_id || item.proveedor_id || item.provider?.id || item.provider?.provider_id || '',
+  ).trim()
 }
 
 function aircraftName(item) {
@@ -341,6 +350,59 @@ function closeDocumentPreview() {
   }
 
   previewDocument.value = null
+}
+
+function triggerBrowserDownload(content, fileName, mimeType = 'text/plain;charset=utf-8') {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return
+
+  const blob = content instanceof Blob ? content : new Blob([content], { type: mimeType })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileName
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
+
+function exportAircraftCsv() {
+  const headers = ['Matricula', 'Aeronave', 'Proveedor', 'Base', 'Estatus', 'Documentos', 'Trial']
+  const rows = filteredAircraft.value.map((item) => [
+    item.registration || '',
+    aircraftName(item),
+    providerName(item),
+    baseLabel(item),
+    statusChip(item).label,
+    docsChip(item).label,
+    trialChip(item).label,
+  ])
+  const csv = [headers, ...rows]
+    .map((row) => row.map((cell) => `"${String(cell ?? '').replaceAll('"', '""')}"`).join(','))
+    .join('\n')
+
+  triggerBrowserDownload(csv, 'aeronaves-admin.csv', 'text/csv;charset=utf-8')
+}
+
+function downloadSelectedAircraftSummary() {
+  if (!selectedAircraft.value) return
+
+  const item = selectedAircraft.value
+  const summary = [
+    `Aeronave: ${aircraftName(item)}`,
+    `Matricula: ${item.registration || 'Pendiente'}`,
+    `Proveedor: ${providerName(item)}`,
+    `Base: ${baseLabel(item)}`,
+    `Estatus: ${statusChip(item).label}`,
+    `Documentos: ${docsChip(item).label}`,
+    `Trial: ${trialChip(item).label}`,
+    `Tarifa: ${formatMoney(item.hourly_rate || item.hourlyPrice || item.price_per_hour)}`,
+  ].join('\n')
+
+  const safeName = String(item.registration || aircraftName(item) || 'aeronave')
+    .replace(/\s+/g, '-')
+    .toLowerCase()
+  triggerBrowserDownload(summary, `${safeName}-resumen.txt`)
 }
 
 function previewBlob(blob, documentRecord) {
@@ -643,9 +705,25 @@ const activeFilters = computed(() =>
   ].filter(Boolean),
 )
 
-const companyFilteredAircraft = computed(() =>
-  props.aircraft.filter((item) => companyFilter.value === 'Todas' || providerName(item) === companyFilter.value),
-)
+const companyFilteredAircraft = computed(() => {
+  const providerIdQuery = String(route.query.providerId || '').trim()
+  const providerNameQuery = String(route.query.providerName || '').trim()
+
+  return props.aircraft.filter((item) => {
+    const matchesCompany = companyFilter.value === 'Todas' || providerName(item) === companyFilter.value
+    if (!matchesCompany) return false
+
+    if (providerIdQuery) {
+      return providerIdValue(item) === providerIdQuery
+    }
+
+    if (providerNameQuery) {
+      return providerName(item) === providerNameQuery
+    }
+
+    return true
+  })
+})
 
 const filteredAircraft = computed(() => {
   const items = companyFilteredAircraft.value.filter((item) => {
@@ -713,6 +791,9 @@ function clearFilters() {
   sortMode.value = 'recent'
   showAdvancedFilters.value = false
   openActionMenuId.value = null
+  if (route.query.providerId || route.query.providerName) {
+    router.replace({ query: {} })
+  }
 }
 
 function selectAircraft(item) {
@@ -782,6 +863,32 @@ watch(
     }
   },
 )
+
+watch(
+  () => [route.query.providerId, route.query.providerName, props.aircraft.length],
+  () => {
+    const providerIdQuery = String(route.query.providerId || '').trim()
+    const providerNameQuery = String(route.query.providerName || '').trim()
+
+    if (!providerIdQuery && !providerNameQuery) return
+
+    const matchedAircraft = props.aircraft.find((item) => {
+      if (providerIdQuery) {
+        return providerIdValue(item) === providerIdQuery
+      }
+
+      return providerName(item) === providerNameQuery
+    })
+
+    if (!matchedAircraft) return
+
+    const matchedProviderName = providerName(matchedAircraft)
+    if (matchedProviderName && companyFilter.value !== matchedProviderName) {
+      companyFilter.value = matchedProviderName
+    }
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -834,7 +941,7 @@ watch(
           <h2>Control center de flota</h2>
           <p>Revision ejecutiva de aprobacion, documentos, trial y visibilidad en marketplace.</p>
         </div>
-        <button type="button" class="export-button">Exportar</button>
+        <button type="button" class="export-button" @click="exportAircraftCsv">Exportar</button>
       </header>
 
       <div class="kpi-grid" aria-label="Resumen de aeronaves">
@@ -1374,7 +1481,7 @@ watch(
             <button class="action-approve" type="button" @click="$emit('approve-aircraft', selectedAircraft.id)">✓ Aprobar</button>
             <button class="action-reject" type="button" @click="$emit('reject-aircraft', selectedAircraft.id)">× Rechazar</button>
             <button class="action-suspend" type="button" @click="$emit('suspend-aircraft', selectedAircraft.id)">! Suspender</button>
-            <button type="button" class="export-button">Descargar PDF</button>
+            <button type="button" class="export-button" @click="downloadSelectedAircraftSummary">Descargar resumen</button>
           </div>
         </footer>
       </section>

@@ -1,11 +1,46 @@
 <script setup>
+import { computed, ref } from 'vue'
 import CrewUiIcon from './CrewUiIcon.vue'
 
-defineProps({
+const props = defineProps({
   paymentSummary: { type: Object, required: true },
 })
 
 defineEmits(['report-payment'])
+
+const selectedPaymentId = ref('')
+
+const selectedPayment = computed(
+  () => props.paymentSummary.items.find((item) => String(item.id) === String(selectedPaymentId.value)) || props.paymentSummary.items[0] || null,
+)
+
+function openPaymentDetail(item) {
+  selectedPaymentId.value = item.id
+}
+
+function downloadReceipt(item) {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return
+
+  const content = [
+    `Vuelo: ${item.flight}`,
+    `Servicio: ${item.service}`,
+    `Pago: ${item.payment}`,
+    `Bono VIP: ${item.vipBonus}`,
+    `Penalizacion: ${item.penalty}`,
+    `Estatus: ${item.status}`,
+    `Comprobante: ${item.receipt}`,
+  ].join('\n')
+
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `comprobante-${item.id}.txt`
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
 </script>
 
 <template>
@@ -43,11 +78,11 @@ defineEmits(['report-payment'])
           </div>
           <div class="action-stack">
             <span class="badge">{{ item.status }}</span>
-            <button class="ghost-button action-button" type="button">
+            <button class="ghost-button action-button" type="button" @click="openPaymentDetail(item)">
               <CrewUiIcon name="report" :size="15" />
               Ver detalle
             </button>
-            <button class="ghost-button action-button" type="button">
+            <button class="ghost-button action-button" type="button" @click="downloadReceipt(item)">
               <CrewUiIcon name="download" :size="15" />
               Descargar comprobante
             </button>
@@ -58,6 +93,15 @@ defineEmits(['report-payment'])
           </div>
         </article>
       </div>
+    </section>
+
+    <section v-if="selectedPayment" class="surface table-card payment-detail-card">
+      <div class="payment-detail-head">
+        <strong>{{ selectedPayment.flight }} - {{ selectedPayment.service }}</strong>
+        <span class="badge">{{ selectedPayment.status }}</span>
+      </div>
+      <p>{{ selectedPayment.payment }} · Bono {{ selectedPayment.vipBonus }} · Penalizacion {{ selectedPayment.penalty }}</p>
+      <small>Comprobante: {{ selectedPayment.receipt }}</small>
     </section>
   </section>
 </template>
@@ -80,6 +124,17 @@ defineEmits(['report-payment'])
   display: grid;
   gap: 0.75rem;
   min-width: 0;
+}
+
+.payment-detail-card {
+  gap: 0.5rem;
+}
+
+.payment-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
 }
 
 .title-row {

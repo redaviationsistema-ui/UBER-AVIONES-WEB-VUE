@@ -1,12 +1,14 @@
 <script setup>
-import { computed, reactive } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import SiteFooter from '../components/SiteFooter.vue'
 
 const router = useRouter()
+const hasDifferentDropoff = ref(false)
 
 const form = reactive({
   pickup: 'Toluca / TLC',
+  dropoff: '',
   departureDate: '2026-05-02',
   returnDate: '2026-05-04',
   aircraftType: 'Jet ejecutivo',
@@ -72,6 +74,7 @@ function searchRental() {
     name: 'login',
     query: {
       pickup: form.pickup,
+      dropoff: form.dropoff,
       departureDate: form.departureDate,
       returnDate: form.returnDate,
       aircraftType: form.aircraftType,
@@ -96,7 +99,9 @@ function searchRental() {
           cabina.
         </p>
 
-        <button class="pill-btn" type="button">Punto de devolución diferente</button>
+        <button class="pill-btn" type="button" @click="hasDifferentDropoff = !hasDifferentDropoff">
+          {{ hasDifferentDropoff ? 'Misma base de regreso' : 'Punto de devolución diferente' }}
+        </button>
 
         <label class="field-label">Tipo de aeronave</label>
         <select v-model="form.aircraftType" class="select-box">
@@ -111,6 +116,14 @@ function searchRental() {
           <span>●</span>
           <input v-model="form.pickup" placeholder="Punto de recolección" />
         </div>
+
+        <template v-if="hasDifferentDropoff">
+          <label class="field-label">Base de regreso</label>
+          <div class="input-box">
+            <span>◎</span>
+            <input v-model="form.dropoff" placeholder="Punto de devolución" />
+          </div>
+        </template>
 
         <div class="date-grid">
           <div>

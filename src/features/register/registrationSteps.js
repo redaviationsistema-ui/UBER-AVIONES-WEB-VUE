@@ -39,6 +39,14 @@ function resolveStepCopy(stepId, role) {
     return baseSteps[stepId]
   }
 
+  if (role === 'provider') {
+    return {
+      ...baseSteps.perfil,
+      title: 'Empresa y representante legal',
+      description: 'Captura los datos de la empresa, del representante legal, registra INE y deja listo el acceso al portal del operador.',
+    }
+  }
+
   if (role === 'sobrecargo') {
     return {
       ...baseSteps.perfil,

@@ -132,7 +132,9 @@ function handleDocumentClick(event) {
 
 onMounted(() => {
   document.addEventListener('click', handleDocumentClick)
-  void loadRolesFromBackend()
+  if (!props.hideRolePanel && !isClientScope.value) {
+    void loadRolesFromBackend()
+  }
 })
 
 onBeforeUnmount(() => {
@@ -1309,6 +1311,9 @@ function openUsersPanel() {
 
 function openRolesPanel() {
   activePanel.value = 'roles'
+  if (!props.hideRolePanel) {
+    void loadRolesFromBackend()
+  }
 }
 
 watch(
@@ -1484,7 +1489,11 @@ async function submitUserForm() {
         : { method: 'put', path: `/admin/users/${editingUserId.value}`, body: payload },
     ])
 
-    await Promise.all([loadUsersFromBackend(), loadRolesFromBackend(), loadProvidersFromBackend()])
+    await Promise.all([
+      loadUsersFromBackend(),
+      ...(props.hideRolePanel ? [] : [loadRolesFromBackend()]),
+      loadProvidersFromBackend(),
+    ])
     drawerOpen.value = false
     userFormErrors.value = {}
     ui.pushToast({
@@ -1656,7 +1665,7 @@ async function changeRole(user) {
       { method: 'put', path: `/admin/users/${user.id}`, body: { role: normalizeRoleKey(nextRole) } },
     ])
 
-    await Promise.all([loadUsersFromBackend(), loadRolesFromBackend()])
+    await Promise.all([loadUsersFromBackend(), ...(props.hideRolePanel ? [] : [loadRolesFromBackend()])])
   } catch (error) {
     ui.pushToast({
       tone: 'error',
@@ -1677,7 +1686,7 @@ async function exportUsers() {
 async function deleteUser(user) {
   try {
     await requestWithCandidates([{ method: 'delete', path: `/admin/users/${user.id}` }])
-    await Promise.all([loadUsersFromBackend(), loadRolesFromBackend()])
+    await Promise.all([loadUsersFromBackend(), ...(props.hideRolePanel ? [] : [loadRolesFromBackend()])])
     ui.pushToast({
       tone: 'success',
       title: 'Usuario eliminado',

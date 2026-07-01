@@ -31,6 +31,8 @@ const BIOMETRIC_DETECT_FACE_PATH = String(
   import.meta.env.VITE_BIOMETRIC_DETECT_FACE_PATH || '/public/biometric/detect-face',
 ).trim()
 const isCrewRole = computed(() => props.form.role === 'sobrecargo')
+const isProviderRole = computed(() => props.form.role === 'provider')
+const showBiometricPanel = computed(() => !isCrewRole.value && !isProviderRole.value)
 const activeDocumentLabel = computed(() => (isCrewRole.value ? 'licencia' : 'INE'))
 const activeDocumentLabelUpper = computed(() =>
   isCrewRole.value ? 'LICENCIA' : 'INE',
@@ -1117,7 +1119,7 @@ onBeforeUnmount(() => {
       </section>
     </template>
 
-    <section v-if="!isCrewRole" class="verification-panel">
+    <section v-if="showBiometricPanel" class="verification-panel">
       <div class="verification-head">
         <div>
           <p class="eyebrow">Registro biometrico</p>

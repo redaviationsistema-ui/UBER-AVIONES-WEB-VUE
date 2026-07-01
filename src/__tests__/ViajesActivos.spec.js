@@ -64,4 +64,102 @@ describe('ViajesActivos', () => {
     expect(wrapper.text()).toContain('Pendiente de actualizar')
     expect(wrapper.text()).not.toContain('En curso')
   })
+
+  it('renders the aircraft image from visibility payload aircraft records', () => {
+    const wrapper = mountTrips({
+      reservations: [
+        buildReservation({
+          status: 'flight_confirmed',
+          workflow_status: 'flight_confirmed',
+          visibility_payload: {
+            aircraft: {
+              model: 'LEARJET 31A',
+              main_image_url: 'https://example.com/learjet-visibility.png',
+            },
+          },
+        }),
+      ],
+      initialTab: 'activos',
+    })
+
+    const aircraftImage = wrapper.find('.executive-card__media img')
+
+    expect(aircraftImage.exists()).toBe(true)
+    expect(aircraftImage.attributes('src')).toBe('https://example.com/learjet-visibility.png')
+    expect(wrapper.text()).not.toContain('Jet privado')
+  })
+
+  it('renders the aircraft image from matched option aircraft records', () => {
+    const wrapper = mountTrips({
+      reservations: [
+        buildReservation({
+          status: 'tracking_live',
+          workflow_status: 'tracking_live',
+          matched_options: [
+            {
+              id: 'match-learjet',
+              aircraft: {
+                model: 'LEARJET 31A',
+                main_image: 'https://example.com/learjet-match.png',
+              },
+            },
+          ],
+        }),
+      ],
+      initialTab: 'activos',
+    })
+
+    const aircraftImage = wrapper.find('.executive-card__media img')
+
+    expect(aircraftImage.exists()).toBe(true)
+    expect(aircraftImage.attributes('src')).toBe('https://example.com/learjet-match.png')
+    expect(wrapper.text()).not.toContain('Jet privado')
+  })
+
+  it('renders a safe generated aircraft image when the reservation has no aircraft photo', () => {
+    const wrapper = mountTrips({
+      reservations: [
+        buildReservation({
+          status: 'flight_confirmed',
+          workflow_status: 'flight_confirmed',
+          aircraft: 'LEARJET 31A',
+          aircraft_category: 'Light Jet',
+        }),
+      ],
+      initialTab: 'activos',
+    })
+
+    const aircraftImage = wrapper.find('.executive-card__media img')
+
+    expect(aircraftImage.exists()).toBe(true)
+    expect(aircraftImage.attributes('src')).toContain('data:image/svg+xml')
+    expect(wrapper.text()).not.toContain('Jet privado')
+  })
+
+  it('falls back to a generated aircraft image when the remote image fails to load', async () => {
+    const wrapper = mountTrips({
+      reservations: [
+        buildReservation({
+          status: 'tracking_live',
+          workflow_status: 'tracking_live',
+          aircraft: 'LEARJET 31A',
+          visibility_payload: {
+            aircraft: {
+              main_image_url: 'https://example.com/broken-learjet.png',
+            },
+          },
+        }),
+      ],
+      initialTab: 'activos',
+    })
+
+    const aircraftImage = wrapper.find('.executive-card__media img')
+
+    expect(aircraftImage.attributes('src')).toBe('https://example.com/broken-learjet.png')
+
+    await aircraftImage.trigger('error')
+
+    expect(aircraftImage.element.getAttribute('src')).toContain('data:image/svg+xml')
+    expect(aircraftImage.element.dataset.fallbackApplied).toBe('true')
+  })
 })

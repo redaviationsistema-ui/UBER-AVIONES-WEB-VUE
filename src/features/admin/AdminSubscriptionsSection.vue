@@ -1121,7 +1121,7 @@ function exportCsv(fileName, headers, rows) {
       </div>
     </div>
 
-    <div class="summary-grid">
+    <div v-if="activeTab !== 'provider-payments'" class="summary-grid">
       <article v-for="card in summaryCards" :key="card.label" class="surface summary-card">
         <span>{{ card.label }}</span>
         <strong>{{ card.value }}</strong>

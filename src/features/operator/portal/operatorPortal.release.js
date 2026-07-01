@@ -416,7 +416,7 @@ export function createOperatorPortalReleaseDomain(ctx = {}) {
       return { label: 'No disponible', tone: 'danger', detail: 'No hay tripulacion completa para esta operacion.' }
     }
     if (providerOperationalReleaseForm.crewOverallStatus === 'red_aviation_review') {
-      return { label: 'Revision Red Aviation', tone: 'warning', detail: 'Red Aviation debe coordinar apoyo o validacion adicional.' }
+      return { label: 'Revision administrativa', tone: 'warning', detail: 'Se debe coordinar apoyo o validacion adicional.' }
     }
     if (
       isProviderOperationalStatusConfirmed(providerOperationalReleaseForm.captainStatus) ||

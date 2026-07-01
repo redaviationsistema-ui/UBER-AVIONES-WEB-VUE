@@ -1,8 +1,19 @@
 <script setup>
-import { computed, defineAsyncComponent, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import BrandLogo from './BrandLogo.vue'
-import { buildMenuGroups, resolveRoleSectionPath, roleSections } from '../data/roleFlows'
+import {
+  buildMenuGroups,
+  findMenuGroupBySection,
+  resolveRoleSectionPath,
+  roleSections,
+} from '../data/roleFlows'
+import {
+  getSectionCopy,
+  getWorkspaceGroupMeta,
+  roleInsights,
+} from '../data/workspaceCopy'
+import { resolveBestCompanyDisplayName } from '../lib/companyDisplay'
 import { useAuthStore } from '../stores/auth'
 import { useUiStore } from '../stores/ui'
 
@@ -27,6 +38,9 @@ const ui = useUiStore()
 const activeMenuGroup = ref('')
 const mobileMenuOpen = ref(false)
 const desktopMenuOpen = ref(false)
+const workspaceLoading = ref(false)
+const workspaceLoadingTarget = ref('')
+let workspaceLoadingResetTimer = null
 
 const currentMenu = computed(() => roleSections[props.activeRole] ?? [])
 const currentSectionLabel = computed(
@@ -44,6 +58,7 @@ const usesWorkspaceMenu = computed(
   () => !isClientWorkspace.value && !isClientDashboard.value && groupedMenu.value.length > 0,
 )
 const isSessionReady = computed(() => auth.initialized && auth.isAuthenticated)
+const isAdminWorkspace = computed(() => props.activeRole === 'admin' && usesWorkspaceMenu.value)
 const showPortalHeader = computed(
   () => {
     if (props.activeRole === 'crew' && props.section === 'perfil') return false
@@ -52,147 +67,165 @@ const showPortalHeader = computed(
   },
 )
 
-const roleInsights = {
-  client: {
-    title: 'Reserva integral ',
-    description: 'Busca, compara, reserva, firma y paga sin salir del ecosistema .',
-  },
-  operator: {
-    title: 'Publicacion y respuesta operativa',
-    description:
-      '',
-  },
-  crew: {
-    title: 'Agenda, cabina y servicio',
-    description: 'Todo lo necesario para operar con orden, visibilidad y seguimiento claro.',
-  },
-  admin: {
-    title: 'Control total ',
-    description:
-      'Administra inventario, precios, reservas, soporte, margenes y reglas de negocio desde una vista central.',
-  },
-}
-
-const operatorGroupMeta = {
-  Operacion: {
-    title: 'Operacion',
-    eyebrow: 'Executive flight command',
-    description: 'Dashboard, flota, pricing, disponibilidad y autorizaciones en una sola capa.',
-  },
-  Coordinacion: {
-    title: 'Coordinacion',
-    eyebrow: 'Dispatch network',
-    description: 'Seguimiento operativo y eventos de servicio conectados al flujo del operador.',
-  },
-  Control: {
-    title: 'Control',
-    eyebrow: 'Financial operations',
-    description: 'Conciliacion, trazabilidad historica y parametros ejecutivos del operador.',
-  },
-}
-
-const operatorSectionCopy = {
-  dashboard: {
-    label: 'Resumen proveedor',
-    detail: 'Dashboard principal y KPIs',
-  },
-  empresa: {
-    label: 'Mi empresa',
-    detail: 'Perfil corporativo y certificaciones',
-  },
-  aeronaves: {
-    label: 'Aeronaves',
-    detail: 'Gestion y disponibilidad de flota',
-  },
-  costos: {
-    label: 'Costos base',
-    detail: 'Costos operativos y pricing',
-  },
-  disponibilidad: {
-    label: 'Disponibilidad',
-    detail: 'Agenda y bloqueos',
-  },
-  solicitudes: {
-    label: 'Solicitudes',
-    detail: 'Nuevas oportunidades',
-  },
-  'release-provider': {
-    label: 'Liberacion',
-    detail: 'Autorizaciones operativas',
-  },
-  operaciones: {
-    label: 'Operaciones',
-    detail: 'Control de vuelos activos',
-  },
-  incidencias: {
-    label: 'Incidencias de sobrecargo',
-    detail: 'Eventos y seguimiento operativo',
-  },
-  pagos: {
-    label: 'Pagos',
-    detail: 'Facturacion y conciliacion',
-  },
-  historial: {
-    label: 'Historial',
-    detail: 'Registro de operaciones',
-  },
-  configuracion: {
-    label: 'Configuracion',
-    detail: 'Parametros del operador',
-  },
-}
-
 const currentGroup = computed(
   () =>
     groupedMenu.value.find((group) => group.label === activeMenuGroup.value) || groupedMenu.value[0] || null,
 )
+const workspaceDescription = computed(() => roleInsights[props.activeRole]?.description || '')
+const operatorCompanyLabel = computed(() => {
+  if (props.activeRole !== 'operator') return ''
 
-function getGroupMeta(group) {
-  if (props.activeRole !== 'operator') {
-    return {
-      title: group?.label || '',
-      eyebrow: `${group?.items?.length || 0} opciones`,
-      description: roleInsights[props.activeRole]?.description || '',
-    }
-  }
+  const provider = auth.user?.provider && typeof auth.user.provider === 'object' ? auth.user.provider : {}
+  const ownedProvider =
+    auth.user?.ownedProvider && typeof auth.user.ownedProvider === 'object' ? auth.user.ownedProvider : {}
+  const profile = auth.user?.profile && typeof auth.user.profile === 'object' ? auth.user.profile : {}
+  const authUser = auth.user && typeof auth.user === 'object' ? auth.user : {}
 
-  return operatorGroupMeta[group?.label] || {
-    title: group?.label || '',
-    eyebrow: 'Operator workspace',
-    description: '',
-  }
+  return resolveBestCompanyDisplayName(
+    provider.company_name,
+    provider.commercial_name,
+    provider.legal_name,
+    ownedProvider.company_name,
+    ownedProvider.commercial_name,
+    ownedProvider.legal_name,
+    authUser.company_name,
+    authUser.commercial_name,
+    authUser.legal_name,
+    profile.company_name,
+  )
+})
+const workspaceBrandTitle = computed(() =>
+  props.activeRole === 'operator' ? operatorCompanyLabel.value : props.role.label,
+)
+const workspaceBrandHint = computed(() =>
+  props.activeRole === 'operator' ? operatorCompanyLabel.value : '',
+)
+const workspaceLoadingCopy = computed(() => {
+  const targetItem = currentMenu.value.find((item) => item.id === workspaceLoadingTarget.value)
+  const fallbackGroup = currentGroup.value || groupedMenu.value[0] || null
+
+  return getSectionCopy(props.activeRole, targetItem, fallbackGroup)
+})
+
+const workspaceOperatorIcons = {
+  aeronaves: [
+    'M3 16l7-4 4-6 2-.5-1 5.5L21 9l1 1.5-6.5 2.5L19 18l-1.5 1-5.5-4-7 2z',
+  ],
+  costos: [
+    'M7 4h8a3 3 0 013 3v10a3 3 0 01-3 3H7a3 3 0 01-3-3V7a3 3 0 013-3z',
+    'M8 9h6',
+    'M8 13h8',
+    'M8 17h5',
+  ],
+  disponibilidad: [
+    'M7 4v3',
+    'M17 4v3',
+    'M4 9h16',
+    'M5 7a2 2 0 012-2h10a2 2 0 012 2v10a2 2 0 01-2 2H7a2 2 0 01-2-2V7z',
+    'M8.5 14l2.5 2.5L15.5 12',
+  ],
+  'release-provider': [
+    'M12 3l7 3v5c0 4.5-3 7.5-7 10-4-2.5-7-5.5-7-10V6l7-3z',
+    'M8.5 12.5l2.5 2.5L15.5 10.5',
+  ],
+  empresa: [
+    'M4 20V7a2 2 0 012-2h8a2 2 0 012 2v13',
+    'M16 20V10a2 2 0 012-2h0a2 2 0 012 2v10',
+    'M8 9h2',
+    'M8 13h2',
+    'M12 9h2',
+    'M12 13h2',
+    'M9 20v-3h2v3',
+  ],
+  operaciones: [
+    'M12 12l4-4',
+    'M12 12l-3 5',
+    'M12 12h6',
+    'M12 12V6',
+    'M12 3a9 9 0 100 18 9 9 0 000-18z',
+  ],
+  incidencias: [
+    'M12 3l9 16H3l9-16z',
+    'M12 9v4',
+    'M12 17h.01',
+  ],
+  dashboard: [
+    'M4 5h7v7H4z',
+    'M13 5h7v5h-7z',
+    'M13 12h7v7h-7z',
+    'M4 14h7v5H4z',
+  ],
+  solicitudes: [
+    'M14 4h3a2 2 0 012 2v12a2 2 0 01-2 2H7a2 2 0 01-2-2v-1',
+    'M14 4v4h4',
+    'M5 8H3v8a2 2 0 002 2h7',
+    'M8 12h6',
+    'M11 9v6',
+  ],
+  pagos: [
+    'M3 7.5h18',
+    'M5 5h14a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z',
+    'M7 15h4',
+  ],
+  historial: [
+    'M12 8v5l3 2',
+    'M12 3a9 9 0 109 9',
+    'M12 3a9 9 0 00-9 9',
+  ],
+  configuracion: [
+    'M4 7h10',
+    'M4 17h16',
+    'M14 7a2 2 0 104 0 2 2 0 10-4 0z',
+    'M8 17a2 2 0 104 0 2 2 0 10-4 0z',
+  ],
 }
 
-function getSectionCopy(item) {
-  if (props.activeRole !== 'operator') {
-    return {
-      label: item.label,
-      detail: currentGroup.value?.label || '',
-    }
-  }
-
-  return operatorSectionCopy[item.id] || {
-    label: item.label,
-    detail: currentGroup.value?.label || '',
-  }
+function getWorkspaceIconPaths(sectionId) {
+  return workspaceOperatorIcons[String(sectionId || '').trim()] || []
 }
 
 function resolveActiveGroupLabel() {
   return (
-    groupedMenu.value.find((group) => group.items.some((item) => item.id === props.section))?.label ||
+    findMenuGroupBySection(props.activeRole, props.section, currentMenu.value, groupedMenu.value)?.label ||
     groupedMenu.value[0]?.label ||
     ''
   )
 }
 
 function openMenuGroup(label) {
-  if (activeMenuGroup.value === label) {
-    desktopMenuOpen.value = !desktopMenuOpen.value
-  } else {
-    activeMenuGroup.value = label
-    desktopMenuOpen.value = true
-  }
+  const targetGroup = groupedMenu.value.find((group) => group.label === label)
+
+  if (!targetGroup) return
+
+  const isCurrentGroup = activeMenuGroup.value === label
+  activeMenuGroup.value = label
+  desktopMenuOpen.value = isCurrentGroup ? !desktopMenuOpen.value : true
   mobileMenuOpen.value = false
+}
+
+function clearWorkspaceLoading() {
+  workspaceLoading.value = false
+  workspaceLoadingTarget.value = ''
+
+  if (workspaceLoadingResetTimer) {
+    clearTimeout(workspaceLoadingResetTimer)
+    workspaceLoadingResetTimer = null
+  }
+}
+
+function handleWorkspaceNavigation(item) {
+  if (props.activeRole !== 'operator') return
+  if (!item?.id || item.id === props.section) return
+
+  workspaceLoadingTarget.value = item.id
+  workspaceLoading.value = true
+  desktopMenuOpen.value = false
+  mobileMenuOpen.value = false
+
+  if (workspaceLoadingResetTimer) clearTimeout(workspaceLoadingResetTimer)
+  workspaceLoadingResetTimer = setTimeout(() => {
+    clearWorkspaceLoading()
+  }, 9000)
 }
 
 async function handleLogout() {
@@ -223,9 +256,14 @@ watch(
     activeMenuGroup.value = resolveActiveGroupLabel()
     mobileMenuOpen.value = false
     desktopMenuOpen.value = false
+    clearWorkspaceLoading()
   },
   { immediate: true },
 )
+
+onBeforeUnmount(() => {
+  clearWorkspaceLoading()
+})
 </script>
 
 <template>
@@ -238,6 +276,7 @@ watch(
         'workspace-client': isClientWorkspace,
         'workspace-workflow': usesWorkspaceMenu,
         'workspace-operator': activeRole === 'operator',
+        'workspace-admin': isAdminWorkspace,
       }"
     >
       <section v-if="usesWorkspaceMenu" class="workspace-menu-shell">
@@ -248,7 +287,7 @@ watch(
             </RouterLink>
             <div class="workspace-menu-brand-copy">
               <span class="workspace-menu-badge">{{ role.tone }}</span>
-              <strong>{{ role.label }}</strong>
+              <strong>{{ workspaceBrandTitle }}</strong>
               <small>{{ role.area }}</small>
             </div>
           </div>
@@ -279,9 +318,9 @@ watch(
           </nav>
 
           <div class="workspace-menu-actions">
-            <span class="workspace-menu-hint">
-              RED AVIATION
-            </span> 
+            <span v-if="workspaceBrandHint" class="workspace-menu-hint">
+              {{ workspaceBrandHint }}
+            </span>
             <button
               type="button"
               class="workspace-menu-logout"
@@ -294,14 +333,14 @@ watch(
         </div>
 
         <div v-if="currentGroup && desktopMenuOpen" class="workspace-mega-menu">
-          <div class="workspace-mega-menu__panel">
-            <div class="workspace-mega-menu__header">
-              <div>
-                <small>{{ getGroupMeta(currentGroup).eyebrow }}</small>
-                <strong>{{ getGroupMeta(currentGroup).title }}</strong>
+            <div class="workspace-mega-menu__panel">
+              <div class="workspace-mega-menu__header">
+                <div class="workspace-mega-menu__header-copy">
+                  <small>{{ getWorkspaceGroupMeta(activeRole, currentGroup, workspaceDescription).eyebrow }}</small>
+                  <strong>{{ getWorkspaceGroupMeta(activeRole, currentGroup, workspaceDescription).title }}</strong>
+                </div>
+                <p>{{ getWorkspaceGroupMeta(activeRole, currentGroup, workspaceDescription).description }}</p>
               </div>
-              <p>{{ getGroupMeta(currentGroup).description }}</p>
-            </div>
 
             <div class="workspace-submenu-row">
               <RouterLink
@@ -310,14 +349,33 @@ watch(
                 :to="resolveRoleSectionPath(activeRole, item)"
                 class="workspace-submenu-link"
                 :class="{ 'workspace-submenu-link--active': section === item.id }"
+                @click="handleWorkspaceNavigation(item)"
               >
-                <span class="workspace-submenu-icon" :data-section="item.id" aria-hidden="true">
-                  <span></span>
+                <span
+                  class="workspace-submenu-icon"
+                  :class="{ 'workspace-submenu-icon--vector': getWorkspaceIconPaths(item.id).length }"
+                  :data-section="item.id"
+                  aria-hidden="true"
+                >
+                  <svg
+                    v-if="getWorkspaceIconPaths(item.id).length"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    class="workspace-submenu-icon__svg"
+                  >
+                    <path
+                      v-for="iconPath in getWorkspaceIconPaths(item.id)"
+                      :key="iconPath"
+                      :d="iconPath"
+                    />
+                  </svg>
+                  <span v-else></span>
                 </span>
                 <span class="workspace-submenu-copy">
-                  <strong>{{ getSectionCopy(item).label }}</strong>
-                  <small>{{ getSectionCopy(item).detail }}</small>
+                  <strong>{{ getSectionCopy(activeRole, item, currentGroup).label }}</strong>
+                  <small>{{ getSectionCopy(activeRole, item, currentGroup).detail }}</small>
                 </span>
+                <span class="workspace-submenu-accent" aria-hidden="true"></span>
               </RouterLink>
             </div>
           </div>
@@ -342,8 +400,8 @@ watch(
             </div>
 
             <div class="workspace-mobile-drawer__intro">
-              <strong>{{ role.label }}</strong>
-              <p>{{ roleInsights[activeRole]?.description }}</p>
+              <strong>{{ workspaceBrandTitle }}</strong>
+              <p>{{ workspaceDescription }}</p>
             </div>
 
             <section
@@ -360,13 +418,31 @@ watch(
                   :to="resolveRoleSectionPath(activeRole, item)"
                   class="workspace-mobile-link"
                   :class="{ 'workspace-mobile-link--active': section === item.id }"
+                  @click="handleWorkspaceNavigation(item)"
                 >
-                  <span class="workspace-submenu-icon workspace-mobile-link__icon" :data-section="item.id" aria-hidden="true">
-                    <span></span>
+                  <span
+                    class="workspace-submenu-icon workspace-mobile-link__icon"
+                    :class="{ 'workspace-submenu-icon--vector': getWorkspaceIconPaths(item.id).length }"
+                    :data-section="item.id"
+                    aria-hidden="true"
+                  >
+                    <svg
+                      v-if="getWorkspaceIconPaths(item.id).length"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      class="workspace-submenu-icon__svg"
+                    >
+                      <path
+                        v-for="iconPath in getWorkspaceIconPaths(item.id)"
+                        :key="iconPath"
+                        :d="iconPath"
+                      />
+                    </svg>
+                    <span v-else></span>
                   </span>
                   <span class="workspace-mobile-link__copy">
-                    <strong>{{ getSectionCopy(item).label }}</strong>
-                    <small>{{ getSectionCopy(item).detail }}</small>
+                    <strong>{{ getSectionCopy(activeRole, item, group).label }}</strong>
+                    <small>{{ getSectionCopy(activeRole, item, group).detail }}</small>
                   </span>
                 </RouterLink>
               </div>
@@ -391,15 +467,34 @@ watch(
         :class="{
           'portal-client-dashboard': isClientWorkspace,
           'portal-workspace': usesWorkspaceMenu,
+          'portal-admin-workspace': isAdminWorkspace,
         }"
       >
-      
-        <header v-if="usesWorkspaceMenu && showPortalHeader" class="portal-header">
+        <div
+          v-if="workspaceLoading && activeRole === 'operator' && usesWorkspaceMenu"
+          class="workspace-loading-overlay"
+          role="status"
+          aria-live="polite"
+          aria-label="Cargando vista del operador"
+        >
+          <div class="workspace-loading-shell">
+            <div class="workspace-loading-spinner" aria-hidden="true">
+              <span v-for="segment in 12" :key="`workspace-loading-segment-${segment}`"></span>
+            </div>
+            <p class="eyebrow">Executive flight command</p>
+            <h3>{{ workspaceLoadingCopy.label || 'Cargando vista' }}</h3>
+            <p class="muted">
+              {{ workspaceLoadingCopy.detail || 'Estamos preparando la siguiente capa operativa.' }}
+            </p>
+          </div>
+        </div>
+
+        <header v-if="usesWorkspaceMenu && showPortalHeader && !isAdminWorkspace" class="portal-header">
           <div>
             <p class="eyebrow">Espacio de trabajo</p>
             <h2>{{ currentSectionLabel }}</h2>
           </div>
-          <p class="muted">{{ roleInsights[activeRole]?.description }}</p>
+          <p class="muted">{{ workspaceDescription }}</p>
         </header>
 
         <template v-if="isSessionReady">
@@ -436,6 +531,13 @@ watch(
   background: #ffffff;
 }
 
+.workspace-admin {
+  background:
+    radial-gradient(circle at top left, rgba(216, 229, 255, 0.42), transparent 24%),
+    radial-gradient(circle at top right, rgba(228, 239, 255, 0.68), transparent 28%),
+    linear-gradient(180deg, #f5f8fd 0%, #eef3fb 100%);
+}
+
 .workspace-menu-shell {
   display: grid;
   gap: 0.85rem;
@@ -453,6 +555,31 @@ watch(
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.98);
   box-shadow: 0 10px 28px rgba(22, 28, 36, 0.06);
+}
+
+.workspace-admin .workspace-menu-bar {
+  position: relative;
+  border-color: rgba(122, 149, 201, 0.18);
+  background:
+    radial-gradient(circle at top left, rgba(223, 233, 252, 0.9), transparent 26%),
+    linear-gradient(180deg, rgba(251, 253, 255, 0.96), rgba(242, 247, 255, 0.94));
+  box-shadow:
+    0 24px 48px rgba(48, 82, 138, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(18px);
+}
+
+.workspace-admin .workspace-menu-bar::after {
+  content: '';
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  bottom: -0.75rem;
+  height: 1.35rem;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(121, 152, 209, 0.16), transparent 72%);
+  filter: blur(16px);
+  pointer-events: none;
 }
 
 .workspace-menu-brand {
@@ -498,6 +625,12 @@ watch(
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+.workspace-admin .workspace-menu-badge {
+  border-color: rgba(77, 119, 204, 0.2);
+  background: rgba(223, 234, 255, 0.9);
+  color: #31579d;
 }
 
 .workspace-menu-groups {
@@ -555,6 +688,31 @@ watch(
   background: #f8f4ec;
 }
 
+.workspace-admin .workspace-menu-group {
+  color: #284165;
+  transition:
+    transform 0.22s ease,
+    color 0.22s ease,
+    border-color 0.22s ease,
+    background 0.22s ease,
+    box-shadow 0.22s ease;
+}
+
+.workspace-admin .workspace-menu-group:hover {
+  border-color: rgba(114, 148, 214, 0.22);
+  background: rgba(241, 246, 255, 0.96);
+  color: #1e3c64;
+  transform: translateY(-1px);
+}
+
+.workspace-admin .workspace-menu-group--active {
+  border-color: rgba(88, 124, 201, 0.24);
+  background: linear-gradient(180deg, rgba(228, 237, 255, 0.96), rgba(243, 247, 255, 0.98));
+  box-shadow:
+    0 12px 24px rgba(97, 129, 191, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.76);
+}
+
 .workspace-menu-actions {
   display: flex;
   align-items: center;
@@ -568,6 +726,10 @@ watch(
   font-size: 0.8rem;
   font-weight: 700;
   white-space: nowrap;
+}
+
+.workspace-admin .workspace-menu-hint {
+  color: #5a6d8d;
 }
 
 .workspace-menu-logout {
@@ -600,6 +762,11 @@ watch(
   z-index: 30;
 }
 
+.workspace-admin .workspace-mega-menu {
+  width: min(100%, 1080px);
+  padding-top: 0.7rem;
+}
+
 .workspace-submenu-row {
   display: grid;
   grid-template-columns: 1fr;
@@ -615,6 +782,36 @@ watch(
   box-shadow: 0 26px 54px rgba(22, 28, 36, 0.14);
 }
 
+.workspace-admin .workspace-mega-menu__panel {
+  position: relative;
+  overflow: hidden;
+  padding: 1.25rem 1.3rem 1.35rem;
+  border-color: rgba(125, 152, 201, 0.18);
+  background:
+    radial-gradient(circle at top left, rgba(226, 236, 255, 0.88), transparent 24%),
+    radial-gradient(circle at top right, rgba(240, 246, 255, 0.96), transparent 28%),
+    linear-gradient(180deg, rgba(252, 254, 255, 0.99), rgba(241, 246, 255, 0.98));
+  box-shadow:
+    0 34px 80px rgba(49, 84, 141, 0.16),
+    0 10px 24px rgba(110, 140, 194, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.86);
+}
+
+.workspace-admin .workspace-mega-menu__panel::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 16rem;
+  height: 16rem;
+  background: radial-gradient(circle, rgba(133, 167, 227, 0.12), transparent 70%);
+  pointer-events: none;
+}
+
+.workspace-admin .workspace-submenu-row {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
 .workspace-mega-menu__header {
   display: flex;
   align-items: center;
@@ -628,6 +825,11 @@ watch(
 .workspace-mega-menu__header div {
   display: grid;
   gap: 0.18rem;
+}
+
+.workspace-mega-menu__header-copy {
+  display: grid;
+  gap: 0.28rem;
 }
 
 .workspace-mega-menu__header strong {
@@ -650,6 +852,49 @@ watch(
   font-size: 0.82rem;
   line-height: 1.45;
   text-align: right;
+}
+
+.workspace-admin .workspace-mega-menu__header {
+  align-items: start;
+  padding: 0.1rem 0.15rem 1rem;
+  margin-bottom: 0.9rem;
+  border-bottom-color: rgba(125, 152, 201, 0.14);
+}
+
+.workspace-admin .workspace-mega-menu__header small,
+.workspace-admin .workspace-submenu-link small {
+  color: #5d78a6;
+}
+
+.workspace-admin .workspace-mega-menu__header strong {
+  color: #163254;
+  font-size: clamp(1.55rem, 2vw, 2.2rem);
+  font-weight: 800;
+  line-height: 0.98;
+  letter-spacing: -0.03em;
+}
+
+.workspace-admin .workspace-mega-menu__header p {
+  max-width: 30rem;
+  color: #6880a7;
+  font-size: 0.98rem;
+  line-height: 1.45;
+}
+
+.workspace-mega-menu__count {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 1.9rem;
+  padding: 0 0.8rem;
+  border: 1px solid rgba(103, 138, 204, 0.14);
+  border-radius: 999px;
+  background: rgba(235, 242, 255, 0.92);
+  color: #5672a3;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .workspace-submenu-link {
@@ -692,11 +937,121 @@ watch(
   background: #fcf8ef;
 }
 
+.workspace-admin .workspace-submenu-link:hover,
+.workspace-admin .workspace-submenu-link--active {
+  background: rgba(231, 239, 255, 0.85);
+}
+
+.workspace-admin .workspace-submenu-link {
+  position: relative;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.9rem;
+  min-height: 8rem;
+  padding: 1.15rem 1.15rem 1.15rem 1rem;
+  border: 1px solid rgba(120, 152, 206, 0.14);
+  border-radius: 22px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(245, 249, 255, 0.94));
+  box-shadow:
+    0 12px 28px rgba(77, 110, 171, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.75);
+  transition:
+    transform 0.22s ease,
+    border-color 0.22s ease,
+    box-shadow 0.22s ease,
+    background 0.22s ease;
+}
+
+.workspace-admin .workspace-submenu-link:hover {
+  transform: translateY(-2px);
+  border-color: rgba(108, 143, 213, 0.22);
+  background:
+    radial-gradient(circle at top right, rgba(222, 234, 255, 0.8), transparent 30%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(244, 248, 255, 0.98));
+  box-shadow:
+    0 18px 34px rgba(77, 110, 171, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82);
+}
+
+.workspace-admin .workspace-submenu-link--active {
+  border-color: rgba(96, 133, 208, 0.28);
+  background:
+    radial-gradient(circle at top right, rgba(220, 232, 255, 0.94), transparent 34%),
+    linear-gradient(180deg, rgba(243, 248, 255, 0.98), rgba(234, 242, 255, 0.98));
+  box-shadow:
+    0 20px 36px rgba(77, 110, 171, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.84);
+}
+
+.workspace-admin .workspace-submenu-link strong {
+  color: #162b47;
+  font-size: 1.06rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.workspace-admin .workspace-submenu-link small {
+  color: #6480ad;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.workspace-submenu-accent {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 999px;
+  border: 1px solid rgba(120, 152, 206, 0.16);
+  background: rgba(245, 249, 255, 0.88);
+  color: #6784b4;
+  transition:
+    transform 0.22s ease,
+    border-color 0.22s ease,
+    background 0.22s ease,
+    color 0.22s ease;
+}
+
+.workspace-submenu-accent::before,
+.workspace-submenu-accent::after {
+  content: '';
+  position: absolute;
+  box-sizing: border-box;
+}
+
+.workspace-submenu-accent::before {
+  width: 0.56rem;
+  height: 0.56rem;
+  border-top: 2px solid currentColor;
+  border-right: 2px solid currentColor;
+  transform: rotate(45deg);
+}
+
+.workspace-submenu-accent::after {
+  width: 0.82rem;
+  height: 2px;
+  background: currentColor;
+  transform: translateX(-0.08rem);
+}
+
+.workspace-admin .workspace-submenu-link:hover .workspace-submenu-accent,
+.workspace-admin .workspace-submenu-link--active .workspace-submenu-accent {
+  border-color: rgba(98, 134, 206, 0.24);
+  background: rgba(232, 240, 255, 0.96);
+  color: #48699f;
+  transform: translateX(2px);
+}
+
 .workspace-mobile-drawer {
   display: none;
 }
 
 .portal {
+  position: relative;
   padding: 0;
   background: #ffffff;
   min-height: calc(100vh - 4.6rem);
@@ -704,6 +1059,148 @@ watch(
 
 .portal-workspace {
   padding: 3.4rem 0 0;
+}
+
+.workspace-loading-overlay {
+  position: fixed;
+  inset: 6.2rem 1.25rem 1.25rem;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  border-radius: 36px;
+  background:
+    radial-gradient(circle at 50% 24%, rgba(148, 163, 184, 0.16), transparent 26%),
+    rgba(236, 242, 250, 0.6);
+  backdrop-filter: blur(18px);
+}
+
+.workspace-loading-shell {
+  display: grid;
+  justify-items: center;
+  gap: 0.8rem;
+  width: min(26rem, 100%);
+  padding: clamp(1.5rem, 4vw, 2.15rem);
+  border: 1px solid rgba(191, 219, 254, 0.45);
+  border-radius: 32px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(244, 248, 255, 0.96)),
+    rgba(255, 255, 255, 0.96);
+  box-shadow:
+    0 32px 80px rgba(15, 23, 42, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+  text-align: center;
+}
+
+.workspace-loading-shell h3,
+.workspace-loading-shell p {
+  margin: 0;
+}
+
+.workspace-loading-shell h3 {
+  color: #10233d;
+  font-size: clamp(1.4rem, 2.5vw, 1.8rem);
+  font-weight: 800;
+}
+
+.workspace-loading-shell .muted {
+  max-width: 24rem;
+  color: #60748f;
+}
+
+.workspace-loading-spinner {
+  position: relative;
+  width: 8rem;
+  height: 8rem;
+  margin-bottom: 0.25rem;
+}
+
+.workspace-loading-spinner span {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 1rem;
+  height: 3.3rem;
+  margin: -1.65rem 0 0 -0.5rem;
+  border-radius: 999px;
+  background: rgba(100, 116, 139, 0.14);
+  transform-origin: center 3.6rem;
+  animation: workspace-loading-spinner-fade 1.2s linear infinite;
+}
+
+.workspace-loading-spinner span:nth-child(1) {
+  transform: rotate(0deg) translateY(-2rem);
+  animation-delay: -1.1s;
+}
+
+.workspace-loading-spinner span:nth-child(2) {
+  transform: rotate(30deg) translateY(-2rem);
+  animation-delay: -1s;
+}
+
+.workspace-loading-spinner span:nth-child(3) {
+  transform: rotate(60deg) translateY(-2rem);
+  animation-delay: -0.9s;
+}
+
+.workspace-loading-spinner span:nth-child(4) {
+  transform: rotate(90deg) translateY(-2rem);
+  animation-delay: -0.8s;
+}
+
+.workspace-loading-spinner span:nth-child(5) {
+  transform: rotate(120deg) translateY(-2rem);
+  animation-delay: -0.7s;
+}
+
+.workspace-loading-spinner span:nth-child(6) {
+  transform: rotate(150deg) translateY(-2rem);
+  animation-delay: -0.6s;
+}
+
+.workspace-loading-spinner span:nth-child(7) {
+  transform: rotate(180deg) translateY(-2rem);
+  animation-delay: -0.5s;
+}
+
+.workspace-loading-spinner span:nth-child(8) {
+  transform: rotate(210deg) translateY(-2rem);
+  animation-delay: -0.4s;
+}
+
+.workspace-loading-spinner span:nth-child(9) {
+  transform: rotate(240deg) translateY(-2rem);
+  animation-delay: -0.3s;
+}
+
+.workspace-loading-spinner span:nth-child(10) {
+  transform: rotate(270deg) translateY(-2rem);
+  animation-delay: -0.2s;
+}
+
+.workspace-loading-spinner span:nth-child(11) {
+  transform: rotate(300deg) translateY(-2rem);
+  animation-delay: -0.1s;
+}
+
+.workspace-loading-spinner span:nth-child(12) {
+  transform: rotate(330deg) translateY(-2rem);
+  animation-delay: 0s;
+}
+
+@keyframes workspace-loading-spinner-fade {
+  0% {
+    background: rgba(51, 65, 85, 0.96);
+    box-shadow: 0 0 18px rgba(51, 65, 85, 0.16);
+  }
+  100% {
+    background: rgba(100, 116, 139, 0.12);
+    box-shadow: none;
+  }
+}
+
+.portal-admin-workspace {
+  background: transparent;
 }
 
 .portal-header {
@@ -1012,14 +1509,14 @@ watch(
   position: relative;
   overflow: hidden;
   padding: 1.25rem;
-  border: 1px solid rgba(201, 160, 99, 0.15);
+  border: 1px solid rgba(148, 163, 184, 0.18);
   border-radius: 28px;
   background:
-    radial-gradient(circle at 18% 0%, rgba(201, 160, 99, 0.1), transparent 30%),
-    linear-gradient(135deg, rgba(7, 27, 54, 0.92), rgba(5, 10, 20, 0.96));
+    radial-gradient(circle at 18% 0%, rgba(191, 219, 254, 0.18), transparent 32%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 250, 255, 0.96));
   box-shadow:
-    0 30px 80px rgba(0, 0, 0, 0.48),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    0 24px 54px rgba(15, 23, 42, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.76);
   backdrop-filter: blur(24px);
   animation: workspace-mega-enter 0.28s cubic-bezier(0.18, 0.88, 0.32, 1.12);
 }
@@ -1028,47 +1525,58 @@ watch(
   align-items: end;
   padding: 0.25rem 0.35rem 1rem;
   margin-bottom: 1rem;
-  border-bottom: 1px solid rgba(201, 160, 99, 0.16);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
 }
 
 .workspace-operator .workspace-mega-menu__header strong {
-  color: #f8f3e8;
-  font-family: 'Cormorant Garamond', 'Playfair Display', Georgia, serif;
-  font-size: 1.75rem;
-  font-weight: 600;
+  color: #11253f;
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  font-size: 1.85rem;
+  font-weight: 800;
   line-height: 1;
-  letter-spacing: 0;
+  letter-spacing: -0.03em;
 }
 
 .workspace-operator .workspace-mega-menu__header small,
 .workspace-operator .workspace-submenu-link small {
-  color: #c9a063;
+  color: #6980a1;
 }
 
 .workspace-operator .workspace-mega-menu__header small {
   font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
   font-size: 0.72rem;
+  font-weight: 800;
   letter-spacing: 0.14em;
 }
 
 .workspace-operator .workspace-mega-menu__header p {
-  color: rgba(246, 243, 239, 0.62);
-  font-size: 0.85rem;
+  color: #60748f;
+  font-size: 0.95rem;
   line-height: 1.55;
+}
+
+.workspace-operator .workspace-mega-menu__count {
+  border-color: rgba(191, 219, 254, 0.32);
+  background: rgba(239, 246, 255, 0.96);
+  color: #4f6f9f;
 }
 
 .workspace-operator .workspace-submenu-link {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 0.95rem;
   min-height: 8rem;
   padding: 1.2rem;
-  border: 1px solid rgba(201, 160, 99, 0.1);
-  border-radius: 20px;
-  background: linear-gradient(135deg, rgba(7, 27, 54, 0.85), rgba(5, 10, 20, 0.95));
-  color: #f6f3ef;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(247, 250, 255, 0.96)),
+    rgba(255, 255, 255, 0.94);
+  color: #10233d;
+  box-shadow:
+    0 14px 30px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.84);
   transform: translateY(0) scale(1);
   transition:
     border-color 0.3s ease,
@@ -1079,32 +1587,32 @@ watch(
 
 .workspace-operator .workspace-submenu-link:hover,
 .workspace-operator .workspace-submenu-link--active {
-  border-color: rgba(201, 160, 99, 0.35);
+  border-color: rgba(148, 163, 184, 0.28);
   background:
-    radial-gradient(circle at 20% 0%, rgba(201, 160, 99, 0.12), transparent 34%),
-    linear-gradient(135deg, rgba(10, 35, 66, 0.88), rgba(5, 10, 20, 0.96));
+    radial-gradient(circle at 20% 0%, rgba(191, 219, 254, 0.18), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(244, 248, 255, 0.98));
   box-shadow:
-    0 26px 64px rgba(0, 0, 0, 0.5),
-    0 0 30px rgba(201, 160, 99, 0.18);
-  transform: translateY(-6px) scale(1.03);
+    0 18px 36px rgba(15, 23, 42, 0.1),
+    0 0 0 1px rgba(255, 255, 255, 0.42);
+  transform: translateY(-3px) scale(1.01);
 }
 
 .workspace-operator .workspace-submenu-link--active {
   box-shadow:
-    0 26px 64px rgba(0, 0, 0, 0.5),
-    0 0 38px rgba(201, 160, 99, 0.25),
-    inset 0 0 0 1px rgba(201, 160, 99, 0.1);
+    0 18px 36px rgba(15, 23, 42, 0.1),
+    0 0 0 1px rgba(191, 219, 254, 0.32),
+    inset 0 1px 0 rgba(255, 255, 255, 0.84);
 }
 
 .workspace-operator .workspace-submenu-link strong {
-  color: #f6f3ef;
+  color: #11253f;
   font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
-  font-size: 0.98rem;
-  font-weight: 700;
+  font-size: 1rem;
+  font-weight: 800;
 }
 
 .workspace-operator .workspace-submenu-link small {
-  color: rgba(246, 243, 239, 0.58);
+  color: #60748f;
   font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
   font-size: 0.82rem;
   font-weight: 500;
@@ -1123,6 +1631,26 @@ watch(
   padding-top: 0.8rem;
 }
 
+.workspace-operator .workspace-submenu-link .workspace-submenu-accent {
+  width: 2rem;
+  height: 2rem;
+  align-self: center;
+  justify-self: end;
+  border-color: rgba(203, 213, 225, 0.96);
+  background: rgba(255, 255, 255, 0.94);
+  color: #5a7195;
+  box-shadow:
+    0 8px 18px rgba(15, 23, 42, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+.workspace-operator .workspace-submenu-link:hover .workspace-submenu-accent,
+.workspace-operator .workspace-submenu-link--active .workspace-submenu-accent {
+  border-color: rgba(148, 163, 184, 0.28);
+  background: rgba(239, 246, 255, 0.96);
+  color: #24446f;
+}
+
 .workspace-operator .workspace-mega-menu:has(.workspace-submenu-link:nth-child(1):last-child) {
   width: min(100%, 520px);
 }
@@ -1131,21 +1659,57 @@ watch(
   grid-template-columns: 1fr;
 }
 
+.workspace-submenu-icon {
+  display: inline-flex;
+  width: 0.95rem;
+  height: 0.95rem;
+  border-radius: 0.22rem;
+  background: linear-gradient(180deg, #314965, #18293f);
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.38);
+}
+
+.workspace-submenu-icon span {
+  display: none;
+}
+
+.workspace-admin .workspace-submenu-icon {
+  background: linear-gradient(180deg, #5e7fba, #2e4f82);
+}
+
 .workspace-operator .workspace-submenu-icon {
   position: relative;
   display: grid;
   place-items: center;
   width: 3.45rem;
   height: 3.45rem;
-  border: 1px solid rgba(201, 160, 99, 0.22);
+  border: 1px solid rgba(226, 232, 240, 0.98);
   border-radius: 18px;
   background:
-    linear-gradient(145deg, rgba(201, 160, 99, 0.1), rgba(255, 255, 255, 0.025)),
-    rgba(7, 27, 54, 0.54);
-  color: #c9a063;
+    linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(248, 250, 252, 0.98)),
+    rgba(255, 255, 255, 0.98);
+  color: #5a7195;
   box-shadow:
-    0 0 22px rgba(201, 160, 99, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    0 10px 22px rgba(15, 23, 42, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.workspace-operator .workspace-submenu-icon--vector::before,
+.workspace-operator .workspace-submenu-icon--vector::after,
+.workspace-operator .workspace-submenu-icon--vector span,
+.workspace-operator .workspace-submenu-icon--vector span::before,
+.workspace-operator .workspace-submenu-icon--vector span::after {
+  content: none !important;
+  display: none !important;
+}
+
+.workspace-operator .workspace-submenu-icon__svg {
+  width: 1.7rem;
+  height: 1.7rem;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
 }
 
 .workspace-operator .workspace-submenu-icon::before,
@@ -1161,34 +1725,34 @@ watch(
 
 .workspace-operator .workspace-submenu-link:hover .workspace-submenu-icon,
 .workspace-operator .workspace-submenu-link--active .workspace-submenu-icon {
-  color: #e6c584;
+  color: #24446f;
   box-shadow:
-    0 0 24px rgba(201, 160, 99, 0.22),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    0 12px 26px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
 }
 
-.workspace-submenu-icon[data-section='dashboard']::before {
+.workspace-operator .workspace-submenu-icon[data-section='dashboard']::before {
   width: 1.52rem;
   height: 1.52rem;
   border: 1.35px solid currentColor;
   border-radius: 50%;
 }
 
-.workspace-submenu-icon[data-section='dashboard']::after {
+.workspace-operator .workspace-submenu-icon[data-section='dashboard']::after {
   width: 0.42rem;
   height: 0.42rem;
   border: 1.35px solid currentColor;
   border-radius: 50%;
 }
 
-.workspace-submenu-icon[data-section='dashboard'] span {
+.workspace-operator .workspace-submenu-icon[data-section='dashboard'] span {
   width: 2.08rem;
   height: 1.35px;
   background: currentColor;
 }
 
-.workspace-submenu-icon[data-section='dashboard'] span::before,
-.workspace-submenu-icon[data-section='dashboard'] span::after {
+.workspace-operator .workspace-submenu-icon[data-section='dashboard'] span::before,
+.workspace-operator .workspace-submenu-icon[data-section='dashboard'] span::after {
   left: 50%;
   top: 50%;
   width: 1.35px;
@@ -1197,36 +1761,36 @@ watch(
   transform: translate(-50%, -50%);
 }
 
-.workspace-submenu-icon[data-section='dashboard'] span::after {
+.workspace-operator .workspace-submenu-icon[data-section='dashboard'] span::after {
   transform: translate(-50%, -50%) rotate(45deg);
 }
 
-.workspace-submenu-icon[data-section='dashboard'] span::before {
+.workspace-operator .workspace-submenu-icon[data-section='dashboard'] span::before {
   transform: translate(-50%, -50%) rotate(-45deg);
 }
 
-.workspace-submenu-icon[data-section='empresa']::before {
+.workspace-operator .workspace-submenu-icon[data-section='empresa']::before {
   width: 1.7rem;
   height: 1.7rem;
   border: 1.35px solid currentColor;
   border-radius: 50%;
 }
 
-.workspace-submenu-icon[data-section='empresa']::after {
+.workspace-operator .workspace-submenu-icon[data-section='empresa']::after {
   width: 1rem;
   height: 1rem;
   border: 1.35px solid currentColor;
   border-radius: 50%;
 }
 
-.workspace-submenu-icon[data-section='empresa'] span {
+.workspace-operator .workspace-submenu-icon[data-section='empresa'] span {
   width: 0.42rem;
   height: 0.42rem;
   border: 1.35px solid currentColor;
   border-radius: 50%;
 }
 
-.workspace-submenu-icon[data-section='aeronaves']::before {
+.workspace-operator .workspace-submenu-icon[data-section='aeronaves']::before {
   width: 2.15rem;
   height: 0.42rem;
   border: 1.35px solid currentColor;
@@ -1234,14 +1798,14 @@ watch(
   transform: rotate(-14deg);
 }
 
-.workspace-submenu-icon[data-section='aeronaves']::after {
+.workspace-operator .workspace-submenu-icon[data-section='aeronaves']::after {
   width: 1.1rem;
   height: 0.42rem;
   border-top: 1.35px solid currentColor;
   transform: translate(0.05rem, 0.28rem) rotate(25deg);
 }
 
-.workspace-submenu-icon[data-section='aeronaves'] span {
+.workspace-operator .workspace-submenu-icon[data-section='aeronaves'] span {
   width: 0.82rem;
   height: 0.82rem;
   border-left: 1.35px solid currentColor;
@@ -1249,14 +1813,14 @@ watch(
   transform: translate(-0.72rem, -0.28rem) rotate(-18deg);
 }
 
-.workspace-submenu-icon[data-section='costos']::before {
+.workspace-operator .workspace-submenu-icon[data-section='costos']::before {
   width: 1.86rem;
   height: 1.86rem;
   border: 1.35px solid currentColor;
   border-radius: 50%;
 }
 
-.workspace-submenu-icon[data-section='costos']::after {
+.workspace-operator .workspace-submenu-icon[data-section='costos']::after {
   width: 0.9rem;
   height: 0.9rem;
   border-left: 1.35px solid currentColor;
@@ -1264,7 +1828,7 @@ watch(
   transform: rotate(-45deg) translate(0.05rem, -0.05rem);
 }
 
-.workspace-submenu-icon[data-section='costos'] span {
+.workspace-operator .workspace-submenu-icon[data-section='costos'] span {
   width: 1.12rem;
   height: 1.35px;
   background: currentColor;
@@ -1272,21 +1836,21 @@ watch(
   transform-origin: right center;
 }
 
-.workspace-submenu-icon[data-section='disponibilidad']::before {
+.workspace-operator .workspace-submenu-icon[data-section='disponibilidad']::before {
   width: 1.95rem;
   height: 1.95rem;
   border: 1.35px solid currentColor;
   border-radius: 50%;
 }
 
-.workspace-submenu-icon[data-section='disponibilidad']::after {
+.workspace-operator .workspace-submenu-icon[data-section='disponibilidad']::after {
   width: 0.54rem;
   height: 0.54rem;
   border: 1.35px solid currentColor;
   border-radius: 50%;
 }
 
-.workspace-submenu-icon[data-section='disponibilidad'] span {
+.workspace-operator .workspace-submenu-icon[data-section='disponibilidad'] span {
   width: 1rem;
   height: 1.35px;
   background: currentColor;
@@ -1294,7 +1858,7 @@ watch(
   transform: translateX(0.1rem) rotate(-34deg);
 }
 
-.workspace-submenu-icon[data-section='solicitudes']::before {
+.workspace-operator .workspace-submenu-icon[data-section='solicitudes']::before {
   width: 1.95rem;
   height: 1.22rem;
   border: 1.35px solid currentColor;
@@ -1302,35 +1866,35 @@ watch(
   transform: rotate(-6deg);
 }
 
-.workspace-submenu-icon[data-section='solicitudes']::after {
+.workspace-operator .workspace-submenu-icon[data-section='solicitudes']::after {
   width: 1.1rem;
   height: 1.35px;
   background: currentColor;
   transform: translateY(-0.18rem) rotate(-6deg);
 }
 
-.workspace-submenu-icon[data-section='solicitudes'] span {
+.workspace-operator .workspace-submenu-icon[data-section='solicitudes'] span {
   width: 0.78rem;
   height: 1.35px;
   background: currentColor;
   transform: translate(-0.16rem, 0.22rem) rotate(-6deg);
 }
 
-.workspace-submenu-icon[data-section='release-provider']::before {
+.workspace-operator .workspace-submenu-icon[data-section='release-provider']::before {
   width: 1.76rem;
   height: 1.76rem;
   border: 1.35px solid currentColor;
   border-radius: 50%;
 }
 
-.workspace-submenu-icon[data-section='release-provider']::after {
+.workspace-operator .workspace-submenu-icon[data-section='release-provider']::after {
   width: 1.18rem;
   height: 1.18rem;
   border: 1.35px solid currentColor;
   transform: rotate(45deg);
 }
 
-.workspace-submenu-icon[data-section='release-provider'] span {
+.workspace-operator .workspace-submenu-icon[data-section='release-provider'] span {
   width: 0.78rem;
   height: 0.42rem;
   border-left: 1.35px solid currentColor;
@@ -1338,7 +1902,7 @@ watch(
   transform: rotate(-45deg) translate(0.08rem, -0.04rem);
 }
 
-.workspace-submenu-icon[data-section='operaciones']::before {
+.workspace-operator .workspace-submenu-icon[data-section='operaciones']::before {
   width: 2.05rem;
   height: 1.45rem;
   border: 1.35px solid currentColor;
@@ -1346,7 +1910,7 @@ watch(
   transform: rotate(-12deg);
 }
 
-.workspace-submenu-icon[data-section='operaciones']::after {
+.workspace-operator .workspace-submenu-icon[data-section='operaciones']::after {
   width: 0.42rem;
   height: 0.42rem;
   border: 1.35px solid currentColor;
@@ -1357,21 +1921,21 @@ watch(
     -0.55rem 0.38rem 0 0 currentColor;
 }
 
-.workspace-submenu-icon[data-section='operaciones'] span {
+.workspace-operator .workspace-submenu-icon[data-section='operaciones'] span {
   width: 1.45rem;
   height: 1.35px;
   background: currentColor;
   transform: rotate(-22deg);
 }
 
-.workspace-submenu-icon[data-section='incidencias']::before {
+.workspace-operator .workspace-submenu-icon[data-section='incidencias']::before {
   width: 2rem;
   height: 1.24rem;
   border: 1.35px solid currentColor;
   border-radius: 999px;
 }
 
-.workspace-submenu-icon[data-section='incidencias']::after {
+.workspace-operator .workspace-submenu-icon[data-section='incidencias']::after {
   width: 0.46rem;
   height: 0.46rem;
   border: 1.35px solid currentColor;
@@ -1382,21 +1946,21 @@ watch(
     0.72rem 0 0 0 currentColor;
 }
 
-.workspace-submenu-icon[data-section='incidencias'] span {
+.workspace-operator .workspace-submenu-icon[data-section='incidencias'] span {
   width: 1.46rem;
   height: 1.35px;
   background: currentColor;
   transform: rotate(-28deg);
 }
 
-.workspace-submenu-icon[data-section='pagos']::before {
+.workspace-operator .workspace-submenu-icon[data-section='pagos']::before {
   width: 1.58rem;
   height: 2rem;
   border: 1.35px solid currentColor;
   border-radius: 0.22rem;
 }
 
-.workspace-submenu-icon[data-section='pagos']::after {
+.workspace-operator .workspace-submenu-icon[data-section='pagos']::after {
   width: 1rem;
   height: 1.35px;
   background: currentColor;
@@ -1404,7 +1968,7 @@ watch(
   box-shadow: 0 0.44rem 0 currentColor;
 }
 
-.workspace-submenu-icon[data-section='pagos'] span {
+.workspace-operator .workspace-submenu-icon[data-section='pagos'] span {
   width: 0.48rem;
   height: 0.48rem;
   border: 1.35px solid currentColor;
@@ -1412,13 +1976,13 @@ watch(
   transform: translate(0.28rem, 0.54rem);
 }
 
-.workspace-submenu-icon[data-section='historial']::before {
+.workspace-operator .workspace-submenu-icon[data-section='historial']::before {
   width: 2rem;
   height: 1.35px;
   background: currentColor;
 }
 
-.workspace-submenu-icon[data-section='historial']::after {
+.workspace-operator .workspace-submenu-icon[data-section='historial']::after {
   width: 0.44rem;
   height: 0.44rem;
   border: 1.35px solid currentColor;
@@ -1428,7 +1992,7 @@ watch(
     0.72rem 0 0 0 currentColor;
 }
 
-.workspace-submenu-icon[data-section='historial'] span {
+.workspace-operator .workspace-submenu-icon[data-section='historial'] span {
   width: 1.35px;
   height: 1.45rem;
   background: currentColor;
@@ -1438,14 +2002,14 @@ watch(
     1.44rem 0 0 currentColor;
 }
 
-.workspace-submenu-icon[data-section='configuracion']::before {
+.workspace-operator .workspace-submenu-icon[data-section='configuracion']::before {
   width: 1.95rem;
   height: 1.42rem;
   border: 1.35px solid currentColor;
   border-radius: 0.72rem;
 }
 
-.workspace-submenu-icon[data-section='configuracion']::after {
+.workspace-operator .workspace-submenu-icon[data-section='configuracion']::after {
   width: 0.46rem;
   height: 0.46rem;
   border: 1.35px solid currentColor;
@@ -1454,7 +2018,7 @@ watch(
   box-shadow: 0.92rem 0 0 0 currentColor;
 }
 
-.workspace-submenu-icon[data-section='configuracion'] span {
+.workspace-operator .workspace-submenu-icon[data-section='configuracion'] span {
   width: 1.22rem;
   height: 1.35px;
   background: currentColor;
@@ -1557,6 +2121,10 @@ watch(
     min-height: 100vh;
     padding: 1.25rem 1.1rem 1.5rem;
     background: #ffffff;
+  }
+
+  .workspace-admin .workspace-mobile-drawer__sheet {
+    background: linear-gradient(180deg, #f7faff 0%, #edf3fc 100%);
   }
 
   .workspace-mobile-drawer__top {
@@ -1665,6 +2233,10 @@ watch(
     color: #bc8d2f;
   }
 
+  .workspace-admin .workspace-mobile-link--active {
+    color: #31579d;
+  }
+
   .workspace-mobile-drawer__footer {
     align-self: end;
     display: grid;
@@ -1694,29 +2266,29 @@ watch(
   }
 
   .workspace-operator .workspace-mobile-drawer {
-    background: rgba(5, 10, 20, 0.72);
+    background: rgba(15, 23, 42, 0.22);
     backdrop-filter: blur(18px);
   }
 
   .workspace-operator .workspace-mobile-drawer__sheet {
     background:
-      radial-gradient(circle at 18% 0%, rgba(201, 160, 99, 0.14), transparent 32%),
-      linear-gradient(135deg, #050a14 0%, #071b36 100%);
+      radial-gradient(circle at 18% 0%, rgba(191, 219, 254, 0.22), transparent 30%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(246, 250, 255, 0.97));
   }
 
   .workspace-operator .workspace-mobile-drawer__intro strong,
   .workspace-operator .workspace-mobile-link,
   .workspace-operator .workspace-mobile-logout {
-    color: #f8f3e8;
+    color: #11253f;
   }
 
   .workspace-operator .workspace-mobile-drawer__intro p,
   .workspace-operator .workspace-mobile-group__title {
-    color: rgba(236, 226, 207, 0.68);
+    color: #6980a1;
   }
 
   .workspace-operator .workspace-mobile-link--active {
-    color: #e8c98f;
+    color: #24446f;
   }
 
   .workspace-operator .workspace-mobile-links {
@@ -1729,10 +2301,14 @@ watch(
     gap: 0.75rem;
     min-height: 7.4rem;
     padding: 0.85rem;
-    border: 1px solid rgba(201, 160, 99, 0.1);
-    border-radius: 18px;
-    background: linear-gradient(135deg, rgba(7, 27, 54, 0.78), rgba(5, 10, 20, 0.92));
-    box-shadow: 0 18px 36px rgba(0, 0, 0, 0.28);
+    border: 1px solid rgba(226, 232, 240, 0.96);
+    border-radius: 20px;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(247, 250, 255, 0.97)),
+      rgba(255, 255, 255, 0.95);
+    box-shadow:
+      0 14px 30px rgba(15, 23, 42, 0.08),
+      inset 0 1px 0 rgba(255, 255, 255, 0.84);
   }
 
   .workspace-operator .workspace-mobile-link__icon {
@@ -1748,25 +2324,29 @@ watch(
   }
 
   .workspace-mobile-link__copy strong {
-    color: #f6f3ef;
+    color: #11253f;
     font-size: 0.9rem;
     line-height: 1.15;
   }
 
   .workspace-mobile-link__copy small {
-    color: rgba(246, 243, 239, 0.58);
+    color: #60748f;
     font-size: 0.76rem;
     line-height: 1.3;
   }
 
+  .workspace-admin .workspace-mobile-link__copy small {
+    color: #64748b;
+  }
+
   .workspace-operator .workspace-mobile-drawer__close,
   .workspace-operator .workspace-mobile-logout {
-    border-color: rgba(201, 160, 99, 0.24);
-    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(226, 232, 240, 0.96);
+    background: rgba(255, 255, 255, 0.92);
   }
 
   .workspace-operator .workspace-mobile-drawer__close span {
-    background: #f8f3e8;
+    background: #24446f;
   }
 
   .portal-header {
@@ -1809,6 +2389,164 @@ watch(
     width: 2.7rem;
     min-width: 2.7rem;
     min-height: 2.7rem;
+  }
+}
+
+.workspace-operator:has(.operator-dashboard-luxury) {
+  background:
+    radial-gradient(circle at top left, rgba(191, 219, 254, 0.3), transparent 18%),
+    linear-gradient(180deg, #f7fbff 0%, #eef4fb 52%, #f8fbff 100%);
+  color: #10233d;
+}
+
+.workspace-operator:has(.operator-incidents-dashboard),
+.workspace-operator:has(.fleet-operations-luxury),
+.workspace-operator:has(.operator-costs-luxury),
+.workspace-operator:has(.availability-control-luxury),
+.workspace-operator:has(.flight-release-luxury),
+.workspace-operator:has(.operator-certification-luxury),
+.workspace-operator:has(.flight-tracking-luxury),
+.workspace-operator:has(.flight-ops-command-luxury),
+.workspace-operator:has(.payments-cockpit-page),
+.workspace-operator:has(.operator-history-luxury),
+.workspace-operator:has(.operator-settings-luxury) {
+  background:
+    radial-gradient(circle at 14% 8%, rgba(191, 219, 254, 0.14), transparent 22%),
+    radial-gradient(circle at 86% 12%, rgba(254, 240, 214, 0.12), transparent 18%),
+    linear-gradient(180deg, #fbfdff 0%, #f3f7fc 100%);
+  color: #10233d;
+}
+
+.workspace-operator:has(.operator-costs-luxury) {
+  background:
+    radial-gradient(circle at 14% 8%, rgba(241, 245, 249, 0.62), transparent 22%),
+    radial-gradient(circle at 86% 12%, rgba(248, 244, 236, 0.34), transparent 18%),
+    linear-gradient(180deg, #fcfcfb 0%, #f5f5f3 100%);
+  color: #10233d;
+}
+
+.workspace-operator:has(.operator-incidents-dashboard) .workspace-menu-shell::before,
+.workspace-operator:has(.fleet-operations-luxury) .workspace-menu-shell::before,
+.workspace-operator:has(.operator-costs-luxury) .workspace-menu-shell::before,
+.workspace-operator:has(.availability-control-luxury) .workspace-menu-shell::before,
+.workspace-operator:has(.flight-release-luxury) .workspace-menu-shell::before,
+.workspace-operator:has(.operator-certification-luxury) .workspace-menu-shell::before,
+.workspace-operator:has(.flight-tracking-luxury) .workspace-menu-shell::before,
+.workspace-operator:has(.flight-ops-command-luxury) .workspace-menu-shell::before,
+.workspace-operator:has(.payments-cockpit-page) .workspace-menu-shell::before,
+.workspace-operator:has(.operator-history-luxury) .workspace-menu-shell::before,
+.workspace-operator:has(.operator-settings-luxury) .workspace-menu-shell::before {
+  background:
+    radial-gradient(circle at 50% 50%, rgba(191, 219, 254, 0.24), transparent 68%),
+    radial-gradient(circle at 22% 50%, rgba(15, 39, 71, 0.04), transparent 42%);
+  filter: blur(20px);
+}
+
+.workspace-operator:has(.operator-costs-luxury) .workspace-menu-shell::before {
+  background:
+    radial-gradient(circle at 50% 50%, rgba(226, 232, 240, 0.3), transparent 68%),
+    radial-gradient(circle at 22% 50%, rgba(120, 113, 108, 0.04), transparent 42%);
+  filter: blur(20px);
+}
+
+.workspace-operator:has(.operator-dashboard-luxury) .portal-header {
+  margin-bottom: 0.25rem;
+  border-bottom-color: rgba(148, 163, 184, 0.18);
+}
+
+.workspace-operator:has(.operator-dashboard-luxury) .portal-header h2 {
+  color: #11253f;
+}
+
+.workspace-operator:has(.operator-dashboard-luxury) .portal-header .muted,
+.workspace-operator:has(.operator-dashboard-luxury) .eyebrow {
+  color: #6b7f99;
+}
+
+.workspace-operator:has(.operator-dashboard-luxury) .workspace-menu-shell::before {
+  background:
+    radial-gradient(circle at 50% 50%, rgba(15, 39, 71, 0.42), transparent 68%),
+    radial-gradient(circle at 22% 50%, rgba(212, 169, 93, 0.08), transparent 42%);
+  filter: blur(22px);
+}
+
+.workspace-operator:has(.operator-dashboard-luxury) .workspace-menu-bar {
+  border-color: rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(135deg, rgba(11, 22, 39, 0.98), rgba(24, 38, 63, 0.97) 52%, rgba(14, 24, 39, 0.98) 100%);
+  box-shadow:
+    0 20px 44px rgba(15, 23, 42, 0.16),
+    0 8px 18px rgba(2, 6, 23, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(18px);
+}
+
+.workspace-operator:has(.operator-dashboard-luxury) .workspace-menu-bar::before {
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.14), transparent);
+}
+
+.workspace-operator:has(.operator-dashboard-luxury) .workspace-menu-bar::after {
+  background: linear-gradient(90deg, transparent, rgba(212, 169, 93, 0.24), transparent);
+}
+
+.workspace-operator:has(.operator-dashboard-luxury) .workspace-menu-brand strong,
+.workspace-operator:has(.operator-dashboard-luxury) .workspace-menu-group,
+.workspace-operator:has(.operator-dashboard-luxury) .workspace-menu-logout {
+  color: #eff6ff;
+}
+
+.workspace-operator:has(.operator-dashboard-luxury) .workspace-menu-brand small {
+  color: rgba(226, 232, 240, 0.76);
+}
+
+.workspace-operator:has(.operator-dashboard-luxury) .workspace-menu-badge,
+.workspace-operator:has(.operator-dashboard-luxury) .workspace-menu-hint {
+  border-color: rgba(212, 169, 93, 0.18);
+  background: rgba(255, 255, 255, 0.04);
+  color: #d4a95d;
+  box-shadow: none;
+}
+
+.workspace-operator:has(.operator-dashboard-luxury) .workspace-menu-groups {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.workspace-operator:has(.operator-dashboard-luxury) .workspace-menu-group {
+  color: rgba(226, 232, 240, 0.82);
+}
+
+.workspace-operator:has(.operator-dashboard-luxury) .workspace-menu-group:hover,
+.workspace-operator:has(.operator-dashboard-luxury) .workspace-menu-group--active {
+  border-color: rgba(212, 169, 93, 0.18);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.04));
+  color: #ffffff;
+  box-shadow:
+    0 10px 24px rgba(15, 23, 42, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  transform: translateY(-1px) scale(1.01);
+}
+
+.workspace-operator:has(.operator-dashboard-luxury) .workspace-menu-group--active::before {
+  background: linear-gradient(110deg, transparent 0%, rgba(212, 169, 93, 0.14) 48%, transparent 72%);
+}
+
+.workspace-operator:has(.operator-dashboard-luxury) .workspace-menu-group--active::after {
+  background: linear-gradient(90deg, transparent, #d4a95d, transparent);
+  box-shadow: 0 0 12px rgba(212, 169, 93, 0.35);
+}
+
+.workspace-operator:has(.operator-dashboard-luxury) .workspace-menu-logout,
+.workspace-operator:has(.operator-dashboard-luxury) .workspace-menu-toggle {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: none;
+}
+
+@media (max-width: 760px) {
+  .workspace-operator:has(.operator-dashboard-luxury) .workspace-menu-bar {
+    background:
+      linear-gradient(180deg, rgba(11, 22, 39, 0.98), rgba(24, 38, 63, 0.97) 58%, rgba(14, 24, 39, 0.98) 100%);
   }
 }
 </style>

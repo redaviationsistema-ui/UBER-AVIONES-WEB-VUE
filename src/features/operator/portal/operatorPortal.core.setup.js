@@ -3,6 +3,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { requestWithCandidates, pickCollection, pickRecord } from '../../../lib/backendCrud'
 import { api, resolveMediaUrl } from '../../../lib/api'
 import { resolveProviderIdForUser } from '../../../lib/providerContext'
+import { resolveBestCompanyDisplayName } from '../../../lib/companyDisplay'
 import { buildFrontendUrl } from '../../../lib/frontendUrl'
 import {
   buildSharedFlowStepStates,
@@ -64,6 +65,7 @@ import { createOperatorPortalBillingDomain } from './operatorPortal.billing'
 import { createOperatorPortalAircraftDomain } from './operatorPortal.aircraft'
 import { createOperatorPortalRequestsDomain } from './operatorPortal.requests'
 import { createOperatorPortalReleaseDomain } from './operatorPortal.release'
+import { buildAircraftPayload, buildAircraftWizardStepErrors } from './aircraftWizardUtils'
 
 export {
   findOperatorRequestByIdentifier,
@@ -152,6 +154,9 @@ const AIRCRAFT_DETAIL_ROUTE_TEMPLATES = [
   '/proveedor/aeronaves/:id',
   '/operator/aircraft/:id',
 ]
+
+const AIRCRAFT_COLLECTION_RESPONSE_KEYS = ['aircraft', 'aeronaves', 'fleet', 'data', 'items']
+const AIRCRAFT_RECORD_RESPONSE_KEYS = ['aircraft', 'aeronave', 'data', 'item']
 
 const CREW_ROUTE_CANDIDATES = [
   '/proveedor/tripulacion',
@@ -492,6 +497,8 @@ const aircraftWizardSubmitting = ref(false)
 
 const aircraftWizardReadOnly = ref(false)
 
+const aircraftWizardStepError = ref('')
+
 const editingCrewId = ref(null)
 
 const savingCrew = ref(false)
@@ -565,6 +572,7 @@ const sectionLoadState = reactive({
   dashboard: false,
   empresa: false,
   aeronaves: false,
+  costos: false,
   solicitudes: false,
   operaciones: false,
   tripulacion: false,
@@ -572,6 +580,7 @@ const sectionLoadState = reactive({
   pagos: false,
   historial: false,
   disponibilidad: false,
+  configuracion: false,
   'release-provider': false,
 })
 
@@ -726,9 +735,82 @@ const providerId = computed(() =>
 
 const canLoadProviderData = computed(() => auth.initialized && auth.isAuthenticated)
 
-const providerName = computed(
-  () => auth.user?.company_name || auth.user?.name || company.tradeName || 'Proveedor',
-)
+function resolveOperatorCompanyName(operator = {}) {
+  return resolveBestCompanyDisplayName(
+    operator.company_name,
+    operator.commercial_name,
+    operator.nombre_empresa,
+    operator.nombre_comercial,
+    operator.legal_name,
+    operator.razon_social,
+  )
+}
+
+const operatorIdentity = computed(() => {
+  const providerProfile = auth.user?.provider && typeof auth.user.provider === 'object' ? auth.user.provider : {}
+  const userProfile = auth.user?.profile && typeof auth.user.profile === 'object' ? auth.user.profile : {}
+  const accessProfile = auth.access && typeof auth.access === 'object' ? auth.access : {}
+  const loginProfile = auth.loginContext && typeof auth.loginContext === 'object' ? auth.loginContext : {}
+  const authUser = auth.user && typeof auth.user === 'object' ? auth.user : {}
+  const merged = {
+    ...providerProfile,
+    ...userProfile,
+    ...accessProfile,
+    ...loginProfile,
+    ...authUser,
+  }
+
+  return {
+    ...merged,
+    company_name:
+      merged.company_name ||
+      merged.legal_name ||
+      merged.nombre_empresa ||
+      merged.commercial_name ||
+      merged.nombre_comercial ||
+      merged.razon_social ||
+      company.legalName ||
+      company.tradeName ||
+      '',
+    nombre_empresa:
+      merged.nombre_empresa ||
+      merged.company_name ||
+      merged.legal_name ||
+      merged.commercial_name ||
+      merged.nombre_comercial ||
+      merged.razon_social ||
+      company.legalName ||
+      company.tradeName ||
+      '',
+    commercial_name:
+      merged.commercial_name ||
+      merged.nombre_comercial ||
+      merged.company_name ||
+      merged.legal_name ||
+      merged.nombre_empresa ||
+      company.tradeName ||
+      company.legalName ||
+      '',
+    nombre_comercial:
+      merged.nombre_comercial ||
+      merged.commercial_name ||
+      merged.company_name ||
+      merged.legal_name ||
+      merged.nombre_empresa ||
+      company.tradeName ||
+      company.legalName ||
+      '',
+    razon_social:
+      merged.razon_social ||
+      merged.legal_name ||
+      merged.company_name ||
+      merged.nombre_empresa ||
+      company.legalName ||
+      '',
+  }
+})
+
+const providerName = computed(() => resolveOperatorCompanyName(operatorIdentity.value))
 
 const activeAircraft = computed(
   () =>
@@ -1208,7 +1290,7 @@ const renewalCenterRows = computed(() =>
 )
 
 const providerPaymentProfile = computed(() => {
-  const rawName = providerName.value || auth.user?.name || 'Proveedor'
+  const rawName = providerName.value || 'Empresa operadora'
   const lastAccessRaw =
     auth.user?.last_login_at ||
     auth.user?.last_access_at ||
@@ -1321,6 +1403,86 @@ const isIncidentsSectionLoading = computed(
   () => props.section === 'incidencias' && loading.value && !sectionLoadState.incidencias,
 )
 
+const OPERATOR_SECTION_LOADING_COPY = {
+  aeronaves: {
+    eyebrow: 'Flota',
+    title: 'Cargando aeronaves',
+    detail: 'Estamos sincronizando inventario, estatus y datos operativos de la flota.',
+  },
+  costos: {
+    eyebrow: 'Pricing',
+    title: 'Cargando costos base',
+    detail: 'Estamos preparando costos operativos, pricing y referencias por aeronave.',
+  },
+  disponibilidad: {
+    eyebrow: 'Agenda',
+    title: 'Cargando disponibilidad',
+    detail: 'Estamos reuniendo bloqueos, ventanas y agenda operativa del proveedor.',
+  },
+  'release-provider': {
+    eyebrow: 'Liberacion',
+    title: 'Cargando liberacion operativa',
+    detail: 'Estamos reuniendo solicitud, aeronave y contexto operativo para autorizar el vuelo.',
+  },
+  empresa: {
+    eyebrow: 'Empresa',
+    title: 'Cargando perfil corporativo',
+    detail: 'Estamos sincronizando identidad, validacion y configuracion de empresa.',
+  },
+  operaciones: {
+    eyebrow: 'Operaciones',
+    title: 'Cargando operaciones',
+    detail: 'Estamos preparando el seguimiento vivo de vuelos, etapas y trazabilidad.',
+  },
+  solicitudes: {
+    eyebrow: 'Solicitudes',
+    title: 'Cargando solicitudes',
+    detail: 'Estamos sincronizando oportunidades activas y el backlog operativo del proveedor.',
+  },
+  incidencias: {
+    eyebrow: 'Incidencias',
+    title: 'Cargando incidencias',
+    detail: 'Estamos reuniendo reportes, prioridades, responsables y seguimiento operativo.',
+  },
+  pagos: {
+    eyebrow: 'Pagos',
+    title: 'Cargando pagos',
+    detail: 'Estamos sincronizando cobros, conciliacion y movimientos operativos del proveedor.',
+  },
+  historial: {
+    eyebrow: 'Historial',
+    title: 'Cargando historial',
+    detail: 'Estamos preparando el registro historico de operaciones y actividad reciente.',
+  },
+  configuracion: {
+    eyebrow: 'Configuracion',
+    title: 'Cargando configuracion',
+    detail: 'Estamos preparando parametros, alertas y preferencias del operador.',
+  },
+}
+
+const operatorRouteSectionLoadingVisible = computed(() => {
+  const normalizedSection = normalizeSectionKey(props.section)
+  if (!loading.value || normalizedSection === 'dashboard') return false
+
+  return Boolean(
+    OPERATOR_SECTION_LOADING_COPY[normalizedSection] &&
+      Object.prototype.hasOwnProperty.call(sectionLoadState, normalizedSection) &&
+      !sectionLoadState[normalizedSection],
+  )
+})
+
+const operatorRouteSectionLoadingMeta = computed(() => {
+  const normalizedSection = normalizeSectionKey(props.section)
+  return (
+    OPERATOR_SECTION_LOADING_COPY[normalizedSection] || {
+      eyebrow: 'Portal operador',
+      title: 'Cargando seccion',
+      detail: 'Estamos preparando la siguiente vista operativa.',
+    }
+  )
+})
+
 const providerPendingRequestRecords = computed(() =>
   requests.value.filter((item) => getRequestStatusMeta(item).queue === 'new'),
 )
@@ -1422,9 +1584,9 @@ const selectedTrackingDetails = computed(() => {
     { label: 'Llegada estimada', value: formatDateTimeDisplay(operation.arrival) },
     { label: 'Llegada real', value: operation.crewServiceCompletedAt ? formatDateTimeDisplay(operation.crewServiceCompletedAt) : 'Pendiente' },
     { label: 'Tripulacion', value: operation.crew || 'Por definir' },
-    { label: 'Handling', value: operation.raw?.fbo || operation.raw?.handling || 'Coordinacion Red Aviation' },
+    { label: 'Handling', value: operation.raw?.fbo || operation.raw?.handling || 'Coordinacion administrativa' },
     { label: 'FBO', value: operation.raw?.fbo || 'Pendiente' },
-    { label: 'Concierge', value: operation.raw?.concierge || 'Coordinado por Red Aviation' },
+    { label: 'Concierge', value: operation.raw?.concierge || 'Coordinado por la plataforma' },
   ]
 })
 
@@ -1466,7 +1628,7 @@ const providerOperationalSummary = computed(() => {
       label: 'Incidencias abiertas',
       value: String(providerOpenIncidents.value.length),
       detail: providerOpenIncidents.value.length
-        ? 'Requieren respuesta operativa coordinada con Red Aviation.'
+        ? 'Requieren respuesta operativa coordinada por la plataforma.'
         : 'No hay incidencias activas en seguimiento.',
     },
   ]
@@ -2060,7 +2222,7 @@ const companyLastAuditDate = computed(() => {
   return latestCompanyEntry?.date || 'Sin revision registrada'
 })
 
-const companyOperationalBase = computed(() => aircraft.value[0]?.base || 'Base por definir')
+const companyOperationalBase = computed(() => aircraft.value[0]?.base || company.base || 'Base por definir')
 
 const companyOnboardingSteps = computed(() => {
   const hasCompanyData = Boolean(companyForm.legalName && companyForm.address)
@@ -2249,18 +2411,6 @@ const dashboardQuickActions = computed(() => [
 
 const dashboardChecklist = computed(() => [
   {
-    id: 'empresa',
-    icon: '🛡',
-    label: 'Mi empresa',
-    status: companyForm.legalName && companyForm.rfc ? 'complete' : 'pending',
-    detail:
-      companyForm.legalName && companyForm.rfc
-        ? 'Perfil corporativo completo'
-        : 'Completa identidad fiscal',
-    cta: 'Abrir empresa',
-    section: 'empresa',
-  },
-  {
     id: 'aeronaves',
     icon: '✈',
     label: 'Aeronaves',
@@ -2294,6 +2444,18 @@ const dashboardChecklist = computed(() => [
       : 'Falta disponibilidad base',
     cta: 'Actualizar',
     section: 'disponibilidad',
+  },
+  {
+    id: 'empresa',
+    icon: '🛡',
+    label: 'Mi empresa',
+    status: companyForm.legalName && companyForm.rfc ? 'complete' : 'pending',
+    detail:
+      companyForm.legalName && companyForm.rfc
+        ? 'Perfil corporativo completo'
+        : 'Completa identidad fiscal',
+    cta: 'Abrir empresa',
+    section: 'empresa',
   },
   {
     id: 'solicitudes',
@@ -3032,7 +3194,7 @@ const providerOperationalCrewOverallOptions = [
   { value: 'pending', label: 'Pendiente' },
   { value: 'confirmed', label: 'Confirmada' },
   { value: 'not_available', label: 'No disponible' },
-  { value: 'red_aviation_review', label: 'Requiere revision de Red Aviation' },
+  { value: 'red_aviation_review', label: 'Requiere revision administrativa' },
 ]
 
 const providerOperationalAircraftOverallOptions = [
@@ -3048,6 +3210,7 @@ function createEmptyCompany() {
     legalName: '',
     rfc: '',
     tradeName: '',
+    base: '',
     phone: '',
     email: '',
     address: '',
@@ -3551,7 +3714,7 @@ function getProviderOperationalCrewSectionStatus() {
     return { label: 'No disponible', tone: 'danger', detail: 'No hay tripulacion completa para esta operacion.' }
   }
   if (providerOperationalReleaseForm.crewOverallStatus === 'red_aviation_review') {
-    return { label: 'Revision Red Aviation', tone: 'warning', detail: 'Red Aviation debe coordinar apoyo o validacion adicional.' }
+    return { label: 'Revision administrativa', tone: 'warning', detail: 'Se debe coordinar apoyo o validacion adicional.' }
   }
   if (
     isProviderOperationalStatusConfirmed(providerOperationalReleaseForm.captainStatus) ||
@@ -3742,12 +3905,12 @@ function toggleProviderOperationalIssuePanel(forceValue) {
 
 function requestProviderOperationalSupport() {
   providerOperationalReleaseFeedback.value =
-    'Red Aviation fue notificada para apoyar con tripulacion y coordinacion operativa.'
+    'El equipo administrativo fue notificado para apoyar con tripulacion y coordinacion operativa.'
   providerOperationalReleaseForm.crewOverallStatus = 'red_aviation_review'
   ui.pushToast({
     tone: 'info',
     title: 'Apoyo solicitado',
-    message: 'Red Aviation dara seguimiento a tripulacion, sobrecargo y liberacion final.',
+    message: 'El equipo administrativo dara seguimiento a tripulacion, sobrecargo y liberacion final.',
   })
 }
 
@@ -3942,7 +4105,7 @@ function applyDashboardResponse(dashboard) {
 }
 
 function applyAircraftResponse(payload) {
-  const collection = pickCollection(payload, ['aircraft', 'data', 'items'])
+  const collection = pickCollection(payload, AIRCRAFT_COLLECTION_RESPONSE_KEYS)
   aircraft.value = mergeAircraftCollection(collection)
   syncAircraftScopedForms()
   markSectionLoaded('aeronaves')
@@ -4025,7 +4188,7 @@ async function hydrateAircraftDetail(aircraftId, options = {}) {
         timeoutMs: options.timeoutMs || OPERATOR_SECTION_TIMEOUT_MS,
       })),
     )
-    const aircraftRecord = pickRecord(payload, ['aircraft', 'data', 'item'])
+    const aircraftRecord = pickRecord(payload, AIRCRAFT_RECORD_RESPONSE_KEYS)
     if (!aircraftRecord || !Object.keys(aircraftRecord).length) {
       return null
     }
@@ -4289,14 +4452,25 @@ function normalizeCompany(raw = {}) {
     ['approved', 'aprobada', 'aprobado', 'active'].includes(String(approvalStatus || '').toLowerCase())
 
   return {
-    legalName: raw.legal_name || raw.company_name || raw.razon_social || company.legalName,
+    legalName:
+      raw.legal_name || raw.razon_social || raw.company_name || raw.nombre_empresa || company.legalName,
     rfc: raw.rfc || raw.tax_id || company.rfc,
-    tradeName: raw.commercial_name || raw.trade_name || raw.nombre_comercial || company.tradeName,
-    phone: raw.phone || raw.telefono || company.phone,
-    email: raw.email || company.email,
+    tradeName:
+      raw.company_name ||
+      raw.commercial_name ||
+      raw.nombre_empresa ||
+      raw.nombre_comercial ||
+      raw.trade_name ||
+      company.tradeName,
+    base: raw.base_airport || raw.base || raw.base_airport_code || company.base,
+    phone: raw.company_phone || raw.phone || raw.telefono || company.phone,
+    email: raw.company_email || raw.email || company.email,
     address: raw.address || raw.direccion || company.address,
     legalRepresentative:
-      raw.legal_representative || raw.representante_legal || company.legalRepresentative,
+      raw.representative_name ||
+      raw.legal_representative ||
+      raw.representante_legal ||
+      company.legalRepresentative,
     status: providerStatus || company.status,
     jetAPrice: raw.jet_a_price ?? raw.jetA ?? raw.precio_jet_a ?? company.jetAPrice,
     marginPercent:
@@ -6417,6 +6591,7 @@ function openAircraftWizard(item = null, mode = 'edit') {
 
   aircraftWizardReadOnly.value = mode === 'view'
   aircraftWizardStep.value = 1
+  aircraftWizardStepError.value = ''
   aircraftWizardOpen.value = true
 }
 
@@ -6424,17 +6599,86 @@ function closeAircraftWizard() {
   aircraftWizardOpen.value = false
   aircraftWizardReadOnly.value = false
   aircraftWizardStep.value = 1
+  aircraftWizardStepError.value = ''
   cancelEditingAircraft()
   resetImageForm()
   resetDocumentForm()
   clearFormFeedback('document')
 }
 
+function clearAircraftWizardStepFeedback() {
+  aircraftWizardStepError.value = ''
+}
+
+function getAircraftWizardStepErrors(step = aircraftWizardStep.value) {
+  return buildAircraftWizardStepErrors(step, aircraftForm, {
+    resolveAircraftYearNumber,
+    aircraftYearValidationMessage,
+    selectedImageCount: countSelectedImageFiles(),
+    existingImageCount: selectedImageAircraft.value?.images?.length || 0,
+    selectedDocumentCount: documentForm.files.length,
+    existingDocumentCount: selectedDocumentAircraft.value?.documents?.length || 0,
+  })
+}
+
+function validateAircraftWizardStep(step = aircraftWizardStep.value) {
+  clearAircraftWizardStepFeedback()
+  clearFormFeedback('aircraft')
+  clearFormFeedback('document')
+
+  const errors = getAircraftWizardStepErrors(step)
+  const aircraftErrors = {}
+
+  ;['name', 'category', 'year', 'base', 'capacity', 'speedKnots', 'hourlyPrice'].forEach((key) => {
+    if (errors[key]) aircraftErrors[key] = errors[key]
+  })
+
+  if (Object.keys(aircraftErrors).length) {
+    setFormErrors('aircraft', {
+      ...formErrors.aircraft,
+      ...aircraftErrors,
+    })
+  }
+
+  if (errors._documents) {
+    setFormErrors('document', {
+      ...formErrors.document,
+      _form: errors._documents,
+    })
+  }
+
+  aircraftWizardStepError.value =
+    errors._gallery || errors._documents || Object.values(aircraftErrors)[0] || ''
+
+  return Object.keys(errors).length === 0
+}
+
+function goToAircraftWizardStep(step) {
+  const nextStep = Math.min(Math.max(Number(step || 1), 1), aircraftWizardSteps.length)
+
+  if (aircraftWizardReadOnly.value || nextStep <= aircraftWizardStep.value) {
+    clearAircraftWizardStepFeedback()
+    aircraftWizardStep.value = nextStep
+    return true
+  }
+
+  for (let currentStep = aircraftWizardStep.value; currentStep < nextStep; currentStep += 1) {
+    if (!validateAircraftWizardStep(currentStep)) {
+      aircraftWizardStep.value = currentStep
+      return false
+    }
+  }
+
+  aircraftWizardStep.value = nextStep
+  return true
+}
+
 function nextAircraftWizardStep() {
-  aircraftWizardStep.value = Math.min(aircraftWizardStep.value + 1, aircraftWizardSteps.length)
+  goToAircraftWizardStep(aircraftWizardStep.value + 1)
 }
 
 function previousAircraftWizardStep() {
+  clearAircraftWizardStepFeedback()
   aircraftWizardStep.value = Math.max(aircraftWizardStep.value - 1, 1)
 }
 
@@ -6624,6 +6868,7 @@ function duplicateAircraft(item) {
   documentForm.aircraftId = null
   aircraftWizardReadOnly.value = false
   aircraftWizardStep.value = 1
+  aircraftWizardStepError.value = ''
   aircraftWizardOpen.value = true
   closeAircraftCatalogMenu()
 }
@@ -6724,6 +6969,7 @@ function getAvailabilityOperationalStatus(item) {
 
 async function submitAircraftWizard() {
   if (aircraftWizardSubmitting.value) return
+  if (!aircraftWizardReadOnly.value && !validateAircraftWizardStep(5)) return
 
   aircraftWizardSubmitting.value = true
 
@@ -7108,7 +7354,7 @@ function upsertAircraftRecord(record) {
 
 async function reloadAircraftList() {
   const response = await fetchAircraftListPayload()
-  const collection = pickCollection(response, ['aircraft', 'data', 'items'])
+  const collection = pickCollection(response, AIRCRAFT_COLLECTION_RESPONSE_KEYS)
   aircraft.value = mergeAircraftCollection(collection)
   syncAircraftScopedForms()
   markSectionLoaded('aeronaves')
@@ -7505,6 +7751,10 @@ function getBootstrapSections(section = props.section) {
     return ['dashboard', 'aeronaves', 'solicitudes']
   }
 
+  if (normalizedSection === 'disponibilidad') {
+    return ['dashboard', 'aeronaves', 'disponibilidad']
+  }
+
   if (normalizedSection === 'release-provider') {
     return ['dashboard', 'solicitudes', 'aeronaves', 'tripulacion', 'release-provider']
   }
@@ -7678,6 +7928,9 @@ async function ensureSectionDataLoaded(section = props.section, options = {}) {
     } else if (normalizedSection === 'aeronaves') {
       request = fetchAircraftListPayload(timeoutMs)
       apply = applyAircraftResponse
+    } else if (normalizedSection === 'costos') {
+      request = fetchAircraftListPayload(timeoutMs)
+      apply = applyAircraftResponse
     } else if (normalizedSection === 'solicitudes') {
       request = fetchRequestsPayload(timeoutMs)
       apply = (payload) => {
@@ -7700,8 +7953,33 @@ async function ensureSectionDataLoaded(section = props.section, options = {}) {
       request = requestWithCandidates([{ method: 'get', path: '/proveedor/historial', timeoutMs }])
       apply = applyHistoryResponse
     } else if (normalizedSection === 'disponibilidad') {
-      request = requestWithCandidates([{ method: 'get', path: '/proveedor/disponibilidad', timeoutMs }])
-      apply = applyAvailabilityResponse
+      const jobs = []
+
+      if (force || !hasSectionLoaded('aeronaves')) {
+        jobs.push(
+          fetchAircraftListPayload(timeoutMs).then((payload) => {
+            applyAircraftResponse(payload)
+          }),
+        )
+      }
+
+      jobs.push(
+        requestWithCandidates([{ method: 'get', path: '/proveedor/disponibilidad', timeoutMs }]).then(
+          (payload) => {
+            applyAvailabilityResponse(payload)
+          },
+        ),
+      )
+
+      await Promise.all(jobs)
+      markSectionLoaded('disponibilidad')
+      return
+    } else if (normalizedSection === 'configuracion') {
+      request = requestWithCandidates([
+        { method: 'get', path: '/proveedor/empresa', timeoutMs },
+        { method: 'get', path: '/proveedor/dashboard', timeoutMs },
+      ])
+      apply = applyDashboardResponse
     } else if (normalizedSection === 'release-provider') {
       const jobs = []
 
@@ -7861,61 +8139,30 @@ async function sendCompanyToReview() {
 
 async function createAircraft() {
   clearFormFeedback('aircraft')
+  clearAircraftWizardStepFeedback()
   uppercaseAircraftFormTextFields()
-  if (!aircraftForm.name || !aircraftForm.base) {
-    setFormErrors('aircraft', {
-      ...(!aircraftForm.name ? { name: 'El modelo es obligatorio.' } : {}),
-      ...(!aircraftForm.base ? { base: 'La base es obligatoria.' } : {}),
-    })
+  const validationErrors = getAircraftWizardStepErrors(5)
+  if (Object.keys(validationErrors).length) {
+    const aircraftErrors = Object.fromEntries(
+      Object.entries(validationErrors).filter(([key]) => !key.startsWith('_')),
+    )
+    setFormErrors('aircraft', aircraftErrors)
+    aircraftWizardStepError.value =
+      validationErrors._gallery || validationErrors._documents || Object.values(aircraftErrors)[0] || ''
     return showError(
       'Campos incompletos',
-      'Completa modelo y base para crear la aeronave.',
+      aircraftWizardStepError.value || 'Completa la informacion obligatoria antes de guardar.',
     )
   }
 
-  const aircraftYear = resolveAircraftYearNumber(aircraftForm.year)
-  if (aircraftYear == null) {
-    setFormErrors('aircraft', { year: aircraftYearValidationMessage() })
-    return showError('Ano invalido', aircraftYearValidationMessage())
-  }
-
-  const payload = {
-    provider_id: providerId.value || undefined,
-    model: aircraftForm.name,
-    manufacturer: aircraftForm.manufacturer,
-    category: aircraftForm.category,
-    engine_type: aircraftForm.engineType || inferAircraftEngineType({
-      category: aircraftForm.category,
-      model: aircraftForm.name,
-      engineType: aircraftForm.engineType,
-    }),
-    motor_tipo: String(aircraftForm.engineType || '').toUpperCase(),
-    engine_class: aircraftForm.engineClass,
-    motor_clase: aircraftForm.engineClass,
-    registration: nullableText(aircraftForm.registration),
-    year: aircraftYear,
-    capacity: Number(aircraftForm.capacity || 1),
-    speed_kmh: knotsToKmh(aircraftForm.speedKnots),
-    amenities: aircraftForm.amenities
-      .split(',')
-      .map((item) => item.trim())
-      .filter(Boolean),
-    base_airport: aircraftForm.base,
-    coverage: aircraftForm.coverage,
-    airport_expenses_usd: Number(aircraftForm.airportExpensesUsd || 0),
-    airport_expenses: Number(aircraftForm.airportExpensesUsd || 0),
-    expense_fee: Number(aircraftForm.airportExpensesUsd || 0),
-    hourly_rate: Number(aircraftForm.hourlyPrice || 0),
-    minimum_hours: inferredAircraftMinimumHours.value,
-    operational_cost: Number(aircraftForm.operationalCost || 0),
-    fuel_burn_gph: Number(aircraftForm.fuelBurnGallonsPerHour || 0),
-    engine_reserve_rate: Number(aircraftForm.engineReserveRate || 0),
-    insurance_rate: Number(aircraftForm.insuranceRate || 0),
-    maintenance_rate: Number(aircraftForm.maintenanceRate || 0),
-    crew_rate: Number(aircraftForm.crewRate || 0),
-    repositioning_fee: Number(aircraftForm.repositioningFee || 0),
-    overnight_fee: Number(aircraftForm.overnightFee || 0),
-  }
+  const payload = buildAircraftPayload(aircraftForm, {
+    providerId: providerId.value,
+    inferredMinimumHours: inferredAircraftMinimumHours.value,
+    inferAircraftEngineType,
+    knotsToKmh,
+    nullableText,
+    resolveAircraftYearNumber,
+  })
 
   try {
     const response = await requestWithCandidates([
@@ -7923,7 +8170,7 @@ async function createAircraft() {
       { method: 'post', path: '/operator/aircraft', body: payload },
     ])
 
-    const record = pickRecord(response, ['aircraft', 'data'])
+    const record = pickRecord(response, AIRCRAFT_RECORD_RESPONSE_KEYS)
     const redirectTo = String(response?.redirect_to || response?.redirectTo || '').trim()
     let createdAircraft = null
     if (record && Object.keys(record).length && record.id) {
@@ -8233,60 +8480,31 @@ async function sendAircraftToReview(id) {
 
 async function saveAircraftEdits(id) {
   clearFormFeedback('aircraft')
+  clearAircraftWizardStepFeedback()
   uppercaseAircraftFormTextFields()
-  if (!aircraftForm.name || !aircraftForm.base) {
-    setFormErrors('aircraft', {
-      ...(!aircraftForm.name ? { name: 'El modelo es obligatorio.' } : {}),
-      ...(!aircraftForm.base ? { base: 'La base es obligatoria.' } : {}),
-    })
+  const validationErrors = getAircraftWizardStepErrors(5)
+  if (Object.keys(validationErrors).length) {
+    const aircraftErrors = Object.fromEntries(
+      Object.entries(validationErrors).filter(([key]) => !key.startsWith('_')),
+    )
+    setFormErrors('aircraft', aircraftErrors)
+    aircraftWizardStepError.value =
+      validationErrors._gallery || validationErrors._documents || Object.values(aircraftErrors)[0] || ''
     return showError(
       'Edicion incompleta',
-      'Modelo y base son obligatorios para guardar la aeronave.',
+      aircraftWizardStepError.value || 'Completa la informacion obligatoria antes de guardar.',
     )
   }
 
-  const aircraftYear = resolveAircraftYearNumber(aircraftForm.year)
-  if (aircraftYear == null) {
-    setFormErrors('aircraft', { year: aircraftYearValidationMessage() })
-    return showError('Ano invalido', aircraftYearValidationMessage())
-  }
-
-  const payload = {
-    model: aircraftForm.name,
-    manufacturer: aircraftForm.manufacturer,
-    category: aircraftForm.category,
-    engine_type: aircraftForm.engineType || inferAircraftEngineType({
-      category: aircraftForm.category,
-      model: aircraftForm.name,
-      engineType: aircraftForm.engineType,
-    }),
-    motor_tipo: String(aircraftForm.engineType || '').toUpperCase(),
-    engine_class: aircraftForm.engineClass,
-    motor_clase: aircraftForm.engineClass,
-    registration: nullableText(aircraftForm.registration),
-    year: aircraftYear,
-    capacity: Number(aircraftForm.capacity || 1),
-    speed_kmh: knotsToKmh(aircraftForm.speedKnots),
-    amenities: aircraftForm.amenities
-      .split(',')
-      .map((item) => item.trim())
-      .filter(Boolean),
-    base_airport: aircraftForm.base,
-    coverage: aircraftForm.coverage,
-    airport_expenses_usd: Number(aircraftForm.airportExpensesUsd || 0),
-    airport_expenses: Number(aircraftForm.airportExpensesUsd || 0),
-    expense_fee: Number(aircraftForm.airportExpensesUsd || 0),
-    hourly_rate: Number(aircraftForm.hourlyPrice || 0),
-    minimum_hours: inferredAircraftMinimumHours.value,
-    operational_cost: Number(aircraftForm.operationalCost || 0),
-    fuel_burn_gph: Number(aircraftForm.fuelBurnGallonsPerHour || 0),
-    engine_reserve_rate: Number(aircraftForm.engineReserveRate || 0),
-    insurance_rate: Number(aircraftForm.insuranceRate || 0),
-    maintenance_rate: Number(aircraftForm.maintenanceRate || 0),
-    crew_rate: Number(aircraftForm.crewRate || 0),
-    repositioning_fee: Number(aircraftForm.repositioningFee || 0),
-    overnight_fee: Number(aircraftForm.overnightFee || 0),
-  }
+  const payload = buildAircraftPayload(aircraftForm, {
+    providerId: providerId.value,
+    inferredMinimumHours: inferredAircraftMinimumHours.value,
+    inferAircraftEngineType,
+    knotsToKmh,
+    nullableText,
+    resolveAircraftYearNumber,
+  })
+  delete payload.provider_id
 
   try {
     const response = await requestWithCandidates([
@@ -8294,7 +8512,7 @@ async function saveAircraftEdits(id) {
       { method: 'put', path: `/operator/aircraft/${id}`, body: payload },
     ])
 
-    const record = pickRecord(response, ['aircraft', 'data'])
+    const record = pickRecord(response, AIRCRAFT_RECORD_RESPONSE_KEYS)
     const updatedAircraft = upsertAircraftRecord({
       ...aircraft.value.find((item) => item.id === id),
       ...(record && Object.keys(record).length ? record : payload),
@@ -9134,8 +9352,8 @@ async function saveProviderOperationalRelease(statusOverride = '', options = {})
         sharedWorkflowStatus === 'completed'
           ? 'Vuelo finalizado correctamente. El flujo compartido quedo cerrado.'
           : nextStatus === 'operational_ready'
-          ? 'Liberacion enviada a Red Aviation. El flujo del vuelo fue actualizado y la operacion pasa a tracking activo.'
-          : 'El avance operativo quedo guardado y Red Aviation puede seguir la coordinacion centralizada.'
+          ? 'Liberacion enviada al equipo administrativo. El flujo del vuelo fue actualizado y la operacion pasa a tracking activo.'
+          : 'El avance operativo quedo guardado y el equipo administrativo puede seguir la coordinacion centralizada.'
 
       pushHistory(
         'Solicitudes',
@@ -9212,7 +9430,7 @@ async function submitProviderOperationalIssue() {
   if (!providerOperationalIssueForm.type || !providerOperationalIssueForm.comment.trim()) {
     return showError(
       'Incidencia incompleta',
-      'Selecciona el tipo de incidencia y agrega una nota para que Red Aviation pueda coordinarla.',
+      'Selecciona el tipo de incidencia y agrega una nota para que el equipo administrativo pueda coordinarla.',
     )
   }
 
@@ -9255,12 +9473,12 @@ async function submitProviderOperationalIssue() {
   providerOperationalIssueForm.type = 'Aeronave no disponible'
   providerOperationalIssueForm.comment = ''
   providerOperationalReleaseFeedback.value =
-    'Incidencia operativa enviada a Red Aviation. El equipo administrativo dara seguimiento y mantendra informado al cliente.'
+    'Incidencia operativa enviada al equipo administrativo. Se dara seguimiento y se mantendra informado al cliente.'
   savingProviderOperationalIssue.value = false
   ui.pushToast({
     tone: 'warning',
     title: 'Incidencia reportada',
-    message: 'Red Aviation ya recibio la incidencia operativa para coordinar la solucion.',
+    message: 'El equipo administrativo ya recibio la incidencia operativa para coordinar la solucion.',
   })
 }
 
@@ -9615,6 +9833,7 @@ watch(
         'dashboard',
         'empresa',
         'aeronaves',
+        'costos',
         'solicitudes',
         'operaciones',
         'tripulacion',
@@ -9622,6 +9841,7 @@ watch(
         'pagos',
         'historial',
         'disponibilidad',
+        'configuracion',
         'release-provider',
       )
       validNotificationsRoute.value = ''
@@ -9878,6 +10098,7 @@ watch(
       formSuccess,
       aircraftWizardOpen,
       aircraftWizardStep,
+      aircraftWizardStepError,
       aircraftWizardSubmitting,
       aircraftWizardReadOnly,
       editingCrewId,
@@ -9904,6 +10125,8 @@ watch(
       providerOperationalIssueForm,
       requestsConnectionWarningShown,
       sectionLoadState,
+      operatorRouteSectionLoadingVisible,
+      operatorRouteSectionLoadingMeta,
       aircraftDecisionMode,
       aircraftFilterBase,
       aircraftFilterType,
@@ -10166,6 +10389,7 @@ watch(
       cancelEditingAircraft,
       openAircraftWizard,
       closeAircraftWizard,
+      goToAircraftWizardStep,
       nextAircraftWizardStep,
       previousAircraftWizardStep,
       getAircraftLiveStatus,

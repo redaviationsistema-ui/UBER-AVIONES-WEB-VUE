@@ -179,13 +179,13 @@ export function resolveMediaUrl(url = '') {
     return rawUrl
   }
 
-  if (rawUrl.startsWith('/') && !rawUrl.startsWith('/storage')) {
-    return rawUrl
-  }
-
   const backendOrigin = getBackendOrigin()
   if (!backendOrigin) {
     return `/${rawUrl.replace(/^\.?\//, '')}`
+  }
+
+  if (rawUrl.startsWith('/')) {
+    return `${backendOrigin}${rawUrl}`
   }
 
   return `${backendOrigin}/${rawUrl.replace(/^\.?\//, '')}`
@@ -226,7 +226,7 @@ function isDocuSignRequestPath(path = '') {
 
 function logAircraftRequest(label, details = {}) {
   if (typeof console === 'undefined') return
-  console.log(`[aircraft-debug] ${label}`, details)
+  //console.log(`[aircraft-debug] ${label}`, details)
 }
 
 function logOperationalRequest(label, details = {}) {
@@ -416,8 +416,7 @@ export function clearStoredToken() {
 
   clearLegacyStoredAuth()
 }
-// checar la causa del porque no me muestra el valor presiso como en el sistema , contemplando el ascenso y el desenso
-// guiate con el movil
+
 export async function apiRequest(path, options = {}) {
   const timeoutMs = Number.isFinite(Number(options.timeoutMs))
     ? Number(options.timeoutMs)

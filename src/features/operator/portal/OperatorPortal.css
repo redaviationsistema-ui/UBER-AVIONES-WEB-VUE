@@ -20,6 +20,144 @@
   color: var(--text-premium);
 }
 
+.operator-route-loading-overlay {
+  position: fixed;
+  inset: 7.4rem 1.25rem 1.25rem;
+  z-index: 3200;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  border-radius: 36px;
+  background:
+    radial-gradient(circle at 50% 24%, rgba(212, 175, 55, 0.14), transparent 26%),
+    rgba(7, 18, 35, 0.58);
+  backdrop-filter: blur(18px);
+}
+
+.operator-route-loading-shell {
+  display: grid;
+  justify-items: center;
+  gap: 0.8rem;
+  width: min(26rem, 100%);
+  padding: clamp(1.5rem, 4vw, 2.15rem);
+  border: 1px solid rgba(201, 160, 99, 0.28);
+  border-radius: 32px;
+  background:
+    linear-gradient(145deg, rgba(18, 32, 56, 0.94), rgba(8, 18, 35, 0.92)),
+    rgba(6, 18, 36, 0.92);
+  box-shadow:
+    0 32px 80px rgba(0, 0, 0, 0.36),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  text-align: center;
+}
+
+.operator-route-loading-shell h2,
+.operator-route-loading-shell p {
+  margin: 0;
+}
+
+.operator-route-loading-shell h2 {
+  color: #fffaf0;
+  font-size: clamp(1.4rem, 2.5vw, 1.8rem);
+  font-weight: 800;
+}
+
+.operator-route-loading-shell .muted {
+  max-width: 24rem;
+  color: rgba(236, 226, 207, 0.8);
+}
+
+.operator-route-loading-spinner {
+  position: relative;
+  width: 8rem;
+  height: 8rem;
+  margin-bottom: 0.25rem;
+}
+
+.operator-route-loading-spinner span {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 1rem;
+  height: 3.3rem;
+  margin: -1.65rem 0 0 -0.5rem;
+  border-radius: 999px;
+  background: rgba(255, 250, 240, 0.18);
+  transform-origin: center 3.6rem;
+  animation: operator-route-loading-spinner-fade 1.2s linear infinite;
+}
+
+.operator-route-loading-spinner span:nth-child(1) {
+  transform: rotate(0deg) translateY(-2rem);
+  animation-delay: -1.1s;
+}
+
+.operator-route-loading-spinner span:nth-child(2) {
+  transform: rotate(30deg) translateY(-2rem);
+  animation-delay: -1s;
+}
+
+.operator-route-loading-spinner span:nth-child(3) {
+  transform: rotate(60deg) translateY(-2rem);
+  animation-delay: -0.9s;
+}
+
+.operator-route-loading-spinner span:nth-child(4) {
+  transform: rotate(90deg) translateY(-2rem);
+  animation-delay: -0.8s;
+}
+
+.operator-route-loading-spinner span:nth-child(5) {
+  transform: rotate(120deg) translateY(-2rem);
+  animation-delay: -0.7s;
+}
+
+.operator-route-loading-spinner span:nth-child(6) {
+  transform: rotate(150deg) translateY(-2rem);
+  animation-delay: -0.6s;
+}
+
+.operator-route-loading-spinner span:nth-child(7) {
+  transform: rotate(180deg) translateY(-2rem);
+  animation-delay: -0.5s;
+}
+
+.operator-route-loading-spinner span:nth-child(8) {
+  transform: rotate(210deg) translateY(-2rem);
+  animation-delay: -0.4s;
+}
+
+.operator-route-loading-spinner span:nth-child(9) {
+  transform: rotate(240deg) translateY(-2rem);
+  animation-delay: -0.3s;
+}
+
+.operator-route-loading-spinner span:nth-child(10) {
+  transform: rotate(270deg) translateY(-2rem);
+  animation-delay: -0.2s;
+}
+
+.operator-route-loading-spinner span:nth-child(11) {
+  transform: rotate(300deg) translateY(-2rem);
+  animation-delay: -0.1s;
+}
+
+.operator-route-loading-spinner span:nth-child(12) {
+  transform: rotate(330deg) translateY(-2rem);
+  animation-delay: 0s;
+}
+
+@keyframes operator-route-loading-spinner-fade {
+  0% {
+    background: rgba(255, 250, 240, 0.98);
+    box-shadow: 0 0 18px rgba(255, 250, 240, 0.2);
+  }
+  100% {
+    background: rgba(255, 250, 240, 0.1);
+    box-shadow: none;
+  }
+}
+
 .operator-portal-page:has(.operator-dashboard-luxury) {
   background: transparent;
   color: #f8f3e8;
@@ -49,6 +187,165 @@
 .operator-dashboard-luxury > * {
   position: relative;
   z-index: 1;
+}
+
+.operator-dashboard-luxury .dashboard-loading-overlay {
+  position: fixed;
+  inset: 7.25rem 1.25rem 1.25rem;
+  z-index: 3200;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  border-radius: 36px;
+  background:
+    radial-gradient(circle at 50% 24%, rgba(212, 175, 55, 0.14), transparent 26%),
+    rgba(7, 18, 35, 0.58);
+  backdrop-filter: blur(18px);
+}
+
+.operator-dashboard-luxury .dashboard-loading-shell {
+  display: grid;
+  justify-items: center;
+  gap: 0.85rem;
+  width: min(26rem, 100%);
+  padding: clamp(1.5rem, 4vw, 2.15rem);
+  border: 1px solid rgba(201, 160, 99, 0.28);
+  border-radius: 32px;
+  background:
+    linear-gradient(145deg, rgba(18, 32, 56, 0.94), rgba(8, 18, 35, 0.92)),
+    rgba(6, 18, 36, 0.92);
+  box-shadow:
+    0 32px 80px rgba(0, 0, 0, 0.36),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  text-align: center;
+}
+
+.operator-dashboard-luxury .dashboard-loading-shell h2,
+.operator-dashboard-luxury .dashboard-loading-shell p {
+  margin: 0;
+}
+
+.operator-dashboard-luxury .dashboard-loading-shell h2 {
+  color: #fffaf0;
+  font-size: clamp(1.4rem, 2.5vw, 1.8rem);
+}
+
+.operator-dashboard-luxury .dashboard-loading-shell .muted {
+  max-width: 24rem;
+  color: rgba(236, 226, 207, 0.8);
+}
+
+.operator-dashboard-luxury .dashboard-loading-spinner {
+  position: relative;
+  width: 8rem;
+  height: 8rem;
+  margin-bottom: 0.25rem;
+}
+
+.operator-dashboard-luxury .dashboard-loading-spinner span {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 1rem;
+  height: 3.3rem;
+  margin: -1.65rem 0 0 -0.5rem;
+  border-radius: 999px;
+  background: rgba(255, 250, 240, 0.18);
+  transform-origin: center 3.6rem;
+  animation: dashboard-loading-spinner-fade 1.2s linear infinite;
+}
+
+.operator-dashboard-luxury .dashboard-loading-spinner span:nth-child(1) {
+  transform: rotate(0deg) translateY(-2rem);
+  animation-delay: -1.1s;
+}
+
+.operator-dashboard-luxury .dashboard-loading-spinner span:nth-child(2) {
+  transform: rotate(30deg) translateY(-2rem);
+  animation-delay: -1s;
+}
+
+.operator-dashboard-luxury .dashboard-loading-spinner span:nth-child(3) {
+  transform: rotate(60deg) translateY(-2rem);
+  animation-delay: -0.9s;
+}
+
+.operator-dashboard-luxury .dashboard-loading-spinner span:nth-child(4) {
+  transform: rotate(90deg) translateY(-2rem);
+  animation-delay: -0.8s;
+}
+
+.operator-dashboard-luxury .dashboard-loading-spinner span:nth-child(5) {
+  transform: rotate(120deg) translateY(-2rem);
+  animation-delay: -0.7s;
+}
+
+.operator-dashboard-luxury .dashboard-loading-spinner span:nth-child(6) {
+  transform: rotate(150deg) translateY(-2rem);
+  animation-delay: -0.6s;
+}
+
+.operator-dashboard-luxury .dashboard-loading-spinner span:nth-child(7) {
+  transform: rotate(180deg) translateY(-2rem);
+  animation-delay: -0.5s;
+}
+
+.operator-dashboard-luxury .dashboard-loading-spinner span:nth-child(8) {
+  transform: rotate(210deg) translateY(-2rem);
+  animation-delay: -0.4s;
+}
+
+.operator-dashboard-luxury .dashboard-loading-spinner span:nth-child(9) {
+  transform: rotate(240deg) translateY(-2rem);
+  animation-delay: -0.3s;
+}
+
+.operator-dashboard-luxury .dashboard-loading-spinner span:nth-child(10) {
+  transform: rotate(270deg) translateY(-2rem);
+  animation-delay: -0.2s;
+}
+
+.operator-dashboard-luxury .dashboard-loading-spinner span:nth-child(11) {
+  transform: rotate(300deg) translateY(-2rem);
+  animation-delay: -0.1s;
+}
+
+.operator-dashboard-luxury .dashboard-loading-spinner span:nth-child(12) {
+  transform: rotate(330deg) translateY(-2rem);
+  animation-delay: 0s;
+}
+
+@keyframes dashboard-loading-spinner-fade {
+  0% {
+    background: rgba(255, 250, 240, 0.98);
+    box-shadow: 0 0 18px rgba(255, 250, 240, 0.2);
+  }
+  100% {
+    background: rgba(255, 250, 240, 0.1);
+    box-shadow: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .operator-route-loading-overlay {
+    inset: 5.75rem 0.75rem 0.75rem;
+    padding: 1rem;
+    border-radius: 28px;
+  }
+
+  .operator-route-loading-shell {
+    border-radius: 26px;
+  }
+
+  .operator-dashboard-luxury .dashboard-loading-overlay {
+    inset: 5.75rem 0.75rem 0.75rem;
+    padding: 1rem;
+    border-radius: 28px;
+  }
+
+  .operator-dashboard-luxury .dashboard-loading-shell {
+    border-radius: 26px;
+  }
 }
 
 .operator-dashboard-luxury .surface,
@@ -333,9 +630,9 @@
   border-radius: 22px;
 }
 
-.company-alert-icon,
-.quick-action-icon,
-.checklist-icon {
+.operator-dashboard-luxury .company-alert-icon,
+.operator-dashboard-luxury .quick-action-icon,
+.operator-dashboard-luxury .checklist-icon {
   display: inline-grid;
   place-items: center;
   width: 2.4rem;
@@ -346,7 +643,7 @@
   color: #e8c98f;
 }
 
-.checklist-icon {
+.operator-dashboard-luxury .checklist-icon {
   position: relative;
   width: 5.15rem;
   height: 5.15rem;
@@ -361,7 +658,7 @@
     0 0 0 1px rgba(255, 214, 150, 0.08);
 }
 
-.checklist-icon::after {
+.operator-dashboard-luxury .checklist-icon::after {
   content: '';
   position: absolute;
   inset: 0.55rem;
@@ -370,7 +667,7 @@
   pointer-events: none;
 }
 
-.checklist-icon svg {
+.operator-dashboard-luxury .checklist-icon svg {
   position: relative;
   z-index: 1;
   width: 2.85rem;
@@ -383,7 +680,7 @@
   filter: drop-shadow(0 0 14px rgba(255, 214, 150, 0.2));
 }
 
-.company-alert-icon::before {
+.operator-dashboard-luxury .company-alert-icon::before {
   content: '!';
   font-weight: 900;
 }
@@ -445,7 +742,7 @@
   transform: rotate(-18deg);
 }
 
-.quick-action-card[data-action='requests'] .quick-action-icon::before {
+.operator-dashboard-luxury .quick-action-card[data-action='requests'] .quick-action-icon::before {
   width: 0.9rem;
   height: 1.12rem;
   border: 1.5px solid currentColor;
@@ -589,7 +886,7 @@
   text-transform: uppercase;
 }
 
-.executive-jet-visual {
+.operator-dashboard-luxury .executive-jet-visual {
   position: relative;
   height: 12.5rem;
   margin: 1rem 0;
@@ -3515,6 +3812,55 @@
     rgba(78, 163, 216, 0.06);
 }
 
+/* Final light executive pass for operator incidents coordination. */
+.operator-portal-page:has(.operator-incidents-dashboard) {
+  background:
+    radial-gradient(circle at 14% 8%, rgba(191, 219, 254, 0.14), transparent 26%),
+    radial-gradient(circle at 86% 12%, rgba(254, 240, 214, 0.14), transparent 22%),
+    linear-gradient(180deg, #f8fbff 0%, #f2f6fb 100%);
+  color: #10233d;
+}
+
+.operator-incidents-dashboard {
+  color: #10233d;
+}
+
+.operator-incidents-dashboard .surface,
+.operator-incidents-dashboard .list-card,
+.operator-incidents-dashboard .timeline-item,
+.operator-incidents-dashboard .operator-side-card,
+.operator-incidents-dashboard .metric-card,
+.operational-alert-item,
+.operational-quick-action,
+.operations-stable-card {
+  border-color: rgba(226, 232, 240, 0.96);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(247, 250, 255, 0.98)),
+    rgba(255, 255, 255, 0.96);
+  color: #10233d;
+  box-shadow:
+    0 16px 36px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.operator-incidents-dashboard .operator-incidents-overview {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.995), rgba(241, 247, 255, 0.975)),
+    rgba(255, 255, 255, 0.97);
+}
+
+.operator-incidents-dashboard .section-head h2,
+.operator-incidents-dashboard .list-card strong,
+.operator-incidents-dashboard .timeline-item strong,
+.operator-incidents-dashboard .metric-card strong {
+  color: #10233d;
+}
+
+.operator-incidents-dashboard .muted,
+.operator-incidents-dashboard .operator-incidents-metric-card small {
+  color: #60748f;
+}
+
 .operations-stable-radar::before {
   content: '';
   position: absolute;
@@ -5454,6 +5800,389 @@ textarea {
 .operator-dashboard-luxury .priority-item span,
 .operator-dashboard-luxury .ops-timeline-item .muted {
   color: rgba(255, 255, 255, 0.65);
+}
+
+.operator-portal-page:has(.operator-dashboard-luxury) {
+  color: #0f172a;
+}
+
+.operator-dashboard-luxury {
+  color: #0f172a;
+  font-family: 'Inter', 'Manrope', 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+}
+
+.operator-dashboard-luxury::before {
+  inset: -7rem -2rem auto;
+  height: 28rem;
+  background:
+    radial-gradient(circle at 18% 14%, rgba(248, 248, 247, 0.96), transparent 30%),
+    radial-gradient(circle at 82% 6%, rgba(242, 242, 240, 0.9), transparent 32%),
+    linear-gradient(180deg, rgba(247, 247, 245, 0.98), rgba(242, 242, 240, 0));
+  opacity: 1;
+}
+
+.operator-dashboard-luxury .surface,
+.operator-dashboard-luxury .company-progress-card,
+.operator-dashboard-luxury .company-alert,
+.operator-dashboard-luxury .quick-action-card,
+.operator-dashboard-luxury .metric-card,
+.operator-dashboard-luxury .checklist-card,
+.operator-dashboard-luxury .priority-item,
+.operator-dashboard-luxury .ops-timeline-item,
+.operator-dashboard-luxury .dashboard-hero-facts article {
+  border: 1px solid rgba(109, 137, 189, 0.14);
+  background:
+    radial-gradient(circle at top right, rgba(249, 249, 247, 0.44), transparent 28%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.985), rgba(249, 249, 247, 0.985));
+  color: #0f172a;
+  box-shadow: 0 14px 28px rgba(70, 70, 68, 0.08);
+  backdrop-filter: blur(16px);
+}
+
+.operator-dashboard-luxury .company-alert,
+.operator-dashboard-luxury .quick-action-card,
+.operator-dashboard-luxury .metric-card,
+.operator-dashboard-luxury .checklist-card,
+.operator-dashboard-luxury .priority-item,
+.operator-dashboard-luxury .ops-timeline-item {
+  border-radius: 20px;
+}
+
+.operator-dashboard-luxury .company-alert:hover,
+.operator-dashboard-luxury .quick-action-card:hover,
+.operator-dashboard-luxury .metric-card:hover,
+.operator-dashboard-luxury .checklist-card:hover,
+.operator-dashboard-luxury .priority-item:hover,
+.operator-dashboard-luxury .ops-timeline-item:hover {
+  border-color: rgba(148, 163, 184, 0.34);
+  box-shadow:
+    0 16px 30px rgba(70, 70, 68, 0.09),
+    0 0 0 1px rgba(255, 255, 255, 0.38);
+}
+
+.operator-dashboard-luxury .eyebrow,
+.operator-dashboard-luxury .mini-label {
+  color: #64748b;
+  letter-spacing: 0.08em;
+}
+
+.operator-dashboard-luxury .muted,
+.operator-dashboard-luxury .quick-action-card small,
+.operator-dashboard-luxury .checklist-card p,
+.operator-dashboard-luxury .dashboard-metric-card small,
+.operator-dashboard-luxury .priority-item span,
+.operator-dashboard-luxury .ops-timeline-item .muted,
+.operator-dashboard-luxury .dashboard-metric-card span,
+.operator-dashboard-luxury .checklist-progress span {
+  color: #627390;
+}
+
+.operator-dashboard-luxury .section-head h2,
+.operator-dashboard-luxury .dashboard-hero-premium h1 {
+  color: #11253f;
+  font-family: inherit;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.operator-dashboard-luxury .dashboard-hero-premium {
+  border-color: rgba(109, 137, 189, 0.14);
+  background:
+    radial-gradient(circle at top right, rgba(247, 247, 245, 0.9), transparent 26%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(248, 248, 246, 0.97));
+}
+
+.operator-dashboard-luxury .dashboard-hero-premium::after {
+  background: radial-gradient(circle, rgba(225, 223, 216, 0.18), transparent 62%);
+}
+
+.operator-dashboard-luxury .realtime-flight-request-banner {
+  border-color: rgba(88, 124, 201, 0.2);
+  background:
+    radial-gradient(circle at top left, rgba(249, 249, 247, 0.96), transparent 24%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(248, 248, 246, 0.98));
+  box-shadow:
+    0 16px 30px rgba(70, 70, 68, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82);
+}
+
+.operator-dashboard-luxury .realtime-flight-request-banner__signal {
+  border-color: rgba(203, 213, 225, 0.5);
+  background: rgba(245, 245, 244, 0.96);
+}
+
+.operator-dashboard-luxury .realtime-flight-request-banner__signal span {
+  background: #64748b;
+  box-shadow: 0 0 16px rgba(100, 116, 139, 0.18);
+}
+
+.operator-dashboard-luxury .realtime-flight-request-banner h2,
+.operator-dashboard-luxury .realtime-flight-request-banner__meta strong {
+  color: #11253f;
+}
+
+.operator-dashboard-luxury .realtime-flight-request-banner__meta span,
+.operator-dashboard-luxury .realtime-flight-request-banner__count,
+.operator-dashboard-luxury .status-pill {
+  border-color: rgba(226, 232, 240, 0.9);
+  background: rgba(248, 248, 247, 0.98);
+  color: #475569;
+  box-shadow: none;
+}
+
+.operator-dashboard-luxury .realtime-flight-request-banner .primary-action {
+  border-color: rgba(148, 163, 184, 0.4);
+  background: linear-gradient(135deg, #334155, #475569);
+  color: #ffffff;
+}
+
+.operator-dashboard-luxury .realtime-flight-request-banner .primary-action:hover {
+  box-shadow: 0 16px 28px rgba(71, 85, 105, 0.18);
+}
+
+.operator-dashboard-luxury .helper-copy,
+.operator-dashboard-luxury .dashboard-hero-facts span {
+  color: #64748b;
+}
+
+.operator-dashboard-luxury .dashboard-hero-facts strong,
+.operator-dashboard-luxury .company-progress-head strong,
+.operator-dashboard-luxury .dashboard-metric-card strong,
+.operator-dashboard-luxury .company-alert strong,
+.operator-dashboard-luxury .quick-action-card strong,
+.operator-dashboard-luxury .checklist-card strong,
+.operator-dashboard-luxury .priority-item strong,
+.operator-dashboard-luxury .ops-timeline-item strong,
+.operator-dashboard-luxury .metric-status {
+  color: #11253f;
+}
+
+.operator-dashboard-luxury .status-pill[data-tone='success'] {
+  border-color: rgba(187, 247, 208, 0.9);
+  background: rgba(244, 251, 246, 0.98);
+  color: #2f6f4f;
+}
+
+.operator-dashboard-luxury .status-pill[data-tone='warning'] {
+  border-color: rgba(254, 240, 138, 0.8);
+  background: rgba(252, 249, 240, 0.98);
+  color: #8a6a2d;
+}
+
+.operator-dashboard-luxury .company-progress-card {
+  border-radius: 24px;
+}
+
+.operator-dashboard-luxury .progress-bar {
+  background: #e2e8f0;
+}
+
+.operator-dashboard-luxury .progress-bar-fill {
+  background: linear-gradient(90deg, #64748b, #475569);
+  box-shadow: 0 0 12px rgba(100, 116, 139, 0.14);
+}
+
+.operator-dashboard-luxury .progress-bar-fill::after {
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.48), transparent);
+}
+
+.operator-dashboard-luxury .company-alert-icon,
+.operator-dashboard-luxury .quick-action-icon,
+.operator-dashboard-luxury .checklist-icon {
+  border-color: rgba(226, 232, 240, 0.9);
+  background: rgba(248, 248, 247, 0.98);
+  color: #64748b;
+}
+
+.operator-dashboard-luxury .checklist-icon {
+  border-color: rgba(226, 232, 240, 0.9);
+  background:
+    radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.78), transparent 42%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.995), rgba(244, 244, 242, 0.995));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 12px 22px rgba(70, 70, 68, 0.08),
+    0 0 0 1px rgba(255, 255, 255, 0.36);
+}
+
+.operator-dashboard-luxury .checklist-icon::after {
+  background: radial-gradient(circle at 50% 40%, rgba(231, 229, 228, 0.24), transparent 70%);
+}
+
+.operator-dashboard-luxury .checklist-icon svg {
+  filter: drop-shadow(0 0 8px rgba(100, 116, 139, 0.06));
+}
+
+.operator-dashboard-luxury .company-alert-icon::before {
+  color: currentColor;
+}
+
+.operator-dashboard-luxury .ghost-link-button {
+  color: #475569;
+}
+
+.operator-dashboard-luxury .quick-action-card {
+  color: #0f172a;
+}
+
+.operator-dashboard-luxury .quick-action-card:hover,
+.operator-dashboard-luxury .checklist-card:hover,
+.operator-dashboard-luxury .dashboard-metric-card:hover {
+  border-color: rgba(148, 163, 184, 0.34);
+  box-shadow:
+    0 16px 30px rgba(70, 70, 68, 0.09),
+    0 0 0 1px rgba(255, 255, 255, 0.38);
+}
+
+.operator-dashboard-luxury .quick-action-card[data-action='requests'] .quick-action-icon::before {
+  box-shadow: inset 0 0.28rem 0 rgba(100, 116, 139, 0.14);
+}
+
+.operator-dashboard-luxury .company-alert[data-tone='success'],
+.operator-dashboard-luxury .quick-action-card[data-action='docs'],
+.operator-dashboard-luxury .checklist-card[data-section='empresa'] {
+  border-color: rgba(220, 252, 231, 0.95);
+  background:
+    radial-gradient(circle at top right, rgba(244, 249, 245, 0.42), transparent 30%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.985), rgba(248, 250, 247, 0.985));
+}
+
+.operator-dashboard-luxury .company-alert[data-tone='warning'],
+.operator-dashboard-luxury .checklist-card[data-section='costos'] {
+  border-color: rgba(254, 243, 199, 0.95);
+  background:
+    radial-gradient(circle at top right, rgba(250, 247, 239, 0.42), transparent 30%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.985), rgba(250, 248, 243, 0.985));
+}
+
+.operator-dashboard-luxury .company-alert[data-tone='info'],
+.operator-dashboard-luxury .quick-action-card[data-action='availability'],
+.operator-dashboard-luxury .checklist-card[data-section='disponibilidad'],
+.operator-dashboard-luxury .dashboard-metric-card[data-tone='info'],
+.operator-dashboard-luxury .dashboard-metric-card[data-tone='neutral'] {
+  border-color: rgba(226, 232, 240, 0.95);
+  background:
+    radial-gradient(circle at top right, rgba(247, 247, 245, 0.42), transparent 28%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.985), rgba(248, 248, 246, 0.985));
+}
+
+.operator-dashboard-luxury .company-alert[data-tone='danger'],
+.operator-dashboard-luxury .dashboard-metric-card[data-tone='danger'] {
+  border-color: rgba(254, 226, 226, 0.95);
+  background:
+    radial-gradient(circle at top right, rgba(250, 242, 242, 0.38), transparent 28%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.985), rgba(251, 247, 247, 0.985));
+}
+
+.operator-dashboard-luxury .quick-action-card[data-action='requests'],
+.operator-dashboard-luxury .checklist-card[data-section='solicitudes'],
+.operator-dashboard-luxury .dashboard-metric-card[data-tone='warning'] {
+  border-color: rgba(226, 232, 240, 0.95);
+  background:
+    radial-gradient(circle at top right, rgba(247, 247, 245, 0.42), transparent 28%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.985), rgba(248, 248, 246, 0.985));
+}
+
+.operator-dashboard-luxury .quick-action-card[data-action='fleet'],
+.operator-dashboard-luxury .checklist-card[data-section='aeronaves'] {
+  border-color: rgba(226, 232, 240, 0.95);
+  background:
+    radial-gradient(circle at top right, rgba(247, 247, 245, 0.42), transparent 28%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.985), rgba(248, 248, 246, 0.985));
+}
+
+.operator-dashboard-luxury .company-alert[data-tone='success'] .company-alert-icon,
+.operator-dashboard-luxury .quick-action-card[data-action='docs'] .quick-action-icon,
+.operator-dashboard-luxury .checklist-card[data-section='empresa'] .checklist-icon {
+  border-color: rgba(220, 252, 231, 0.95);
+  background:
+    radial-gradient(circle at 32% 28%, rgba(244, 249, 245, 0.74), transparent 42%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.995), rgba(244, 249, 245, 0.995));
+  color: #1f7a47;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.84),
+    0 10px 18px rgba(70, 70, 68, 0.06);
+}
+
+.operator-dashboard-luxury .company-alert[data-tone='warning'] .company-alert-icon,
+.operator-dashboard-luxury .company-alert[data-tone='info'] .company-alert-icon,
+.operator-dashboard-luxury .checklist-card[data-section='aeronaves'] .checklist-icon,
+.operator-dashboard-luxury .checklist-card[data-section='costos'] .checklist-icon,
+.operator-dashboard-luxury .checklist-card[data-section='disponibilidad'] .checklist-icon,
+.operator-dashboard-luxury .checklist-card[data-section='solicitudes'] .checklist-icon {
+  color: #64748b;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.84),
+    0 10px 18px rgba(70, 70, 68, 0.06);
+}
+
+.operator-dashboard-luxury .dashboard-metric-card::before {
+  background: #64748b;
+  box-shadow: 0 0 10px rgba(100, 116, 139, 0.16);
+}
+
+.operator-dashboard-luxury .dashboard-metric-card[data-tone='success']::before {
+  background: #1f7a47;
+  box-shadow: 0 0 14px rgba(31, 122, 71, 0.22);
+}
+
+.operator-dashboard-luxury .dashboard-metric-card[data-tone='danger']::before {
+  background: #c24141;
+  box-shadow: 0 0 14px rgba(194, 65, 65, 0.2);
+}
+
+.operator-dashboard-luxury .metric-status,
+.operator-dashboard-luxury .ops-timeline-time {
+  color: #64748b;
+}
+
+.operator-dashboard-luxury .checklist-card[data-tone='complete'] {
+  border-color: rgba(46, 139, 87, 0.16);
+  background:
+    radial-gradient(circle at top right, rgba(236, 248, 240, 0.48), transparent 28%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(247, 251, 248, 0.97));
+}
+
+.operator-dashboard-luxury .checklist-card[data-tone='warning'] {
+  border-color: rgba(201, 160, 99, 0.16);
+  background:
+    radial-gradient(circle at top right, rgba(252, 245, 231, 0.48), transparent 28%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(252, 248, 241, 0.97));
+}
+
+.operator-dashboard-luxury .checklist-card[data-tone='pending'],
+.operator-dashboard-luxury .checklist-card[data-tone='neutral'] {
+  border-color: rgba(105, 133, 186, 0.16);
+  background:
+    radial-gradient(circle at top right, rgba(243, 245, 249, 0.5), transparent 28%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(247, 249, 252, 0.97));
+  color: #0f172a;
+}
+
+.operator-dashboard-luxury .checklist-progress span {
+  color: #64748b;
+}
+
+.operator-dashboard-luxury .executive-jet-visual {
+  border-color: rgba(109, 137, 189, 0.14);
+  background:
+    linear-gradient(155deg, rgba(255, 255, 255, 0.98), rgba(247, 247, 245, 0.94)),
+    radial-gradient(circle at 50% 60%, rgba(231, 229, 228, 0.16), transparent 54%);
+}
+
+.operator-dashboard-luxury .jet-body,
+.operator-dashboard-luxury .jet-wing,
+.operator-dashboard-luxury .jet-tail {
+  background: linear-gradient(145deg, rgba(245, 245, 244, 0.99), rgba(226, 232, 240, 0.99));
+  box-shadow: 0 8px 16px rgba(70, 70, 68, 0.1);
+}
+
+.operator-dashboard-luxury .jet-body::after {
+  border-left-color: #f8f8f7;
+}
+
+.operator-dashboard-luxury .jet-window {
+  background: #94a3b8;
 }
 
 .fleet-operations-luxury {
@@ -8529,6 +9258,272 @@ textarea {
   color: rgba(255, 255, 255, 0.62);
 }
 
+/* Final light executive pass for operator availability. */
+.availability-control-luxury {
+  color: #10233d;
+}
+
+.availability-control-luxury .surface,
+.availability-control-luxury .fleet-section-card,
+.availability-control-luxury .availability-calendar-aircraft-head,
+.availability-control-luxury .availability-calendar-day-head,
+.availability-control-luxury .availability-calendar-aircraft,
+.availability-control-luxury .availability-calendar-cell,
+.availability-control-luxury .availability-record-card {
+  border-color: rgba(226, 232, 240, 0.96);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(247, 250, 255, 0.98)),
+    rgba(255, 255, 255, 0.96);
+  color: #10233d;
+  box-shadow:
+    0 16px 36px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.availability-control-luxury .availability-hero {
+  min-height: 18rem;
+  align-items: end;
+  border-color: rgba(226, 232, 240, 0.96);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.995), rgba(243, 248, 255, 0.975)),
+    rgba(255, 255, 255, 0.97);
+}
+
+.availability-control-luxury .availability-hero::before {
+  background:
+    radial-gradient(circle at 18% 30%, rgba(191, 219, 254, 0.3), transparent 28%),
+    radial-gradient(circle at 86% 42%, rgba(254, 240, 214, 0.45), transparent 24%);
+  opacity: 1;
+}
+
+.availability-control-luxury .availability-hero h2,
+.availability-control-luxury .fleet-section-card h2 {
+  color: #10233d;
+}
+
+.availability-control-luxury .availability-hero h2 {
+  max-width: 10ch;
+  font-size: clamp(3.4rem, 8vw, 6.2rem);
+  line-height: 0.92;
+}
+
+.availability-control-luxury .eyebrow,
+.availability-control-luxury .mini-label,
+.availability-control-luxury .availability-calendar-filter span,
+.availability-control-luxury .form-grid label > span {
+  color: #6b7f99;
+}
+
+.availability-control-luxury .muted,
+.availability-control-luxury .fleet-kpi-card p,
+.availability-control-luxury .availability-record-card p,
+.availability-control-luxury .availability-calendar-cell span,
+.availability-control-luxury .availability-calendar-day-head span,
+.availability-control-luxury .empty-state {
+  color: #60748f;
+}
+
+.availability-control-luxury .fleet-kpi-card {
+  border-color: rgba(226, 232, 240, 0.96);
+  background:
+    linear-gradient(145deg, rgba(15, 39, 71, 0.98), rgba(9, 22, 44, 0.98)),
+    #10233d;
+  color: #f8fbff;
+  box-shadow:
+    0 20px 44px rgba(15, 23, 42, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.availability-control-luxury .fleet-kpi-card span,
+.availability-control-luxury .fleet-kpi-card p {
+  color: rgba(226, 235, 247, 0.78);
+}
+
+.availability-control-luxury .fleet-kpi-card strong {
+  color: #ffffff;
+}
+
+.availability-control-luxury .availability-stepper::before {
+  background: linear-gradient(90deg, rgba(191, 219, 254, 0.9), rgba(203, 213, 225, 0.9));
+}
+
+.availability-control-luxury .availability-stepper .progress-chip {
+  border-color: rgba(226, 232, 240, 0.96);
+  background: rgba(248, 250, 252, 0.98);
+  color: #60748f;
+  box-shadow:
+    0 10px 24px rgba(15, 23, 42, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.availability-control-luxury .availability-stepper .progress-chip::before {
+  color: #8ca0b8;
+  border-color: rgba(203, 213, 225, 0.96);
+  background: rgba(255, 255, 255, 0.98);
+}
+
+.availability-control-luxury .availability-stepper .progress-chip[data-tone='success'] {
+  border-color: rgba(187, 247, 208, 0.96);
+  background: linear-gradient(135deg, rgba(244, 251, 246, 0.98), rgba(236, 248, 241, 0.96));
+  color: #2f6f4f;
+}
+
+.availability-control-luxury .availability-stepper .progress-chip[data-tone='success']::before {
+  color: #2f855a;
+  border-color: rgba(187, 247, 208, 0.92);
+  background: rgba(244, 251, 246, 0.98);
+}
+
+.availability-control-luxury .availability-stepper .progress-chip:not([data-tone='success']):first-of-type::before {
+  color: #24446f;
+  border-color: rgba(191, 219, 254, 0.92);
+  background: rgba(239, 246, 255, 0.98);
+}
+
+.availability-control-luxury input,
+.availability-control-luxury select,
+.availability-control-luxury .availability-calendar-filter select {
+  border-color: rgba(203, 213, 225, 0.9);
+  background: rgba(255, 255, 255, 0.98);
+  color: #111111;
+  -webkit-text-fill-color: #111111;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.availability-control-luxury input::placeholder {
+  color: #8ca0b8;
+}
+
+.availability-control-luxury select option {
+  background: #ffffff;
+  color: #111111;
+}
+
+.availability-control-luxury .primary-action,
+.availability-control-luxury .ghost-button {
+  border-color: rgba(203, 213, 225, 0.96);
+  box-shadow: none;
+}
+
+.availability-control-luxury .primary-action {
+  background: linear-gradient(135deg, #24446f, #3f6aa1);
+  color: #ffffff;
+}
+
+.availability-control-luxury .ghost-button {
+  background: rgba(255, 255, 255, 0.98);
+  color: #24446f;
+}
+
+.availability-control-luxury .availability-calendar-toolbar {
+  border-color: rgba(226, 232, 240, 0.96);
+  background: rgba(255, 255, 255, 0.98);
+}
+
+.availability-control-luxury .availability-calendar-toolbar strong,
+.availability-control-luxury .availability-calendar-aircraft strong,
+.availability-control-luxury .availability-calendar-aircraft-head,
+.availability-control-luxury .availability-calendar-day-head strong,
+.availability-control-luxury .availability-calendar-cell strong,
+.availability-control-luxury .availability-record-card strong {
+  color: #10233d;
+}
+
+.availability-control-luxury .availability-calendar-day-head,
+.availability-control-luxury .availability-calendar-aircraft-head {
+  background: rgba(248, 250, 252, 0.98);
+}
+
+.availability-control-luxury .availability-calendar-day-head.is-today {
+  border-color: rgba(191, 219, 254, 0.96);
+  background: rgba(239, 246, 255, 0.98);
+  box-shadow: none;
+}
+
+.availability-control-luxury .availability-calendar-cell::before {
+  background: #cbd5e1;
+  box-shadow: 0 0 12px rgba(148, 163, 184, 0.32);
+}
+
+.availability-control-luxury .availability-calendar-cell:hover,
+.availability-control-luxury .availability-calendar-cell:focus-visible,
+.availability-control-luxury .availability-record-card:hover {
+  border-color: rgba(191, 219, 254, 0.92);
+  box-shadow:
+    0 18px 38px rgba(15, 23, 42, 0.1),
+    0 0 0 1px rgba(255, 255, 255, 0.46);
+  transform: translateY(-3px);
+}
+
+.availability-control-luxury .availability-calendar-cell[data-tone='success'] {
+  border-color: rgba(187, 247, 208, 0.96);
+  background: rgba(244, 251, 246, 0.98);
+}
+
+.availability-control-luxury .availability-calendar-cell[data-tone='success']::before {
+  background: #2f855a;
+  box-shadow: 0 0 16px rgba(47, 133, 90, 0.3);
+}
+
+.availability-control-luxury .availability-calendar-cell[data-tone='warning'] {
+  border-color: rgba(254, 240, 214, 0.96);
+  background: rgba(255, 251, 235, 0.98);
+}
+
+.availability-control-luxury .availability-calendar-cell[data-tone='warning']::before {
+  background: #d9a441;
+  box-shadow: 0 0 16px rgba(217, 164, 65, 0.3);
+}
+
+.availability-control-luxury .availability-calendar-cell[data-tone='danger'] {
+  border-color: rgba(254, 226, 226, 0.96);
+  background: rgba(254, 242, 242, 0.98);
+}
+
+.availability-control-luxury .availability-calendar-cell[data-tone='danger']::before {
+  background: #c65b5b;
+  box-shadow: 0 0 16px rgba(198, 91, 91, 0.28);
+}
+
+.availability-control-luxury .availability-calendar-cell[data-tone='info'],
+.availability-control-luxury .availability-calendar-cell[data-tone='dark'] {
+  border-color: rgba(191, 219, 254, 0.96);
+  background: rgba(239, 246, 255, 0.98);
+}
+
+.availability-control-luxury .availability-calendar-cell[data-tone='info']::before,
+.availability-control-luxury .availability-calendar-cell[data-tone='dark']::before {
+  background: #4678b4;
+  box-shadow: 0 0 16px rgba(70, 120, 180, 0.28);
+}
+
+.availability-control-luxury .availability-calendar-cell.is-available strong {
+  color: #2f855a;
+}
+
+.availability-control-luxury .fleet-inline-metrics span {
+  border-color: rgba(226, 232, 240, 0.96);
+  background: rgba(248, 250, 252, 0.98);
+  color: #60748f;
+}
+
+.availability-control-luxury .availability-action {
+  border-color: rgba(191, 219, 254, 0.96);
+  color: #24446f;
+}
+
+.availability-control-luxury .form-feedback-error {
+  border-color: rgba(254, 226, 226, 0.9);
+  background: rgba(254, 242, 242, 0.98);
+  color: #b45353;
+}
+
+.availability-control-luxury .form-feedback-success {
+  border-color: rgba(220, 252, 231, 0.96);
+  background: rgba(244, 251, 246, 0.98);
+  color: #2f855a;
+}
+
 @media (max-width: 1180px) {
   .availability-control-luxury .fleet-kpi-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -9676,6 +10671,290 @@ textarea {
   color: rgba(255, 255, 255, 0.62);
 }
 
+/* Final light executive pass for operator certification. */
+.operator-portal-page:has(.operator-certification-luxury) {
+  background:
+    radial-gradient(circle at 14% 8%, rgba(191, 219, 254, 0.26), transparent 30%),
+    radial-gradient(circle at 88% 10%, rgba(254, 240, 214, 0.32), transparent 26%),
+    linear-gradient(180deg, #f5f8fc 0%, #eef4fb 100%);
+  color: #10233d;
+}
+
+.operator-certification-luxury {
+  color: #10233d;
+}
+
+.operator-certification-luxury .surface,
+.operator-certification-luxury .company-progress-card,
+.operator-certification-luxury .company-form-section,
+.operator-certification-luxury .company-verification-card,
+.operator-certification-luxury .company-summary-row,
+.operator-certification-luxury .company-alert,
+.operator-certification-luxury .list-card,
+.operator-certification-luxury .status-row,
+.operator-certification-luxury .ops-timeline-item {
+  border-color: rgba(226, 232, 240, 0.96);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(247, 250, 255, 0.98)),
+    rgba(255, 255, 255, 0.96);
+  color: #10233d;
+  box-shadow:
+    0 16px 38px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.operator-certification-luxury .company-shell > .section-head {
+  min-height: 24rem;
+  border-color: rgba(226, 232, 240, 0.96);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.995), rgba(241, 247, 255, 0.975)),
+    rgba(255, 255, 255, 0.97);
+}
+
+.operator-certification-luxury .company-shell > .section-head::before {
+  background:
+    linear-gradient(90deg, rgba(191, 219, 254, 0.08), rgba(191, 219, 254, 0.28), rgba(254, 240, 214, 0.14));
+  opacity: 0.9;
+  filter: none;
+}
+
+.operator-certification-luxury .company-shell > .section-head h2,
+.operator-certification-luxury .company-status-shell > .section-head h2,
+.operator-certification-luxury .company-form-section h3,
+.operator-certification-luxury .company-verification-card h3,
+.operator-certification-luxury .company-summary-row strong,
+.operator-certification-luxury .company-alert strong,
+.operator-certification-luxury .list-card strong,
+.operator-certification-luxury .status-row strong,
+.operator-certification-luxury .ops-timeline-item strong {
+  color: #10233d;
+}
+
+.operator-certification-luxury .company-shell > .section-head h2 {
+  max-width: 8ch;
+  font-size: clamp(3.2rem, 7vw, 5.9rem);
+  line-height: 0.9;
+}
+
+.operator-certification-name {
+  color: #6b7f99;
+}
+
+.operator-certification-luxury .eyebrow,
+.operator-certification-luxury .mini-label,
+.operator-certification-luxury .form-grid label > span,
+.operator-certification-luxury .ops-timeline-time {
+  color: #6b7f99;
+}
+
+.operator-certification-luxury .muted,
+.operator-certification-luxury .helper-copy,
+.operator-certification-luxury .company-summary-row span,
+.operator-certification-luxury .ops-timeline-item .muted,
+.operator-certification-luxury .list-card .muted,
+.operator-certification-luxury .upload-dropzone span,
+.operator-certification-luxury .upload-dropzone small,
+.operator-certification-luxury .empty-state {
+  color: #60748f;
+}
+
+.operator-certification-badges span {
+  border-color: rgba(191, 219, 254, 0.96);
+  background: rgba(239, 246, 255, 0.98);
+  color: #24446f;
+}
+
+.operator-certification-luxury .status-pill,
+.operator-certification-luxury .progress-chip {
+  border-color: rgba(226, 232, 240, 0.96);
+  background: rgba(248, 250, 252, 0.98);
+  color: #516987;
+}
+
+.operator-certification-luxury .status-pill[data-tone='success'],
+.operator-certification-luxury .progress-chip[data-tone='success'] {
+  border-color: rgba(220, 252, 231, 0.96);
+  background: rgba(244, 251, 246, 0.98);
+  color: #2f6f4f;
+}
+
+.operator-certification-luxury .status-pill[data-tone='warning'],
+.operator-certification-luxury .progress-chip[data-tone='warning'] {
+  border-color: rgba(254, 240, 214, 0.96);
+  background: rgba(255, 251, 235, 0.98);
+  color: #b7791f;
+}
+
+.operator-certification-luxury .status-pill[data-tone='info'],
+.operator-certification-luxury .progress-chip[data-tone='info'] {
+  border-color: rgba(191, 219, 254, 0.96);
+  background: rgba(239, 246, 255, 0.98);
+  color: #24446f;
+}
+
+.operator-certification-luxury .company-progress-head strong,
+.operator-certification-luxury .company-progress-card > .mini-label {
+  color: #10233d;
+}
+
+.operator-certification-luxury .progress-bar {
+  background: rgba(203, 213, 225, 0.72);
+}
+
+.operator-certification-luxury .progress-bar-fill {
+  background: linear-gradient(90deg, #24446f, #5f9ae0 70%, #bfdbfe);
+  box-shadow: 0 8px 22px rgba(95, 154, 224, 0.16);
+}
+
+.operator-certification-luxury .company-progress-steps .progress-chip {
+  border-color: rgba(226, 232, 240, 0.96);
+  background: rgba(248, 250, 252, 0.98);
+  color: #60748f;
+}
+
+.operator-certification-luxury .company-progress-steps .progress-chip::before {
+  border-color: rgba(203, 213, 225, 0.96);
+  color: #8ca0b8;
+}
+
+.operator-certification-luxury .company-progress-steps .progress-chip[data-tone='success']::before {
+  color: #2f855a;
+}
+
+.operator-certification-luxury .company-progress-steps .progress-chip[data-tone='warning']::before {
+  color: #d9a441;
+}
+
+.operator-certification-luxury .company-progress-steps .progress-chip:hover,
+.operator-certification-luxury .company-form-section:hover,
+.operator-certification-luxury .company-summary-row:hover,
+.operator-certification-luxury .company-alert:hover,
+.operator-certification-luxury .list-card:hover,
+.operator-certification-luxury .ops-timeline-item:hover {
+  border-color: rgba(191, 219, 254, 0.96);
+  box-shadow:
+    0 18px 40px rgba(15, 23, 42, 0.1),
+    0 0 0 1px rgba(255, 255, 255, 0.46);
+}
+
+.operator-certification-luxury .form-grid label {
+  border-color: rgba(226, 232, 240, 0.96);
+  background: rgba(255, 255, 255, 0.98);
+}
+
+.operator-certification-luxury input,
+.operator-certification-luxury select,
+.operator-certification-luxury textarea {
+  border-color: rgba(203, 213, 225, 0.9);
+  background: rgba(255, 255, 255, 0.98);
+  color: #111111;
+  -webkit-text-fill-color: #111111;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.operator-certification-luxury input::placeholder,
+.operator-certification-luxury textarea::placeholder {
+  color: #8ca0b8;
+}
+
+.operator-certification-luxury select option {
+  background: #ffffff;
+  color: #111111;
+}
+
+.operator-certification-luxury .upload-dropzone {
+  border-color: rgba(203, 213, 225, 0.96);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(247, 250, 255, 0.98)),
+    rgba(255, 255, 255, 0.98);
+  color: #10233d;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    0 14px 30px rgba(15, 23, 42, 0.06);
+}
+
+.operator-certification-luxury .upload-dropzone::before {
+  border-color: rgba(191, 219, 254, 0.96);
+  background:
+    linear-gradient(90deg, transparent 24%, rgba(95, 154, 224, 0.18) 25% 28%, transparent 29%),
+    linear-gradient(135deg, rgba(191, 219, 254, 0.28), rgba(191, 219, 254, 0.08));
+  box-shadow: none;
+}
+
+.operator-certification-luxury .upload-dropzone strong {
+  color: #10233d;
+}
+
+.operator-readiness-widget {
+  background:
+    radial-gradient(circle at center, #ffffff 0 58%, transparent 59%),
+    conic-gradient(#d9a441 calc(var(--score) * 1%), rgba(203, 213, 225, 0.72) 0);
+  box-shadow:
+    0 20px 44px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+.operator-readiness-widget strong {
+  color: #10233d;
+}
+
+.operator-readiness-widget span {
+  color: #6b7f99;
+}
+
+.operator-certification-luxury .company-alert[data-tone='success'] {
+  border-color: rgba(220, 252, 231, 0.96);
+  background: rgba(244, 251, 246, 0.98);
+}
+
+.operator-certification-luxury .company-alert[data-tone='warning'] {
+  border-color: rgba(254, 240, 214, 0.96);
+  background: rgba(255, 251, 235, 0.98);
+}
+
+.operator-certification-luxury .company-alert[data-tone='info'] {
+  border-color: rgba(191, 219, 254, 0.96);
+  background: rgba(239, 246, 255, 0.98);
+}
+
+.operator-certification-luxury .ops-timeline::before {
+  background: linear-gradient(180deg, rgba(191, 219, 254, 0.92), rgba(203, 213, 225, 0.92));
+}
+
+.operator-certification-luxury .ops-timeline-item::before {
+  background: #5f9ae0;
+  box-shadow: 0 0 12px rgba(95, 154, 224, 0.22);
+}
+
+.operator-certification-luxury .ghost-button {
+  border-color: rgba(203, 213, 225, 0.96);
+  background: rgba(255, 255, 255, 0.98);
+  color: #24446f;
+}
+
+.operator-certification-luxury .primary-action {
+  border-color: rgba(36, 68, 111, 0.18);
+  background: linear-gradient(135deg, #24446f, #3f6aa1);
+  color: #ffffff;
+}
+
+.operator-certification-luxury .primary-action:hover,
+.operator-certification-luxury .ghost-button:hover {
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08);
+}
+
+.operator-certification-luxury .form-feedback-error {
+  border-color: rgba(254, 226, 226, 0.9);
+  background: rgba(254, 242, 242, 0.98);
+  color: #b45353;
+}
+
+.operator-certification-luxury .form-feedback-success {
+  border-color: rgba(220, 252, 231, 0.96);
+  background: rgba(244, 251, 246, 0.98);
+  color: #2f855a;
+}
+
 @media (max-width: 1180px) {
   .operator-certification-luxury {
     grid-template-columns: 1fr;
@@ -10062,13 +11341,13 @@ textarea {
 }
 
 .flight-ops-command-luxury .request-kpi-card span {
-  color: rgba(201, 160, 99, 0.9);
+  color: #ffffff;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
 .flight-ops-command-luxury .request-kpi-card strong {
-  color: #f6f3ef;
+  color: #ffffff;
   font-size: 1.45rem;
 }
 
@@ -10765,6 +12044,273 @@ textarea {
   }
 }
 
+/* Final light executive pass for requests command center. */
+.operator-portal-page:has(.flight-ops-command-luxury) {
+  background:
+    radial-gradient(circle at 14% 8%, rgba(191, 219, 254, 0.24), transparent 30%),
+    radial-gradient(circle at 86% 12%, rgba(254, 240, 214, 0.28), transparent 24%),
+    linear-gradient(180deg, #f5f8fc 0%, #eef4fb 100%);
+  color: #10233d;
+}
+
+.flight-ops-command-luxury,
+.flight-ops-command-luxury .requests-dispatch-surface {
+  color: #10233d;
+}
+
+.flight-ops-command-luxury .requests-dispatch-surface {
+  border-color: rgba(226, 232, 240, 0.96);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(247, 250, 255, 0.98)),
+    rgba(255, 255, 255, 0.96);
+  box-shadow:
+    0 20px 48px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.flight-ops-command-luxury .requests-dispatch-surface > .section-head {
+  min-height: 19rem;
+  border-color: rgba(226, 232, 240, 0.96);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.995), rgba(241, 247, 255, 0.975)),
+    rgba(255, 255, 255, 0.97);
+}
+
+.flight-ops-command-luxury .requests-dispatch-surface > .section-head::before {
+  background:
+    linear-gradient(90deg, rgba(191, 219, 254, 0.08), rgba(191, 219, 254, 0.28), rgba(254, 240, 214, 0.14));
+  opacity: 0.9;
+  filter: none;
+}
+
+.flight-ops-command-luxury .eyebrow,
+.flight-ops-command-luxury .mini-label,
+.flight-ops-command-luxury .request-search span,
+.flight-ops-command-luxury .request-priority-filter span,
+.flight-ops-command-luxury .request-kpi-card span,
+.flight-ops-command-luxury .request-flow-pill__index,
+.flight-ops-command-luxury .provider-notification-trigger__label {
+  color: #6b7f99;
+}
+
+.flight-ops-command-luxury .requests-dispatch-surface > .section-head h2,
+.flight-ops-command-luxury .request-detail-head h3,
+.flight-ops-command-luxury .request-summary-card strong,
+.flight-ops-command-luxury .provider-release-cta strong,
+.flight-ops-command-luxury .request-queue-route,
+.flight-ops-command-luxury .request-queue-top strong,
+.flight-ops-command-luxury .requests-queue-head strong {
+  color: #10233d;
+}
+
+.flight-ops-command-luxury .requests-dispatch-surface > .section-head h2 {
+  max-width: 10ch;
+  font-size: clamp(3.4rem, 8vw, 5.9rem);
+}
+
+.flight-ops-command-luxury .muted,
+.flight-ops-command-luxury .helper-copy,
+.flight-ops-command-luxury .request-kpi-card small,
+.flight-ops-command-luxury .request-queue-meta,
+.flight-ops-command-luxury .request-summary-card .muted,
+.flight-ops-command-luxury .provider-release-cta .muted,
+.flight-ops-command-luxury .request-queue-client,
+.flight-ops-command-luxury .provider-notification-item p,
+.flight-ops-command-luxury .provider-notification-empty p,
+.flight-ops-command-luxury .provider-notification-item small,
+.flight-ops-command-luxury .empty-state,
+.flight-ops-command-luxury .request-detail-empty p {
+  color: #60748f;
+}
+
+.flight-ops-command-luxury .provider-notification-trigger,
+.flight-ops-command-luxury .provider-notification-permission,
+.flight-ops-command-luxury .archive-toggle,
+.flight-ops-command-luxury .badge,
+.flight-ops-command-luxury .status-pill,
+.flight-ops-command-luxury .package-chip,
+.flight-ops-command-luxury .request-tab,
+.flight-ops-command-luxury .ghost-button {
+  border-color: rgba(226, 232, 240, 0.96);
+  background: rgba(255, 255, 255, 0.98);
+  color: #24446f;
+  box-shadow: none;
+}
+
+.flight-ops-command-luxury .provider-notification-trigger__icon,
+.flight-ops-command-luxury .archive-toggle__icon {
+  background: rgba(239, 246, 255, 0.98);
+  color: #24446f;
+}
+
+.flight-ops-command-luxury .archive-toggle__label,
+.flight-ops-command-luxury .provider-notification-trigger strong,
+.flight-ops-command-luxury .archive-toggle strong,
+.flight-ops-command-luxury .request-tab strong {
+  color: #24446f;
+}
+
+.flight-ops-command-luxury .provider-notification-trigger strong,
+.flight-ops-command-luxury .archive-toggle strong {
+  background: rgba(239, 246, 255, 0.98);
+}
+
+.flight-ops-command-luxury .provider-notification-dropdown,
+.flight-ops-command-luxury .provider-notification-item,
+.flight-ops-command-luxury .provider-notification-empty,
+.flight-ops-command-luxury .request-kpi-card,
+.flight-ops-command-luxury .request-brief-card,
+.flight-ops-command-luxury .requests-toolbar,
+.flight-ops-command-luxury .requests-queue,
+.flight-ops-command-luxury .request-queue-card,
+.flight-ops-command-luxury .request-detail-surface,
+.flight-ops-command-luxury .request-flow-pill,
+.flight-ops-command-luxury .request-summary-card,
+.flight-ops-command-luxury .provider-release-cta,
+.flight-ops-command-luxury .alert-chip,
+.flight-ops-command-luxury .archived-requests-panel,
+.flight-ops-command-luxury .archived-request-card,
+.flight-ops-command-luxury .request-detail-empty {
+  border-color: rgba(226, 232, 240, 0.96);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(247, 250, 255, 0.98)),
+    rgba(255, 255, 255, 0.96);
+  color: #10233d;
+  box-shadow:
+    0 16px 38px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.flight-ops-command-luxury .request-kpi-card {
+  background:
+    linear-gradient(145deg, rgba(15, 39, 71, 0.98), rgba(9, 22, 44, 0.98)),
+    #10233d;
+}
+
+.flight-ops-command-luxury .request-kpi-card span,
+.flight-ops-command-luxury .request-kpi-card small,
+.flight-ops-command-luxury .request-kpi-card p {
+  color: #ffffff;
+}
+
+.flight-ops-command-luxury .request-kpi-card strong {
+  color: #ffffff;
+}
+
+.flight-ops-command-luxury .request-kpi-card::before {
+  background: #bfdbfe;
+  box-shadow: 0 0 18px rgba(191, 219, 254, 0.42);
+}
+
+.flight-ops-command-luxury .request-kpi-card span,
+.flight-ops-command-luxury .request-kpi-card strong,
+.flight-ops-command-luxury .request-kpi-card p,
+.flight-ops-command-luxury .request-kpi-card small,
+.flight-ops-command-luxury .request-kpi-card .muted {
+  color: #ffffff !important;
+}
+
+.flight-ops-command-luxury .requests-toolbar {
+  background: rgba(255, 255, 255, 0.98);
+}
+
+.flight-ops-command-luxury .request-search input,
+.flight-ops-command-luxury .request-priority-filter select {
+  border-color: rgba(203, 213, 225, 0.9);
+  background: rgba(255, 255, 255, 0.98);
+  color: #111111;
+  -webkit-text-fill-color: #111111;
+}
+
+.flight-ops-command-luxury .request-priority-filter select option {
+  background: #ffffff;
+  color: #111111;
+}
+
+.flight-ops-command-luxury .request-tab.is-active,
+.flight-ops-command-luxury .request-tab:hover,
+.flight-ops-command-luxury .request-queue-card:hover,
+.flight-ops-command-luxury .request-queue-card.is-active,
+.flight-ops-command-luxury .provider-notification-trigger:hover,
+.flight-ops-command-luxury .provider-notification-permission:hover,
+.flight-ops-command-luxury .archive-toggle:hover {
+  border-color: rgba(191, 219, 254, 0.96);
+  background: rgba(239, 246, 255, 0.98);
+  box-shadow:
+    0 14px 28px rgba(15, 23, 42, 0.08),
+    0 0 0 1px rgba(255, 255, 255, 0.46);
+}
+
+.flight-ops-command-luxury .requests-queue::before {
+  border-bottom-color: rgba(226, 232, 240, 0.96);
+  background: rgba(255, 255, 255, 0.98);
+  color: #6b7f99;
+}
+
+.flight-ops-command-luxury .request-queue-card > strong,
+.request-queue-aircraft {
+  color: #6b7f99;
+}
+
+.flight-ops-command-luxury .request-queue-meta span {
+  border-color: rgba(226, 232, 240, 0.96);
+  background: rgba(248, 250, 252, 0.98);
+}
+
+.flight-ops-command-luxury .request-detail-head {
+  border-bottom-color: rgba(226, 232, 240, 0.96);
+}
+
+.flight-ops-command-luxury .request-flow-strip {
+  border-bottom-color: rgba(226, 232, 240, 0.96);
+}
+
+.flight-ops-command-luxury .request-flow-pill::after {
+  background: rgba(203, 213, 225, 0.96);
+}
+
+.flight-ops-command-luxury .request-flow-pill[data-state='done'] {
+  border-color: rgba(220, 252, 231, 0.96);
+  background: rgba(244, 251, 246, 0.98);
+}
+
+.flight-ops-command-luxury .request-flow-pill[data-state='active'] {
+  border-color: rgba(191, 219, 254, 0.96);
+  background: rgba(239, 246, 255, 0.98);
+  box-shadow: none;
+}
+
+.flight-ops-command-luxury .primary-action {
+  border-color: rgba(36, 68, 111, 0.18);
+  background: linear-gradient(135deg, #24446f, #3f6aa1);
+  color: #ffffff;
+}
+
+.flight-ops-command-luxury .status-pill[data-tone='success'] {
+  border-color: rgba(220, 252, 231, 0.96);
+  background: rgba(244, 251, 246, 0.98);
+  color: #2f6f4f;
+}
+
+.flight-ops-command-luxury .status-pill[data-tone='warning'] {
+  border-color: rgba(254, 240, 214, 0.96);
+  background: rgba(255, 251, 235, 0.98);
+  color: #b7791f;
+}
+
+.flight-ops-command-luxury .status-pill[data-tone='danger'] {
+  border-color: rgba(254, 226, 226, 0.96);
+  background: rgba(254, 242, 242, 0.98);
+  color: #b45353;
+}
+
+.flight-ops-command-luxury .status-pill[data-tone='info'],
+.flight-ops-command-luxury .status-pill--ghost {
+  border-color: rgba(191, 219, 254, 0.96);
+  background: rgba(239, 246, 255, 0.98);
+  color: #24446f;
+}
+
 /* Executive Flight Tracking Center */
 .operator-portal-page:has(.flight-tracking-luxury) {
   background:
@@ -10833,6 +12379,13 @@ textarea {
 .flight-tracking-luxury .flight-tracking-kpi p,
 .flight-tracking-luxury .flight-events-timeline p {
   color: rgba(255, 255, 255, 0.65);
+}
+
+.flight-tracking-luxury .flight-tracking-kpi span,
+.flight-tracking-luxury .flight-tracking-kpi strong,
+.flight-tracking-luxury .flight-tracking-kpi p,
+.flight-tracking-luxury .flight-tracking-kpi .muted {
+  color: #ffffff !important;
 }
 
 .flight-tracking-kpis {
@@ -11207,5 +12760,2479 @@ textarea {
 
   .flight-command-head {
     flex-direction: column;
+  }
+}
+
+/* Final light executive pass for flight tracking. */
+.operator-portal-page:has(.flight-tracking-luxury) {
+  background:
+    radial-gradient(circle at 14% 8%, rgba(191, 219, 254, 0.24), transparent 30%),
+    radial-gradient(circle at 86% 12%, rgba(254, 240, 214, 0.28), transparent 24%),
+    linear-gradient(180deg, #f5f8fc 0%, #eef4fb 100%);
+  color: #10233d;
+}
+
+.flight-tracking-luxury,
+.flight-tracking-luxury .flight-tracking-shell {
+  color: #10233d;
+}
+
+.flight-tracking-luxury .flight-tracking-shell {
+  border-color: rgba(226, 232, 240, 0.96);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(247, 250, 255, 0.98)),
+    rgba(255, 255, 255, 0.96);
+  box-shadow:
+    0 20px 48px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.flight-tracking-luxury .section-head:first-child {
+  min-height: 21rem;
+  border-color: rgba(226, 232, 240, 0.96);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.995), rgba(241, 247, 255, 0.975)),
+    rgba(255, 255, 255, 0.97);
+}
+
+.flight-tracking-luxury .section-head:first-child h2,
+.flight-tracking-luxury .flight-command-head h3,
+.flight-tracking-queue-top strong,
+.flight-command-facts strong,
+.flight-tracking-details strong,
+.flight-events-timeline strong,
+.flight-live-map strong {
+  color: #10233d;
+}
+
+.flight-tracking-luxury .section-head:first-child h2 {
+  max-width: 11ch;
+  font-size: clamp(3.4rem, 7vw, 5.9rem);
+}
+
+.flight-tracking-luxury .eyebrow,
+.flight-tracking-luxury .mini-label,
+.flight-tracking-kpi span,
+.flight-command-facts span,
+.flight-tracking-details span,
+.flight-events-timeline article > span {
+  color: #6b7f99;
+}
+
+.flight-tracking-luxury .muted,
+.flight-tracking-luxury .flight-tracking-kpi p,
+.flight-tracking-luxury .flight-events-timeline p,
+.flight-tracking-queue-meta span,
+.flight-tracking-queue-card p,
+.flight-live-map p {
+  color: #60748f;
+}
+
+.flight-tracking-kpi,
+.flight-tracking-queue,
+.flight-tracking-queue-card,
+.flight-command-workspace,
+.flight-command-facts article,
+.flight-live-map,
+.flight-tracking-details article,
+.flight-events-timeline,
+.flight-events-timeline article {
+  border-color: rgba(226, 232, 240, 0.96);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(247, 250, 255, 0.98)),
+    rgba(255, 255, 255, 0.96);
+  box-shadow:
+    0 16px 38px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.flight-tracking-kpi {
+  background:
+    linear-gradient(145deg, rgba(15, 39, 71, 0.98), rgba(9, 22, 44, 0.98)),
+    #10233d;
+}
+
+.flight-tracking-kpi span,
+.flight-tracking-kpi p {
+  color: rgba(226, 235, 247, 0.8);
+}
+
+.flight-tracking-kpi strong {
+  color: #ffffff;
+}
+
+.flight-tracking-kpi:hover,
+.flight-tracking-queue-card:hover,
+.flight-tracking-queue-card.is-active {
+  border-color: rgba(191, 219, 254, 0.96);
+  box-shadow:
+    0 18px 40px rgba(15, 23, 42, 0.1),
+    0 0 0 1px rgba(255, 255, 255, 0.46);
+}
+
+.flight-tracking-queue::before {
+  border-bottom-color: rgba(226, 232, 240, 0.96);
+  background: rgba(255, 255, 255, 0.98);
+  color: #6b7f99;
+}
+
+.flight-tracking-queue-meta span {
+  border-color: rgba(226, 232, 240, 0.96);
+  background: rgba(248, 250, 252, 0.98);
+}
+
+.flight-command-head h3 {
+  font-size: clamp(2.3rem, 5vw, 4rem);
+}
+
+.flight-tracking-workflow article {
+  border-color: rgba(226, 232, 240, 0.96);
+  background: rgba(248, 250, 252, 0.98);
+}
+
+.flight-tracking-workflow article::after {
+  background: rgba(203, 213, 225, 0.96);
+}
+
+.flight-tracking-workflow span {
+  border-color: rgba(203, 213, 225, 0.96);
+  color: #8ca0b8;
+  background: rgba(255, 255, 255, 0.98);
+}
+
+.flight-tracking-workflow article[data-state='done'] {
+  border-color: rgba(220, 252, 231, 0.96);
+  background: rgba(244, 251, 246, 0.98);
+}
+
+.flight-tracking-workflow article[data-state='done'] span {
+  color: #2f855a;
+  border-color: rgba(220, 252, 231, 0.96);
+}
+
+.flight-tracking-workflow article[data-state='active'] {
+  border-color: rgba(191, 219, 254, 0.96);
+  background: rgba(239, 246, 255, 0.98);
+  box-shadow: none;
+}
+
+.flight-tracking-workflow article[data-state='active'] span {
+  color: #24446f;
+  border-color: rgba(191, 219, 254, 0.96);
+}
+
+.flight-live-map {
+  background:
+    radial-gradient(circle at 52% 46%, rgba(217, 164, 65, 0.16), transparent 6%),
+    radial-gradient(circle at 20% 24%, rgba(191, 219, 254, 0.32), transparent 28%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(241, 247, 255, 0.98));
+}
+
+.flight-live-map::before {
+  border-color: rgba(191, 219, 254, 0.42);
+  box-shadow:
+    0 0 0 44px rgba(191, 219, 254, 0.06),
+    0 0 0 88px rgba(191, 219, 254, 0.03);
+}
+
+.flight-live-map::after {
+  border-top-color: rgba(95, 154, 224, 0.46);
+}
+
+.flight-tracking-luxury .status-pill[data-tone='success'] {
+  border-color: rgba(220, 252, 231, 0.96);
+  background: rgba(244, 251, 246, 0.98);
+  color: #2f6f4f;
+}
+
+.flight-tracking-luxury .status-pill[data-tone='warning'] {
+  border-color: rgba(254, 240, 214, 0.96);
+  background: rgba(255, 251, 235, 0.98);
+  color: #b7791f;
+}
+
+.flight-tracking-luxury .status-pill[data-tone='info'] {
+  border-color: rgba(191, 219, 254, 0.96);
+  background: rgba(239, 246, 255, 0.98);
+  color: #24446f;
+}
+
+.flight-tracking-luxury .status-pill[data-tone='danger'] {
+  border-color: rgba(254, 226, 226, 0.96);
+  background: rgba(254, 242, 242, 0.98);
+  color: #b45353;
+}
+
+.flight-tracking-luxury .empty-state {
+  color: #60748f;
+}
+
+/* Operator dashboard refresh: executive SaaS light theme */
+.operator-portal-page:has(.operator-dashboard-luxury) {
+  background:
+    radial-gradient(circle at top left, rgba(191, 219, 254, 0.38), transparent 24%),
+    radial-gradient(circle at top right, rgba(226, 232, 240, 0.7), transparent 26%),
+    linear-gradient(180deg, #f7fbff 0%, #eef4fb 48%, #f8fbff 100%);
+  color: #10233d;
+}
+
+.operator-dashboard-luxury {
+  gap: clamp(1.25rem, 2vw, 1.85rem);
+  min-height: calc(100vh - 7rem);
+  padding: clamp(0.35rem, 1vw, 0.85rem);
+  color: #10233d;
+}
+
+.operator-dashboard-luxury::before {
+  inset: -6rem -1rem auto;
+  height: 24rem;
+  background:
+    radial-gradient(circle at 16% 18%, rgba(96, 165, 250, 0.2), transparent 26%),
+    radial-gradient(circle at 78% 4%, rgba(15, 23, 42, 0.08), transparent 22%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0));
+}
+
+.operator-dashboard-luxury .surface,
+.operator-dashboard-luxury .company-progress-card,
+.operator-dashboard-luxury .company-alert,
+.operator-dashboard-luxury .quick-action-card,
+.operator-dashboard-luxury .metric-card,
+.operator-dashboard-luxury .checklist-card,
+.operator-dashboard-luxury .priority-item,
+.operator-dashboard-luxury .ops-timeline-item,
+.operator-dashboard-luxury .dashboard-hero-facts article {
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 28px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 251, 255, 0.9)),
+    rgba(255, 255, 255, 0.78);
+  box-shadow:
+    0 18px 38px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.75);
+  color: #10233d;
+  backdrop-filter: blur(16px);
+}
+
+.operator-dashboard-luxury .surface:hover,
+.operator-dashboard-luxury .company-alert:hover,
+.operator-dashboard-luxury .quick-action-card:hover,
+.operator-dashboard-luxury .metric-card:hover,
+.operator-dashboard-luxury .checklist-card:hover,
+.operator-dashboard-luxury .priority-item:hover,
+.operator-dashboard-luxury .ops-timeline-item:hover {
+  border-color: rgba(96, 165, 250, 0.24);
+  box-shadow:
+    0 20px 42px rgba(15, 23, 42, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  transform: translateY(-2px);
+}
+
+.operator-dashboard-luxury .eyebrow,
+.operator-dashboard-luxury .mini-label,
+.operator-dashboard-luxury .dashboard-hero-facts span,
+.operator-dashboard-luxury .dashboard-metric-card span,
+.operator-dashboard-luxury .checklist-progress span {
+  color: #6b7f99;
+  letter-spacing: 0.12em;
+}
+
+.operator-dashboard-luxury .muted,
+.operator-dashboard-luxury .helper-copy,
+.operator-dashboard-luxury .quick-action-card small,
+.operator-dashboard-luxury .checklist-card p,
+.operator-dashboard-luxury .dashboard-metric-card small,
+.operator-dashboard-luxury .priority-item span,
+.operator-dashboard-luxury .ops-timeline-item .muted,
+.operator-dashboard-luxury .metric-status,
+.operator-dashboard-luxury .ops-timeline-time {
+  color: #60748f;
+}
+
+.operator-dashboard-luxury .section-head h2,
+.operator-dashboard-luxury .dashboard-hero-premium h1,
+.operator-dashboard-luxury .dashboard-hero-facts strong,
+.operator-dashboard-luxury .company-progress-head strong,
+.operator-dashboard-luxury .dashboard-metric-card strong,
+.operator-dashboard-luxury .company-alert strong,
+.operator-dashboard-luxury .quick-action-card strong,
+.operator-dashboard-luxury .checklist-card strong,
+.operator-dashboard-luxury .priority-item strong,
+.operator-dashboard-luxury .ops-timeline-item strong,
+.operator-dashboard-luxury .realtime-flight-request-banner h2,
+.operator-dashboard-luxury .realtime-flight-request-banner__meta strong {
+  color: #11253f;
+}
+
+.operator-dashboard-luxury .dashboard-hero-premium {
+  grid-template-columns: minmax(0, 1.35fr) minmax(16rem, 0.65fr);
+  gap: clamp(1.1rem, 2.2vw, 1.7rem);
+  padding: clamp(1.4rem, 2.8vw, 2rem);
+  border-color: rgba(148, 163, 184, 0.22);
+  background:
+    radial-gradient(circle at top right, rgba(191, 219, 254, 0.14), transparent 24%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(247, 250, 255, 0.96));
+}
+
+.operator-dashboard-luxury .dashboard-hero-premium::after {
+  right: -6%;
+  bottom: -28%;
+  width: 38%;
+  background: radial-gradient(circle, rgba(191, 219, 254, 0.4), transparent 62%);
+}
+
+.operator-dashboard-luxury .dashboard-hero-premium > .section-head {
+  order: 1;
+}
+
+.operator-dashboard-luxury .dashboard-hero-premium > .helper-copy {
+  order: 2;
+}
+
+.operator-dashboard-luxury .dashboard-hero-premium > .dashboard-hero-facts {
+  order: 3;
+}
+
+.operator-dashboard-luxury .dashboard-hero-premium > .company-progress-card {
+  order: 4;
+}
+
+.operator-dashboard-luxury .dashboard-hero-premium > .dashboard-quick-actions {
+  order: 5;
+}
+
+.operator-dashboard-luxury .dashboard-hero-premium > .dashboard-alert-strip {
+  order: 6;
+}
+
+.operator-dashboard-luxury .dashboard-hero-head {
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.operator-dashboard-luxury .dashboard-hero-premium h1 {
+  max-width: 10ch;
+  font-size: clamp(3rem, 4.6vw, 4rem);
+  line-height: 0.94;
+}
+
+.operator-dashboard-luxury .dashboard-hero-head .muted,
+.operator-dashboard-luxury .dashboard-hero-premium .helper-copy {
+  color: #60748f;
+}
+
+.operator-dashboard-luxury .status-pill {
+  justify-self: end;
+  min-height: 2.5rem;
+  padding: 0 0.95rem;
+  border-color: rgba(148, 163, 184, 0.2);
+  background: rgba(255, 255, 255, 0.98);
+  color: #11253f;
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.06);
+}
+
+.operator-dashboard-luxury .status-pill[data-tone='success'] {
+  border-color: rgba(187, 247, 208, 0.5);
+  background: rgba(34, 197, 94, 0.18);
+  color: #dcfce7;
+}
+
+.operator-dashboard-luxury .status-pill[data-tone='warning'] {
+  border-color: rgba(245, 158, 11, 0.28);
+  background: rgba(254, 243, 199, 0.72);
+  color: #8a5a12;
+  box-shadow: 0 8px 18px rgba(245, 158, 11, 0.08);
+}
+
+.operator-dashboard-luxury .dashboard-hero-facts {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.95rem;
+}
+
+.operator-dashboard-luxury .dashboard-hero-facts article {
+  min-height: 6.6rem;
+  padding: 1.15rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 249, 255, 0.94)),
+    rgba(255, 255, 255, 0.92);
+  color: #11253f;
+  border-color: rgba(148, 163, 184, 0.18);
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.06);
+}
+
+.operator-dashboard-luxury .dashboard-hero-facts span,
+.operator-dashboard-luxury .dashboard-hero-facts strong {
+  color: #11253f;
+}
+
+.operator-dashboard-luxury .company-progress-card {
+  padding: 1.2rem 1.3rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(244, 248, 255, 0.92)),
+    rgba(255, 255, 255, 0.82);
+}
+
+.operator-dashboard-luxury .progress-bar {
+  height: 0.62rem;
+  background: rgba(203, 213, 225, 0.75);
+}
+
+.operator-dashboard-luxury .progress-bar-fill {
+  background: linear-gradient(90deg, #0f2747, #2f5c9a 55%, #7fb3ff);
+  box-shadow: 0 8px 20px rgba(47, 92, 154, 0.18);
+}
+
+.operator-dashboard-luxury .dashboard-alert-strip {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.operator-dashboard-luxury .company-alert {
+  min-height: 5rem;
+  padding: 1rem 1.05rem;
+  border-radius: 24px;
+}
+
+.operator-dashboard-luxury .company-alert[data-tone='success'],
+.operator-dashboard-luxury .company-alert[data-tone='warning'],
+.operator-dashboard-luxury .company-alert[data-tone='info'],
+.operator-dashboard-luxury .company-alert[data-tone='danger'] {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 251, 255, 0.94)),
+    rgba(255, 255, 255, 0.86);
+}
+
+.operator-dashboard-luxury .company-alert-icon,
+.operator-dashboard-luxury .quick-action-icon,
+.operator-dashboard-luxury .checklist-icon {
+  border-color: rgba(191, 219, 254, 0.42);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(239, 246, 255, 0.96)),
+    rgba(255, 255, 255, 0.96);
+  color: #24446f;
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.08);
+}
+
+.operator-dashboard-luxury .dashboard-quick-actions {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.95rem;
+}
+
+.operator-dashboard-luxury .quick-action-card {
+  min-height: 8.8rem;
+  padding: 1.1rem;
+  gap: 0.6rem;
+}
+
+.operator-dashboard-luxury .quick-action-card[data-action='fleet'],
+.operator-dashboard-luxury .quick-action-card[data-action='requests'],
+.operator-dashboard-luxury .quick-action-card[data-action='availability'],
+.operator-dashboard-luxury .quick-action-card[data-action='docs'] {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 250, 255, 0.94)),
+    rgba(255, 255, 255, 0.88);
+  border-color: rgba(148, 163, 184, 0.2);
+}
+
+.operator-dashboard-luxury .dashboard-layout {
+  grid-template-columns: minmax(0, 1.45fr) minmax(20rem, 0.82fr);
+  gap: 1.3rem;
+  align-items: start;
+}
+
+.operator-dashboard-luxury .dashboard-main-column,
+.operator-dashboard-luxury .dashboard-side-column {
+  gap: 1.3rem;
+}
+
+.operator-dashboard-luxury .dashboard-kpi-panel,
+.operator-dashboard-luxury .dashboard-workflow-panel,
+.operator-dashboard-luxury .dashboard-executive-feed,
+.operator-dashboard-luxury .dashboard-executive-panel {
+  padding: clamp(1.2rem, 2.1vw, 1.6rem);
+}
+
+.operator-dashboard-luxury .dashboard-metric-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.operator-dashboard-luxury .dashboard-metric-card {
+  min-height: 11.6rem;
+  padding: 1.15rem;
+  gap: 0.65rem;
+}
+
+.operator-dashboard-luxury .dashboard-metric-card strong {
+  font-size: clamp(2.1rem, 4vw, 3rem);
+  letter-spacing: -0.04em;
+}
+
+.operator-dashboard-luxury .dashboard-metric-card::before {
+  width: 0.62rem;
+  height: 0.62rem;
+  background: #24446f;
+  box-shadow: 0 0 0 0.35rem rgba(191, 219, 254, 0.28);
+}
+
+.operator-dashboard-luxury .dashboard-metric-card[data-tone='success'],
+.operator-dashboard-luxury .dashboard-metric-card[data-tone='warning'],
+.operator-dashboard-luxury .dashboard-metric-card[data-tone='info'],
+.operator-dashboard-luxury .dashboard-metric-card[data-tone='neutral'],
+.operator-dashboard-luxury .dashboard-metric-card[data-tone='danger'] {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 250, 255, 0.95)),
+    rgba(255, 255, 255, 0.9);
+}
+
+.operator-dashboard-luxury .dashboard-metric-card[data-tone='success']::before {
+  background: #1f7a47;
+  box-shadow: 0 0 0 0.35rem rgba(220, 252, 231, 0.9);
+}
+
+.operator-dashboard-luxury .dashboard-metric-card[data-tone='danger']::before {
+  background: #c24141;
+  box-shadow: 0 0 0 0.35rem rgba(254, 226, 226, 0.95);
+}
+
+.operator-dashboard-luxury .dashboard-checklist {
+  gap: 0.95rem;
+}
+
+.operator-dashboard-luxury .checklist-card {
+  gap: 1rem;
+  min-height: 6.9rem;
+  padding: 1rem 1.05rem;
+}
+
+.operator-dashboard-luxury .checklist-card[data-tone='complete'],
+.operator-dashboard-luxury .checklist-card[data-tone='warning'],
+.operator-dashboard-luxury .checklist-card[data-tone='pending'],
+.operator-dashboard-luxury .checklist-card[data-tone='neutral'],
+.operator-dashboard-luxury .checklist-card[data-section='empresa'],
+.operator-dashboard-luxury .checklist-card[data-section='aeronaves'],
+.operator-dashboard-luxury .checklist-card[data-section='costos'],
+.operator-dashboard-luxury .checklist-card[data-section='disponibilidad'],
+.operator-dashboard-luxury .checklist-card[data-section='solicitudes'] {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 250, 255, 0.95)),
+    rgba(255, 255, 255, 0.9);
+  border-color: rgba(148, 163, 184, 0.2);
+  color: #10233d;
+}
+
+.operator-dashboard-luxury .dashboard-workflow-panel {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.985), rgba(249, 250, 252, 0.97)),
+    rgba(255, 255, 255, 0.94);
+}
+
+.operator-dashboard-luxury .checklist-card {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(249, 250, 252, 0.96)),
+    rgba(255, 255, 255, 0.94);
+  border-color: rgba(226, 232, 240, 0.95);
+  box-shadow:
+    0 12px 24px rgba(15, 23, 42, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.operator-dashboard-luxury .checklist-card[data-tone='complete'],
+.operator-dashboard-luxury .checklist-card[data-tone='warning'],
+.operator-dashboard-luxury .checklist-card[data-tone='pending'],
+.operator-dashboard-luxury .checklist-card[data-tone='neutral'],
+.operator-dashboard-luxury .checklist-card[data-section='empresa'],
+.operator-dashboard-luxury .checklist-card[data-section='aeronaves'],
+.operator-dashboard-luxury .checklist-card[data-section='costos'],
+.operator-dashboard-luxury .checklist-card[data-section='disponibilidad'],
+.operator-dashboard-luxury .checklist-card[data-section='solicitudes'] {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(249, 250, 252, 0.96)),
+    rgba(255, 255, 255, 0.94);
+  border-color: rgba(226, 232, 240, 0.95);
+}
+
+.operator-dashboard-luxury .checklist-icon {
+  width: 4.5rem;
+  height: 4.5rem;
+  border-radius: 1.45rem;
+  border-color: rgba(226, 232, 240, 0.98);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(248, 250, 252, 0.98)),
+    rgba(255, 255, 255, 0.98);
+  color: #64748b;
+  box-shadow:
+    0 8px 18px rgba(15, 23, 42, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+.operator-dashboard-luxury .checklist-icon::after {
+  background: radial-gradient(circle at 50% 40%, rgba(226, 232, 240, 0.3), transparent 70%);
+}
+
+.operator-dashboard-luxury .checklist-icon svg {
+  width: 2.5rem;
+  height: 2.5rem;
+  filter: none;
+}
+
+.operator-dashboard-luxury .checklist-card[data-section='empresa'] .checklist-icon {
+  color: #2f855a;
+}
+
+.operator-dashboard-luxury .checklist-card[data-section='aeronaves'] .checklist-icon,
+.operator-dashboard-luxury .checklist-card[data-section='costos'] .checklist-icon,
+.operator-dashboard-luxury .checklist-card[data-section='disponibilidad'] .checklist-icon,
+.operator-dashboard-luxury .checklist-card[data-section='solicitudes'] .checklist-icon {
+  color: #64748b;
+}
+
+.operator-dashboard-luxury .checklist-progress strong {
+  font-size: 1.15rem;
+  color: #11253f;
+}
+
+.operator-dashboard-luxury .executive-jet-visual {
+  height: 11rem;
+  border-color: rgba(191, 219, 254, 0.36);
+  background:
+    radial-gradient(circle at 20% 18%, rgba(191, 219, 254, 0.24), transparent 28%),
+    linear-gradient(180deg, rgba(245, 249, 255, 0.98), rgba(235, 242, 250, 0.94));
+}
+
+.operator-dashboard-luxury .jet-body,
+.operator-dashboard-luxury .jet-wing,
+.operator-dashboard-luxury .jet-tail {
+  background: linear-gradient(135deg, #dbeafe, #93c5fd 55%, #1e3a5f);
+  box-shadow: 0 16px 30px rgba(37, 99, 235, 0.12);
+}
+
+.operator-dashboard-luxury .jet-body::after {
+  border-left-color: #f8fbff;
+}
+
+.operator-dashboard-luxury .jet-window {
+  background: #173055;
+}
+
+.operator-dashboard-luxury .priority-list {
+  gap: 0.8rem;
+}
+
+.operator-dashboard-luxury .priority-item,
+.operator-dashboard-luxury .ops-timeline-item {
+  padding: 1rem 1.05rem;
+  border-radius: 22px;
+}
+
+.operator-dashboard-luxury .realtime-flight-request-banner {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 1rem 1.1rem;
+  border-color: rgba(148, 163, 184, 0.22);
+  background:
+    radial-gradient(circle at top left, rgba(191, 219, 254, 0.18), transparent 25%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 251, 255, 0.95));
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.08);
+}
+
+.operator-dashboard-luxury .realtime-flight-request-banner__signal {
+  width: 2.85rem;
+  height: 2.85rem;
+}
+
+.operator-dashboard-luxury .realtime-flight-request-banner__signal span {
+  background: #1d4ed8;
+  box-shadow: 0 0 0 0.45rem rgba(191, 219, 254, 0.36);
+}
+
+.operator-dashboard-luxury .realtime-flight-request-banner__meta span,
+.operator-dashboard-luxury .realtime-flight-request-banner__count {
+  background: #f8fbff;
+  color: #4a607e;
+}
+
+.operator-dashboard-luxury .realtime-flight-request-banner .primary-action {
+  background: linear-gradient(135deg, #0f2747, #24446f);
+  border-color: rgba(15, 39, 71, 0.2);
+}
+
+@media (max-width: 1080px) {
+  .operator-dashboard-luxury .dashboard-hero-premium,
+  .operator-dashboard-luxury .dashboard-layout,
+  .operator-dashboard-luxury .dashboard-alert-strip,
+  .operator-dashboard-luxury .dashboard-quick-actions,
+  .operator-dashboard-luxury .dashboard-metric-grid,
+  .operator-dashboard-luxury .dashboard-hero-facts {
+    grid-template-columns: 1fr;
+  }
+
+  .operator-dashboard-luxury .status-pill {
+    justify-self: start;
+  }
+
+  .operator-dashboard-luxury .dashboard-hero-premium {
+    background:
+      radial-gradient(circle at top right, rgba(191, 219, 254, 0.22), transparent 26%),
+      linear-gradient(180deg, rgba(20, 37, 66, 0.96), rgba(43, 72, 116, 0.9) 43%, rgba(255, 255, 255, 0.97) 43.2%, rgba(255, 255, 255, 0.97) 100%);
+  }
+}
+
+@media (max-width: 720px) {
+  .operator-dashboard-luxury {
+    gap: 1rem;
+    padding: 0;
+  }
+
+  .operator-dashboard-luxury .dashboard-hero-premium {
+    padding: 1.15rem;
+    border-radius: 24px;
+  }
+
+  .operator-dashboard-luxury .dashboard-hero-premium h1 {
+    font-size: clamp(2.35rem, 11vw, 3.2rem);
+    max-width: none;
+  }
+
+  .operator-dashboard-luxury .checklist-card,
+  .operator-dashboard-luxury .company-alert,
+  .operator-dashboard-luxury .realtime-flight-request-banner {
+    grid-template-columns: 1fr;
+  }
+
+  .operator-dashboard-luxury .realtime-flight-request-banner__actions,
+  .operator-dashboard-luxury .checklist-progress {
+    justify-items: start;
+    justify-content: flex-start;
+  }
+
+  .operator-dashboard-luxury .quick-action-card,
+  .operator-dashboard-luxury .dashboard-metric-card {
+    min-height: auto;
+  }
+}
+
+/* Final neutral override for workflow icons */
+.operator-dashboard-luxury .dashboard-workflow-panel .checklist-card .checklist-icon {
+  border-color: rgba(226, 232, 240, 0.98) !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(248, 250, 252, 0.98)),
+    rgba(255, 255, 255, 0.98) !important;
+  color: #64748b !important;
+  box-shadow:
+    0 8px 18px rgba(15, 23, 42, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92) !important;
+}
+
+.operator-dashboard-luxury .dashboard-workflow-panel .checklist-card .checklist-icon::after {
+  background: radial-gradient(circle at 50% 40%, rgba(226, 232, 240, 0.3), transparent 70%) !important;
+}
+
+.operator-dashboard-luxury .dashboard-workflow-panel .checklist-card .checklist-icon svg {
+  filter: none !important;
+}
+
+.operator-dashboard-luxury .dashboard-workflow-panel .checklist-card[data-section='empresa'] .checklist-icon {
+  color: #2f855a !important;
+}
+
+.operator-dashboard-luxury .dashboard-workflow-panel .checklist-card[data-section='aeronaves'] .checklist-icon,
+.operator-dashboard-luxury .dashboard-workflow-panel .checklist-card[data-section='costos'] .checklist-icon,
+.operator-dashboard-luxury .dashboard-workflow-panel .checklist-card[data-section='disponibilidad'] .checklist-icon,
+.operator-dashboard-luxury .dashboard-workflow-panel .checklist-card[data-section='solicitudes'] .checklist-icon {
+  color: #64748b !important;
+}
+
+/* Shared premium-light style for operator sections opened from the menu */
+.operator-portal-page:has(
+    .operator-certification-luxury,
+    .fleet-operations-luxury,
+    .operator-costs-luxury,
+    .availability-control-luxury,
+    .flight-ops-command-luxury,
+    .flight-release-luxury,
+    .flight-tracking-luxury,
+    .operator-crew-luxury,
+    .operator-incidents-dashboard,
+    .payments-cockpit-page,
+    .operator-history-luxury,
+    .operator-settings-luxury
+  ) {
+  background:
+    radial-gradient(circle at 12% 8%, rgba(191, 219, 254, 0.3), transparent 18%),
+    radial-gradient(circle at 88% 8%, rgba(147, 197, 253, 0.16), transparent 18%),
+    linear-gradient(180deg, #f7fbff 0%, #eef4fb 52%, #f8fbff 100%);
+  color: #10233d;
+}
+
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) {
+  position: relative;
+  gap: 1.25rem;
+  min-height: calc(100vh - 7rem);
+  padding: clamp(0.35rem, 1vw, 0.85rem);
+  color: #10233d;
+}
+
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+)::before {
+  content: '';
+  position: absolute;
+  inset: -6rem -1rem auto;
+  height: 22rem;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 16% 18%, rgba(96, 165, 250, 0.16), transparent 24%),
+    radial-gradient(circle at 82% 2%, rgba(148, 163, 184, 0.1), transparent 22%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0));
+}
+
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) > * {
+  position: relative;
+  z-index: 1;
+}
+
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .surface,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .list-card,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .timeline-item,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .metric-card,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .operator-side-card,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .company-form-section {
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: 26px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(247, 250, 255, 0.96)),
+    rgba(255, 255, 255, 0.94);
+  box-shadow:
+    0 16px 32px rgba(15, 23, 42, 0.07),
+    inset 0 1px 0 rgba(255, 255, 255, 0.86);
+  color: #10233d;
+}
+
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .surface:hover,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .list-card:hover,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .timeline-item:hover,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .metric-card:hover {
+  border-color: rgba(148, 163, 184, 0.28);
+  box-shadow:
+    0 18px 36px rgba(15, 23, 42, 0.09),
+    0 0 0 1px rgba(255, 255, 255, 0.42);
+}
+
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .section-head h2,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) h3,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) strong {
+  color: #11253f;
+}
+
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .eyebrow,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .mini-label,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .badge {
+  color: #6b7f99;
+}
+
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .muted,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) p,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) small,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) span {
+  color: #60748f;
+}
+
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) input,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) select,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) textarea {
+  border: 1px solid rgba(203, 213, 225, 0.9);
+  background: rgba(255, 255, 255, 0.94);
+  color: #11253f;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .primary-action {
+  border-color: rgba(15, 39, 71, 0.2);
+  background: linear-gradient(135deg, #0f2747, #24446f);
+  color: #ffffff;
+}
+
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .ghost-button,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .badge,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .progress-chip,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .status-pill {
+  border-color: rgba(226, 232, 240, 0.96);
+  background: rgba(255, 255, 255, 0.96);
+  color: #516987;
+  box-shadow: none;
+}
+
+@media (max-width: 760px) {
+  :is(
+    .operator-certification-luxury,
+    .fleet-operations-luxury,
+    .operator-costs-luxury,
+    .availability-control-luxury,
+    .flight-ops-command-luxury,
+    .flight-release-luxury,
+    .flight-tracking-luxury,
+    .operator-crew-luxury,
+    .operator-incidents-dashboard,
+    .payments-cockpit-page,
+    .operator-history-luxury,
+    .operator-settings-luxury
+  ) {
+    padding: 0;
+  }
+}
+
+/* Final light executive pass for operator costs. */
+.operator-portal-page:has(.operator-costs-luxury) {
+  background:
+    radial-gradient(circle at 16% 10%, rgba(241, 245, 249, 0.72), transparent 24%),
+    radial-gradient(circle at 84% 8%, rgba(250, 245, 235, 0.42), transparent 18%),
+    linear-gradient(180deg, #fcfcfb 0%, #f5f5f3 50%, #fbfbfa 100%);
+  color: #10233d;
+}
+
+.operator-costs-luxury {
+  color: #10233d;
+}
+
+.operator-costs-luxury::before {
+  background:
+    radial-gradient(circle at 18% 16%, rgba(255, 255, 255, 0.94), transparent 24%),
+    radial-gradient(circle at 82% 6%, rgba(245, 242, 235, 0.7), transparent 20%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0));
+}
+
+.operator-costs-luxury .surface {
+  border-color: rgba(226, 232, 240, 0.96);
+  background:
+    radial-gradient(circle at top right, rgba(249, 249, 247, 0.4), transparent 26%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(247, 250, 255, 0.985));
+  box-shadow:
+    0 16px 36px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.operator-costs-luxury .table-shell,
+.operator-costs-luxury .pricing-table-shell {
+  border-color: rgba(226, 232, 240, 0.96);
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(248, 250, 252, 0.985)),
+    rgba(255, 255, 255, 0.98);
+  box-shadow:
+    0 16px 36px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.operator-costs-luxury .pricing-table-head {
+  border-bottom-color: rgba(226, 232, 240, 0.96);
+  background:
+    linear-gradient(180deg, rgba(248, 250, 252, 0.98), rgba(241, 245, 249, 0.98)),
+    rgba(248, 250, 252, 0.98);
+  color: #6b7f99;
+}
+
+.operator-costs-luxury .pricing-table-row {
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.operator-costs-luxury .pricing-table-row + .pricing-table-row {
+  border-top-color: rgba(226, 232, 240, 0.96);
+}
+
+.operator-costs-luxury .pricing-aircraft-cell strong {
+  color: #11253f;
+}
+
+.operator-costs-luxury .pricing-aircraft-cell .muted {
+  color: #60748f;
+}
+
+.operator-costs-luxury .pricing-table-row input {
+  border-color: rgba(203, 213, 225, 0.96);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.98);
+  color: #11253f;
+  box-shadow:
+    inset 0 1px 2px rgba(15, 23, 42, 0.04),
+    0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.operator-costs-luxury .pricing-table-row input:focus {
+  border-color: rgba(96, 165, 250, 0.55);
+  box-shadow:
+    0 0 0 3px rgba(191, 219, 254, 0.58),
+    inset 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.operator-costs-luxury .pricing-save-button {
+  border: 1px solid rgba(15, 39, 71, 0.16);
+  border-radius: 16px;
+  background: linear-gradient(135deg, #17345c, #24446f);
+  color: #ffffff;
+  box-shadow: 0 10px 20px rgba(36, 68, 111, 0.14);
+}
+
+.operator-costs-luxury .pricing-save-button:hover {
+  box-shadow: 0 14px 28px rgba(36, 68, 111, 0.18);
+}
+
+/* Final light executive pass for operator settings. */
+.operator-portal-page:has(.operator-settings-luxury) {
+  background:
+    radial-gradient(circle at 14% 8%, rgba(191, 219, 254, 0.24), transparent 30%),
+    radial-gradient(circle at 86% 12%, rgba(254, 240, 214, 0.24), transparent 24%),
+    linear-gradient(180deg, #f5f8fc 0%, #eef4fb 100%);
+  color: #10233d;
+}
+
+.operator-settings-luxury {
+  color: #10233d;
+}
+
+.operator-settings-luxury .surface,
+.operator-settings-luxury .status-row {
+  border-color: rgba(226, 232, 240, 0.96);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(247, 250, 255, 0.98)),
+    rgba(255, 255, 255, 0.96);
+  color: #10233d;
+  box-shadow:
+    0 16px 38px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.operator-settings-luxury .section-head h2,
+.operator-settings-luxury .status-row strong {
+  color: #10233d;
+}
+
+.operator-settings-luxury .eyebrow,
+.operator-settings-luxury .toggle-row > span,
+.operator-settings-luxury .status-row > span {
+  color: #6b7f99;
+}
+
+.operator-settings-luxury .toggle-list {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.operator-settings-luxury .toggle-row {
+  min-height: 6.2rem;
+  padding: 1rem 1rem 1.05rem;
+  border: 1px solid rgba(226, 232, 240, 0.96);
+  border-radius: 20px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(248, 250, 252, 0.98)),
+    rgba(255, 255, 255, 0.96);
+  color: #10233d;
+  box-shadow:
+    0 12px 26px rgba(15, 23, 42, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.operator-settings-luxury .toggle-row input[type='checkbox'] {
+  width: 1.2rem;
+  min-height: 1.2rem;
+  accent-color: #24446f;
+}
+
+.operator-settings-luxury select {
+  border-color: rgba(203, 213, 225, 0.9);
+  background: rgba(255, 255, 255, 0.98);
+  color: #111111;
+  -webkit-text-fill-color: #111111;
+}
+
+.operator-settings-luxury select option {
+  background: #ffffff;
+  color: #111111;
+}
+
+.operator-settings-luxury .primary-action {
+  border-color: rgba(36, 68, 111, 0.18);
+  background: linear-gradient(135deg, #24446f, #3f6aa1);
+  color: #ffffff;
+}
+
+/* Final color correction for Aeronaves view */
+.operator-portal-page:has(.fleet-operations-luxury) {
+  background:
+    radial-gradient(circle at 14% 8%, rgba(191, 219, 254, 0.32), transparent 18%),
+    radial-gradient(circle at 88% 10%, rgba(147, 197, 253, 0.14), transparent 18%),
+    linear-gradient(180deg, #f7fbff 0%, #eef4fb 55%, #f8fbff 100%);
+}
+
+.fleet-operations-luxury .fleet-hero {
+  border-color: rgba(226, 232, 240, 0.96);
+  background:
+    radial-gradient(circle at top right, rgba(191, 219, 254, 0.14), transparent 24%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(247, 250, 255, 0.97));
+  box-shadow:
+    0 18px 36px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.86);
+}
+
+.fleet-operations-luxury .fleet-hero::before,
+.fleet-operations-luxury .fleet-hero::after {
+  opacity: 0.12;
+  filter: blur(10px);
+}
+
+.fleet-operations-luxury .fleet-hero h1,
+.fleet-operations-luxury .fleet-toolbar h2,
+.fleet-operations-luxury .fleet-compact-title strong,
+.fleet-operations-luxury .fleet-table-aircraft strong,
+.fleet-operations-luxury .fleet-kpi-card strong,
+.fleet-operations-luxury .fleet-compact-stats strong,
+.fleet-operations-luxury .fleet-compact-info-card strong,
+.fleet-operations-luxury .wizard-hero-copy h2,
+.fleet-operations-luxury .wizard-stage-header h3,
+.fleet-operations-luxury .wizard-panel h3,
+.fleet-operations-luxury .wizard-review-card strong,
+.fleet-operations-luxury .wizard-sidebar-card strong,
+.fleet-operations-luxury .wizard-sidebar-stat strong {
+  color: #11253f;
+}
+
+.fleet-operations-luxury .eyebrow,
+.fleet-operations-luxury .fleet-kpi-card span,
+.fleet-operations-luxury .fleet-search-field span,
+.fleet-operations-luxury .fleet-filter-row label span,
+.fleet-operations-luxury .fleet-compact-stats span,
+.fleet-operations-luxury .fleet-compact-info-card span,
+.fleet-operations-luxury .wizard-panel label > span,
+.fleet-operations-luxury .document-upload-grid .field > span,
+.fleet-operations-luxury .mini-label {
+  color: #6b7f99;
+}
+
+.fleet-operations-luxury .muted,
+.fleet-operations-luxury .fleet-kpi-card p,
+.fleet-operations-luxury .fleet-compact-title p,
+.fleet-operations-luxury .fleet-compact-info-card small,
+.fleet-operations-luxury .fleet-compact-missing,
+.fleet-operations-luxury .fleet-table-aircraft small,
+.fleet-operations-luxury .wizard-hero-copy .muted,
+.fleet-operations-luxury .wizard-stage-detail,
+.fleet-operations-luxury .wizard-review-card p,
+.fleet-operations-luxury .wizard-sidebar-card .muted,
+.fleet-operations-luxury .wizard-sidebar-stat span,
+.fleet-operations-luxury .document-type-card span,
+.fleet-operations-luxury .document-type-card small,
+.fleet-operations-luxury .document-preview-card span,
+.fleet-operations-luxury .stored-document-card .muted,
+.fleet-operations-luxury .document-dropzone span,
+.fleet-operations-luxury .document-dropzone small {
+  color: #60748f;
+}
+
+.fleet-operations-luxury .fleet-kpi-card,
+.fleet-operations-luxury .fleet-filter-shell,
+.fleet-operations-luxury .fleet-table-shell,
+.fleet-operations-luxury .fleet-table-row,
+.fleet-operations-luxury .fleet-compact-card,
+.fleet-operations-luxury .fleet-compact-stats div,
+.fleet-operations-luxury .fleet-compact-info-card,
+.fleet-operations-luxury .fleet-card-menu,
+.fleet-operations-luxury .wizard-stage-header,
+.fleet-operations-luxury .wizard-panel,
+.fleet-operations-luxury .wizard-review-card,
+.fleet-operations-luxury .wizard-sidebar-card,
+.fleet-operations-luxury .document-type-card,
+.fleet-operations-luxury .document-preview-card,
+.fleet-operations-luxury .stored-document-card,
+.fleet-operations-luxury .stored-image-card,
+.fleet-operations-luxury .document-dropzone {
+  border-color: rgba(226, 232, 240, 0.96);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(247, 250, 255, 0.97)),
+    rgba(255, 255, 255, 0.95);
+  color: #10233d;
+  box-shadow:
+    0 14px 30px rgba(15, 23, 42, 0.07),
+    inset 0 1px 0 rgba(255, 255, 255, 0.86);
+}
+
+.fleet-operations-luxury .fleet-kpi-card[data-tone='success'],
+.fleet-operations-luxury .fleet-kpi-card[data-tone='warning'],
+.fleet-operations-luxury .fleet-kpi-card[data-tone='info'],
+.fleet-operations-luxury .fleet-kpi-card[data-tone='neutral'] {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(247, 250, 255, 0.97)),
+    rgba(255, 255, 255, 0.95);
+}
+
+.fleet-operations-luxury .fleet-filter-shell,
+.fleet-operations-luxury .fleet-table-shell,
+.fleet-operations-luxury .fleet-section-card--catalog,
+.fleet-operations-luxury .surface {
+  border-color: rgba(226, 232, 240, 0.96);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.992), rgba(247, 250, 255, 0.975)),
+    rgba(255, 255, 255, 0.96);
+}
+
+.fleet-operations-luxury .fleet-search-field,
+.fleet-operations-luxury .fleet-view-switch,
+.fleet-operations-luxury .fleet-status-tabs button,
+.fleet-operations-luxury .fleet-compact-details summary {
+  border-color: rgba(226, 232, 240, 0.96);
+  background: rgba(248, 250, 252, 0.98);
+  color: #60748f;
+}
+
+.fleet-operations-luxury .fleet-search-field input,
+.fleet-operations-luxury .fleet-filter-row select,
+.fleet-operations-luxury .wizard-panel input,
+.fleet-operations-luxury .wizard-panel select,
+.fleet-operations-luxury .document-upload-grid select {
+  border-color: rgba(203, 213, 225, 0.9);
+  background: rgba(255, 255, 255, 0.96);
+  color: #11253f;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.fleet-operations-luxury .fleet-filter-row select option,
+.fleet-operations-luxury .wizard-panel select option {
+  color: #11253f;
+  background: #ffffff;
+}
+
+.fleet-operations-luxury .fleet-view-switch button,
+.fleet-operations-luxury .fleet-status-tabs button {
+  color: #60748f;
+}
+
+.fleet-operations-luxury .fleet-view-switch button.active,
+.fleet-operations-luxury .fleet-status-tabs button.active,
+.fleet-operations-luxury .fleet-view-switch button:hover,
+.fleet-operations-luxury .fleet-status-tabs button:hover {
+  border-color: rgba(148, 163, 184, 0.26);
+  background: rgba(239, 246, 255, 0.96);
+  color: #24446f;
+  box-shadow: none;
+}
+
+.fleet-operations-luxury .fleet-compact-card {
+  border-color: rgba(226, 232, 240, 0.96);
+  box-shadow:
+    0 16px 34px rgba(15, 23, 42, 0.09),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.fleet-operations-luxury .fleet-compact-card:hover {
+  border-color: rgba(148, 163, 184, 0.3);
+  box-shadow:
+    0 18px 38px rgba(15, 23, 42, 0.1),
+    0 0 0 1px rgba(255, 255, 255, 0.42);
+  transform: translateY(-4px) scale(1.01);
+}
+
+.fleet-operations-luxury .fleet-compact-visual {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(15, 23, 42, 0.16) 100%),
+    linear-gradient(180deg, rgba(239, 246, 255, 0.46), rgba(219, 234, 254, 0.14));
+}
+
+.fleet-operations-luxury .fleet-compact-visual::after {
+  height: 52%;
+  background: linear-gradient(180deg, transparent, rgba(15, 23, 42, 0.32));
+}
+
+.fleet-operations-luxury .status-pill {
+  border-color: rgba(226, 232, 240, 0.96);
+  background: rgba(255, 255, 255, 0.96);
+  color: #516987;
+  backdrop-filter: blur(12px);
+}
+
+.fleet-operations-luxury .status-pill[data-tone='success'] {
+  border-color: rgba(187, 247, 208, 0.9);
+  background: rgba(244, 251, 246, 0.98);
+  color: #2f6f4f;
+  box-shadow: none;
+}
+
+.fleet-operations-luxury .status-pill[data-tone='warning'],
+.fleet-operations-luxury .status-pill[data-tone='info'],
+.fleet-operations-luxury .status-pill--ghost {
+  border-color: rgba(226, 232, 240, 0.96);
+  background: rgba(248, 250, 252, 0.98);
+  color: #60748f;
+}
+
+.fleet-operations-luxury .status-pill[data-tone='danger'] {
+  border-color: rgba(254, 226, 226, 0.92);
+  background: rgba(254, 242, 242, 0.98);
+  color: #b45353;
+}
+
+.fleet-operations-luxury .fleet-table-head {
+  border-bottom-color: rgba(226, 232, 240, 0.96);
+  background: rgba(248, 250, 252, 0.98);
+  color: #6b7f99;
+}
+
+.fleet-operations-luxury .fleet-table-row {
+  border-bottom-color: rgba(226, 232, 240, 0.9);
+}
+
+.fleet-operations-luxury .ghost-button,
+.fleet-operations-luxury .card-menu-button {
+  border-color: rgba(226, 232, 240, 0.96);
+  background: rgba(255, 255, 255, 0.96);
+  color: #24446f;
+  box-shadow: none;
+}
+
+.fleet-operations-luxury .primary-action,
+.fleet-operations-luxury .fleet-card-actions .ghost-button:nth-child(2) {
+  border-color: rgba(15, 39, 71, 0.2);
+  background: linear-gradient(135deg, #0f2747, #24446f);
+  color: #ffffff;
+}
+
+.fleet-operations-luxury .ghost-button:hover,
+.fleet-operations-luxury .primary-action:hover,
+.fleet-operations-luxury .card-menu-button:hover {
+  border-color: rgba(148, 163, 184, 0.28);
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
+  transform: translateY(-2px);
+}
+
+.fleet-operations-luxury .card-menu-button {
+  color: #60748f;
+}
+
+.fleet-operations-luxury .fleet-card-menu button {
+  color: #24446f;
+}
+
+.fleet-operations-luxury .fleet-card-menu button:hover {
+  background: rgba(239, 246, 255, 0.96);
+}
+
+.fleet-operations-luxury .empty-state {
+  border-color: rgba(226, 232, 240, 0.96);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(247, 250, 255, 0.97)),
+    rgba(255, 255, 255, 0.95);
+  color: #60748f;
+}
+
+.fleet-operations-luxury .wizard-overlay {
+  background:
+    radial-gradient(circle at 18% 0%, rgba(191, 219, 254, 0.22), transparent 30%),
+    rgba(15, 23, 42, 0.22);
+  backdrop-filter: blur(18px);
+}
+
+.fleet-operations-luxury .wizard-modal {
+  border-color: rgba(226, 232, 240, 0.96);
+  background:
+    radial-gradient(circle at 16% 0%, rgba(191, 219, 254, 0.18), transparent 30%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(247, 250, 255, 0.985));
+  color: #10233d;
+  box-shadow:
+    0 32px 80px rgba(15, 23, 42, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.fleet-operations-luxury .wizard-modal::before {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.42)),
+    url('https://images.unsplash.com/photo-1540962351504-03099e0a754b?auto=format&fit=crop&w=1600&q=80');
+  opacity: 0.08;
+}
+
+.fleet-operations-luxury .wizard-sticky-head {
+  border-bottom-color: rgba(226, 232, 240, 0.96);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.985), rgba(247, 250, 255, 0.97)),
+    rgba(255, 255, 255, 0.94);
+}
+
+.fleet-operations-luxury .wizard-hero-step,
+.fleet-operations-luxury .wizard-progress-copy span,
+.fleet-operations-luxury .wizard-step span,
+.fleet-operations-luxury .wizard-step small {
+  color: #6b7f99;
+}
+
+.fleet-operations-luxury .wizard-progress-shell,
+.fleet-operations-luxury .wizard-close-button,
+.fleet-operations-luxury .wizard-step {
+  border-color: rgba(226, 232, 240, 0.96);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(248, 250, 252, 0.97)),
+    rgba(255, 255, 255, 0.95);
+  color: #10233d;
+  box-shadow:
+    0 12px 24px rgba(15, 23, 42, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.fleet-operations-luxury .wizard-progress-copy strong,
+.fleet-operations-luxury .wizard-step strong {
+  color: #11253f;
+}
+
+.fleet-operations-luxury .wizard-progress-bar {
+  background: rgba(203, 213, 225, 0.75);
+}
+
+.fleet-operations-luxury .wizard-progress-bar .progress-bar-fill {
+  background: linear-gradient(90deg, #0f2747, #2f5c9a 55%, #7fb3ff);
+  box-shadow: 0 8px 20px rgba(47, 92, 154, 0.16);
+}
+
+.fleet-operations-luxury .wizard-step:hover,
+.fleet-operations-luxury .wizard-step.active {
+  border-color: rgba(148, 163, 184, 0.28);
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08);
+  transform: translateY(-2px);
+}
+
+.fleet-operations-luxury .wizard-step.complete {
+  border-color: rgba(220, 252, 231, 0.96);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(247, 251, 248, 0.97)),
+    rgba(255, 255, 255, 0.95);
+}
+
+.fleet-operations-luxury .wizard-step.complete span::after {
+  color: #2f855a;
+}
+
+.fleet-operations-luxury .document-dropzone strong,
+.fleet-operations-luxury .document-type-card strong {
+  color: #11253f;
+}
+
+.fleet-operations-luxury .stored-image-preview,
+.fleet-operations-luxury .document-preview-card img,
+.fleet-operations-luxury .pdf-preview {
+  background: #f8fbff;
+}
+
+.fleet-operations-luxury .wizard-sidebar-card--hero {
+  background:
+    radial-gradient(circle at 70% 18%, rgba(191, 219, 254, 0.2), transparent 28%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(245, 249, 255, 0.97));
+}
+
+.fleet-operations-luxury .wizard-sidebar-card--hero::after {
+  border-color: rgba(148, 163, 184, 0.36);
+  filter: none;
+  opacity: 0.42;
+}
+
+.fleet-operations-luxury .wizard-sidebar-highlight span {
+  border-color: rgba(191, 219, 254, 0.32);
+  background: rgba(239, 246, 255, 0.96);
+  color: #4f6f9f;
+}
+
+.fleet-operations-luxury .wizard-sidebar-stat {
+  border-bottom-color: rgba(226, 232, 240, 0.9);
+}
+
+.fleet-operations-luxury .wizard-footer {
+  border-top-color: rgba(226, 232, 240, 0.96);
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.fleet-operations-luxury .wizard-footer .ghost-button,
+.fleet-operations-luxury .wizard-close-button {
+  border-color: rgba(226, 232, 240, 0.96);
+  background: rgba(255, 255, 255, 0.96);
+  color: #24446f;
+}
+
+.fleet-operations-luxury .wizard-footer .primary-action {
+  border-color: rgba(15, 39, 71, 0.2);
+  background: linear-gradient(135deg, #0f2747, #24446f);
+  color: #ffffff;
+  box-shadow: none;
+}
+
+.fleet-operations-luxury .form-feedback-error {
+  border-color: rgba(254, 226, 226, 0.9);
+  background: rgba(254, 242, 242, 0.98);
+  color: #b45353;
+}
+
+.fleet-operations-luxury .form-feedback-success {
+  border-color: rgba(220, 252, 231, 0.96);
+  background: rgba(244, 251, 246, 0.98);
+  color: #2f855a;
+}
+
+/* Final safety pass for the aircraft wizard overlay inside fleet operations. */
+.fleet-operations-luxury .wizard-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
+  display: grid;
+  place-items: center;
+  align-items: center;
+  justify-items: center;
+  padding: clamp(1rem, 2.5vw, 2rem);
+  overflow-y: auto;
+  background:
+    radial-gradient(circle at 18% 0%, rgba(191, 219, 254, 0.24), transparent 30%),
+    rgba(15, 23, 42, 0.28);
+  backdrop-filter: blur(18px);
+}
+
+.fleet-operations-luxury .wizard-modal {
+  position: relative;
+  width: min(1380px, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
+  margin: auto;
+  overflow: auto;
+  border: 1px solid rgba(226, 232, 240, 0.96);
+  border-radius: 32px;
+  background:
+    radial-gradient(circle at 16% 0%, rgba(191, 219, 254, 0.14), transparent 30%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(247, 250, 255, 0.985));
+  color: #10233d;
+  box-shadow:
+    0 32px 80px rgba(15, 23, 42, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.fleet-operations-luxury .wizard-modal::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.4)),
+    url('https://images.unsplash.com/photo-1540962351504-03099e0a754b?auto=format&fit=crop&w=1600&q=80');
+  background-position: center top;
+  background-size: cover;
+  opacity: 0.06;
+}
+
+.fleet-operations-luxury .wizard-modal > * {
+  position: relative;
+  z-index: 1;
+}
+
+.fleet-operations-luxury .wizard-sticky-head {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  margin: 0;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.96);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.985), rgba(247, 250, 255, 0.97)),
+    rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(18px);
+}
+
+.fleet-operations-luxury .wizard-shell,
+.fleet-operations-luxury .wizard-body,
+.fleet-operations-luxury .wizard-panel,
+.fleet-operations-luxury .wizard-sidebar,
+.fleet-operations-luxury .wizard-stage-header,
+.fleet-operations-luxury .wizard-footer {
+  color: #10233d;
+}
+
+.fleet-operations-luxury .wizard-hero-copy h2,
+.fleet-operations-luxury .wizard-hero-copy h2 span,
+.fleet-operations-luxury .wizard-hero-copy h3,
+.fleet-operations-luxury .wizard-stage-header h3,
+.fleet-operations-luxury .wizard-panel h3,
+.fleet-operations-luxury .wizard-panel strong,
+.fleet-operations-luxury .wizard-sidebar strong,
+.fleet-operations-luxury .wizard-sidebar-card strong,
+.fleet-operations-luxury .wizard-step strong,
+.fleet-operations-luxury .wizard-progress-copy strong {
+  color: #10233d;
+}
+
+.fleet-operations-luxury .wizard-hero-copy small,
+.fleet-operations-luxury .wizard-hero-copy .muted,
+.fleet-operations-luxury .wizard-stage-detail,
+.fleet-operations-luxury .wizard-stage-header .muted,
+.fleet-operations-luxury .wizard-step small,
+.fleet-operations-luxury .wizard-step span,
+.fleet-operations-luxury .wizard-hero-step,
+.fleet-operations-luxury .wizard-progress-copy span,
+.fleet-operations-luxury .wizard-sidebar p,
+.fleet-operations-luxury .wizard-sidebar small,
+.fleet-operations-luxury .wizard-panel p,
+.fleet-operations-luxury .wizard-panel .muted {
+  color: #60748f;
+}
+
+.fleet-operations-luxury .wizard-panel label span,
+.fleet-operations-luxury .wizard-panel legend,
+.fleet-operations-luxury .wizard-panel .eyebrow,
+.fleet-operations-luxury .wizard-panel .mini-label,
+.fleet-operations-luxury .wizard-sidebar .mini-label {
+  color: #526a86;
+}
+
+.fleet-operations-luxury .wizard-panel input,
+.fleet-operations-luxury .wizard-panel select,
+.fleet-operations-luxury .wizard-panel textarea {
+  color: #111111 !important;
+  -webkit-text-fill-color: #111111 !important;
+  caret-color: #111111;
+  background: rgba(255, 255, 255, 0.98) !important;
+  opacity: 1;
+}
+
+.fleet-operations-luxury .wizard-panel input::placeholder,
+.fleet-operations-luxury .wizard-panel textarea::placeholder {
+  color: #8ca0b8 !important;
+  -webkit-text-fill-color: #8ca0b8;
+}
+
+.fleet-operations-luxury .wizard-panel option {
+  color: #111111 !important;
+  background: #ffffff !important;
+}
+
+.fleet-operations-luxury .wizard-panel input:disabled,
+.fleet-operations-luxury .wizard-panel select:disabled,
+.fleet-operations-luxury .wizard-panel textarea:disabled,
+.fleet-operations-luxury .wizard-panel input[readonly],
+.fleet-operations-luxury .wizard-panel textarea[readonly] {
+  color: #111111 !important;
+  -webkit-text-fill-color: #111111 !important;
+  background: rgba(248, 250, 252, 0.98) !important;
+  opacity: 1;
+}
+
+.fleet-operations-luxury .wizard-panel input:-webkit-autofill,
+.fleet-operations-luxury .wizard-panel input:-webkit-autofill:hover,
+.fleet-operations-luxury .wizard-panel input:-webkit-autofill:focus,
+.fleet-operations-luxury .wizard-panel textarea:-webkit-autofill,
+.fleet-operations-luxury .wizard-panel select:-webkit-autofill {
+  -webkit-text-fill-color: #111111 !important;
+  box-shadow: 0 0 0 1000px rgba(255, 255, 255, 0.98) inset !important;
+}
+
+.fleet-operations-luxury .wizard-close-button,
+.fleet-operations-luxury .wizard-footer .ghost-button {
+  color: #24446f;
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.fleet-operations-luxury .wizard-sidebar-card:not(.wizard-sidebar-card--hero) {
+  background: #ffffff !important;
+  color: #10233d !important;
+  box-shadow:
+    0 14px 30px rgba(15, 23, 42, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92) !important;
+}
+
+.fleet-operations-luxury .wizard-sidebar-card:not(.wizard-sidebar-card--hero) .card-top,
+.fleet-operations-luxury .wizard-sidebar-card:not(.wizard-sidebar-card--hero) .wizard-sidebar-stats,
+.fleet-operations-luxury .wizard-sidebar-card:not(.wizard-sidebar-card--hero) .wizard-sidebar-stat {
+  background: transparent !important;
+}
+
+.fleet-operations-luxury .wizard-sidebar-card:not(.wizard-sidebar-card--hero) .wizard-sidebar-stat {
+  border-bottom-color: rgba(226, 232, 240, 0.92) !important;
+}
+
+.fleet-operations-luxury .wizard-sidebar-card:not(.wizard-sidebar-card--hero) strong,
+.fleet-operations-luxury .wizard-sidebar-card:not(.wizard-sidebar-card--hero) .badge {
+  color: #10233d !important;
+}
+
+.fleet-operations-luxury .wizard-sidebar-card:not(.wizard-sidebar-card--hero) span,
+.fleet-operations-luxury .wizard-sidebar-card:not(.wizard-sidebar-card--hero) p,
+.fleet-operations-luxury .wizard-sidebar-card:not(.wizard-sidebar-card--hero) .muted {
+  color: #60748f !important;
+}
+
+.fleet-operations-luxury .wizard-review-card {
+  background: #ffffff !important;
+}
+
+.fleet-operations-luxury .wizard-executive-table {
+  border: 1px solid rgba(226, 232, 240, 0.96) !important;
+  background: #ffffff !important;
+  box-shadow:
+    0 14px 30px rgba(15, 23, 42, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92) !important;
+}
+
+.fleet-operations-luxury .wizard-executive-table div {
+  background: transparent !important;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.92) !important;
+}
+
+.fleet-operations-luxury .wizard-executive-table div:nth-child(odd) {
+  border-right: 1px solid rgba(226, 232, 240, 0.92) !important;
+}
+
+.fleet-operations-luxury .wizard-executive-table div:nth-last-child(-n + 2) {
+  border-bottom: 0 !important;
+}
+
+.fleet-operations-luxury .wizard-executive-table span {
+  color: #60748f !important;
+}
+
+.fleet-operations-luxury .wizard-executive-table strong {
+  color: #10233d !important;
+}
+
+@media (max-width: 900px) {
+  .fleet-operations-luxury .wizard-overlay {
+    padding: 0.75rem;
+    align-items: start;
+  }
+
+  .fleet-operations-luxury .wizard-modal {
+    width: min(100vw - 1rem, 100%);
+    max-height: calc(100vh - 1rem);
+    border-radius: 24px;
+  }
+
+  .fleet-operations-luxury .wizard-sticky-head {
+    top: 0;
+  }
+}
+
+/* Final light executive pass for payments cockpit. */
+.operator-portal-page:has(.payments-cockpit-page) {
+  background:
+    radial-gradient(circle at 14% 8%, rgba(191, 219, 254, 0.24), transparent 30%),
+    radial-gradient(circle at 86% 12%, rgba(254, 240, 214, 0.24), transparent 24%),
+    linear-gradient(180deg, #f7fbff 0%, #eef4fb 100%);
+  color: #10233d;
+}
+
+.payments-cockpit-page,
+.payments-cockpit-page .payments-cockpit-shell {
+  color: #10233d !important;
+}
+
+.payments-cockpit-page .payments-cockpit-shell {
+  border-color: rgba(226, 232, 240, 0.96) !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(246, 249, 255, 0.985)),
+    rgba(255, 255, 255, 0.98) !important;
+  box-shadow:
+    0 22px 54px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92) !important;
+}
+
+.payments-cockpit-page .payments-premium-hero {
+  grid-template-columns: minmax(0, 1.3fr) minmax(19rem, 0.95fr);
+  gap: 1.4rem;
+  padding: 1.2rem 1.25rem;
+  border-color: rgba(226, 232, 240, 0.94) !important;
+  border-radius: 24px !important;
+  background:
+    radial-gradient(circle at 18% 24%, rgba(254, 240, 214, 0.38), transparent 30%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(247, 250, 255, 0.985)),
+    rgba(255, 255, 255, 0.98) !important;
+  box-shadow:
+    0 18px 40px rgba(15, 23, 42, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+}
+
+.payments-cockpit-page .payments-premium-hero h2,
+.payments-cockpit-page .payments-workspace-head h3 {
+  color: #10233d !important;
+}
+
+.payments-cockpit-page .payments-premium-hero h2 {
+  font-size: clamp(2.3rem, 5vw, 3.4rem);
+  line-height: 0.98;
+  letter-spacing: -0.04em;
+}
+
+.payments-cockpit-page .payments-premium-nav {
+  grid-template-columns: repeat(3, max-content);
+  gap: 0.8rem;
+}
+
+.payments-cockpit-page .payments-premium-nav span {
+  padding: 0.55rem 0.9rem;
+  border: 1px solid rgba(191, 219, 254, 0.82);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #5f7695 !important;
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.payments-cockpit-page .payments-premium-nav span::after {
+  display: none;
+}
+
+.payments-cockpit-page .payments-provider-card,
+.payments-cockpit-page .payments-provider-card__meta > div,
+.payments-cockpit-page .payments-executive-card,
+.payments-cockpit-page .payments-financial-sidebar,
+.payments-cockpit-page .payments-revenue-panel,
+.payments-cockpit-page .payments-renewal-center,
+.payments-cockpit-page .payments-timeline-card,
+.payments-cockpit-page .payments-pending-card,
+.payments-cockpit-page .payments-history-card,
+.payments-cockpit-page .payments-operation-card,
+.payments-cockpit-page .payments-aircraft-card {
+  border-color: rgba(226, 232, 240, 0.94) !important;
+  border-radius: 24px !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(247, 250, 255, 0.98)),
+    rgba(255, 255, 255, 0.97) !important;
+  box-shadow:
+    0 16px 32px rgba(15, 23, 42, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88) !important;
+}
+
+.payments-cockpit-page .payments-provider-card__meta > div:hover,
+.payments-cockpit-page .payments-executive-card:hover,
+.payments-cockpit-page .payments-timeline-card:hover,
+.payments-cockpit-page .payments-pending-card:hover,
+.payments-cockpit-page .payments-history-card:hover,
+.payments-cockpit-page .payments-operation-card:hover,
+.payments-cockpit-page .payments-aircraft-card:hover,
+.payments-cockpit-page .payments-revenue-panel:hover,
+.payments-cockpit-page .payments-renewal-center:hover,
+.payments-cockpit-page .payments-financial-sidebar:hover {
+  border-color: rgba(148, 163, 184, 0.34) !important;
+  box-shadow:
+    0 18px 36px rgba(15, 23, 42, 0.08),
+    0 0 0 1px rgba(255, 255, 255, 0.48) !important;
+}
+
+.payments-cockpit-page .payments-provider-card__top strong,
+.payments-cockpit-page .payments-executive-card strong,
+.payments-cockpit-page .payments-group-head strong,
+.payments-cockpit-page .payments-renewal-row strong,
+.payments-cockpit-page .payments-table-aircraft strong,
+.payments-cockpit-page .payments-cockpit-shell .list-card strong,
+.payments-cockpit-page .payments-cockpit-shell .card-top strong,
+.payments-cockpit-page .payments-cockpit-shell .payments-aircraft-grid strong,
+.payments-cockpit-page .payments-cockpit-shell .billing-status-card strong,
+.payments-cockpit-page .payments-cockpit-shell .billing-renewal-alert strong,
+.payments-cockpit-page .payments-cockpit-shell .payments-timeline-item strong {
+  color: #10233d !important;
+}
+
+.payments-cockpit-page .payments-provider-card__top small,
+.payments-cockpit-page .payments-premium-hero .muted,
+.payments-cockpit-page .payments-provider-card__meta span,
+.payments-cockpit-page .payments-executive-card p,
+.payments-cockpit-page .payments-executive-card small,
+.payments-cockpit-page .payments-revenue-row span,
+.payments-cockpit-page .payments-renewal-row span:not(.payments-status-badge),
+.payments-cockpit-page .payments-cockpit-shell .muted,
+.payments-cockpit-page .payments-cockpit-shell .compact-copy,
+.payments-cockpit-page .payments-cockpit-shell .fleet-inline-metrics span,
+.payments-cockpit-page .payments-cockpit-shell .mini-label,
+.payments-cockpit-page .payments-cockpit-shell .payments-timeline-item small {
+  color: #60748f !important;
+}
+
+.payments-cockpit-page .payments-provider-card__avatar {
+  border-radius: 18px;
+  box-shadow: 0 14px 28px rgba(37, 99, 235, 0.12);
+}
+
+.payments-cockpit-page .payments-executive-grid {
+  gap: 1.1rem;
+  margin-top: 0.25rem;
+}
+
+.payments-cockpit-page .payments-executive-card {
+  min-height: 11rem;
+  padding: 1.15rem;
+}
+
+.payments-cockpit-page .payments-executive-card__icon {
+  border-color: rgba(191, 219, 254, 0.8) !important;
+  border-radius: 16px !important;
+  background: linear-gradient(135deg, rgba(239, 246, 255, 0.96), rgba(219, 234, 254, 0.9)) !important;
+  color: #4f6b91 !important;
+}
+
+.payments-cockpit-page .payments-executive-card strong {
+  font-size: clamp(2rem, 3.4vw, 2.5rem);
+}
+
+.payments-cockpit-page .payments-cockpit-grid {
+  gap: 1rem;
+  align-items: start;
+}
+
+.payments-cockpit-page .payments-financial-sidebar {
+  gap: 0.95rem;
+  padding: 1.1rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(247, 250, 255, 0.99)),
+    rgba(255, 255, 255, 0.98) !important;
+}
+
+.payments-cockpit-page .payments-sidebar-head {
+  padding-bottom: 0.9rem;
+  border-bottom-color: rgba(226, 232, 240, 0.92) !important;
+}
+
+.payments-cockpit-page .payments-sidebar-head strong {
+  color: #24446f !important;
+}
+
+.payments-cockpit-page .payments-sidebar-link {
+  min-height: 4rem;
+  padding: 0.85rem 1rem;
+  border-color: rgba(226, 232, 240, 0.92) !important;
+  border-radius: 18px !important;
+  background: rgba(248, 250, 252, 0.98) !important;
+  color: #445c7b !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86);
+}
+
+.payments-cockpit-page .payments-sidebar-link strong {
+  color: #10233d !important;
+}
+
+.payments-cockpit-page .payments-sidebar-link.active,
+.payments-cockpit-page .payments-sidebar-link:hover {
+  transform: translateY(-2px);
+  border-color: rgba(96, 165, 250, 0.34) !important;
+  background:
+    linear-gradient(135deg, rgba(239, 246, 255, 0.98), rgba(248, 250, 252, 0.98)),
+    rgba(255, 255, 255, 0.98) !important;
+  box-shadow:
+    0 14px 28px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92) !important;
+}
+
+.payments-cockpit-page .payments-sidebar-summary {
+  padding: 0.2rem 0.1rem 0;
+  color: #6b7f99 !important;
+}
+
+.payments-cockpit-page .payments-transaction-workspace {
+  min-width: 0;
+}
+
+.payments-cockpit-page .payments-workspace-head {
+  align-items: center;
+  padding: 0.2rem 0 0.15rem;
+}
+
+.payments-cockpit-page .payments-tabs {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.payments-cockpit-page .tab-button {
+  min-height: 4.25rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid rgba(226, 232, 240, 0.92) !important;
+  border-radius: 18px !important;
+  background: rgba(255, 255, 255, 0.98) !important;
+  color: #60748f !important;
+}
+
+.payments-cockpit-page .tab-button strong {
+  color: #10233d !important;
+}
+
+.payments-cockpit-page .tab-button.active {
+  border-color: rgba(96, 165, 250, 0.4) !important;
+  background: linear-gradient(135deg, rgba(239, 246, 255, 0.98), rgba(255, 255, 255, 0.98)) !important;
+  color: #24446f !important;
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08) !important;
+}
+
+.payments-cockpit-page .tab-button.active::after {
+  left: 1rem;
+  right: 1rem;
+  bottom: 0.55rem;
+  height: 2px;
+  background: linear-gradient(90deg, #60a5fa, #d4a95d);
+}
+
+.payments-cockpit-page .payments-revenue-panel,
+.payments-cockpit-page .payments-renewal-center,
+.payments-cockpit-page .payments-timeline-card,
+.payments-cockpit-page .payments-pending-card,
+.payments-cockpit-page .payments-history-card,
+.payments-cockpit-page .payments-operation-card,
+.payments-cockpit-page .payments-aircraft-card {
+  padding: 1.15rem;
+}
+
+.payments-cockpit-page .payments-revenue-track {
+  background: rgba(226, 232, 240, 0.9) !important;
+}
+
+.payments-cockpit-page .payments-revenue-track span {
+  background: linear-gradient(90deg, #60a5fa, #d4a95d) !important;
+}
+
+.payments-cockpit-page .payments-renewal-row,
+.payments-cockpit-page .payments-aircraft-grid > div {
+  border-color: rgba(226, 232, 240, 0.92) !important;
+  border-radius: 18px !important;
+  background: rgba(248, 250, 252, 0.98) !important;
+}
+
+.payments-cockpit-page .payments-group-head {
+  padding: 0.2rem 0 0.45rem;
+}
+
+.payments-cockpit-page .payments-table-head {
+  border-bottom-color: rgba(226, 232, 240, 0.96) !important;
+  background: rgba(248, 250, 252, 0.98) !important;
+  color: #6b7f99 !important;
+}
+
+.payments-cockpit-page .payments-status-badge[data-tone='success'] {
+  background: rgba(34, 197, 94, 0.12) !important;
+  color: #1f7a43 !important;
+}
+
+.payments-cockpit-page .payments-status-badge[data-tone='warning'] {
+  background: rgba(245, 158, 11, 0.14) !important;
+  color: #946200 !important;
+}
+
+.payments-cockpit-page .payments-status-badge[data-tone='danger'] {
+  background: rgba(239, 68, 68, 0.12) !important;
+  color: #b42318 !important;
+}
+
+.payments-cockpit-page .payments-status-badge[data-tone='info'] {
+  background: rgba(96, 165, 250, 0.12) !important;
+  color: #24446f !important;
+}
+
+@media (max-width: 1100px) {
+  .payments-cockpit-page .payments-premium-hero,
+  .payments-cockpit-page .payments-cockpit-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .payments-cockpit-page .payments-executive-grid,
+  .payments-cockpit-page .payments-tabs,
+  .payments-cockpit-page .payments-provider-card__meta,
+  .payments-cockpit-page .payments-aircraft-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .payments-cockpit-page .payments-premium-nav {
+    grid-template-columns: 1fr;
   }
 }

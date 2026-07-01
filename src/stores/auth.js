@@ -2,11 +2,14 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { api, clearStoredToken, getStoredToken, setStoredToken } from '../lib/api'
 import { normalizeAuthRole, resolveDashboardPathByRole } from '../lib/authRouting'
+import { resolveBestCompanyDisplayName } from '../lib/companyDisplay'
 import { resolveProviderIdForUser } from '../lib/providerContext'
 
 const AUTH_SNAPSHOT_KEY = 'red_aviation_auth_snapshot'
+const AUTH_ME_CACHE_KEY = 'red_aviation_auth_me_cache'
 const AUTH_REQUEST_TIMEOUT_MS = Number(import.meta.env.VITE_AUTH_API_TIMEOUT_MS || 45000)
 const LOGOUT_REQUEST_TIMEOUT_MS = Number(import.meta.env.VITE_LOGOUT_API_TIMEOUT_MS || 2500)
+const AUTH_ME_CACHE_TTL_MS = Number(import.meta.env.VITE_AUTH_ME_CACHE_TTL_MS || 120000)
 
 function canUseStorage(storageName) {
   return typeof window !== 'undefined' && typeof window[storageName] !== 'undefined'
@@ -68,8 +71,57 @@ function writeStoredAuthSnapshot(snapshot) {
   clearLegacyAuthSnapshot()
 }
 
-function normalizeRoles(payload = {}) {
+function clearStoredMeCache() {
+  const sessionStorage = getSessionStorage()
+  sessionStorage?.removeItem(AUTH_ME_CACHE_KEY)
+}
+
+function readStoredMeCache() {
+  const sessionStorage = getSessionStorage()
+  const rawCache = sessionStorage?.getItem(AUTH_ME_CACHE_KEY)
+
+  if (!rawCache) return null
+
+  try {
+    const parsed = JSON.parse(rawCache)
+
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      parsed.payload &&
+      typeof parsed.payload === 'object' &&
+      Number.isFinite(Number(parsed.timestamp || 0))
+    ) {
+      return {
+        timestamp: Number(parsed.timestamp),
+        payload: parsed.payload,
+      }
+    }
+  } catch {
+    sessionStorage?.removeItem(AUTH_ME_CACHE_KEY)
+  }
+
+  return null
+}
+
+function writeStoredMeCache(payload) {
+  const sessionStorage = getSessionStorage()
+
+  if (!sessionStorage || !payload || typeof payload !== 'object') return
+
+  sessionStorage.setItem(
+    AUTH_ME_CACHE_KEY,
+    JSON.stringify({
+      timestamp: Date.now(),
+      payload,
+    }),
+  )
+}
+
+export function normalizeRoles(payload = {}) {
   const explicitRoles = [
+    payload.login_context?.effective_role,
+    payload.access?.effective_role,
     ...(Array.isArray(payload.login_context?.roles) ? payload.login_context.roles : []),
     ...(Array.isArray(payload.access?.roles) ? payload.access.roles : []),
     ...(Array.isArray(payload.user?.roles)
@@ -88,13 +140,15 @@ function normalizeRoles(payload = {}) {
   ]
 }
 
-function resolveEffectiveRole(payload = {}) {
-  return normalizeAuthRole(
-    payload.login_context?.effective_role ||
-      payload.access?.effective_role ||
-      payload.user?.operational_role ||
-      payload.user?.role ||
-      null,
+export function resolveEffectiveRole(payload = {}) {
+  return (
+    normalizeAuthRole(
+      payload.login_context?.effective_role ||
+        payload.access?.effective_role ||
+        payload.user?.operational_role ||
+        payload.user?.role ||
+        null,
+    ) || normalizeRoles(payload)[0] || ''
   )
 }
 
@@ -102,7 +156,7 @@ function mapDashboardPath(payload) {
   return resolveDashboardPathByRole(resolveEffectiveRole(payload))
 }
 
-function resolveAuthPayload(payload = {}, options = {}) {
+export function resolveAuthPayload(payload = {}, options = {}) {
   const data = payload.data && typeof payload.data === 'object' ? payload.data : {}
   const intendedRole = String(options.intendedRole || '').trim().toLowerCase()
   const currentSnapshot = options.currentSnapshot || {}
@@ -117,19 +171,32 @@ function resolveAuthPayload(payload = {}, options = {}) {
     access: rawAccess,
     login_context: rawLoginContext,
   })
-  const shouldPreserveCrewContext =
-    currentEffectiveRole === 'crew' && resolvedEffectiveRole && resolvedEffectiveRole !== 'crew'
+  const shouldPreserveCrewContext = currentEffectiveRole === 'crew' && resolvedEffectiveRole !== 'crew'
+  const shouldPreserveProviderContext =
+    currentEffectiveRole === 'operator' && resolvedEffectiveRole !== 'operator'
   const shouldForceCrewContext = intendedRole === 'sobrecargo' || shouldPreserveCrewContext
+  const shouldForceProviderContext =
+    ['provider', 'operator', 'operador'].includes(intendedRole) || shouldPreserveProviderContext
+  const forcedOperationalRole = shouldForceCrewContext
+    ? 'sobrecargo'
+    : shouldForceProviderContext
+      ? 'provider'
+      : ''
   const user =
-    rawUser && shouldForceCrewContext && !rawUser.operational_role
-      ? { ...rawUser, operational_role: 'sobrecargo' }
+    rawUser && forcedOperationalRole
+      ? { ...rawUser, operational_role: forcedOperationalRole }
       : rawUser
   const loginContext =
-    shouldForceCrewContext && (!rawLoginContext || !rawLoginContext.effective_role)
+    forcedOperationalRole
       ? {
           ...rawLoginContext,
-          effective_role: 'sobrecargo',
-          roles: [...new Set([...(Array.isArray(rawLoginContext?.roles) ? rawLoginContext.roles : []), 'sobrecargo'])],
+          effective_role: forcedOperationalRole,
+          roles: [
+            ...new Set([
+              ...(Array.isArray(rawLoginContext?.roles) ? rawLoginContext.roles : []),
+              forcedOperationalRole,
+            ]),
+          ],
         }
       : rawLoginContext
 
@@ -186,10 +253,25 @@ export const useAuthStore = defineStore('auth', () => {
     }),
   )
   const userName = computed(() => {
-    const name = user.value?.company_name || user.value?.name || ''
-    return name || 'Cuenta activa'
+    const companyName = resolveBestCompanyDisplayName(
+      user.value?.provider?.company_name,
+      user.value?.provider?.commercial_name,
+      user.value?.provider?.legal_name,
+      user.value?.ownedProvider?.company_name,
+      user.value?.ownedProvider?.commercial_name,
+      user.value?.ownedProvider?.legal_name,
+      user.value?.company_name,
+      user.value?.nombre_empresa,
+      user.value?.commercial_name,
+      user.value?.nombre_comercial,
+      user.value?.legal_name,
+      user.value?.razon_social,
+    )
+
+    return companyName !== 'Empresa operadora' ? companyName : user.value?.name || 'Cuenta activa'
   })
   const providerId = computed(() => resolveProviderIdForUser(user.value))
+  let fetchMePromise = null
 
   function applyAuth(payload, options = {}) {
     const resolvedPayload = resolveAuthPayload(payload, options)
@@ -200,6 +282,12 @@ export const useAuthStore = defineStore('auth', () => {
     roles.value = normalizeRoles(resolvedPayload)
     setStoredToken(resolvedPayload.token)
     writeStoredAuthSnapshot({
+      user: resolvedPayload.user,
+      access: resolvedPayload.access,
+      login_context: resolvedPayload.login_context,
+    })
+    writeStoredMeCache({
+      token: resolvedPayload.token,
       user: resolvedPayload.user,
       access: resolvedPayload.access,
       login_context: resolvedPayload.login_context,
@@ -229,6 +317,7 @@ export const useAuthStore = defineStore('auth', () => {
     roles.value = []
     clearStoredToken()
     writeStoredAuthSnapshot(null)
+    clearStoredMeCache()
   }
 
   function syncUserContext({ userPatch = null, profilePatch = null, accessPatch = null, loginContextPatch = null } = {}) {
@@ -272,16 +361,48 @@ export const useAuthStore = defineStore('auth', () => {
     })
   }
 
-  async function fetchMe() {
-    const response = await api.get('/auth/me', { timeoutMs: AUTH_REQUEST_TIMEOUT_MS })
-    applyAuth(response, {
-      currentSnapshot: {
-        user: user.value,
-        access: access.value,
-        login_context: loginContext.value,
-      },
+  async function fetchMe(options = {}) {
+    const force = options.force === true
+    const preferCache = options.preferCache !== false
+    const cacheTtlMs = Number.isFinite(Number(options.cacheTtlMs))
+      ? Number(options.cacheTtlMs)
+      : AUTH_ME_CACHE_TTL_MS
+
+    if (!force && preferCache) {
+      const cached = readStoredMeCache()
+      const isFresh = cached && Date.now() - cached.timestamp < cacheTtlMs
+
+      if (isFresh) {
+        applyAuth(cached.payload, {
+          currentSnapshot: {
+            user: user.value,
+            access: access.value,
+            login_context: loginContext.value,
+          },
+        })
+        return cached.payload
+      }
+    }
+
+    if (!force && fetchMePromise) {
+      return fetchMePromise
+    }
+
+    fetchMePromise = (async () => {
+      const response = await api.get('/auth/me', { timeoutMs: AUTH_REQUEST_TIMEOUT_MS })
+      applyAuth(response, {
+        currentSnapshot: {
+          user: user.value,
+          access: access.value,
+          login_context: loginContext.value,
+        },
+      })
+      return response
+    })().finally(() => {
+      fetchMePromise = null
     })
-    return response
+
+    return fetchMePromise
   }
 
   function hasRole(role) {
@@ -332,7 +453,9 @@ export const useAuthStore = defineStore('auth', () => {
       const response = await api.post('/auth/login', credentials, {
         timeoutMs: AUTH_REQUEST_TIMEOUT_MS,
       })
-      applyAuth(response)
+      applyAuth(response, {
+        intendedRole: credentials?.role,
+      })
       return response
     } finally {
       loading.value = false
@@ -385,9 +508,9 @@ export const useAuthStore = defineStore('auth', () => {
     return Promise.resolve()
   }
 
-  async function refreshSession() {
+  async function refreshSession(options = {}) {
     try {
-      return await fetchMe()
+      return await fetchMe(options)
     } catch (error) {
       if (isUnauthorizedError(error)) {
         clearAuth()
