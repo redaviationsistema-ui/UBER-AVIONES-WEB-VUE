@@ -99,16 +99,6 @@ async function submit() {
             </li>
           </ul>
 
-          <div class="visual-aircraft-card" aria-hidden="true">
-            <div class="runway-line runway-line-1"></div>
-            <div class="runway-line runway-line-2"></div>
-            <div class="aircraft-silhouette">
-              <span class="aircraft-body"></span>
-              <span class="aircraft-wing aircraft-wing-left"></span>
-              <span class="aircraft-wing aircraft-wing-right"></span>
-              <span class="aircraft-tail"></span>
-            </div>
-          </div>
 
           <div class="metrics-grid">
             <article v-for="metric in trustMetrics" :key="metric.label" class="metric-card">
@@ -398,58 +388,16 @@ async function submit() {
   height: 4rem;
 }
 
-.aircraft-silhouette {
+.aircraft-outline {
   position: absolute;
   inset: 50% auto auto 50%;
-  width: 12rem;
-  height: 12rem;
+  width: 11rem;
+  height: 11rem;
   transform: translate(-50%, -50%) rotate(-10deg);
-}
-
-.aircraft-body,
-.aircraft-wing,
-.aircraft-tail {
-  position: absolute;
-  display: block;
-  background: linear-gradient(180deg, #f2ede4, #d5cab5);
-  box-shadow: 0 0 18px rgba(255, 255, 255, 0.12);
-}
-
-.aircraft-body {
-  top: 1.3rem;
-  left: 50%;
-  width: 1rem;
-  height: 8rem;
-  border-radius: 999px;
-  transform: translateX(-50%);
-}
-
-.aircraft-wing {
-  top: 4.4rem;
-  width: 4.5rem;
-  height: 0.9rem;
-  border-radius: 999px;
-}
-
-.aircraft-wing-left {
-  left: 1.4rem;
-  transform: rotate(24deg);
-  transform-origin: right center;
-}
-
-.aircraft-wing-right {
-  right: 1.4rem;
-  transform: rotate(-24deg);
-  transform-origin: left center;
-}
-
-.aircraft-tail {
-  top: 0.8rem;
-  left: 50%;
-  width: 1.8rem;
-  height: 1.1rem;
-  border-radius: 0.9rem 0.9rem 0.3rem 0.3rem;
-  transform: translateX(-50%);
+  color: #f1e8d8;
+  filter:
+    drop-shadow(0 0 18px rgba(239, 228, 204, 0.2))
+    drop-shadow(0 0 30px rgba(239, 228, 204, 0.12));
 }
 
 .metrics-grid {

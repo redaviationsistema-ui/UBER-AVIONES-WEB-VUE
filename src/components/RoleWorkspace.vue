@@ -180,8 +180,135 @@ const workspaceOperatorIcons = {
   ],
 }
 
-function getWorkspaceIconPaths(sectionId) {
-  return workspaceOperatorIcons[String(sectionId || '').trim()] || []
+const workspaceAdminIcons = {
+  ejecutivo: [
+    'M5 5h6v6H5z',
+    'M13 5h6v4h-6z',
+    'M13 11h6v8h-6z',
+    'M5 13h6v6H5z',
+  ],
+  importaciones: [
+    'M12 3v12',
+    'M8.5 6.5L12 3l3.5 3.5',
+    'M12 21V9',
+    'M8.5 17.5L12 21l3.5-3.5',
+  ],
+  usuarios: [
+    'M9 11a3 3 0 100-6 3 3 0 000 6z',
+    'M15.5 12a2.5 2.5 0 100-5 2.5 2.5 0 000 5z',
+    'M4.5 19v-1c0-1.66 1.34-3 3-3h3c1.66 0 3 1.34 3 3v1',
+    'M14 19v-.5c0-1.38.9-2.57 2.16-2.91',
+  ],
+  configuracion: [
+    'M4 7h10',
+    'M4 17h16',
+    'M14 7a2 2 0 104 0 2 2 0 10-4 0z',
+    'M8 17a2 2 0 104 0 2 2 0 10-4 0z',
+  ],
+  clientes: [
+    'M16 19v-1.5c0-1.38-1.12-2.5-2.5-2.5h-3c-1.38 0-2.5 1.12-2.5 2.5V19',
+    'M12 11a3.5 3.5 0 100-7 3.5 3.5 0 000 7z',
+  ],
+  reservas: [
+    'M5 7a2 2 0 012-2h10a2 2 0 012 2v11a2 2 0 01-2 2H7a2 2 0 01-2-2V7z',
+    'M8 4v4',
+    'M16 4v4',
+    'M5 10h14',
+    'M9 14h6',
+  ],
+  contratos: [
+    'M8 3.5h5l4 4V19a2 2 0 01-2 2H8a2 2 0 01-2-2V5.5a2 2 0 012-2z',
+    'M13 3.5V8h4',
+    'M9 13h6',
+    'M9 17h6',
+  ],
+  suscripciones: [
+    'M4 8.5h16',
+    'M6 6h12a2 2 0 012 2v8a2 2 0 01-2 2H6a2 2 0 01-2-2V8a2 2 0 012-2z',
+    'M8 15h4',
+  ],
+  pagos: [
+    'M3.5 7.5h17',
+    'M5.5 5.5h13a2 2 0 012 2v9a2 2 0 01-2 2h-13a2 2 0 01-2-2v-9a2 2 0 012-2z',
+    'M7.5 15h4',
+  ],
+  proveedores: [
+    'M4.5 18V7.5a2 2 0 012-2h7a2 2 0 012 2V18',
+    'M15.5 18v-6.5a2 2 0 012-2h0a2 2 0 012 2V18',
+    'M8 10h2',
+    'M8 13.5h2',
+    'M11.5 10h2',
+  ],
+  aeronaves: [
+    'M3 15l7-3 4-6 2-.5-1 5.5L21 9l1 1.5-6.5 2.5L19 17.5l-1.5 1-5.5-4-7 1.5z',
+  ],
+  'pagos-proveedor': [
+    'M3.5 7.5h17',
+    'M5.5 5.5h13a2 2 0 012 2v9a2 2 0 01-2 2h-13a2 2 0 01-2-2v-9a2 2 0 012-2z',
+    'M14.5 14h2',
+    'M7.5 14h4',
+  ],
+  operadores: [
+    'M8.5 10.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z',
+    'M15.5 12a2.5 2.5 0 100-5 2.5 2.5 0 000 5z',
+    'M4.5 18v-.5c0-1.38 1.12-2.5 2.5-2.5h3',
+    'M13.5 15h3c1.38 0 2.5 1.12 2.5 2.5v.5',
+  ],
+  liberaciones: [
+    'M12 3l7 3v5c0 4.5-3 7.5-7 10-4-2.5-7-5.5-7-10V6l7-3z',
+    'M9.5 12.5l1.8 1.8L15 10.6',
+  ],
+  documentos: [
+    'M8 3.5h5l4 4V19a2 2 0 01-2 2H8a2 2 0 01-2-2V5.5a2 2 0 012-2z',
+    'M13 3.5V8h4',
+    'M9 13h6',
+    'M9 17h4',
+  ],
+  sobrecargos: [
+    'M12 11a3.5 3.5 0 100-7 3.5 3.5 0 000 7z',
+    'M6 19v-1c0-2.21 1.79-4 4-4h4c2.21 0 4 1.79 4 4v1',
+  ],
+  disponibilidad: [
+    'M7 4v3',
+    'M17 4v3',
+    'M4 9h16',
+    'M5 7a2 2 0 012-2h10a2 2 0 012 2v10a2 2 0 01-2 2H7a2 2 0 01-2-2V7z',
+    'M8.5 14l2.5 2.5L15.5 12',
+  ],
+  'sobrecargo-operaciones': [
+    'M12 12l4-4',
+    'M12 12l-3 5',
+    'M12 12h6',
+    'M12 12V6',
+    'M12 3a9 9 0 100 18 9 9 0 000-18z',
+  ],
+  'sobrecargos-en-vuelo': [
+    'M3 15l7-3 4-6 2-.5-1 5.5L21 9l1 1.5-6.5 2.5L19 17.5l-1.5 1-5.5-4-7 1.5z',
+    'M6.5 18.5h11',
+  ],
+  incidencias: [
+    'M12 4L20 18H4L12 4Z',
+    'M12 9V13',
+    'M12 16H12.01',
+  ],
+}
+
+const workspaceUiIcons = {
+  arrowRight: [
+    'M5 12h14',
+    'M13 6l6 6-6 6',
+  ],
+}
+
+function getWorkspaceIconPaths(sectionId, role = props.activeRole) {
+  const normalized = String(sectionId || '').trim()
+  if (role === 'operator') return workspaceOperatorIcons[normalized] || []
+  if (role === 'admin') return workspaceAdminIcons[normalized] || []
+  return []
+}
+
+function getWorkspaceUiIconPaths(iconName) {
+  return workspaceUiIcons[iconName] || []
 }
 
 function resolveActiveGroupLabel() {
@@ -375,7 +502,15 @@ onBeforeUnmount(() => {
                   <strong>{{ getSectionCopy(activeRole, item, currentGroup).label }}</strong>
                   <small>{{ getSectionCopy(activeRole, item, currentGroup).detail }}</small>
                 </span>
-                <span class="workspace-submenu-accent" aria-hidden="true"></span>
+                <span class="workspace-submenu-accent" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" class="workspace-submenu-accent__svg">
+                    <path
+                      v-for="iconPath in getWorkspaceUiIconPaths('arrowRight')"
+                      :key="`accent-${item.id}-${iconPath}`"
+                      :d="iconPath"
+                    />
+                  </svg>
+                </span>
               </RouterLink>
             </div>
           </div>
@@ -998,6 +1133,14 @@ onBeforeUnmount(() => {
   letter-spacing: 0.08em;
 }
 
+.workspace-admin .workspace-submenu-link:hover .workspace-submenu-icon,
+.workspace-admin .workspace-submenu-link--active .workspace-submenu-icon {
+  color: #48699f;
+  box-shadow:
+    0 12px 28px rgba(77, 110, 171, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.86);
+}
+
 .workspace-submenu-accent {
   position: relative;
   display: inline-flex;
@@ -1014,28 +1157,6 @@ onBeforeUnmount(() => {
     border-color 0.22s ease,
     background 0.22s ease,
     color 0.22s ease;
-}
-
-.workspace-submenu-accent::before,
-.workspace-submenu-accent::after {
-  content: '';
-  position: absolute;
-  box-sizing: border-box;
-}
-
-.workspace-submenu-accent::before {
-  width: 0.56rem;
-  height: 0.56rem;
-  border-top: 2px solid currentColor;
-  border-right: 2px solid currentColor;
-  transform: rotate(45deg);
-}
-
-.workspace-submenu-accent::after {
-  width: 0.82rem;
-  height: 2px;
-  background: currentColor;
-  transform: translateX(-0.08rem);
 }
 
 .workspace-admin .workspace-submenu-link:hover .workspace-submenu-accent,
@@ -1673,7 +1794,20 @@ onBeforeUnmount(() => {
 }
 
 .workspace-admin .workspace-submenu-icon {
-  background: linear-gradient(180deg, #5e7fba, #2e4f82);
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 3.1rem;
+  height: 3.1rem;
+  border: 1px solid rgba(198, 214, 243, 0.9);
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(242, 247, 255, 0.96)),
+    rgba(255, 255, 255, 0.96);
+  color: #5f7ead;
+  box-shadow:
+    0 10px 24px rgba(77, 110, 171, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82);
 }
 
 .workspace-operator .workspace-submenu-icon {
@@ -1705,6 +1839,18 @@ onBeforeUnmount(() => {
 .workspace-operator .workspace-submenu-icon__svg {
   width: 1.7rem;
   height: 1.7rem;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.workspace-admin .workspace-submenu-icon__svg,
+.workspace-mobile-link__icon .workspace-submenu-icon__svg,
+.workspace-submenu-accent__svg {
+  width: 1.45rem;
+  height: 1.45rem;
   stroke: currentColor;
   stroke-width: 1.8;
   stroke-linecap: round;
@@ -2221,12 +2367,20 @@ onBeforeUnmount(() => {
   }
 
   .workspace-mobile-link__icon {
-    width: 0.9rem;
-    height: 0.9rem;
+    display: inline-grid;
+    place-items: center;
+    width: 2.4rem;
+    height: 2.4rem;
     flex: 0 0 auto;
-    border-radius: 0.16rem;
-    background: #2f3746;
-    box-shadow: inset 0 0 0 2px #ffffff;
+    border-radius: 14px;
+    border: 1px solid rgba(198, 214, 243, 0.9);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(242, 247, 255, 0.96)),
+      rgba(255, 255, 255, 0.96);
+    color: #5f7ead;
+    box-shadow:
+      0 8px 18px rgba(77, 110, 171, 0.08),
+      inset 0 1px 0 rgba(255, 255, 255, 0.82);
   }
 
   .workspace-mobile-link--active {

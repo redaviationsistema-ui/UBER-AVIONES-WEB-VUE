@@ -35,6 +35,7 @@ const IS_LOCAL_ADMIN_DEV =
 const kpis = ref({})
 const users = ref([])
 const clients = ref([])
+const clientSectionLoaded = ref(false)
 const flags = ref([])
 const providers = ref([])
 const aircraft = ref([])
@@ -66,6 +67,23 @@ const reservationFlowLoadingLabel = ref('')
 const reservationFlowErrorMessage = ref('')
 const reservationContentRefreshing = ref(false)
 const clientTableRefreshing = ref(false)
+const clientTableQuery = reactive({
+  page: 1,
+  per_page: 20,
+  search: '',
+  status: 'todos',
+  role: 'client',
+  commercial_access: 'todos',
+})
+const clientTablePagination = reactive({
+  currentPage: 1,
+  perPage: 20,
+  total: 0,
+  lastPage: 1,
+  from: 0,
+  to: 0,
+  serverPaginated: false,
+})
 let removeWorkflowSyncSubscription = null
 let reservationsPollTimer = null
 let reservationsRequestPromise = null
@@ -93,7 +111,7 @@ const ADMIN_SECTION_REFRESH_THROTTLE_MS = Number(
 const ADMIN_PROVIDERS_CACHE_KEY = 'red_admin_providers_cache_v1'
 const adminReservationsLoadWarningShown = ref(false)
 const clientUsers = computed(() =>
-  (clients.value.length ? clients.value : users.value).filter((user) => {
+  (clientSectionLoaded.value ? clients.value : users.value).filter((user) => {
     const role = String(user?.effective_role || user?.role || '').toLowerCase()
     return role.includes('client') || role.includes('cliente')
   }),
@@ -541,6 +559,83 @@ function formatCurrency(value) {
     currency: 'MXN',
     maximumFractionDigits: 0,
   }).format(Number(value || 0))
+}
+
+function sanitizeClientQuery(query = {}) {
+  const page = Math.max(1, Number(query.page || clientTableQuery.page || 1) || 1)
+  const perPage = Math.max(1, Number(query.per_page || clientTableQuery.per_page || 20) || 20)
+
+  return {
+    page,
+    per_page: perPage,
+    search: String(query.search ?? clientTableQuery.search ?? '').trim(),
+    status: String(query.status ?? clientTableQuery.status ?? 'todos').trim() || 'todos',
+    role: String(query.role ?? clientTableQuery.role ?? 'client').trim() || 'client',
+    commercial_access:
+      String(query.commercial_access ?? clientTableQuery.commercial_access ?? 'todos').trim() || 'todos',
+  }
+}
+
+function buildClientRequestQuery(query = {}) {
+  const normalized = sanitizeClientQuery(query)
+  const requestQuery = {
+    page: normalized.page,
+    per_page: normalized.per_page,
+  }
+
+  if (normalized.search) requestQuery.search = normalized.search
+  if (normalized.status && normalized.status !== 'todos') requestQuery.status = normalized.status
+  if (normalized.role && normalized.role !== 'todos') requestQuery.role = normalized.role
+  if (normalized.commercial_access && normalized.commercial_access !== 'todos') {
+    requestQuery.commercial_access = normalized.commercial_access
+  }
+
+  return requestQuery
+}
+
+function extractClientPaginationMeta(response = {}, collection = [], query = {}) {
+  const normalized = sanitizeClientQuery(query)
+  const container =
+    response?.clients ||
+    response?.clientes ||
+    response?.users ||
+    response?.usuarios ||
+    response?.data ||
+    null
+  const meta = response?.meta || container?.meta || response?.pagination || container?.pagination || null
+
+  const currentPage = Number(
+    meta?.current_page || container?.current_page || response?.current_page || normalized.page || 1,
+  )
+  const perPage = Number(meta?.per_page || container?.per_page || response?.per_page || normalized.per_page || 20)
+  const total = Number(meta?.total || container?.total || response?.total || collection.length || 0)
+  const lastPage = Number(
+    meta?.last_page ||
+      container?.last_page ||
+      response?.last_page ||
+      Math.max(1, Math.ceil(total / Math.max(1, perPage || normalized.per_page || 20))),
+  )
+  const from = Number(meta?.from || container?.from || response?.from || (collection.length ? (currentPage - 1) * perPage + 1 : 0))
+  const to = Number(meta?.to || container?.to || response?.to || (collection.length ? from + collection.length - 1 : 0))
+  const serverPaginated = Boolean(
+    meta ||
+      container?.current_page ||
+      response?.current_page ||
+      container?.last_page ||
+      response?.last_page ||
+      container?.total ||
+      response?.total,
+  )
+
+  return {
+    currentPage: Math.max(1, currentPage || 1),
+    perPage: Math.max(1, perPage || normalized.per_page || 20),
+    total: Math.max(0, total || 0),
+    lastPage: Math.max(1, lastPage || 1),
+    from: Math.max(0, from || 0),
+    to: Math.max(0, to || 0),
+    serverPaginated,
+  }
 }
 
 function average(values = []) {
@@ -1332,18 +1427,35 @@ async function loadUsers() {
   }
 }
 
-async function loadClients() {
+async function loadClients(query = clientTableQuery) {
+  const normalizedQuery = sanitizeClientQuery(query)
+
   try {
+    const requestQuery = buildClientRequestQuery(normalizedQuery)
     const response = await requestWithCandidates([
-      { method: 'get', path: '/admin/clientes', timeoutMs: ADMIN_USERS_TIMEOUT_MS },
-      { method: 'get', path: '/admin/users', timeoutMs: ADMIN_USERS_TIMEOUT_MS },
+      { method: 'get', path: '/admin/clientes', query: requestQuery, timeoutMs: ADMIN_USERS_TIMEOUT_MS },
+      { method: 'get', path: '/admin/users', query: requestQuery, timeoutMs: ADMIN_USERS_TIMEOUT_MS },
     ])
     const collection = pickCollection(response, ['clients', 'clientes', 'users', 'usuarios'])
     rawSectionRecords.clientes = collection
     clients.value = collection
+    clientSectionLoaded.value = true
+    Object.assign(clientTableQuery, normalizedQuery)
+    Object.assign(clientTablePagination, extractClientPaginationMeta(response, collection, normalizedQuery))
   } catch {
     rawSectionRecords.clientes = []
     clients.value = []
+    clientSectionLoaded.value = true
+    Object.assign(clientTableQuery, normalizedQuery)
+    Object.assign(clientTablePagination, {
+      currentPage: normalizedQuery.page,
+      perPage: normalizedQuery.per_page,
+      total: 0,
+      lastPage: 1,
+      from: 0,
+      to: 0,
+      serverPaginated: false,
+    })
   }
 }
 
@@ -1721,7 +1833,7 @@ async function loadPortalSection(section) {
   }
 
   if (section === 'clientes') {
-    await loadClients()
+    await loadClients(clientTableQuery)
     void loadAccessPayments()
     void reconcilePendingClientAccessPayments({ silent: true })
     return
@@ -1744,13 +1856,13 @@ async function loadPortalSection(section) {
 
   if (section === 'suscripciones') {
     await reconcilePendingClientAccessPayments({ silent: true })
-    await Promise.all([loadAircraft(), loadSubscriptions(), loadClients(), loadAccessPayments(), loadSubscriptionPayments()])
+    await Promise.all([loadAircraft(), loadSubscriptions(), loadClients(clientTableQuery), loadAccessPayments(), loadSubscriptionPayments()])
     return
   }
 
   if (section === 'pagos' || section === 'pagos-proveedor') {
     await reconcilePendingClientAccessPayments({ silent: true })
-    await Promise.all([loadAircraft(), loadSubscriptions(), loadClients(), loadAccessPayments(), loadSubscriptionPayments()])
+    await Promise.all([loadAircraft(), loadSubscriptions(), loadClients(clientTableQuery), loadAccessPayments(), loadSubscriptionPayments()])
     return
   }
 
@@ -2292,7 +2404,7 @@ async function refreshClientsTable() {
   try {
     clientTableRefreshing.value = true
     await reconcilePendingClientAccessPayments({ silent: false })
-    await Promise.all([loadClients(), loadAccessPayments()])
+    await Promise.all([loadClients(clientTableQuery), loadAccessPayments()])
     ui.pushToast({
       tone: 'success',
       title: 'Tabla actualizada',
@@ -2304,6 +2416,18 @@ async function refreshClientsTable() {
       title: 'No se pudo refrescar',
       message: error?.message || 'La tabla de clientes no pudo sincronizarse con el backend.',
     })
+  } finally {
+    clientTableRefreshing.value = false
+  }
+}
+
+async function handleClientsQueryChange(query = {}) {
+  Object.assign(clientTableQuery, sanitizeClientQuery(query))
+  if (props.section !== 'clientes') return
+
+  try {
+    clientTableRefreshing.value = true
+    await loadClients(clientTableQuery)
   } finally {
     clientTableRefreshing.value = false
   }
@@ -2687,12 +2811,14 @@ watch(
     :users="clientUsers"
     :access-payments="accessPayments"
     :is-refreshing="clientTableRefreshing"
+    :pagination="clientTablePagination"
     scope="client"
     title="Clientes"
-    subtitle="Visualiza registros nuevos, prueba gratuita consumida y pagos activos desde una sola tabla."
+    subtitle=""
     :hide-role-panel="true"
     @audit-user="auditUser"
     @refresh="refreshClientsTable"
+    @query-change="handleClientsQueryChange"
   />
   <AdminAlertsSection v-else-if="section === 'alertas'" :flags="flags" />
   <AdminProvidersNetworkSection

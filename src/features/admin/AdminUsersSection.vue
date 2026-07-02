@@ -13,9 +13,21 @@ const props = defineProps({
   subtitle: { type: String, default: 'Administra accesos, permisos y perfiles del equipo desde una operacion mas clara y rapida.' },
   hideRolePanel: { type: Boolean, default: false },
   isRefreshing: { type: Boolean, default: false },
+  pagination: {
+    type: Object,
+    default: () => ({
+      currentPage: 1,
+      perPage: 20,
+      total: 0,
+      lastPage: 1,
+      from: 0,
+      to: 0,
+      serverPaginated: false,
+    }),
+  },
 })
 
-const emit = defineEmits(['audit-user', 'refresh'])
+const emit = defineEmits(['audit-user', 'refresh', 'query-change'])
 const ui = useUiStore()
 
 const defaultRoleBlueprints = [
@@ -70,14 +82,19 @@ const detailError = ref('')
 const selectedUserDetail = ref(null)
 const paymentDetailOpen = ref(false)
 const selectedPaymentDetail = ref(null)
+const currentPage = ref(1)
+const rowsPerPage = ref(20)
+const syncingClientPagination = ref(false)
 const userFormErrors = ref({})
 const savingUser = ref(false)
 const reconcilingPaymentUserIds = ref([])
 const ADMIN_USERS_TIMEOUT_MS = 45000
+let clientQueryEmitTimer = null
 
 const userForm = ref(buildEmptyUser())
 const roleForm = ref(buildEmptyRole())
 const isClientScope = computed(() => props.scope === 'client')
+const hasServerPagination = computed(() => Boolean(props.pagination?.serverPaginated))
 const latestAccessPaymentByUserId = computed(() => {
   const map = new Map()
 
@@ -139,6 +156,10 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('click', handleDocumentClick)
+  if (clientQueryEmitTimer) {
+    clearTimeout(clientQueryEmitTimer)
+    clientQueryEmitTimer = null
+  }
 })
 
 watch(
@@ -152,6 +173,20 @@ watch(
   { immediate: true },
 )
 
+watch(
+  () => props.pagination,
+  (pagination) => {
+    if (!pagination || typeof pagination !== 'object') return
+    syncingClientPagination.value = true
+    currentPage.value = Math.max(1, Number(pagination.currentPage || 1) || 1)
+    rowsPerPage.value = Math.max(1, Number(pagination.perPage || rowsPerPage.value || 20) || 20)
+    setTimeout(() => {
+      syncingClientPagination.value = false
+    }, 0)
+  },
+  { immediate: true, deep: true },
+)
+
 const roleSummaries = computed(() =>
   localRoles.value.map((role) => ({
     ...role,
@@ -159,13 +194,15 @@ const roleSummaries = computed(() =>
   })),
 )
 
-const filteredUsers = computed(() =>
-  localUsers.value.filter((user) => {
+const filteredUsers = computed(() => {
+  const query = searchTerm.value.toLowerCase()
+
+  return localUsers.value.filter((user) => {
     const matchesScope = !isClientScope.value || isClientUser(user)
     const matchesSearch =
-      !searchTerm.value ||
+      !query ||
       [user.name, user.email, user.role, user.status, user.phone].some((field) =>
-        String(field || '').toLowerCase().includes(searchTerm.value.toLowerCase()),
+        String(field || '').toLowerCase().includes(query),
       )
     const matchesStatus =
       statusFilter.value === 'todos' || normalizeStatusKey(user.status) === statusFilter.value
@@ -179,8 +216,43 @@ const filteredUsers = computed(() =>
             ['blocked', 'warn'].includes(commercialAccessTone(user)))))
 
     return matchesScope && matchesSearch && matchesStatus && matchesRole && matchesCommercialAccess
-  }),
-)
+  })
+})
+
+const paginatedUsers = computed(() => {
+  if (!isClientScope.value) return filteredUsers.value
+  if (hasServerPagination.value) return filteredUsers.value
+
+  const start = (currentPage.value - 1) * rowsPerPage.value
+  return filteredUsers.value.slice(start, start + rowsPerPage.value)
+})
+
+const clientTableSummary = computed(() => {
+  if (!isClientScope.value) {
+    return {
+      total: filteredUsers.value.length,
+      from: filteredUsers.value.length ? 1 : 0,
+      to: filteredUsers.value.length,
+      lastPage: 1,
+    }
+  }
+
+  if (hasServerPagination.value) {
+    return {
+      total: Number(props.pagination?.total || filteredUsers.value.length || 0),
+      from: Number(props.pagination?.from || 0),
+      to: Number(props.pagination?.to || filteredUsers.value.length || 0),
+      lastPage: Math.max(1, Number(props.pagination?.lastPage || 1) || 1),
+    }
+  }
+
+  const total = filteredUsers.value.length
+  const from = total ? (currentPage.value - 1) * rowsPerPage.value + 1 : 0
+  const to = total ? Math.min(total, from + paginatedUsers.value.length - 1) : 0
+  const lastPage = Math.max(1, Math.ceil(total / Math.max(1, rowsPerPage.value)))
+
+  return { total, from, to, lastPage }
+})
 
 const clientCommercialMetrics = computed(() => {
   const scopedClients = localUsers.value.filter((user) => isClientUser(user))
@@ -258,6 +330,43 @@ const userSignals = computed(() => {
     { label: 'Registros nuevos', value: String(newClients), detail: 'Clientes nuevos sin prueba usada ni pago.', tone: 'accent' },
     { label: 'Suspendidos', value: String(suspended), detail: 'Cuentas en pausa o revision.', tone: 'danger' },
   ]
+})
+
+function buildClientQueryPayload() {
+  return {
+    page: currentPage.value,
+    per_page: rowsPerPage.value,
+    search: searchTerm.value.trim(),
+    status: statusFilter.value,
+    role: roleFilter.value,
+    commercial_access: commercialAccessFilter.value,
+  }
+}
+
+function scheduleClientQueryEmit() {
+  if (!isClientScope.value) return
+  if (clientQueryEmitTimer) clearTimeout(clientQueryEmitTimer)
+
+  clientQueryEmitTimer = setTimeout(() => {
+    emit('query-change', buildClientQueryPayload())
+  }, 260)
+}
+
+watch([searchTerm, statusFilter, roleFilter, commercialAccessFilter], () => {
+  if (!isClientScope.value) return
+  currentPage.value = 1
+  scheduleClientQueryEmit()
+})
+
+watch(rowsPerPage, (value, oldValue) => {
+  if (!isClientScope.value || value === oldValue || syncingClientPagination.value) return
+  currentPage.value = 1
+  scheduleClientQueryEmit()
+})
+
+watch(currentPage, (value, oldValue) => {
+  if (!isClientScope.value || value === oldValue || syncingClientPagination.value) return
+  scheduleClientQueryEmit()
 })
 
 function buildEmptyUser() {
@@ -1288,6 +1397,15 @@ async function loadProvidersFromBackend() {
   }
 }
 
+async function refreshCurrentUserSource() {
+  if (isClientScope.value) {
+    emit('refresh')
+    return
+  }
+
+  await loadUsersFromBackend()
+}
+
 function userInitials(name) {
   return String(name || '')
     .split(' ')
@@ -1295,6 +1413,44 @@ function userInitials(name) {
     .slice(0, 2)
     .map((chunk) => chunk[0]?.toUpperCase())
     .join('')
+}
+
+function normalizeClientCommercialBadge(user = {}) {
+  const accessState = commercialAccessLabel(user)
+  const paymentState = paymentStatusLabel(user)
+
+  if (paymentState === 'Pago realizado' || accessState === 'Pago activo') {
+    return { label: 'Pago activo', tone: 'success' }
+  }
+
+  if (accessState === 'Prueba consumida') {
+    return { label: 'Prueba consumida', tone: 'warn' }
+  }
+
+  if (normalizeStatusKey(user.status) === 'activo') {
+    return { label: 'Active', tone: 'info' }
+  }
+
+  return { label: 'Sin pago', tone: 'danger' }
+}
+
+function compactCommercialStatus(user = {}) {
+  const label = commercialLifecycleLabel(user)
+  if (label === 'Pago activo' || label === 'Pago en validacion') return label
+  if (label === 'Registro nuevo') return 'Nuevo'
+  if (label === 'Prueba disponible') return 'Prueba disponible'
+  if (label === 'Prueba consumida') return 'Prueba consumida'
+  if (label === 'Acceso vencido') return 'Vencido'
+  return label
+}
+
+function compactUserStatus(user = {}) {
+  return normalizeStatusLabel(user.status)
+}
+
+function goToClientPage(page) {
+  const lastPage = clientTableSummary.value.lastPage
+  currentPage.value = Math.min(Math.max(1, page), lastPage)
 }
 
 function formatRoleName(roleKey) {
@@ -1490,7 +1646,7 @@ async function submitUserForm() {
     ])
 
     await Promise.all([
-      loadUsersFromBackend(),
+      refreshCurrentUserSource(),
       ...(props.hideRolePanel ? [] : [loadRolesFromBackend()]),
       loadProvidersFromBackend(),
     ])
@@ -1554,7 +1710,7 @@ async function suspendUser(user) {
       { method: 'post', path: `/admin/users/${user.id}/${shouldActivate ? 'activate' : 'block'}`, body: {} },
     ])
 
-    await loadUsersFromBackend()
+    await refreshCurrentUserSource()
   } catch (error) {
     ui.pushToast({
       tone: 'error',
@@ -1571,7 +1727,7 @@ async function grantUserTrial(user) {
     ])
     const refreshedUser = response?.user ? normalizeUserRecord(response.user, 0) : null
 
-    await loadUsersFromBackend()
+    await refreshCurrentUserSource()
 
     if (detailOpen.value && selectedUserDetail.value?.user?.id === user.id && refreshedUser) {
       selectedUserDetail.value = {
@@ -1603,7 +1759,7 @@ async function revokeCommercialAccess(user) {
     ])
     const refreshedUser = response?.user ? normalizeUserRecord(response.user, 0) : null
 
-    await loadUsersFromBackend()
+    await refreshCurrentUserSource()
 
     if (detailOpen.value && selectedUserDetail.value?.user?.id === user.id && refreshedUser) {
       selectedUserDetail.value = {
@@ -1665,7 +1821,7 @@ async function changeRole(user) {
       { method: 'put', path: `/admin/users/${user.id}`, body: { role: normalizeRoleKey(nextRole) } },
     ])
 
-    await Promise.all([loadUsersFromBackend(), ...(props.hideRolePanel ? [] : [loadRolesFromBackend()])])
+    await Promise.all([refreshCurrentUserSource(), ...(props.hideRolePanel ? [] : [loadRolesFromBackend()])])
   } catch (error) {
     ui.pushToast({
       tone: 'error',
@@ -1686,7 +1842,7 @@ async function exportUsers() {
 async function deleteUser(user) {
   try {
     await requestWithCandidates([{ method: 'delete', path: `/admin/users/${user.id}` }])
-    await Promise.all([loadUsersFromBackend(), ...(props.hideRolePanel ? [] : [loadRolesFromBackend()])])
+    await Promise.all([refreshCurrentUserSource(), ...(props.hideRolePanel ? [] : [loadRolesFromBackend()])])
     ui.pushToast({
       tone: 'success',
       title: 'Usuario eliminado',
@@ -1865,50 +2021,272 @@ function auditUser(user) {
       </div>
     </section>
 
+    <section v-else-if="isClientScope" class="editorial-section editorial-section-clients">
+      <div class="section-heading split-heading">
+        <div>
+          <h2>Panel comercial de clientes</h2>
+        </div>
+        <div class="hero-actions">
+          <button type="button" class="admin-btn admin-btn-secondary" :disabled="isRefreshing" @click="emit('refresh')">
+            {{ isRefreshing ? 'Actualizando...' : 'Refrescar tabla' }}
+          </button>
+          <button type="button" class="admin-btn admin-btn-primary" @click="openCreateUser">+ Nuevo usuario</button>
+        </div>
+      </div>
+
+      <div class="table-shell table-shell-clients table-shell-clients-compact">
+        <div class="client-table-toolbar">
+          <div class="client-table-toolbar__meta">
+            <strong>{{ clientTableSummary.total }}</strong>
+            <span>
+              {{ clientTableSummary.from }}-{{ clientTableSummary.to }} de {{ clientTableSummary.total }} clientes
+            </span>
+          </div>
+
+          <label class="client-table-toolbar__page-size">
+            <span>Filas</span>
+            <select v-model="rowsPerPage">
+              <option :value="10">10</option>
+              <option :value="20">20</option>
+              <option :value="50">50</option>
+              <option :value="100">100</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="clients-table-desktop">
+          <div class="clients-table-scroll">
+            <table class="clients-table">
+              <thead>
+                <tr>
+                  <th>Usuario</th>
+                  <th>Correo</th>
+                  <th>Telefono</th>
+                  <th>Estado comercial</th>
+                  <th>Estado</th>
+                  <th>Prueba</th>
+                  <th>Pago</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="user in paginatedUsers" :key="user.id">
+                  <td>
+                    <div class="user-cell user-cell-compact">
+                      <div class="avatar-mini">{{ userInitials(user.name) }}</div>
+                      <div class="cell-stack">
+                        <strong class="user-name">{{ user.name }}</strong>
+                        <small class="client-inline-badge" :class="`client-inline-badge--${normalizeClientCommercialBadge(user).tone}`">
+                          {{ normalizeClientCommercialBadge(user).label }}
+                        </small>
+                      </div>
+                    </div>
+                  </td>
+                  <td class="email-cell">{{ user.email }}</td>
+                  <td>{{ user.phone || 'Sin telefono' }}</td>
+                  <td>
+                    <span
+                      class="status-pill status-pill-commercial status-pill-compact"
+                      :class="{
+                        'status-pill-success': commercialAccessTone(user) === 'success',
+                        'status-pill-info': commercialAccessTone(user) === 'info',
+                        'status-pill-warn': commercialAccessTone(user) === 'warn',
+                        'status-pill-danger': commercialAccessTone(user) === 'blocked',
+                      }"
+                    >
+                      {{ compactCommercialStatus(user) }}
+                    </span>
+                  </td>
+                  <td>
+                    <span
+                      class="status-pill status-pill-compact"
+                      :class="{
+                        'status-pill-warn': normalizeStatusKey(user.status) === 'suspendido',
+                        'status-pill-danger': normalizeStatusKey(user.status) === 'inactivo',
+                        'status-pill-info': normalizeStatusKey(user.status) === 'activo',
+                      }"
+                    >
+                      {{ compactUserStatus(user) }}
+                    </span>
+                  </td>
+                  <td>
+                    <span class="status-pill status-pill-compact status-pill-neutral">
+                      {{ trialUsageLabel(user) }}
+                    </span>
+                  </td>
+                  <td>
+                    <span
+                      class="status-pill status-pill-commercial status-pill-compact"
+                      :class="{
+                        'status-pill-success': paymentStatusTone(user) === 'success',
+                        'status-pill-warn': paymentStatusTone(user) === 'warn',
+                        'status-pill-info': paymentStatusTone(user) === 'info',
+                      }"
+                    >
+                      {{ paymentStatusLabel(user) === 'Pago realizado' ? 'Pago activo' : paymentStatusLabel(user) }}
+                    </span>
+                  </td>
+                  <td>
+                    <div class="row-actions row-actions-compact">
+                      <button
+                        type="button"
+                        class="admin-mini-btn admin-actions-trigger admin-actions-trigger-icon"
+                        aria-label="Abrir acciones"
+                        @click.stop="openActionsModal(user)"
+                      >
+                        <span aria-hidden="true">•••</span>
+                      </button>
+
+                      <div
+                        v-if="selectedActionUser?.id === user.id"
+                        class="mini-action-modal mini-action-popover"
+                        @click.stop
+                      >
+                        <button type="button" class="mini-action-item" @click="handleViewUser(selectedActionUser)">Ver detalles</button>
+                        <button
+                          v-if="shouldShowPaymentAction(selectedActionUser)"
+                          type="button"
+                          class="mini-action-item"
+                          @click="openPaymentDetail(selectedActionUser)"
+                        >
+                          Ver pago
+                        </button>
+                        <button
+                          v-if="shouldShowPaymentReconcileAction(selectedActionUser)"
+                          type="button"
+                          class="mini-action-item"
+                          :disabled="isReconcilingPayment(selectedActionUser.id)"
+                          @click="reconcileAccessPayment(selectedActionUser)"
+                        >
+                          {{ isReconcilingPayment(selectedActionUser.id) ? 'Validando...' : 'Validar pago' }}
+                        </button>
+                        <button type="button" class="mini-action-item" @click="handleEditUser(selectedActionUser)">Editar</button>
+                        <button
+                          v-if="isClientUser(selectedActionUser)"
+                          type="button"
+                          class="mini-action-item"
+                          @click="handleGrantUserTrial(selectedActionUser)"
+                        >
+                          Activar demo 15 dias
+                        </button>
+                        <button type="button" class="mini-action-item" @click="handleSuspendUser(selectedActionUser)">
+                          {{ canActivateStatus(selectedActionUser.status) ? 'Activar' : 'Suspender' }}
+                        </button>
+                        <button type="button" class="mini-action-item" @click="handleAuditUser(selectedActionUser)">Auditar</button>
+                        <button type="button" class="mini-action-item" @click="handleResetPassword(selectedActionUser)">Resetear</button>
+                        <button type="button" class="mini-action-item" @click="handleDeleteUser(selectedActionUser)">Eliminar</button>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+                <tr v-if="!paginatedUsers.length">
+                  <td colspan="8" class="empty-table-cell">No hay usuarios para mostrar con los filtros actuales.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="clients-mobile-list">
+          <article v-for="user in paginatedUsers" :key="`mobile-${user.id}`" class="client-mobile-card">
+            <div class="client-mobile-card__top">
+              <div class="user-cell user-cell-compact">
+                <div class="avatar-mini">{{ userInitials(user.name) }}</div>
+                <div class="cell-stack">
+                  <strong class="user-name">{{ user.name }}</strong>
+                  <small>{{ user.email }}</small>
+                </div>
+              </div>
+              <button
+                type="button"
+                class="admin-mini-btn admin-actions-trigger admin-actions-trigger-icon"
+                aria-label="Abrir acciones"
+                @click.stop="openActionsModal(user)"
+              >
+                <span aria-hidden="true">•••</span>
+              </button>
+            </div>
+            <div class="client-mobile-card__meta">
+              <span class="status-pill status-pill-commercial status-pill-compact" :class="{
+                'status-pill-success': commercialAccessTone(user) === 'success',
+                'status-pill-info': commercialAccessTone(user) === 'info',
+                'status-pill-warn': commercialAccessTone(user) === 'warn',
+                'status-pill-danger': commercialAccessTone(user) === 'blocked',
+              }">{{ compactCommercialStatus(user) }}</span>
+              <span class="status-pill status-pill-compact status-pill-neutral">{{ trialUsageLabel(user) }}</span>
+              <span class="status-pill status-pill-commercial status-pill-compact" :class="{
+                'status-pill-success': paymentStatusTone(user) === 'success',
+                'status-pill-warn': paymentStatusTone(user) === 'warn',
+                'status-pill-info': paymentStatusTone(user) === 'info',
+              }">{{ paymentStatusLabel(user) === 'Pago realizado' ? 'Pago activo' : paymentStatusLabel(user) }}</span>
+            </div>
+            <div
+              v-if="selectedActionUser?.id === user.id"
+              class="mini-action-modal mini-action-popover mini-action-popover-mobile"
+              @click.stop
+            >
+              <button type="button" class="mini-action-item" @click="handleViewUser(selectedActionUser)">Ver detalles</button>
+              <button
+                v-if="shouldShowPaymentAction(selectedActionUser)"
+                type="button"
+                class="mini-action-item"
+                @click="openPaymentDetail(selectedActionUser)"
+              >
+                Ver pago
+              </button>
+              <button type="button" class="mini-action-item" @click="handleEditUser(selectedActionUser)">Editar</button>
+            </div>
+          </article>
+          <div v-if="!paginatedUsers.length" class="empty-table-cell empty-table-cell-mobile">
+            No hay usuarios para mostrar con los filtros actuales.
+          </div>
+        </div>
+
+        <div class="clients-pagination">
+          <div class="clients-pagination__summary">
+            Mostrando {{ clientTableSummary.from }}-{{ clientTableSummary.to }} de {{ clientTableSummary.total }}
+          </div>
+          <div class="clients-pagination__actions">
+            <button type="button" class="pager-button" :disabled="currentPage <= 1" @click="goToClientPage(currentPage - 1)">
+              Anterior
+            </button>
+            <span class="clients-pagination__page">Pagina {{ currentPage }} / {{ clientTableSummary.lastPage }}</span>
+            <button
+              type="button"
+              class="pager-button"
+              :disabled="currentPage >= clientTableSummary.lastPage"
+              @click="goToClientPage(currentPage + 1)"
+            >
+              Siguiente
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section v-else class="editorial-section">
       <div class="section-heading split-heading">
         <div>
-          <h2>{{ isClientScope ? 'Panel comercial de clientes' : 'Directorio de usuarios' }}</h2>
-          <p>
-            {{
-              isClientScope
-                ? `${filteredUsers.length} clientes con lectura clara de prueba, pago y estado comercial.`
-                : `${filteredUsers.length} registros listos para consulta, edicion, suspension y cambio de rol.`
-            }}
-          </p>
+          <h2>Directorio de usuarios</h2>
+          <p>{{ filteredUsers.length }} registros listos para consulta, edicion, suspension y cambio de rol.</p>
         </div>
         <div class="hero-actions">
-          <button
-            v-if="isClientScope"
-            type="button"
-            class="admin-btn admin-btn-secondary"
-            :disabled="isRefreshing"
-            @click="emit('refresh')"
-          >
-            {{ isRefreshing ? 'Actualizando...' : 'Refrescar tabla' }}
-          </button>
           <button type="button" class="admin-btn admin-btn-primary" @click="openCreateUser">+ Nuevo usuario</button>
           <button v-if="!hideRolePanel" type="button" class="admin-btn admin-btn-secondary" @click="openRolesPanel">Ver roles</button>
         </div>
       </div>
 
-      <div class="table-shell" :class="{ 'table-shell-clients': isClientScope }">
-        <div class="table-row table-head-row" :class="{ 'table-head-row-clients': isClientScope }">
+      <div class="table-shell">
+        <div class="table-row table-head-row">
           <span>Usuario</span>
           <span>Correo</span>
-          <span>{{ isClientScope ? 'Estado comercial' : 'Rol' }}</span>
+          <span>Rol</span>
           <span>Estado</span>
-          <span>{{ isClientScope ? 'Prueba' : 'Acceso comercial' }}</span>
-          <span v-if="isClientScope">Pago</span>
+          <span>Acceso comercial</span>
           <span>Acciones</span>
         </div>
 
-        <div
-          v-for="user in filteredUsers"
-          :key="user.id"
-          class="table-row"
-          :class="{ 'table-row-client-card': isClientScope }"
-        >
+        <div v-for="user in filteredUsers" :key="user.id" class="table-row">
           <div class="user-cell">
             <div class="avatar-mini">{{ userInitials(user.name) }}</div>
             <div class="cell-stack">
@@ -1918,20 +2296,7 @@ function auditUser(user) {
           </div>
 
           <span class="email-cell">{{ user.email }}</span>
-          <span v-if="isClientScope" class="commercial-column">
-            <span
-              class="status-pill status-pill-commercial"
-              :class="{
-                'status-pill-success': commercialAccessTone(user) === 'success',
-                'status-pill-info': commercialAccessTone(user) === 'info',
-                'status-pill-warn': commercialAccessTone(user) === 'warn',
-                'status-pill-danger': commercialAccessTone(user) === 'blocked',
-              }"
-            >
-              {{ commercialLifecycleLabel(user) }}
-            </span>
-          </span>
-          <span v-else>{{ formatRoleName(user.role) }}</span>
+          <span>{{ formatRoleName(user.role) }}</span>
           <span>
             <span
               class="status-pill"
@@ -1946,27 +2311,18 @@ function auditUser(user) {
 
           <span class="commercial-access-cell">
             <template v-if="isClientUser(user)">
-              <template v-if="isClientScope">
-                <div class="commercial-stack commercial-stack-panel">
-                  <strong class="commercial-kpi">{{ trialUsageLabel(user) }}</strong>
-                  <small class="commercial-caption">Uso de prueba</small>
-                  <small class="commercial-access-meta">{{ commercialAccessMeta(user) }}</small>
-                </div>
-              </template>
-              <template v-else>
-                <span
-                  class="status-pill status-pill-commercial"
-                  :class="{
-                    'status-pill-success': commercialAccessTone(user) === 'success',
-                    'status-pill-info': commercialAccessTone(user) === 'info',
-                    'status-pill-warn': commercialAccessTone(user) === 'warn',
-                    'status-pill-danger': commercialAccessTone(user) === 'blocked',
-                  }"
-                >
-                  {{ commercialAccessLabel(user) }}
-                </span>
-                <small class="commercial-access-meta">{{ commercialAccessMeta(user) }}</small>
-              </template>
+              <span
+                class="status-pill status-pill-commercial"
+                :class="{
+                  'status-pill-success': commercialAccessTone(user) === 'success',
+                  'status-pill-info': commercialAccessTone(user) === 'info',
+                  'status-pill-warn': commercialAccessTone(user) === 'warn',
+                  'status-pill-danger': commercialAccessTone(user) === 'blocked',
+                }"
+              >
+                {{ commercialAccessLabel(user) }}
+              </span>
+              <small class="commercial-access-meta">{{ commercialAccessMeta(user) }}</small>
               <button
                 v-if="shouldShowCommercialAccessAction(user)"
                 type="button"
@@ -1979,33 +2335,8 @@ function auditUser(user) {
             <span v-else class="table-muted">No aplica</span>
           </span>
 
-          <span v-if="isClientScope" class="commercial-access-cell">
-            <template v-if="isClientUser(user)">
-              <div class="commercial-stack commercial-stack-panel commercial-stack-panel-payment">
-                <span
-                  class="status-pill status-pill-commercial"
-                  :class="{
-                    'status-pill-success': paymentStatusTone(user) === 'success',
-                    'status-pill-warn': paymentStatusTone(user) === 'warn',
-                    'status-pill-info': paymentStatusTone(user) === 'info',
-                  }"
-                >
-                  {{ paymentStatusLabel(user) }}
-                </span>
-                <small v-if="paymentStatusMeta(user)" class="commercial-access-meta">
-                  {{ paymentStatusMeta(user) }}
-                </small>
-              </div>
-            </template>
-            <span v-else class="table-muted">No aplica</span>
-          </span>
-
           <div class="row-actions">
-            <button
-              type="button"
-              class="admin-mini-btn admin-actions-trigger"
-              @click.stop="openActionsModal(user)"
-            >
+            <button type="button" class="admin-mini-btn admin-actions-trigger" @click.stop="openActionsModal(user)">
               Acciones
             </button>
 
@@ -2015,23 +2346,6 @@ function auditUser(user) {
               @click.stop
             >
               <button type="button" class="mini-action-item" @click="handleViewUser(selectedActionUser)">Ver</button>
-              <button
-                v-if="shouldShowPaymentAction(selectedActionUser)"
-                type="button"
-                class="mini-action-item"
-                @click="openPaymentDetail(selectedActionUser)"
-              >
-                Ver pago
-              </button>
-              <button
-                v-if="shouldShowPaymentReconcileAction(selectedActionUser)"
-                type="button"
-                class="mini-action-item"
-                :disabled="isReconcilingPayment(selectedActionUser.id)"
-                @click="reconcileAccessPayment(selectedActionUser)"
-              >
-                {{ isReconcilingPayment(selectedActionUser.id) ? 'Validando...' : 'Validar pago' }}
-              </button>
               <button type="button" class="mini-action-item" @click="handleChangeRole(selectedActionUser)">Cambiar rol</button>
               <button type="button" class="mini-action-item" @click="handleEditUser(selectedActionUser)">Editar</button>
               <button
@@ -2580,6 +2894,10 @@ function auditUser(user) {
   margin-top: -1.2rem;
 }
 
+.editorial-section-clients ~ * {
+  --client-scope-active: 1;
+}
+
 .signal-card,
 .featured-card,
 .workstream-card,
@@ -2595,6 +2913,28 @@ function auditUser(user) {
   display: grid;
   gap: 0.4rem;
   padding: 1rem 1.05rem;
+}
+
+.admin-users-page:has(.editorial-section-clients) .status-strip {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.75rem;
+  padding-bottom: 0.85rem;
+}
+
+.admin-users-page:has(.editorial-section-clients) .signal-card {
+  gap: 0.22rem;
+  padding: 0.8rem 0.9rem;
+  border-radius: 16px;
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.04);
+}
+
+.admin-users-page:has(.editorial-section-clients) .signal-card strong {
+  font-size: 1.12rem;
+}
+
+.admin-users-page:has(.editorial-section-clients) .signal-card p {
+  font-size: 0.76rem;
+  line-height: 1.4;
 }
 
 .signal-card-success {
@@ -2797,6 +3137,18 @@ function auditUser(user) {
   letter-spacing: 0.01em;
 }
 
+.status-pill-compact {
+  min-height: 1.55rem;
+  padding: 0 0.52rem;
+  font-size: 0.65rem;
+  line-height: 1;
+}
+
+.status-pill-neutral {
+  color: #5f6b7e;
+  background: #eef3fb;
+}
+
 .role-chip {
   color: #8c6a1f;
   background: #f3ead2;
@@ -2819,6 +3171,127 @@ function auditUser(user) {
 
 .table-shell-clients {
   padding: 1rem;
+}
+
+.table-shell-clients-compact {
+  display: grid;
+  gap: 0.9rem;
+  padding: 0.9rem;
+}
+
+.client-table-toolbar,
+.clients-pagination,
+.clients-pagination__actions,
+.client-mobile-card__top,
+.client-mobile-card__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+}
+
+.client-table-toolbar__meta,
+.client-table-toolbar__page-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.client-table-toolbar__meta strong {
+  color: #162b47;
+  font-size: 1rem;
+}
+
+.client-table-toolbar__meta span,
+.client-table-toolbar__page-size span,
+.clients-pagination__summary,
+.clients-pagination__page {
+  color: #6480ad;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.client-table-toolbar__page-size select {
+  min-height: 2.2rem;
+  padding: 0 0.7rem;
+  border: 1px solid #d8dedc;
+  border-radius: 12px;
+  background: #fff;
+  color: #162b47;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.clients-table-desktop {
+  display: block;
+}
+
+.clients-table-scroll {
+  max-height: 65vh;
+  overflow: auto;
+  border: 1px solid #ece3cf;
+  border-radius: 20px;
+  background: #fff;
+}
+
+.clients-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+}
+
+.clients-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 0.78rem 0.9rem;
+  border-bottom: 1px solid #e9e2d3;
+  background: linear-gradient(180deg, #fffaf0 0%, #fffdf9 100%);
+  color: #6b7280;
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.clients-table tbody td {
+  height: 64px;
+  padding: 0.55rem 0.9rem;
+  border-bottom: 1px solid #f0ebe0;
+  vertical-align: middle;
+  color: #1f2937;
+  font-size: 0.88rem;
+}
+
+.clients-table tbody tr:hover td {
+  background: rgba(248, 244, 234, 0.42);
+}
+
+.empty-table-cell {
+  padding: 1.15rem;
+  color: #8a8f98;
+  text-align: center;
+}
+
+.clients-mobile-list {
+  display: none;
+  gap: 0.7rem;
+}
+
+.client-mobile-card {
+  display: grid;
+  gap: 0.55rem;
+  max-height: 120px;
+  padding: 0.85rem;
+  overflow: hidden;
+  border: 1px solid #efe5d3;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 10px 24px rgba(43, 33, 17, 0.04);
 }
 
 .table-row {
@@ -2871,6 +3344,10 @@ function auditUser(user) {
   gap: 0.75rem;
 }
 
+.user-cell-compact {
+  gap: 0.55rem;
+}
+
 .cell-stack {
   display: grid;
   gap: 0.15rem;
@@ -2880,6 +3357,38 @@ function auditUser(user) {
   font-size: 0.98rem;
   line-height: 1.08;
   letter-spacing: -0.03em;
+}
+
+.client-inline-badge {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  min-height: 1.3rem;
+  padding: 0 0.45rem;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+}
+
+.client-inline-badge--success {
+  color: #0f7b53;
+  background: #dceee5;
+}
+
+.client-inline-badge--warn {
+  color: #a34b19;
+  background: #f8e5d7;
+}
+
+.client-inline-badge--info {
+  color: #1d4ed8;
+  background: #dbeafe;
+}
+
+.client-inline-badge--danger {
+  color: #b42318;
+  background: #fee4e2;
 }
 
 .email-cell {
@@ -2895,6 +3404,10 @@ function auditUser(user) {
   flex-wrap: wrap;
   gap: 0.45rem;
   justify-content: flex-start;
+}
+
+.row-actions-compact {
+  justify-content: flex-end;
 }
 
 .table-muted {
@@ -2991,6 +3504,45 @@ function auditUser(user) {
   min-width: 7.5rem;
   justify-content: center;
   font-weight: 800;
+}
+
+.admin-actions-trigger-icon {
+  min-width: 2.2rem;
+  min-height: 2.2rem;
+  padding: 0;
+  border-radius: 999px;
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.pager-button {
+  appearance: none;
+  min-height: 2.35rem;
+  padding: 0 0.9rem;
+  border: 1px solid #d8dedc;
+  border-radius: 999px;
+  background: #fff;
+  color: #1f2937;
+  font-size: 0.86rem;
+  font-weight: 800;
+  transition:
+    transform 0.16s ease,
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    background 0.16s ease;
+}
+
+.pager-button:hover {
+  transform: translateY(-1px);
+  border-color: #d3b773;
+  background: #fffdf8;
+  box-shadow: 0 10px 18px rgba(17, 24, 39, 0.06);
+}
+
+.pager-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .field,
@@ -3302,10 +3854,28 @@ function auditUser(user) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .clients-table-desktop {
+    display: none;
+  }
+
+  .clients-mobile-list {
+    display: grid;
+  }
+
+  .clients-pagination,
+  .client-table-toolbar {
+    align-items: stretch;
+  }
+
   .mini-action-popover {
     top: calc(100% + 0.5rem);
     right: 0;
     transform: none;
+  }
+
+  .mini-action-popover-mobile {
+    position: static;
+    width: 100%;
   }
 
   .split-heading {
@@ -3343,6 +3913,11 @@ function auditUser(user) {
 
   .admin-btn {
     width: 100%;
+  }
+
+  .clients-pagination__actions,
+  .client-mobile-card__meta {
+    justify-content: flex-start;
   }
 }
 </style>
