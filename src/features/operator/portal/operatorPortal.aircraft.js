@@ -1,3 +1,8 @@
+///--------------------------------------------------------------------------------------------
+/// VISTA DE ASIGNACIONES DE MISION OPERATIVA PARA TRIPULACIO
+///--------------------------------------------------------------------------------------------
+
+
 export function createOperatorPortalAircraftDomain(ctx = {}) {
   const {
     aircraft,

@@ -1,3 +1,7 @@
+///--------------------------------------------------------------------------------------------
+/// VISTA DE PERFIL DE TRIPULACION
+///--------------------------------------------------------------------------------------------
+
 <script setup>
 import { computed, onBeforeUnmount, ref } from 'vue'
 import CrewUiIcon from './CrewUiIcon.vue'

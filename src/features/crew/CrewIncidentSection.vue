@@ -1,3 +1,8 @@
+///--------------------------------------------------------------------------------------------
+/// VISTA DE INCIDENCIAS EN MISION PARA TRIPULACION
+///--------------------------------------------------------------------------------------------
+
+
 <script setup>
 import { computed, ref } from 'vue'
 import { resolveMediaUrl } from '../../lib/api'

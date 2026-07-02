@@ -1,3 +1,8 @@
+///--------------------------------------------------------------------------------------------
+/// VISTA DE PORTAL DE TRIPULACION
+///--------------------------------------------------------------------------------------------
+
+
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
@@ -1364,13 +1369,13 @@ async function updateStatus(next) {
     ui.pushToast({
       tone: 'success',
       title: 'Estado operativo actualizado',
-      message: 'La disponibilidad operativa ya quedo registrada en backend.',
+      message: 'La disponibilidad operativa ya quedo registrada .',
     })
   } catch (error) {
     ui.pushToast({
       tone: 'error',
       title: 'No se pudo actualizar',
-      message: error.message || 'El backend no acepto el cambio de estado.',
+      message: error.message || 'No acepto el cambio de estado.',
     })
   }
 }
@@ -1417,13 +1422,13 @@ async function requestBlock() {
     ui.pushToast({
       tone: 'success',
       title: 'Bloqueo registrado',
-      message: 'La restriccion operativa ya quedo guardada en backend.',
+      message: 'La restriccion operativa ya quedo guardada .',
     })
   } catch (error) {
     ui.pushToast({
       tone: 'error',
       title: 'No se pudo bloquear',
-      message: error.message || 'El bloqueo no pudo registrarse en backend.',
+      message: error.message || 'El bloqueo no pudo registrarse .',
     })
   }
 }
@@ -1482,7 +1487,7 @@ async function respondAssignment(id, response) {
     return ui.pushToast({
       tone: 'error',
       title: 'No se pudo responder',
-      message: error.message || 'La respuesta no pudo registrarse en backend.',
+      message: error.message || 'La respuesta no pudo registrarse .',
     })
   }
 
@@ -1549,7 +1554,7 @@ async function confirmBriefing(id) {
     successTitle: 'Llegada confirmada',
     successDetail: 'Tu llegada a aeropuerto/base ya quedo registrada con Admin / Red Sky.',
     errorTitle: 'No se pudo confirmar check-in',
-    errorMessage: 'El check-in operativo no pudo registrarse en backend.',
+    errorMessage: 'El check-in operativo no pudo registrarse .',
     request: (assignment) =>
       requestWithCandidates([
         {
@@ -1570,7 +1575,7 @@ async function markCabinReady(id) {
     successTitle: 'Cabina registrada',
     successDetail: 'La revision de cabina y catering ya quedo sincronizada.',
     errorTitle: 'No se pudo registrar cabina',
-    errorMessage: 'La revision de cabina no pudo registrarse en backend.',
+    errorMessage: 'La revision de cabina no pudo registrarse .',
     request: (assignment) =>
       requestWithCandidates([
         {
@@ -1591,7 +1596,7 @@ async function markPassengersReceived(id) {
     successTitle: 'Pasajeros recibidos',
     successDetail: 'La recepcion de pasajeros ya quedo registrada en la operacion.',
     errorTitle: 'No se pudo registrar recepcion',
-    errorMessage: 'La recepcion de pasajeros no pudo registrarse en backend.',
+    errorMessage: 'La recepcion de pasajeros no pudo registrarse .',
     request: (assignment) =>
       requestWithCandidates([
         {
@@ -1653,7 +1658,7 @@ async function saveAvailabilityDay({ date, state, reason }) {
     ui.pushToast({
       tone: 'error',
       title: 'No se pudo guardar',
-      message: error.message || 'La disponibilidad no pudo actualizarse en backend.',
+      message: error.message || 'La disponibilidad no pudo actualizarse .',
     })
     return
   }
@@ -1673,7 +1678,7 @@ async function startAssignedService(id) {
     successTitle: 'Servicio iniciado',
     successDetail: 'El inicio del servicio ya quedo registrado con Admin / Red Sky.',
     errorTitle: 'No se pudo iniciar',
-    errorMessage: 'El servicio no pudo iniciarse en backend.',
+    errorMessage: 'El servicio no pudo iniciarse .',
     request: (assignment) =>
       requestWithCandidates([
         { method: 'post', path: `/sobrecargo/operations/${assignment.operationId}/start-service`, body: {} },
@@ -1688,7 +1693,7 @@ async function finalizeAssignedService(id) {
     successTitle: 'Servicio finalizado',
     successDetail: 'El cierre del servicio ya quedo registrado en la operacion.',
     errorTitle: 'No se pudo finalizar',
-    errorMessage: 'El cierre del servicio no pudo registrarse en backend.',
+    errorMessage: 'El cierre del servicio no pudo registrarse .',
     request: (assignment) =>
       requestWithCandidates([
         { method: 'post', path: `/sobrecargo/operations/${assignment.operationId}/complete-service`, body: {} },
@@ -1750,7 +1755,7 @@ async function createIncident() {
     incidentForm.phase = 'Pre-vuelo'
     goToSection('dashboard')
   } catch (error) {
-    const message = applyIncidentBackendErrors(error, 'El backend no acepto la incidencia.')
+    const message = applyIncidentBackendErrors(error, 'No acepto la incidencia.')
     ui.pushToast({
       tone: 'error',
       title: 'No se pudo crear',
@@ -1779,13 +1784,13 @@ async function addEvidence(id) {
     ui.pushToast({
       tone: 'success',
       title: 'Evidencia actualizada',
-      message: 'La evidencia ya quedo ligada a la incidencia en backend.',
+      message: 'La evidencia ya quedo ligada a la incidencia .',
     })
   } catch (error) {
     ui.pushToast({
       tone: 'error',
       title: 'No se pudo actualizar',
-      message: error.message || 'La evidencia no pudo guardarse en backend.',
+      message: error.message || 'La evidencia no pudo guardarse .',
     })
   }
 }
@@ -1809,13 +1814,13 @@ async function addComment(id) {
     ui.pushToast({
       tone: 'success',
       title: 'Accion actualizada',
-      message: 'El seguimiento de la incidencia ya quedo registrado en backend.',
+      message: 'El seguimiento de la incidencia ya quedo registrado .',
     })
   } catch (error) {
     ui.pushToast({
       tone: 'error',
       title: 'No se pudo actualizar',
-      message: error.message || 'La accion no pudo registrarse en backend.',
+      message: error.message || 'La accion no pudo registrarse .',
     })
   }
 }
@@ -1865,7 +1870,7 @@ async function escalateIncident(id) {
     ui.pushToast({
       tone: 'error',
       title: 'No se pudo escalar',
-      message: error.message || 'La incidencia no pudo escalarse en backend.',
+      message: error.message || 'La incidencia no pudo escalarse .',
     })
   }
 }
@@ -1909,7 +1914,7 @@ async function addDocument() {
     ui.pushToast({
       tone: 'error',
       title: 'No se pudo subir',
-      message: error.message || 'El documento no pudo registrarse en backend.',
+      message: error.message || 'El documento no pudo registrarse .',
     })
   }
 }
@@ -1930,7 +1935,7 @@ async function updateDocumentState(id, nextState) {
     ui.pushToast({
       tone: 'error',
       title: 'No se pudo actualizar',
-      message: error.message || 'El documento no pudo actualizarse en backend.',
+      message: error.message || 'El documento no pudo actualizarse .',
     })
   }
 }
@@ -1965,7 +1970,7 @@ async function saveProfile() {
     return ui.pushToast({
       tone: 'error',
       title: 'No se pudo guardar',
-      message: error.message || 'El perfil no pudo actualizarse en backend.',
+      message: error.message || 'El perfil no pudo actualizarse .',
     })
   }
 
@@ -1973,7 +1978,7 @@ async function saveProfile() {
   ui.pushToast({
     tone: 'success',
     title: 'Perfil actualizado',
-    message: 'Los cambios del perfil quedaron reflejados en backend.',
+    message: 'Los cambios del perfil quedaron reflejados .',
   })
 }
 
@@ -1998,13 +2003,13 @@ async function saveConfig() {
     ui.pushToast({
       tone: 'success',
       title: 'Configuracion actualizada',
-      message: 'Las preferencias del portal ya quedaron guardadas en backend.',
+      message: 'Las preferencias del portal ya quedaron guardadas .',
     })
   } catch (error) {
     ui.pushToast({
       tone: 'error',
       title: 'No se pudo guardar',
-      message: error.message || 'Las preferencias no pudieron persistirse en backend.',
+      message: error.message || 'Las preferencias no pudieron persistirse .',
     })
   }
 }

@@ -4,6 +4,7 @@ import { requestWithCandidates, pickCollection, pickRecord } from '../../../lib/
 import { api, resolveMediaUrl } from '../../../lib/api'
 import { resolveProviderIdForUser } from '../../../lib/providerContext'
 import { resolveBestCompanyDisplayName } from '../../../lib/companyDisplay'
+import { resolveProviderStatusMeta } from '../../../lib/providerReview'
 import { buildFrontendUrl } from '../../../lib/frontendUrl'
 import {
   buildSharedFlowStepStates,
@@ -23,6 +24,7 @@ import { deriveClientWorkflowStatus } from '../../client/clientBookingApi'
 import { useAuthStore } from '../../../stores/auth'
 import { useUiStore } from '../../../stores/ui'
 import {
+  buildRequestFullRoute,
   buildRealtimeRequestPayload,
   buildRealtimeRequestsFromNotifications,
   findOperatorRequestByIdentifier,
@@ -1307,7 +1309,7 @@ const providerPaymentProfile = computed(() => {
       .join('') || 'PR',
     company: company.tradeName || company.legalName || rawName,
     roleLabel: auth.user?.role_name || 'Proveedor',
-    verification: companyStatusMeta.value.tone === 'success' ? 'Proveedor verificado' : 'Proveedor en revision',
+    verification: companyStatusMeta.value.tone === 'success' ? 'Proveedor validado por admin' : 'Pendiente de revision admin',
     lastAccess: formatRelativeAccessLabel(lastAccessRaw),
     onlineLabel: loading.value ? 'Sincronizando' : 'Online',
   }
@@ -1714,7 +1716,7 @@ const operationalActivityTimeline = computed(() => {
   if (entries.length) return entries
 
   return [
-    { id: 'fallback-operator', time: '09:00', title: 'Operador validado', detail: companyStatusMeta.value.label },
+    { id: 'fallback-operator', time: '09:00', title: 'Revision administrativa', detail: companyStatusMeta.value.label },
     { id: 'fallback-availability', time: '09:15', title: 'Disponibilidad actualizada', detail: `${availabilityReadyCount.value} aeronave(s) listas` },
     { id: 'fallback-aircraft', time: '10:20', title: 'Aeronave registrada', detail: `${aircraft.value.length} en flota` },
     { id: 'fallback-coordination', time: '11:40', title: 'Coordinacion completada', detail: 'Centro operacional en espera activa' },
@@ -1920,8 +1922,8 @@ const dashboardCards = computed(() => [
     label: 'Estado empresa',
     value: companyStatusMeta.value.label,
     tone: companyStatusMeta.value.tone,
-    status: companyStatusMeta.value.headline,
-    detail: company.reviewStatus || 'Sin estado visible',
+    status: companyAdminDecisionCopy.value.title,
+    detail: companyAdminDecisionCopy.value.detail,
   },
   {
     icon: '⚠',
@@ -2031,32 +2033,44 @@ const aircraftCatalogStatusTabs = computed(() => {
 const filteredAircraftCatalog = computed(() => {
   const query = String(aircraftCatalogSearch.value || '').trim().toLowerCase()
 
-  return aircraft.value.filter((item) => {
-    const matchesSearch =
-      !query ||
-      [
-        item.name,
-        item.registration,
-        item.base,
-        item.category,
-        item.manufacturer,
-        humanizeAircraftStatus(item.status),
-      ]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(query))
+  return aircraft.value
+    .filter((item) => {
+      const matchesSearch =
+        !query ||
+        [
+          item.name,
+          item.registration,
+          item.base,
+          item.category,
+          item.manufacturer,
+          humanizeAircraftStatus(item.status),
+        ]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(query))
 
-    const matchesStatus =
-      aircraftCatalogStatus.value === 'all' ||
-      getAircraftCatalogStatusKey(item) === aircraftCatalogStatus.value
+      const matchesStatus =
+        aircraftCatalogStatus.value === 'all' ||
+        getAircraftCatalogStatusKey(item) === aircraftCatalogStatus.value
 
-    const matchesBase =
-      aircraftCatalogBase.value === 'all' || String(item.base || '') === aircraftCatalogBase.value
+      const matchesBase =
+        aircraftCatalogBase.value === 'all' || String(item.base || '') === aircraftCatalogBase.value
 
-    const matchesCategory =
-      aircraftCatalogCategory.value === 'all' || String(item.category || '') === aircraftCatalogCategory.value
+      const matchesCategory =
+        aircraftCatalogCategory.value === 'all' || String(item.category || '') === aircraftCatalogCategory.value
 
-    return matchesSearch && matchesStatus && matchesBase && matchesCategory
-  })
+      return matchesSearch && matchesStatus && matchesBase && matchesCategory
+    })
+    .sort((current, next) => {
+      const currentLabel = String(current.name || current.model || current.registration || '').trim()
+      const nextLabel = String(next.name || next.model || next.registration || '').trim()
+
+      return (
+        currentLabel.localeCompare(nextLabel, 'es', { sensitivity: 'base' }) ||
+        String(current.registration || '').localeCompare(String(next.registration || ''), 'es', {
+          sensitivity: 'base',
+        })
+      )
+    })
 })
 
 const aircraftOperationalTimeline = computed(() =>
@@ -2189,30 +2203,63 @@ const aircraftWizardSnapshot = computed(() => [
 ])
 
 const companyStatusMeta = computed(() => {
-  const normalized = String(company.status || company.reviewStatus || '').toLowerCase()
-  if (['approved', 'aprobada', 'aprobado', 'active'].includes(normalized)) {
-    return { label: 'Aprobado', tone: 'success', headline: 'Operador verificado' }
-  }
-  if (
-    normalized.includes('pending_validation') ||
-    normalized.includes('revision') ||
-    normalized.includes('pending')
-  ) {
-    return { label: 'En revision', tone: 'warning', headline: 'Validacion en proceso' }
-  }
-  if (
-    normalized.includes('reject') ||
-    normalized.includes('cambio') ||
-    normalized.includes('suspend')
-  ) {
-    return { label: 'Requiere cambios', tone: 'danger', headline: 'Accion requerida' }
-  }
-
-  return { label: company.status || 'Sin estado', tone: 'neutral', headline: 'Perfil operativo' }
+  return resolveProviderStatusMeta({
+    admin_validation_status: company.adminValidationStatus || company.reviewStatus,
+    operator_status: company.operatorStatus,
+    approval_status: company.approvalStatus || company.status,
+    admin_review_submitted_at: company.adminReviewSubmittedAt,
+    access_enabled: company.accessEnabled,
+  })
 })
 
-const providerCanRegisterAircraft = computed(
-  () => Boolean(company.canRegisterAircraft) || companyStatusMeta.value.tone === 'success',
+const providerCanRegisterAircraft = computed(() => Boolean(company.accessEnabled))
+
+const companyAdminDecisionCopy = computed(() => {
+  if (company.accessEnabled && company.adminValidationStatus === 'approved') {
+    return {
+      title: 'Operador validado por administracion',
+      detail: 'Acceso operativo habilitado',
+      notes: company.adminNotes || 'La validacion administrativa ya fue aprobada manualmente.',
+    }
+  }
+
+  if (company.adminValidationStatus === 'pending_review') {
+    return {
+      title: 'Expediente enviado a revision administrativa',
+      detail: 'Pendiente de decision admin',
+      notes: company.adminNotes || 'El expediente esta en cola de revision administrativa.',
+    }
+  }
+
+  if (company.adminValidationStatus === 'changes_required') {
+    return {
+      title: 'Cambios solicitados por administracion',
+      detail: 'Acceso operativo deshabilitado hasta corregir el expediente',
+      notes: company.changesNotes || company.adminNotes || 'Administracion solicito ajustes antes de validar al operador.',
+    }
+  }
+
+  if (company.adminValidationStatus === 'rejected') {
+    return {
+      title: 'Expediente rechazado por administracion',
+      detail: 'Acceso operativo deshabilitado',
+      notes: company.rejectionReason || company.adminNotes || 'La validacion administrativa fue rechazada.',
+    }
+  }
+
+  return {
+    title: 'Expediente pendiente de validacion administrativa',
+    detail: 'Readiness en captura; sin aprobacion final aun',
+    notes: company.adminNotes || 'Completa el expediente y envialo a revision para que administracion tome la decision final.',
+  }
+})
+
+const companyRequirementResponses = computed(() =>
+  Array.isArray(company.validationRequirements)
+    ? company.validationRequirements.filter((item) =>
+        ['approved', 'rejected'].includes(String(item.response_status || item.responseStatus || '').toLowerCase()),
+      )
+    : [],
 )
 
 const companyLastAuditDate = computed(() => {
@@ -2257,8 +2304,18 @@ const companyValidationSummary = computed(() => [
   },
   {
     label: 'Validacion SAT',
-    value: companyForm.rfc ? 'Verificada' : 'Pendiente',
-    tone: companyForm.rfc ? 'success' : 'warning',
+    value:
+      ['approved', 'aprobado', 'validated', 'validado'].includes(
+        String(company.satValidationStatus || '').toLowerCase(),
+      )
+        ? 'Verificada'
+        : 'Pendiente',
+    tone:
+      ['approved', 'aprobado', 'validated', 'validado'].includes(
+        String(company.satValidationStatus || '').toLowerCase(),
+      )
+        ? 'success'
+        : 'warning',
   },
   {
     label: 'Documentacion legal',
@@ -2278,26 +2335,44 @@ const companyValidationSummary = computed(() => [
     tone: aircraft.value[0]?.trialDaysLeft ? 'info' : 'neutral',
   },
   {
-    label: 'Ultima revision admin',
-    value: companyLastAuditDate.value,
-    tone: 'neutral',
+    label: 'Acceso operativo',
+    value: company.accessEnabled ? 'Habilitado' : 'Pendiente de validacion admin',
+    tone: company.accessEnabled ? 'success' : 'warning',
   },
 ])
 
 const companyAlerts = computed(() => {
   const alerts = []
 
-  if (!company.documents.length) {
-    alerts.push({ tone: 'warning', title: 'Falta cargar documentacion legal' })
-  }
-  if (!aircraft.value.length) {
-    alerts.push({ tone: 'info', title: 'Empresa lista para registrar aeronaves' })
-  }
-  if (company.documents.length && aircraft.value.length) {
-    alerts.push({ tone: 'success', title: 'Perfil listo para seguir con flota y validacion' })
+  const missingRequirements = Array.isArray(company.validationRequirements)
+    ? company.validationRequirements.filter((item) => !item.complete)
+    : []
+
+  if (company.adminValidationStatus === 'changes_required') {
+    alerts.push({
+      tone: 'danger',
+      title: company.changesNotes || company.adminNotes || 'Cambios solicitados por administracion.',
+    })
+  } else if (company.adminValidationStatus === 'rejected') {
+    alerts.push({
+      tone: 'danger',
+      title: company.rejectionReason || company.adminNotes || 'Expediente rechazado por administracion.',
+    })
+  } else if (company.accessEnabled && company.adminValidationStatus === 'approved') {
+    alerts.push({ tone: 'success', title: 'Operador validado por administracion. Acceso operativo habilitado.' })
+  } else if (company.adminValidationStatus === 'pending_review') {
+    alerts.push({ tone: 'info', title: 'Expediente enviado a revision administrativa.' })
   }
 
-  return alerts.slice(0, 2)
+  if (missingRequirements.length && company.adminValidationStatus !== 'approved') {
+    missingRequirements.slice(0, 3).forEach((item) => {
+      alerts.push({ tone: 'warning', title: item.message || `${item.label} pendiente` })
+    })
+  } else if (!alerts.length) {
+    alerts.push({ tone: 'info', title: 'Expediente pendiente de validacion administrativa.' })
+  }
+
+  return alerts.slice(0, 3)
 })
 
 const companyAuditTimeline = computed(() =>
@@ -2343,8 +2418,8 @@ const dashboardGlobalStatus = computed(() => {
 
   return {
     tone: 'warning',
-    title: 'Completa configuracion para activar operaciones',
-    detail: 'Aun faltan pasos de onboarding para dejar el operador completamente operativo.',
+    title: 'Pendiente de revision administrativa',
+    detail: 'El readiness mide avance del expediente, pero la habilitacion final depende del admin.',
   }
 })
 
@@ -2363,7 +2438,7 @@ const dashboardAlerts = computed(() => {
     title:
       companyStatusMeta.value.tone === 'success'
         ? 'Operador aprobado'
-        : 'Validacion de empresa en proceso',
+        : 'Expediente pendiente de validacion admin',
     action: 'Ver empresa',
     section: 'empresa',
   })
@@ -3219,9 +3294,18 @@ function createEmptyCompany() {
     marginPercent: '',
     fixedFee: '',
     status: 'pendiente',
+    approvalStatus: 'pending',
     reviewStatus: 'Sin datos',
+    adminValidationStatus: 'draft',
+    operatorStatus: 'incomplete',
+    adminReviewSubmittedAt: '',
+    satValidationStatus: 'pending',
     canRegisterAircraft: false,
+    accessEnabled: false,
     adminNotes: '',
+    changesNotes: '',
+    rejectionReason: '',
+    validationRequirements: [],
     documents: [],
   }
 }
@@ -3414,6 +3498,7 @@ const {
   resetProviderOperationalReleaseForm,
   resolveProviderOperationalReleaseSource,
   scheduleProviderOperationalReleaseAutosave,
+  syncProviderOperationalDerivedStatuses,
 } = releaseDomain
 
 async function persistProviderOperationalReleaseDraft() {
@@ -4445,11 +4530,23 @@ function openProviderRelease(requestOrId = null) {
 
 function normalizeCompany(raw = {}) {
   const approvalStatus =
-    raw.approval_status || raw.validation_status || raw.review_status || raw.status || company.status
-  const providerStatus = raw.provider_status || approvalStatus
-  const canRegisterAircraft =
-    raw.can_register_aircraft ??
-    ['approved', 'aprobada', 'aprobado', 'active'].includes(String(approvalStatus || '').toLowerCase())
+    raw.approval_status || raw.validation_status || raw.status || company.approvalStatus || company.status
+  const adminValidationStatus =
+    raw.admin_validation_status || raw.review_status || raw.reviewStatus || company.adminValidationStatus
+  const operatorStatus = raw.operator_status || raw.operatorStatus || raw.provider_status || company.operatorStatus
+  const companyDocuments = Array.isArray(raw.documents)
+    ? raw.documents
+    : Array.isArray(raw.legal_documents)
+      ? raw.legal_documents
+      : Array.isArray(raw.company_documents)
+        ? raw.company_documents
+        : Array.isArray(raw.documentos)
+          ? raw.documentos
+          : Array.isArray(raw.files)
+            ? raw.files
+            : []
+  const accessEnabled = Boolean(raw.access_enabled ?? raw.accessEnabled ?? company.accessEnabled)
+  const canRegisterAircraft = raw.can_register_aircraft ?? accessEnabled
 
   return {
     legalName:
@@ -4471,26 +4568,82 @@ function normalizeCompany(raw = {}) {
       raw.legal_representative ||
       raw.representante_legal ||
       company.legalRepresentative,
-    status: providerStatus || company.status,
+    status: operatorStatus || company.status,
+    approvalStatus,
     jetAPrice: raw.jet_a_price ?? raw.jetA ?? raw.precio_jet_a ?? company.jetAPrice,
     marginPercent:
       raw.margin_percent ?? raw.utility_percent ?? raw.porcentaje_utilidad ?? company.marginPercent,
     fixedFee: raw.fixed_fee ?? raw.fee_fijo ?? company.fixedFee,
-    reviewStatus: approvalStatus || raw.estado_validacion || company.reviewStatus,
+    reviewStatus: adminValidationStatus || raw.estado_validacion || company.reviewStatus,
+    adminValidationStatus,
+    operatorStatus,
+    adminReviewSubmittedAt: raw.admin_review_submitted_at || raw.adminReviewSubmittedAt || company.adminReviewSubmittedAt,
+    satValidationStatus: raw.sat_validation_status || raw.satValidationStatus || company.satValidationStatus,
     canRegisterAircraft: Boolean(canRegisterAircraft),
-    adminNotes: raw.admin_notes || raw.observations || raw.observaciones || company.adminNotes,
-    documents: Array.isArray(raw.documents)
-      ? raw.documents.map((document, index) => normalizeCompanyDocument(document, index))
+    accessEnabled,
+    adminNotes:
+      raw.admin_notes ||
+      raw.admin_validation_notes ||
+      raw.observations ||
+      raw.observaciones ||
+      company.adminNotes,
+    changesNotes: raw.changes_notes || raw.changesNotes || company.changesNotes,
+    rejectionReason: raw.rejection_reason || raw.rejectionReason || company.rejectionReason,
+    validationRequirements: Array.isArray(raw.validation_requirements)
+      ? raw.validation_requirements
+      : Array.isArray(raw.validationRequirements)
+        ? raw.validationRequirements
+        : company.validationRequirements,
+    documents: companyDocuments.length
+      ? companyDocuments.map((document, index) => normalizeCompanyDocument(document, index))
       : company.documents,
   }
 }
 
 function normalizeCompanyDocument(raw = {}, index = 0) {
+  const resolvedPath =
+    raw.download_url ||
+    raw.downloadUrl ||
+    raw.url ||
+    raw.file_url ||
+    raw.fileUrl ||
+    raw.path ||
+    raw.storage_path ||
+    raw.full_path ||
+    ''
+
   return {
     id: raw.id || index + 1,
-    name: raw.document_name || raw.name || raw.file_name || `Documento ${index + 1}`,
-    state: raw.status || raw.state || 'pendiente',
+    name:
+      raw.original_name ||
+      raw.document_name ||
+      raw.name ||
+      raw.file_name ||
+      raw.filename ||
+      `Documento ${index + 1}`,
+    originalName: raw.original_name || raw.document_name || raw.name || raw.file_name || '',
+    fileName: raw.file_name || raw.filename || '',
+    path: raw.path || raw.storage_path || '',
+    url: normalizeMediaUrl(resolvedPath),
+    downloadUrl: normalizeMediaUrl(raw.download_url || raw.downloadUrl || resolvedPath),
+    mimeType: raw.mime_type || raw.mime || raw.content_type || '',
+    size: Number(raw.size || raw.file_size || 0),
+    createdAt: raw.created_at || raw.uploaded_at || raw.updated_at || '',
+    state: raw.status || raw.state || raw.validation_status || raw.review_status || 'pendiente',
+    notes: raw.notes || raw.observation || raw.observacion || raw.admin_notes || '',
   }
+}
+
+function humanizeCompanyDocumentState(value = '') {
+  const normalized = String(value || '').trim().toLowerCase()
+
+  if (!normalized) return 'Pendiente'
+  if (normalized.includes('aprob') || normalized === 'approved') return 'Aprobado'
+  if (normalized.includes('rech') || normalized === 'rejected') return 'Rechazado'
+  if (normalized.includes('review') || normalized.includes('revision')) return 'En revision'
+  if (normalized.includes('pend')) return 'Pendiente'
+
+  return String(value || 'Pendiente')
 }
 
 const minimumAircraftYear = 1900
@@ -5253,7 +5406,13 @@ function normalizeRequest(raw = {}, index = 0) {
       raw.customer_name ||
       raw.passenger_name ||
       normalizeClientLabel(raw.client || raw.customer || raw.user),
-    route: raw.route || `${origin} - ${destination}`,
+    route: buildRequestFullRoute({
+      ...raw,
+      origin,
+      destination,
+      route: raw.route || '',
+      requirements,
+    }),
     origin,
     destination,
     date: departureDateTime || 'Sin fecha',
@@ -6314,6 +6473,36 @@ function hydrateCompany(rawCompany = {}) {
 function setCompanyDocumentFile(file) {
   companyForm.newDocumentFile = file || null
   companyForm.newDocumentName = file?.name || ''
+}
+
+function buildCompanyDocumentDebugPayload(formData) {
+  return Array.from(formData.entries()).map(([key, value]) => {
+    if (value instanceof File) {
+      return {
+        key,
+        kind: 'file',
+        name: value.name,
+        size: value.size,
+        type: value.type,
+      }
+    }
+
+    return {
+      key,
+      kind: typeof value,
+      value,
+    }
+  })
+}
+
+function logCompanyReviewUpload(formData, file) {
+  if (typeof console === 'undefined') return
+
+  console.info('[provider-review] archivo seleccionado', file)
+  console.info('[provider-review] nombre', file?.name || '')
+  console.info('[provider-review] tamano', Number(file?.size || 0))
+  console.info('[provider-review] mime', file?.type || '')
+  console.info('[provider-review] form-data', buildCompanyDocumentDebugPayload(formData))
 }
 
 async function reloadCompany() {
@@ -8056,6 +8245,8 @@ function schedulePortalLoad() {
 
 async function saveCompany() {
   clearFormFeedback('company')
+  const pendingDocumentFile = companyForm.newDocumentFile
+  const pendingDocumentName = companyForm.newDocumentName
   const payload = {
     legal_name: companyForm.legalName,
     rfc: companyForm.rfc,
@@ -8081,7 +8272,9 @@ async function saveCompany() {
       hydrateCompany(payload)
     }
 
-    if (companyForm.newDocumentFile) {
+    if (pendingDocumentFile) {
+      companyForm.newDocumentFile = pendingDocumentFile
+      companyForm.newDocumentName = pendingDocumentName || pendingDocumentFile.name
       await uploadCompanyDocument()
     }
 
@@ -8118,16 +8311,63 @@ async function saveCompany() {
 
 async function sendCompanyToReview() {
   try {
-    await requestWithCandidates([
-      { method: 'post', path: '/proveedor/empresa/enviar-revision', body: {} },
+    clearFormFeedback('company')
+    const selectedFile = companyForm.newDocumentFile
+    const selectedFileName = companyForm.newDocumentName || selectedFile?.name || ''
+    const formData = new FormData()
+
+    formData.append('review_status', 'pending_validation')
+    formData.append('validation_status', 'pending_validation')
+    formData.append('status', 'pending_validation')
+
+    if (selectedFile) {
+      formData.append('file', selectedFile)
+      formData.append('document', selectedFile)
+      formData.append('documents[]', selectedFile)
+      formData.append('legal_document', selectedFile)
+      formData.append('document_name', selectedFileName)
+      formData.append('original_name', selectedFileName)
+      logCompanyReviewUpload(formData, selectedFile)
+    }
+
+    const response = await requestWithCandidates([
+      { method: 'postForm', path: '/proveedor/empresa/enviar-revision', formData },
+      { method: 'postForm', path: '/provider/company/send-review', formData },
+      { method: 'postForm', path: '/operator/company/send-review', formData },
     ])
-    company.status = 'pendiente'
-    company.reviewStatus = 'En revision por Admin'
+
+    const record = pickRecord(response, ['provider', 'company', 'empresa'])
+    if (record && Object.keys(record).length) {
+      hydrateCompany(record)
+    } else {
+      company.status = 'pending_review'
+      company.reviewStatus = 'En revision por Admin'
+      company.adminValidationStatus = 'pending_review'
+      company.operatorStatus = 'pending_review'
+      company.accessEnabled = false
+    }
+
+    if (selectedFile && !company.documents.length) {
+      await reloadCompany()
+    }
+
+    if (selectedFile && !company.documents.length) {
+      companyForm.newDocumentFile = selectedFile
+      companyForm.newDocumentName = selectedFileName
+      console.warn?.(
+        '[provider-review] enviar-revision no regreso documents. Ejecutando carga legacy /empresa/documentos.',
+      )
+      await uploadCompanyDocument()
+      await reloadCompany()
+    }
+
     pushHistory('Mi empresa', 'Empresa enviada a revision')
     ui.pushToast({
       tone: 'success',
       title: 'Revision solicitada',
-      message: 'La empresa fue enviada al backend para revision administrativa.',
+      message: selectedFile
+        ? 'La empresa y su documento legal fueron enviados para revision administrativa.'
+        : 'La empresa fue enviada para su revision administrativa.',
     })
   } catch (error) {
     showError(
@@ -10223,6 +10463,8 @@ watch(
       aircraftWizardModeMeta,
       aircraftWizardSnapshot,
       companyStatusMeta,
+      companyAdminDecisionCopy,
+      companyRequirementResponses,
       companyLastAuditDate,
       companyOperationalBase,
       companyOnboardingSteps,
@@ -10368,6 +10610,7 @@ watch(
       hydrateSettings,
       normalizeHistory,
       hydrateCompany,
+      humanizeCompanyDocumentState,
       setCompanyDocumentFile,
       reloadCompany,
       uploadCompanyDocument,

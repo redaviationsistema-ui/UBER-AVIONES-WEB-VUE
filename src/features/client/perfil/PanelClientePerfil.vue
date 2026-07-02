@@ -922,7 +922,7 @@ onBeforeUnmount(() => {
                 >
                   <div class="airport-search-meta">
                     <span v-if="airportLoading.origin">Buscando aeropuertos...</span>
-                    <span v-else>{{ airportSource.origin === 'remote' ? 'Resultados conectados al backend' : 'Sugerencias locales de apoyo' }}</span>
+                    <span v-else>{{ airportSource.origin === 'remote' ? 'Resultados conectados ' : 'Sugerencias locales de apoyo' }}</span>
                   </div>
                   <button
                     v-for="airport in originSuggestions"
@@ -952,7 +952,7 @@ onBeforeUnmount(() => {
                 >
                   <div class="airport-search-meta">
                     <span v-if="airportLoading.destination">Buscando aeropuertos...</span>
-                    <span v-else>{{ airportSource.destination === 'remote' ? 'Resultados conectados al backend' : 'Sugerencias locales de apoyo' }}</span>
+                    <span v-else>{{ airportSource.destination === 'remote' ? 'Resultados conectados ' : 'Sugerencias locales de apoyo' }}</span>
                   </div>
                   <button
                     v-for="airport in destinationSuggestions"

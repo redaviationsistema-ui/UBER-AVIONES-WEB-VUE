@@ -1,3 +1,6 @@
+///--------------------------------------------------------------------------------------------
+///vista de la agenda operativa de la tripulación, con listado de vuelos asignados y estado de avance de cada vuelo. Permite marcar confirmación, llegada a briefing, cabina lista, pasajeros recibidos, servicio en vuelo y cierre operativo.
+///--------------------------------------------------------------------------------------------
 <script setup>
 import { computed } from 'vue'
 import CrewUiIcon from './CrewUiIcon.vue'

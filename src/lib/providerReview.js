@@ -43,6 +43,130 @@ function countDocuments(provider = {}) {
   )
 }
 
+function normalizeDocumentCollection(provider = {}) {
+  if (Array.isArray(provider.documents)) return provider.documents
+  if (Array.isArray(provider.legal_documents)) return provider.legal_documents
+  if (Array.isArray(provider.company_documents)) return provider.company_documents
+  if (Array.isArray(provider.files)) return provider.files
+  return []
+}
+
+function areLegalDocumentsApproved(provider = {}) {
+  const documents = normalizeDocumentCollection(provider)
+  if (!documents.length) return false
+
+  return documents.every((document) => {
+    const normalized = normalizeToken(
+      document.status || document.state || document.validation_status || document.review_status,
+    )
+
+    return ['approved', 'aprobado', 'aprobada', 'vigente', 'validado'].includes(normalized)
+  })
+}
+
+function resolveSatValidationStatus(provider = {}) {
+  const normalized = normalizeToken(
+    provider.sat_validation_status ||
+      provider.satValidationStatus ||
+      provider.tax_data?.sat_validation_status ||
+      provider.profile?.tax_data?.sat_validation_status,
+  )
+
+  if (normalized) return normalized
+  return provider.rfc ? 'approved' : 'pending'
+}
+
+function resolveValidationRequirements(provider = {}, metrics = {}) {
+  const backendRequirements = Array.isArray(provider.validation_requirements)
+    ? provider.validation_requirements
+    : Array.isArray(provider.validationRequirements)
+      ? provider.validationRequirements
+      : null
+
+  if (backendRequirements?.length) {
+    return backendRequirements.map((item) => ({
+      key: item.key || item.id || item.label,
+      label: item.label || item.key || 'Requisito',
+      complete: Boolean(item.complete),
+      message: item.message || item.reason || '',
+      responseStatus: item.response_status || item.responseStatus || 'pending',
+      adminNote: item.admin_note || item.adminNote || '',
+      respondedAt: item.responded_at || item.respondedAt || '',
+      actorId: item.actor_id || item.actorId || null,
+      actorName: item.actor_name || item.actorName || '',
+      actorType: item.actor_type || item.actorType || '',
+    }))
+  }
+
+  const aircraft = toNumber(metrics.aircraft || provider.aircraft_count || 0)
+  const active = toNumber(metrics.active || provider.active_aircraft_count || 0)
+  const hasCompanyData = Boolean(
+    provider.legal_name ||
+      provider.razon_social ||
+      provider.company_name ||
+      provider.commercial_name ||
+      provider.nombre_empresa,
+  )
+  const hasContact = Boolean(provider.company_phone || provider.phone) && Boolean(provider.company_email || provider.email)
+  const hasFiscal = Boolean(provider.rfc)
+  const satApproved = ['approved', 'aprobado', 'validated', 'validado'].includes(
+    resolveSatValidationStatus(provider),
+  )
+  const representative = resolveProviderRepresentativeName(provider)
+  const base = provider.base_airport || provider.base || provider.location || ''
+
+  return [
+    {
+      key: 'company_identity',
+      label: 'Identidad corporativa',
+      complete: hasCompanyData,
+      message: 'Faltan datos corporativos del operador.',
+    },
+    {
+      key: 'rfc_valid',
+      label: 'RFC valido',
+      complete: hasFiscal,
+      message: 'Falta RFC valido del operador.',
+    },
+    {
+      key: 'sat_validation',
+      label: 'Validacion SAT',
+      complete: satApproved,
+      message: 'La validacion SAT sigue pendiente.',
+    },
+    {
+      key: 'legal_documents_approved',
+      label: 'Documentacion legal aprobada',
+      complete: areLegalDocumentsApproved(provider),
+      message: 'La documentacion legal aun no esta aprobada.',
+    },
+    {
+      key: 'base_operativa',
+      label: 'Base operativa definida',
+      complete: Boolean(base),
+      message: 'Falta base operativa definida.',
+    },
+    {
+      key: 'aircraft_active',
+      label: 'Aeronave activa o aprobada',
+      complete: active > 0 || aircraft > 0,
+      message: 'Se requiere al menos una aeronave activa o aprobada.',
+    },
+    {
+      key: 'contact_complete',
+      label: 'Datos de contacto completos',
+      complete: hasContact,
+      message: 'Faltan datos de contacto completos.',
+    },
+    {
+      key: 'legal_representative_complete',
+      label: 'Representante legal completo',
+      complete: representative !== 'Sin representante',
+      message: 'Falta representante legal completo.',
+    },
+  ]
+}
+
 export function resolveProviderCompanyName(provider = {}) {
   return resolveBestCompanyDisplayName(
     provider.company_name,
@@ -76,65 +200,68 @@ export function resolveProviderRepresentativeName(provider = {}) {
   return realRepresentative || 'Sin representante'
 }
 
-export function resolveProviderStatusMeta(provider = {}) {
-  const normalized = normalizeToken(
-    provider.review_status ||
-      provider.reviewStatus ||
-      provider.validation_status ||
-      provider.approval_status ||
-      provider.status ||
-      provider.state,
+export function resolveProviderAdminValidationStatus(provider = {}) {
+  const explicit = normalizeToken(
+    provider.admin_validation_status || provider.adminValidationStatus || provider.review_status || provider.reviewStatus,
   )
 
-  if (
-    normalized.includes('approv') ||
-    normalized.includes('aprob') ||
-    normalized.includes('active') ||
-    normalized.includes('activo')
-  ) {
+  if (explicit === 'expediente_incompleto') return 'draft'
+  if (explicit) return explicit
+
+  const accessEnabled = Boolean(provider.access_enabled ?? provider.accessEnabled)
+  const operatorStatus = normalizeToken(provider.operator_status || provider.operatorStatus)
+  const approval = normalizeToken(provider.approval_status || provider.validation_status || provider.status || provider.state)
+  if (accessEnabled && (operatorStatus === 'validated' || approval === 'approved')) return 'approved'
+  if (approval === 'rejected') return 'rejected'
+  if (approval === 'suspended') return 'changes_required'
+  if (provider.admin_review_submitted_at || provider.adminReviewSubmittedAt) return 'pending_review'
+  return 'draft'
+}
+
+export function resolveProviderStatusMeta(provider = {}) {
+  const normalized = resolveProviderAdminValidationStatus(provider)
+
+  if (normalized === 'approved') {
     return {
       key: 'approved',
       label: 'Aprobado',
       tone: 'success',
-      headline: 'Operador validado',
+      headline: 'Operador validado por administracion',
     }
   }
 
-  if (
-    normalized.includes('reject') ||
-    normalized.includes('rech') ||
-    normalized.includes('suspend') ||
-    normalized.includes('block') ||
-    normalized.includes('cambio')
-  ) {
+  if (normalized === 'changes_required') {
     return {
       key: 'changes_required',
-      label: 'Requiere cambios',
+      label: 'Cambios requeridos',
       tone: 'danger',
-      headline: 'Accion requerida',
+      headline: 'Cambios solicitados por administracion',
     }
   }
 
-  if (
-    normalized.includes('revision') ||
-    normalized.includes('review') ||
-    normalized.includes('pending') ||
-    normalized.includes('pendiente') ||
-    normalized.includes('validat')
-  ) {
+  if (normalized === 'rejected' || normalized === 'cancelled') {
     return {
-      key: 'in_review',
-      label: 'En revision',
+      key: 'rejected',
+      label: 'Validacion cancelada',
+      tone: 'danger',
+      headline: 'Expediente rechazado por administracion',
+    }
+  }
+
+  if (normalized === 'pending_review' || normalized === 'pending_validation') {
+    return {
+      key: 'pending',
+      label: 'Pendiente de revision',
       tone: 'warning',
-      headline: 'Validacion en proceso',
+      headline: 'Expediente enviado a revision administrativa',
     }
   }
 
   return {
-    key: 'neutral',
-    label: provider.status || provider.approval_status || 'Sin estado',
+    key: 'draft',
+    label: 'Expediente incompleto',
     tone: 'neutral',
-    headline: 'Perfil operativo',
+    headline: 'Expediente pendiente de validacion administrativa',
   }
 }
 
@@ -156,12 +283,20 @@ export function buildProviderReviewFlow(provider = {}, metrics = {}) {
   const hasFiscal = Boolean(provider.rfc)
   const representative = resolveProviderRepresentativeName(provider)
   const base = provider.base_airport || provider.base || provider.location || 'Base pendiente'
+  const satStatus = resolveSatValidationStatus(provider)
+  const validationRequirements = resolveValidationRequirements(provider, metrics)
+  const missingValidationItems = validationRequirements.filter((item) => !item.complete)
+  const canValidate =
+    Boolean(provider.can_validate ?? provider.canValidate) ||
+    (!('can_validate' in provider) && !('canValidate' in provider) && missingValidationItems.length === 0)
 
   const checklist = [
     { id: 'company', label: 'Datos empresa', complete: hasCompanyData },
     { id: 'contact', label: 'Contacto', complete: hasContact },
     { id: 'tax', label: 'RFC', complete: hasFiscal },
     { id: 'documents', label: 'Documentos', complete: documentCount > 0, pending: documentCount === 0 },
+    { id: 'base', label: 'Base operativa', complete: base !== 'Base pendiente', pending: base === 'Base pendiente' },
+    { id: 'representative', label: 'Representante legal', complete: representative !== 'Sin representante', pending: representative === 'Sin representante' },
     { id: 'aircraft', label: 'Aeronaves', complete: aircraft > 0, pending: aircraft === 0 },
   ]
 
@@ -174,11 +309,15 @@ export function buildProviderReviewFlow(provider = {}, metrics = {}) {
 
   const summary = [
     { label: 'Estado empresa', value: statusMeta.label, tone: statusMeta.tone },
-    { label: 'Validacion SAT', value: hasFiscal ? 'Verificada' : 'Pendiente', tone: hasFiscal ? 'success' : 'warning' },
+    {
+      label: 'Validacion SAT',
+      value: ['approved', 'aprobado', 'validated', 'validado'].includes(satStatus) ? 'Verificada' : 'Pendiente',
+      tone: ['approved', 'aprobado', 'validated', 'validado'].includes(satStatus) ? 'success' : 'warning',
+    },
     {
       label: 'Documentacion legal',
-      value: documentCount ? `${documentCount} documento(s)` : 'Sin documentos',
-      tone: documentCount ? 'success' : 'warning',
+      value: documentCount ? (areLegalDocumentsApproved(provider) ? `${documentCount} documento(s)` : 'Pendiente de dictamen') : 'Sin documentos',
+      tone: areLegalDocumentsApproved(provider) ? 'success' : documentCount ? 'warning' : 'warning',
     },
     {
       label: 'Aeronaves activas',
@@ -197,24 +336,51 @@ export function buildProviderReviewFlow(provider = {}, metrics = {}) {
     },
   ]
 
-  const alerts = []
+  const alerts = missingValidationItems.map((item) => ({
+    tone: 'warning',
+    title: item.message || `${item.label} pendiente`,
+  }))
 
-  if (!hasFiscal) alerts.push({ tone: 'warning', title: 'Falta RFC para completar validacion fiscal' })
-  if (!documentCount) alerts.push({ tone: 'warning', title: 'Falta cargar documentacion legal' })
-  if (!aircraft) alerts.push({ tone: 'info', title: 'Empresa lista para registrar aeronaves' })
   if (statusMeta.key === 'changes_required') {
-    alerts.push({ tone: 'danger', title: 'La cuenta requiere ajustes antes de aprobarse' })
+    alerts.unshift({
+      tone: 'danger',
+      title:
+        provider.changes_notes ||
+        provider.changesNotes ||
+        provider.admin_notes ||
+        provider.adminNotes ||
+        'Administracion solicito cambios antes de validar al operador.',
+    })
   }
-  if (!alerts.length) {
-    alerts.push({ tone: 'success', title: 'Perfil listo para continuar con la revision operativa' })
+
+  if (statusMeta.key === 'rejected') {
+    alerts.unshift({
+      tone: 'danger',
+      title:
+        provider.rejection_reason ||
+        provider.rejectionReason ||
+        provider.admin_notes ||
+        provider.adminNotes ||
+        'La validacion del operador fue cancelada o rechazada por administracion.',
+    })
+  }
+
+  if (!alerts.length && statusMeta.key === 'approved') {
+    alerts.push({ tone: 'success', title: 'Operador validado por administracion. Acceso operativo habilitado.' })
+  } else if (!alerts.length) {
+    alerts.push({ tone: 'info', title: 'Expediente pendiente de validacion administrativa.' })
   }
 
   return {
     statusMeta,
     progress,
     checklist,
+    validationRequirements,
     summary,
-    alerts: alerts.slice(0, 3),
+    alerts: alerts.slice(0, 4),
+    canValidate,
+    missingValidationItems,
+    accessEnabled: Boolean(provider.access_enabled ?? provider.accessEnabled ?? false),
     documentCount,
     representative,
     base,

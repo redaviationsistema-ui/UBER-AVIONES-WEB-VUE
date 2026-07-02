@@ -169,7 +169,7 @@ defineEmits([
               <strong>Stripe Checkout seguro</strong>
               <p>
                 Al continuar te llevaremos a Stripe para pagar el costo del vuelo con el total
-                calculado por el backend. La reserva se actualizara cuando Stripe confirme el pago.
+                calculado . La reserva se actualizara cuando Stripe confirme el pago.
               </p>
             </div>
 

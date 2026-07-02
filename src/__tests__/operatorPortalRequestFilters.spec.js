@@ -9,13 +9,18 @@ let resolveOperatorRequestQueue
 let hasOperatorTrackingActivity
 let shouldShowRealtimeRequestInBanner
 let shouldKeepOperatorRealtimeRequestVisible
+let buildRequestFullRoute
+let buildRealtimeRequestPayload
 
 beforeAll(async () => {
   const module = await import('../features/operator/portal/OperatorPortal.component.js')
+  const requestUtils = await import('../features/operator/portal/operatorPortal.requestUtils.js')
   resolveOperatorRequestQueue = module.resolveOperatorRequestQueue
   hasOperatorTrackingActivity = module.hasOperatorTrackingActivity
   shouldShowRealtimeRequestInBanner = module.shouldShowRealtimeRequestInBanner
   shouldKeepOperatorRealtimeRequestVisible = module.shouldKeepOperatorRealtimeRequestVisible
+  buildRequestFullRoute = requestUtils.buildRequestFullRoute
+  buildRealtimeRequestPayload = requestUtils.buildRealtimeRequestPayload
 })
 
 describe('operator portal request filters', () => {
@@ -97,5 +102,35 @@ describe('operator portal request filters', () => {
         [{ id: 156, workflowStatus: 'provider_pending' }],
       ),
     ).toBe(true)
+  })
+
+  it('builds the full route label from all request legs', () => {
+    expect(
+      buildRequestFullRoute({
+        origin: 'MMTO',
+        destination: 'MMGL',
+        requirements: [
+          { origin: 'MMGL', destination: 'MMMX' },
+          { origin: 'MMMX', destination: 'MMTO' },
+        ],
+      }),
+    ).toBe('MMTO -> MMGL -> MMMX -> MMTO')
+  })
+
+  it('keeps the full multi-leg route inside realtime payloads', () => {
+    const payload = buildRealtimeRequestPayload({
+      request_id: 160,
+      origin: 'MMTO',
+      destination: 'MMGL',
+      legs: [
+        { origin: 'MMTO', destination: 'MMGL' },
+        { origin: 'MMGL', destination: 'MMMX' },
+        { origin: 'MMMX', destination: 'MMTO' },
+      ],
+    })
+
+    expect(payload.route).toBe('MMTO -> MMGL -> MMMX -> MMTO')
+    expect(payload.origin).toBe('MMTO')
+    expect(payload.destination).toBe('MMTO')
   })
 })

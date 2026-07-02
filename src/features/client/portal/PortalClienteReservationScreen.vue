@@ -115,42 +115,14 @@ function aircraftFactChips(aircraft, itinerary, helpers) {
           <span class="results-hero__eyebrow">Sky Group curated shortlist</span>
           <h2>{{ itineraryHeadline(activeItinerarySummary) }}</h2>
           <p class="results-hero__date">{{ itineraryDateLine(activeItinerarySummary) }}</p>
-          <strong class="results-hero__headline"
-            >Una lectura mas clara para decidir rapido, con foco en una sola imagen por
-            aeronave.</strong
-          >
-          <p class="results-hero__subcopy">
-            Seleccionamos opciones verificadas con una presentacion mas limpia, inspirada en
-            interfaces de producto contemporaneas y pensada para comparar sin fatiga visual.
-          </p>
+         
         </div>
 
-        <aside class="results-hero__panel">
-          <span class="results-hero__panel-label">Decision cockpit</span>
-          <div class="results-hero__panel-grid">
-            <article>
-              <strong>{{ featuredAircraft ? '1' : '0' }}</strong>
-              <span>opcion destacada</span>
-            </article>
-            <article>
-              <strong>{{ secondaryAircraftOptions.length }}</strong>
-              <span>alternativas listas</span>
-            </article>
-            <article>
-              <strong>1 imagen</strong>
-              <span>por tarjeta</span>
-            </article>
-          </div>
-          <p>
-            Enfocamos la vista en una sola foto, precio legible y datos operativos esenciales.
-          </p>
-        </aside>
+    
       </header>
 
       <div class="filter-toolbar filter-toolbar--results">
         <div class="filter-toolbar__copy">
-          <span>Orden de lectura</span>
-          <strong>Compara por criterio experto, costo, rapidez o exclusividad.</strong>
         </div>
         <div class="filter-row filter-row--pills">
           <button
@@ -244,7 +216,6 @@ function aircraftFactChips(aircraft, itinerary, helpers) {
             <span class="eyebrow">Alternativas privadas</span>
             <h3>Opciones comparables con menos ruido visual</h3>
           </div>
-          <p>Una sola imagen por aeronave, datos clave al frente y accion inmediata.</p>
         </div>
 
         <div class="aircraft-list aircraft-list-compact aircraft-list-compact--refined">

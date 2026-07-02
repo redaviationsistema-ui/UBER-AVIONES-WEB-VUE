@@ -1,3 +1,8 @@
+///--------------------------------------------------------------------------------------------
+/// VISTA DE CHECKLIST DE PREPARACION, SERVICIO Y REPORTE FINAL
+///--------------------------------------------------------------------------------------------
+
+
 <script setup>
 import CrewUiIcon from './CrewUiIcon.vue'
 

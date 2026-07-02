@@ -45,9 +45,9 @@
           <p class="eyebrow">Live Flight Request</p>
           <h2>Nueva solicitud de vuelo</h2>
           <div class="realtime-flight-request-banner__meta">
-            <strong>{{ visibleRealtimeRequests[0].route }}</strong>
-            <span>#{{ visibleRealtimeRequests[0].requestId || visibleRealtimeRequests[0].request_id || visibleRealtimeRequests[0].id }}</span>
-            <span>{{ visibleRealtimeRequests[0].status }}</span>
+            <span>{{ visibleRealtimeRequests[0].aircraft_name}}</span>
+          <strong>{{ visibleRealtimeRequests[0].route }}</strong>
+            <span>{{ formatDateTimeRange(visibleRealtimeRequests[0].created_at).slice(0, 10) }}</span>
           </div>
         </div>
         <div class="realtime-flight-request-banner__actions">
@@ -354,17 +354,7 @@
               :style="{ width: `${companyOnboardingProgress.percent}%` }"
             ></span>
           </div>
-          <div class="company-progress-steps">
-            <span
-              v-for="step in companyOnboardingSteps"
-              :key="step.id"
-              class="progress-chip"
-              :data-tone="step.complete ? 'success' : step.pending ? 'warning' : 'neutral'"
-            >
-              {{ step.complete ? 'OK' : step.pending ? 'Pend' : 'Info' }} · {{ step.label }}
-            </span>
-          </div>
-        </div>
+                  </div>
 
         <div class="company-form-sections">
           <section class="company-form-section">
@@ -590,27 +580,29 @@
         <article class="company-verification-card">
           <div class="operator-readiness-widget" :style="{ '--score': companyOnboardingProgress.percent }">
             <strong>{{ companyOnboardingProgress.percent }}%</strong>
-            <span>Operator Readiness Score</span>
+            <span>Avance del expediente</span>
           </div>
-          <span class="mini-label">Confidence</span>
+          <span class="mini-label">Readiness</span>
           <h3>{{ companyStatusMeta.headline }}</h3>
           <p class="muted">
-            Tu empresa esta habilitada para operar dentro de la plataforma con foco en
-            cumplimiento legal, readiness documental y alta de flota.
+            El readiness solo mide avance de captura y documentacion. La aprobacion final depende
+            exclusivamente de la decision manual del administrador.
           </p>
           <div class="company-checklist">
             <span class="progress-chip" :data-tone="companyForm.legalName ? 'success' : 'warning'"
-              >Empresa validada</span
+              >Datos de empresa</span
             >
             <span class="progress-chip" :data-tone="companyForm.rfc ? 'success' : 'warning'"
-              >RFC aprobado</span
+              >RFC cargado</span
             >
             <span
               class="progress-chip"
               :data-tone="company.documents.length ? 'success' : 'warning'"
               >Documentacion legal</span
             >
-            <span class="progress-chip" :data-tone="companyStatusMeta.tone">Acceso habilitado</span>
+            <span class="progress-chip" :data-tone="company.accessEnabled ? 'success' : companyStatusMeta.tone">
+              {{ company.accessEnabled ? 'Acceso operativo habilitado' : 'Pendiente de validacion admin' }}
+            </span>
           </div>
           <p class="muted">Ultima revision: {{ companyLastAuditDate }}</p>
         </article>
@@ -639,10 +631,45 @@
 
         <div class="status-list">
           <div class="status-row">
-            <span>Administrative Timeline</span>
-            <strong>{{
-              company.adminNotes || 'Sin observaciones de administracion por ahora.'
-            }}</strong>
+            <span>Decision administrativa</span>
+            <strong>{{ companyAdminDecisionCopy.title }}</strong>
+          </div>
+          <div class="status-row">
+            <span>Detalle</span>
+            <strong>{{ companyAdminDecisionCopy.detail }}</strong>
+          </div>
+          <div class="status-row">
+            <span>Linea administrativa</span>
+            <strong>{{ companyAdminDecisionCopy.notes }}</strong>
+          </div>
+        </div>
+
+        <div class="status-list" v-if="companyRequirementResponses.length">
+          <div class="status-row">
+            <span>Respuesta de administración</span>
+            <strong>Requisitos revisados</strong>
+          </div>
+          <div
+            v-for="item in companyRequirementResponses"
+            :key="`company-response-${item.key}`"
+            class="status-row"
+          >
+            <span>{{ item.label }}</span>
+            <strong>
+              {{
+                String(item.response_status || item.responseStatus || '').toLowerCase() === 'approved'
+                  ? 'Validado por administración'
+                  : 'Corrección solicitada'
+              }}
+            </strong>
+          </div>
+          <div
+            v-for="item in companyRequirementResponses.filter((entry) => entry.admin_note || entry.adminNote)"
+            :key="`company-response-note-${item.key}`"
+            class="status-row"
+          >
+            <span>{{ item.label }}</span>
+            <strong>{{ item.admin_note || item.adminNote }}</strong>
           </div>
         </div>
 
@@ -650,7 +677,7 @@
           <article v-for="document in company.documents" :key="document.id" class="list-card">
             <div>
               <strong>{{ document.name }}</strong>
-              <p class="muted">Estado: {{ document.state }}</p>
+              <p class="muted">Estado: {{ humanizeCompanyDocumentState(document.state) }}</p>
             </div>
           </article>
           <p v-if="!company.documents.length" class="empty-state">
@@ -712,8 +739,9 @@
       </article>
 
       <article v-if="!providerCanRegisterAircraft" class="surface empty-state">
-        Tu cuenta de proveedor sigue en validacion administrativa. En cuanto Admin la apruebe,
-        podras registrar aeronaves y activar la mensualidad por cada una.
+        Tu cuenta de proveedor sigue pendiente de validacion administrativa. Solo cuando Admin la
+        apruebe manualmente y habilite el acceso operativo podras registrar aeronaves y activar la
+        mensualidad por cada una.
       </article>
 
       <div class="fleet-kpi-grid fleet-kpi-grid--secondary">
@@ -3440,70 +3468,11 @@
             </article>
           </article>
 
-          <article class="surface operator-side-card operational-alerts-card">
-            <div class="section-head">
-              <div>
-                <p class="eyebrow">Operational Alerts</p>
-                <h2>Centro de alertas</h2>
-              </div>
-            </div>
-            <div class="operational-alerts-list">
-              <article
-                v-for="alert in operationalAlerts"
-                :key="alert.id"
-                class="operational-alert-item"
-                :data-tone="alert.tone"
-              >
-                <span class="operational-alert-icon" :data-alert="alert.id" aria-hidden="true"></span>
-                <div>
-                  <strong>{{ alert.label }}</strong>
-                  <p class="muted">{{ alert.detail }}</p>
-                </div>
-                <small>{{ alert.value }}</small>
-              </article>
-            </div>
-          </article>
+         
 
-          <article class="surface operator-side-card operational-timeline-card">
-            <div class="section-head">
-              <div>
-                <p class="eyebrow">Ultimas actividades operativas</p>
-                <h2>Timeline</h2>
-              </div>
-            </div>
-            <div class="operational-activity-timeline">
-              <article v-for="entry in operationalActivityTimeline" :key="entry.id">
-                <time>{{ entry.time }}</time>
-                <div>
-                  <strong>{{ entry.title }}</strong>
-                  <p class="muted">{{ entry.detail }}</p>
-                </div>
-              </article>
-            </div>
-          </article>
+         
 
-          <article class="surface operator-side-card operational-quick-card">
-            <div class="section-head">
-              <div>
-                <p class="eyebrow">Acciones rapidas</p>
-                <h2>Coordination shortcuts</h2>
-              </div>
-            </div>
-            <div class="operational-quick-grid">
-              <button
-                v-for="action in operationalQuickActions"
-                :key="action.id"
-                type="button"
-                class="operational-quick-action"
-                :data-action="action.id"
-                @click="goToSection(action.section)"
-              >
-                <span aria-hidden="true"></span>
-                <strong>{{ action.label }}</strong>
-                <small>{{ action.detail }}</small>
-              </button>
-            </div>
-          </article>
+     
         </aside>
       </div>
 

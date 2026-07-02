@@ -99,8 +99,90 @@ export function findOperatorRequestByIdentifier(collection = [], targetId = '') 
   return collection.find((request) => matchesOperatorRequestIdentifier(request, normalizedTargetId)) || null
 }
 
+function normalizeRouteStop(value = '') {
+  return String(value || '').trim()
+}
+
+function collectRouteLegs(request = {}) {
+  const candidateCollections = [
+    request.requirements,
+    request.legs,
+    request.segments,
+    request.tramos,
+    request.raw?.requirements,
+    request.raw?.legs,
+    request.raw?.segments,
+    request.raw?.tramos,
+  ]
+
+  return candidateCollections.find((collection) => Array.isArray(collection) && collection.length) || []
+}
+
+function buildRouteStopsFromLegs(legs = []) {
+  const stops = []
+
+  legs.forEach((leg = {}) => {
+    const origin = normalizeRouteStop(
+      leg.origin || leg.origin_airport || leg.departure_airport || leg.base_airport || '',
+    )
+    const destination = normalizeRouteStop(
+      leg.destination || leg.destination_airport || leg.arrival_airport || '',
+    )
+
+    if (origin && stops[stops.length - 1] !== origin) stops.push(origin)
+    if (destination && stops[stops.length - 1] !== destination) stops.push(destination)
+  })
+
+  return stops
+}
+
+function appendUniqueRouteStop(stops = [], value = '') {
+  const normalizedValue = normalizeRouteStop(value)
+  if (!normalizedValue) return stops
+  if (stops[stops.length - 1] !== normalizedValue) stops.push(normalizedValue)
+  return stops
+}
+
+function parseRouteStops(route = '') {
+  return String(route || '')
+    .split(/\s*(?:→|->|\|)\s*|\s+-\s+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+export function buildRequestFullRoute(request = {}) {
+  const legs = collectRouteLegs(request)
+  const origin = normalizeRouteStop(
+    request.origin || request.origin_airport || request.departure_airport || request.raw?.origin || '',
+  )
+  const destination = normalizeRouteStop(
+    request.destination ||
+      request.destination_airport ||
+      request.arrival_airport ||
+      request.raw?.destination ||
+      '',
+  )
+  const routeStops = parseRouteStops(request.route || request.raw?.route || '')
+  const legStops = buildRouteStopsFromLegs(legs)
+  const fullStops =
+    legStops.length >= 2 && legStops[0] === origin && legStops[1] === destination
+      ? [...legStops]
+      : []
+
+  if (!fullStops.length) {
+    appendUniqueRouteStop(fullStops, origin)
+    appendUniqueRouteStop(fullStops, destination)
+    legStops.forEach((stop) => appendUniqueRouteStop(fullStops, stop))
+  }
+
+  if (fullStops.length >= 2) return fullStops.join(' -> ')
+  if (routeStops.length >= 2) return routeStops.join(' -> ')
+
+  return [origin, destination].filter(Boolean).join(' -> ') || request.route || 'Sin ruta'
+}
+
 export function getRequestRouteLabel(request = {}) {
-  return [request.origin, request.destination].filter(Boolean).join(' - ') || request.route || 'Sin ruta'
+  return buildRequestFullRoute(request)
 }
 
 export function parseOperationalDate(value = '') {
@@ -125,17 +207,19 @@ export function isRequestSameOperationalDay(value = '') {
 
 export function buildRealtimeRequestPayload(payload = {}, providerId = '') {
   const requestId = payload.request_id || payload.flight_request_id || payload.id
-  const [origin = '', destination = ''] = String(payload.route || '')
-    .split(/→|-/)
-    .map((item) => item.trim())
+  const route = buildRequestFullRoute(payload)
+  const routeStops = parseRouteStops(route)
+  const origin = routeStops[0] || payload.origin || ''
+  const destination = routeStops[routeStops.length - 1] || payload.destination || ''
 
   return {
     ...payload,
     id: requestId,
     request_id: requestId,
     provider_id: payload.provider_id || providerId || '',
-    origin: payload.origin || origin || 'N/D',
-    destination: payload.destination || destination || 'N/D',
+    route,
+    origin: origin || 'N/D',
+    destination: destination || 'N/D',
     aircraft_name: payload.aircraft_name || payload.aircraft || 'Aeronave por confirmar',
     status: payload.status || 'pending',
     priority_type: payload.priority || payload.priority_type || 'normal',
@@ -190,9 +274,10 @@ export function normalizeRealtimeNotificationRecord(raw = {}, options = {}) {
         : {}
   const requestId = payload.request_id || payload.flight_request_id || payload.id || raw.request_id || raw.id
   const title = raw.title || payload.title || 'Nueva solicitud de vuelo'
+  const route = buildRequestFullRoute(payload)
   const message =
     raw.message ||
-    `${payload.route || 'Ruta por confirmar'} · ${
+    `${route || 'Ruta por confirmar'} · ${
       payload.aircraft_name || payload.aircraft || 'Aeronave por confirmar'
     }`
 

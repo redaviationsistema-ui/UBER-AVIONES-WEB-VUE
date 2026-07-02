@@ -227,6 +227,25 @@ function isUnauthorizedError(error) {
   return message === 'unauthenticated.' || message === 'unauthenticated'
 }
 
+function resolveCachedAuthPayload() {
+  const cached = readStoredMeCache()
+  if (cached?.payload && typeof cached.payload === 'object') {
+    return cached.payload
+  }
+
+  const storedSnapshot = readStoredAuthSnapshot()
+  if (storedSnapshot?.user && typeof storedSnapshot === 'object') {
+    return {
+      token: getStoredToken() || null,
+      user: storedSnapshot.user,
+      access: storedSnapshot.access || null,
+      login_context: storedSnapshot.login_context || null,
+    }
+  }
+
+  return null
+}
+
 export const useAuthStore = defineStore('auth', () => {
   const token = ref(null)
   const user = ref(null)
@@ -364,6 +383,7 @@ export const useAuthStore = defineStore('auth', () => {
   async function fetchMe(options = {}) {
     const force = options.force === true
     const preferCache = options.preferCache !== false
+    const allowServerErrorFallback = options.allowServerErrorFallback !== false
     const cacheTtlMs = Number.isFinite(Number(options.cacheTtlMs))
       ? Number(options.cacheTtlMs)
       : AUTH_ME_CACHE_TTL_MS
@@ -389,15 +409,39 @@ export const useAuthStore = defineStore('auth', () => {
     }
 
     fetchMePromise = (async () => {
-      const response = await api.get('/auth/me', { timeoutMs: AUTH_REQUEST_TIMEOUT_MS })
-      applyAuth(response, {
-        currentSnapshot: {
-          user: user.value,
-          access: access.value,
-          login_context: loginContext.value,
-        },
-      })
-      return response
+      try {
+        const response = await api.get('/auth/me', { timeoutMs: AUTH_REQUEST_TIMEOUT_MS })
+        applyAuth(response, {
+          currentSnapshot: {
+            user: user.value,
+            access: access.value,
+            login_context: loginContext.value,
+          },
+        })
+        return response
+      } catch (error) {
+        const status = Number(error?.status || 0)
+        const canFallback =
+          allowServerErrorFallback &&
+          !isUnauthorizedError(error) &&
+          (status >= 500 || status === 0)
+
+        if (canFallback) {
+          const cachedPayload = resolveCachedAuthPayload()
+          if (cachedPayload?.user) {
+            applyAuth(cachedPayload, {
+              currentSnapshot: {
+                user: user.value,
+                access: access.value,
+                login_context: loginContext.value,
+              },
+            })
+            return cachedPayload
+          }
+        }
+
+        throw error
+      }
     })().finally(() => {
       fetchMePromise = null
     })

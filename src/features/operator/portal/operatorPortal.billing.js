@@ -107,7 +107,7 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
         reminderLabel: 'Sin vigencia visible',
         reminderDetail: autoRenewEnabled
           ? 'La suscripcion esta ligada a Stripe, pero no hay fecha visible de vigencia.'
-          : 'Conviene revisar backend antes de que la aeronave quede sin renovacion trazable.',
+          : 'Conviene revisar  antes de que la aeronave quede sin renovacion trazable.',
         tone: autoRenewEnabled ? 'info' : 'warning',
         daysUntilExpiry: null,
         isUrgent: !autoRenewEnabled,

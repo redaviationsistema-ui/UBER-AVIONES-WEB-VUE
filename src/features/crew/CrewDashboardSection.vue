@@ -1,3 +1,7 @@
+///--------------------------------------------------------------------------------------------
+/// VISTA DE DASHBOARD DE TRIPULACION, CON RESUMEN DE ESTADO, PROXIMA MISION, CHECKLIST DE PREPARACION Y CENTRO DE CONTROL OPERATIVO. PERMITE ACTUALIZAR ESTADO, VER DOCUMENTOS, VER MISION ASIGNADA Y ACCEDER A SECCION DE INCIDENTES.
+///--------------------------------------------------------------------------------------------
+
 <script setup>
 import { computed } from 'vue'
 import CrewUiIcon from './CrewUiIcon.vue'

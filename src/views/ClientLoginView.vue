@@ -215,16 +215,7 @@ async function submit() {
             </RouterLink>
           </div>
 
-          <div class="security-card">
-            <div class="security-icon">🔒</div>
-            <div>
-              <strong>Conexion segura</strong>
-              <p>
-                Tus datos estan protegidos bajo los estandares de seguridad de Sky Group.
-              </p>
-            </div>
-          </div>
-
+        
           <p class="terms">
             Al continuar, aceptas recibir llamadas, WhatsApp o SMS relacionados con tu cuenta,
             tus vuelos y servicios de Sky Group.

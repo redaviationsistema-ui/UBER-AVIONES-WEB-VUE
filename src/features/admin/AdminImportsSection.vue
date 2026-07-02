@@ -18,7 +18,7 @@ const tableMetadata = {
   aircraft_availability: 'Disponibilidad operativa de aeronaves.',
   aircraft_documents: 'Documentos y vigencias de aeronaves.',
   aircraft_images: 'Galeria y fotos de aeronaves.',
-  airports: 'Aeropuertos, codigos y metadatos de operacion. Si tu archivo trae `icao_code`, el backend lo convertira a `icao` automaticamente.',
+  airports: 'Aeropuertos, codigos y metadatos de operacion. Si tu archivo trae `icao_code`,  lo convertira a `icao` automaticamente.',
   anti_broker_flags: 'Alertas de seguridad y anti broker.',
   attachments: 'Archivos adjuntos del sistema.',
   audit_logs: 'Bitacora de auditoria.',
@@ -75,7 +75,7 @@ const databaseTargets = [
     engine: 'PostgreSQL',
     host: 'dpg-d7nrn4m7r5hc73b2ihag-a.oregon-postgres.render.com',
     status: 'Activa',
-    detail: 'Conexion activa del backend. Las tablas se consultan en vivo desde el API.',
+    detail: 'Conexion activa. Las tablas se consultan en vivo desde el API.',
   },
   {
     id: 'sqlite',
@@ -85,7 +85,7 @@ const databaseTargets = [
     engine: 'SQLite',
     host: 'database/database.sqlite',
     status: 'Disponible',
-    detail: 'Si el backend la expone, sus tablas se consultan en vivo desde el API.',
+    detail: 'Si se la expone, sus tablas se consultan en vivo desde el API.',
   },
   {
     id: 'sqlite-test',
@@ -95,7 +95,7 @@ const databaseTargets = [
     engine: 'SQLite',
     host: 'database/test.sqlite',
     status: 'Disponible',
-    detail: 'Si el backend la expone, sus tablas se consultan en vivo desde el API.',
+    detail: 'Si se la expone, sus tablas se consultan en vivo desde el API.',
   },
 ]
 
@@ -400,7 +400,7 @@ async function exportData() {
         <p class="eyebrow">Transferencia de datos</p>
         <h1>Importaciones y exportaciones administrativas</h1>
         <p>
-          Selecciona una conexion real del backend y trabaja con las tablas que el servidor devuelve
+          Selecciona una conexion real y trabaja con las tablas que el servidor devuelve
           en tiempo real para evitar nombres invalidos.
         </p>
       </div>

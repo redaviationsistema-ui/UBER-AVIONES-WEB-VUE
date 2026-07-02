@@ -1138,38 +1138,145 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   margin-top: 0.95rem;
 }
+/* =========================================================
+   ONBOARDING EN LISTA CORPORATIVA
+   Reemplaza visualmente los progress-chip grandes
+========================================================= */
 
-.progress-chip {
-  display: inline-flex;
+.company-progress-list {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 1rem;
+}
+
+.progress-list-item {
+  display: grid;
+  grid-template-columns: 2.4rem minmax(0, 1fr) auto;
   align-items: center;
-  min-height: 2rem;
-  padding: 0 0.8rem;
-  border-radius: 999px;
-  font-size: 0.8rem;
+  gap: 0.85rem;
+  min-height: 4.2rem;
+  padding: 0.78rem 0.9rem;
+  border: 1px solid rgba(203, 213, 225, 0.9);
+  border-radius: 1rem;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.05);
+  color: #111111;
+  transition:
+    transform 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease;
+}
+
+.progress-list-item:hover {
+  transform: translateY(-1px);
+  border-color: rgba(23, 50, 74, 0.24);
+  box-shadow: 0 16px 30px rgba(15, 23, 42, 0.08);
+}
+
+.progress-list-icon {
+  width: 2.35rem;
+  height: 2.35rem;
+  display: grid;
+  place-items: center;
+  border-radius: 0.85rem;
+  font-size: 0.95rem;
+  font-weight: 900;
+  color: #111111;
+  background: #eef2f6;
+  border: 1px solid rgba(203, 213, 225, 0.95);
+}
+
+.progress-list-copy {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.progress-list-copy strong {
+  color: #111111;
+  font-size: 0.95rem;
+  font-weight: 900;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.progress-list-copy small {
+  color: #374151;
+  font-size: 0.78rem;
   font-weight: 700;
-  background: var(--surface-premium);
-  color: #6f5a30;
+  line-height: 1.25;
 }
 
-.progress-chip[data-tone='success'] {
-  background: rgba(46, 139, 87, 0.14);
-  color: #1d6b42;
+.progress-list-status {
+  min-width: 5.6rem;
+  border-radius: 999px;
+  padding: 0.35rem 0.62rem;
+  text-align: center;
+  color: #111111;
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  background: #f1f5f9;
+  border: 1px solid rgba(203, 213, 225, 0.95);
 }
 
-.progress-chip[data-tone='warning'] {
-  background: rgba(200, 169, 107, 0.2);
-  color: #916c1f;
+/* Estados */
+.progress-list-item[data-tone='success'] {
+  border-color: rgba(47, 143, 104, 0.26);
+  background: linear-gradient(180deg, #ffffff 0%, #edf9f2 100%);
 }
 
-.progress-chip[data-tone='danger'] {
-  background: rgba(184, 61, 54, 0.15);
-  color: #9f2f28;
+.progress-list-item[data-tone='success'] .progress-list-icon {
+  color: #0f5b39;
+  background: #dff5ea;
+  border-color: rgba(47, 143, 104, 0.24);
 }
 
-.progress-chip[data-tone='neutral'] {
-  background: var(--surface-premium);
-  color: #6f5a30;
+.progress-list-item[data-tone='success'] .progress-list-status {
+  color: #0f5b39;
+  background: #dff5ea;
+  border-color: rgba(47, 143, 104, 0.24);
 }
+
+.progress-list-item[data-tone='warning'] {
+  border-color: rgba(198, 134, 32, 0.28);
+  background: linear-gradient(180deg, #ffffff 0%, #fff5df 100%);
+}
+
+.progress-list-item[data-tone='warning'] .progress-list-icon {
+  color: #7c4d05;
+  background: #fff1d6;
+  border-color: rgba(198, 134, 32, 0.3);
+}
+
+.progress-list-item[data-tone='warning'] .progress-list-status {
+  color: #7c4d05;
+  background: #fff1d6;
+  border-color: rgba(198, 134, 32, 0.3);
+}
+
+.progress-list-item[data-tone='neutral'] {
+  border-color: rgba(148, 163, 184, 0.32);
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+}
+
+.progress-list-item[data-tone='neutral'] .progress-list-icon {
+  color: #475569;
+  background: #eef2f6;
+}
+
+.progress-list-item[data-tone='neutral'] .progress-list-status {
+  color: #475569;
+  background: #eef2f6;
+}
+
+/* Si todavía existen estilos viejos de progress-chip, que no afecten esta lista */
+.company-progress-list .progress-chip {
+  all: unset;
+}
+
 
 .company-form-section {
   padding: 1rem 1.1rem;
@@ -10359,10 +10466,7 @@ textarea {
   box-shadow: 0 0 24px rgba(201, 160, 99, 0.32);
 }
 
-.operator-certification-luxury .company-progress-steps {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 0.75rem;
-}
+
 
 .operator-certification-luxury .company-progress-steps .progress-chip {
   min-height: 70px;
@@ -14902,6 +15006,7 @@ textarea {
   .fleet-operations-luxury .wizard-sticky-head {
     top: 0;
   }
+  
 }
 
 /* Final light executive pass for payments cockpit. */
@@ -15235,4 +15340,75 @@ textarea {
   .payments-cockpit-page .payments-premium-nav {
     grid-template-columns: 1fr;
   }
+
+  .progress-list-item {
+    grid-template-columns: 2.35rem minmax(0, 1fr);
+  }
+
+  .progress-list-status {
+    grid-column: 2;
+    width: fit-content;
+    min-width: 0;
+  }
 }
+
+/* =========================================================
+   AJUSTE FINAL - LISTA CORPORATIVA DE ONBOARDING
+   ESTE BLOQUE DEBE IR FUERA DEL @media 
+========================================================= */
+
+.operator-certification-luxury .company-progress-list {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 1rem;
+}
+
+.operator-certification-luxury .progress-list-item {
+  min-height: 3.6rem;
+  padding: 0.68rem 0.8rem;
+  border-radius: 0.9rem;
+  background: #ffffff;
+  border: 1px solid rgba(203, 213, 225, 0.95);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.045);
+}
+
+.operator-certification-luxury .progress-list-icon {
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 0.75rem;
+  font-size: 0.82rem;
+}
+
+.operator-certification-luxury .progress-list-copy strong {
+  font-size: 0.9rem;
+  color: #111111;
+}
+
+.operator-certification-luxury .progress-list-copy small {
+  font-size: 0.74rem;
+  color: #4b5563;
+}
+
+.operator-certification-luxury .progress-list-status {
+  min-width: 5.2rem;
+  padding: 0.3rem 0.58rem;
+  font-size: 0.64rem;
+}
+
+/* Responsive solo para la lista */
+@media (max-width: 760px) {
+  .operator-certification-luxury .progress-list-item {
+    grid-template-columns: 2.1rem minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .operator-certification-luxury .progress-list-status {
+    grid-column: 2;
+    width: fit-content;
+    min-width: 0;
+    margin-top: 0.15rem;
+  }
+
+  
+}
+

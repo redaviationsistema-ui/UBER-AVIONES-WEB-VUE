@@ -1,7 +1,9 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { pickRecord, requestWithCandidates } from '../../lib/backendCrud'
 import { resolveRoleSectionPath } from '../../data/roleFlows'
+import { useUiStore } from '../../stores/ui'
 import {
   buildProviderReviewFlow,
   resolveProviderCompanyName,
@@ -13,10 +15,131 @@ const props = defineProps({
   providers: { type: Array, required: true },
   aircraft: { type: Array, required: true },
 })
+const emit = defineEmits(['refresh'])
 
 const router = useRouter()
+const ui = useUiStore()
 const searchTerm = ref('')
 const selectedProvider = ref(null)
+const activeDocumentActionKey = ref('')
+const activeValidationActionKey = ref('')
+const activeRequirementActionKey = ref('')
+const selectedAdminActionKey = ref('')
+const loadingProviderDetail = ref(false)
+const selectedProviderActivity = ref([])
+const loadingSelectedProviderActivity = ref(false)
+
+
+function missingValidationLabelsText() {
+  if (!selectedProviderReview.value?.missingValidationItems?.length) {
+    return 'Todos los requisitos administrativos están completos.'
+  }
+
+  return `Faltan requisitos obligatorios: ${selectedProviderReview.value.missingValidationItems
+    .map((item) => item.label)
+    .join(', ')}.`
+}
+
+function getValidationPanelHeadline() {
+  if (!selectedProviderReview.value) return 'Expediente pendiente de validacion administrativa'
+  if (selectedProviderReview.value.statusMeta.key === 'approved') return 'Operador validado por administracion'
+  if (selectedProviderReview.value.canValidate) return 'Listo para validacion administrativa'
+  return 'Expediente pendiente de validacion administrativa'
+}
+
+function getValidationPanelDetail() {
+  if (!selectedProviderReview.value) return 'Admin debe revisar el expediente completo antes de tomar una decision.'
+  if (selectedProviderReview.value.statusMeta.key === 'approved') {
+    return 'La validacion del operador ya fue aprobada manualmente y el acceso operativo quedo habilitado.'
+  }
+  if (selectedProviderReview.value.canValidate) {
+    return 'Todos los requisitos obligatorios del expediente estan completos. Ya puedes validar formalmente al operador.'
+  }
+  return 'La validacion del operador revisa todo el expediente de empresa, no solo la aprobacion de documentos individuales.'
+}
+
+function validationRequirementStateLabel(item = {}) {
+  return item.complete ? 'Completo' : 'Pendiente'
+}
+
+function validationRequirementTone(item = {}) {
+  return item.complete ? 'success' : 'warning'
+}
+
+function validationRequirementIcon(item = {}) {
+  return item.complete ? '✓' : '!'
+}
+
+function validationRequirementResponseLabel(item = {}) {
+  const normalized = String(item.responseStatus || '').trim().toLowerCase()
+  if (normalized === 'approved') return 'Validado por admin'
+  if (normalized === 'rejected') return 'Cancelado por admin'
+  return item.complete ? 'Listo para revision' : 'Pendiente'
+}
+
+function validationRequirementResponseTone(item = {}) {
+  const normalized = String(item.responseStatus || '').trim().toLowerCase()
+  if (normalized === 'approved') return 'success'
+  if (normalized === 'rejected') return 'danger'
+  return item.complete ? 'info' : 'warning'
+}
+
+function formatDateTime(value) {
+  if (!value) return 'Sin registro'
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return value
+
+  return new Intl.DateTimeFormat('es-MX', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(parsed)
+}
+
+function resolveActivityTone(eventType = '') {
+  const normalized = String(eventType || '').trim().toLowerCase()
+  if (normalized.includes('rejected') || normalized.includes('changes')) return 'warning'
+  if (normalized.includes('approved') || normalized.includes('validated')) return 'success'
+  return 'info'
+}
+
+function isAdminActionSelected(action) {
+  return selectedAdminActionKey.value === action
+}
+
+function isAnyValidationActionLoading() {
+  return Boolean(activeValidationActionKey.value || activeRequirementActionKey.value)
+}
+
+async function handleCorporateAdminAction(action) {
+  if (!selectedProvider.value) return
+
+  selectedAdminActionKey.value = action
+
+  if (action === 'validate') {
+    await validateSelectedProvider()
+    return
+  }
+
+  if (action === 'request_changes') {
+    await requestChangesSelectedProvider()
+    return
+  }
+
+  if (action === 'reject') {
+    await rejectSelectedProvider()
+    return
+  }
+
+  if (action === 'aircraft') {
+    await openProviderAircraft(selectedProvider.value)
+    return
+  }
+
+  if (action === 'close') {
+    closeProviderDetail()
+  }
+}
+
 
 function providerLabel(provider = {}) {
   return resolveProviderCompanyName(provider)
@@ -25,9 +148,10 @@ function providerLabel(provider = {}) {
 function providerStatusMeta(provider = {}) {
   const meta = resolveProviderStatusMeta(provider)
   if (meta.key === 'approved') return { ...meta, icon: '●' }
-  if (meta.key === 'changes_required') return { ...meta, key: 'suspended', icon: '●' }
-  if (meta.key === 'in_review') return { ...meta, key: 'pending', icon: '●' }
-  return { ...meta, key: 'pending', icon: '●' }
+  if (meta.key === 'changes_required') return { ...meta, key: 'changes_required', icon: '●' }
+  if (meta.key === 'rejected') return { ...meta, key: 'rejected', icon: '●' }
+  if (meta.key === 'pending') return { ...meta, key: 'pending', icon: '●' }
+  return { ...meta, key: 'draft', icon: '●' }
 }
 
 function providerBase(provider = {}) {
@@ -36,6 +160,106 @@ function providerBase(provider = {}) {
 
 function providerResponsible(provider = {}) {
   return resolveProviderRepresentativeName(provider)
+}
+
+function findFirstDocumentCollection(sources = []) {
+  for (const source of sources) {
+    if (!source || typeof source !== 'object') continue
+
+    if (Array.isArray(source.documents) && source.documents.length) return source.documents
+    if (Array.isArray(source.legal_documents) && source.legal_documents.length) return source.legal_documents
+    if (Array.isArray(source.company_documents) && source.company_documents.length) return source.company_documents
+    if (Array.isArray(source.documentos) && source.documentos.length) return source.documentos
+    if (Array.isArray(source.files) && source.files.length) return source.files
+  }
+
+  for (const source of sources) {
+    if (!source || typeof source !== 'object') continue
+
+    if (Array.isArray(source.documents)) return source.documents
+    if (Array.isArray(source.legal_documents)) return source.legal_documents
+    if (Array.isArray(source.company_documents)) return source.company_documents
+    if (Array.isArray(source.documentos)) return source.documentos
+    if (Array.isArray(source.files)) return source.files
+  }
+
+  return []
+}
+
+function providerDocuments(provider = {}) {
+  const rawDocuments = findFirstDocumentCollection([
+    provider,
+    provider.company,
+    provider.empresa,
+    provider.provider,
+    provider.proveedor,
+    provider.profile,
+    provider.user?.profile,
+    provider.data,
+  ])
+
+  return rawDocuments.map((item, index) => {
+    const rawUrl =
+      item.download_url ||
+      item.downloadUrl ||
+      item.url ||
+      item.file_url ||
+      item.fileUrl ||
+      item.path ||
+      item.storage_path ||
+      ''
+
+    return {
+      ...item,
+      id: item.id || index + 1,
+      name:
+        item.original_name || item.document_name || item.name || item.file_name || `Documento ${index + 1}`,
+      fileName: item.file_name || item.filename || '',
+      mimeType: item.mime_type || item.mime || item.content_type || '',
+      size: Number(item.size || item.file_size || 0),
+      status: item.status || item.state || item.validation_status || item.review_status || 'Pendiente',
+      createdAt: item.created_at || item.uploaded_at || item.updated_at || '',
+      url: item.url || rawUrl || '',
+      downloadUrl: item.download_url || item.downloadUrl || rawUrl || '',
+      notes: item.notes || item.observation || item.observacion || item.admin_notes || '',
+    }
+  })
+}
+
+function formatDocumentSize(size) {
+  const value = Number(size || 0)
+  if (!Number.isFinite(value) || value <= 0) return 'Tamano no disponible'
+  if (value >= 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(2)} MB`
+  if (value >= 1024) return `${(value / 1024).toFixed(1)} KB`
+  return `${value} B`
+}
+
+function formatDocumentDate(value) {
+  if (!value) return 'Fecha no disponible'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+
+  return new Intl.DateTimeFormat('es-MX', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date)
+}
+
+function documentStatusLabel(value = '') {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (normalized.includes('aprob')) return 'Aprobado'
+  if (normalized.includes('rech')) return 'Rechazado'
+  if (normalized.includes('pend') || normalized.includes('review') || normalized.includes('revision')) {
+    return 'Pendiente'
+  }
+  return value || 'Pendiente'
+}
+
+function documentStatusTone(value = '') {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (normalized.includes('aprob')) return 'success'
+  if (normalized.includes('rech')) return 'danger'
+  return 'warning'
 }
 
 const aircraftMetricsByProvider = computed(() => {
@@ -125,8 +349,8 @@ const dashboardKpis = computed(() => {
       acc.providers += 1
       acc.aircraft += metrics.aircraft
       if (status === 'approved') acc.approved += 1
-      else if (status === 'pending') acc.pending += 1
-      else if (status === 'suspended') acc.suspended += 1
+      else if (status === 'pending' || status === 'draft') acc.pending += 1
+      else if (status === 'changes_required' || status === 'rejected') acc.suspended += 1
       return acc
     },
     { providers: 0, approved: 0, pending: 0, suspended: 0, aircraft: 0 },
@@ -143,8 +367,10 @@ const dashboardKpis = computed(() => {
 const providerGroups = computed(() => {
   const baseGroups = [
     { key: 'approved', title: 'Aprobados', providers: [] },
-    { key: 'pending', title: 'Pendientes', providers: [] },
-    { key: 'suspended', title: 'Suspendidos', providers: [] },
+    { key: 'pending', title: 'Pendientes de revision', providers: [] },
+    { key: 'changes_required', title: 'Cambios requeridos', providers: [] },
+    { key: 'rejected', title: 'Validaciones canceladas', providers: [] },
+    { key: 'draft', title: 'Expediente incompleto', providers: [] },
   ]
 
   filteredProviders.value.forEach((provider) => {
@@ -161,6 +387,10 @@ const selectedProviderMetrics = computed(() =>
 
 const selectedProviderReview = computed(() =>
   selectedProvider.value ? buildProviderReviewFlow(selectedProvider.value, selectedProviderMetrics.value) : null,
+)
+
+const selectedProviderDocuments = computed(() =>
+  selectedProvider.value ? providerDocuments(selectedProvider.value) : [],
 )
 
 const selectedProviderHeader = computed(() => {
@@ -182,12 +412,511 @@ const selectedProviderHeader = computed(() => {
   }
 })
 
-function openProviderDetail(provider) {
-  selectedProvider.value = provider
-}
-
 function closeProviderDetail() {
   selectedProvider.value = null
+  selectedProviderActivity.value = []
+}
+
+function mergeProviderDetailIntoSelection(baseProvider = {}, detailRecord = {}) {
+  const detailDocuments = providerDocuments(detailRecord)
+  const baseDocuments = providerDocuments(baseProvider)
+
+  return {
+    ...baseProvider,
+    ...detailRecord,
+    user:
+      detailRecord.user && typeof detailRecord.user === 'object'
+        ? { ...(baseProvider.user || {}), ...detailRecord.user }
+        : baseProvider.user,
+    profile:
+      detailRecord.profile && typeof detailRecord.profile === 'object'
+        ? { ...(baseProvider.profile || {}), ...detailRecord.profile }
+        : baseProvider.profile,
+    company:
+      detailRecord.company && typeof detailRecord.company === 'object'
+        ? { ...(baseProvider.company || {}), ...detailRecord.company }
+        : baseProvider.company,
+    empresa:
+      detailRecord.empresa && typeof detailRecord.empresa === 'object'
+        ? { ...(baseProvider.empresa || {}), ...detailRecord.empresa }
+        : baseProvider.empresa,
+    documents: detailDocuments.length ? detailDocuments : baseDocuments,
+    legal_documents:
+      Array.isArray(detailRecord.legal_documents) && detailRecord.legal_documents.length
+        ? detailRecord.legal_documents
+        : baseProvider.legal_documents,
+    company_documents:
+      Array.isArray(detailRecord.company_documents) && detailRecord.company_documents.length
+        ? detailRecord.company_documents
+        : baseProvider.company_documents,
+  }
+}
+
+async function loadProviderDetail(provider = {}) {
+  const providerId = provider?.id || provider?.provider_id
+  if (!providerId) return provider
+
+  try {
+    loadingProviderDetail.value = true
+    const response = await requestWithCandidates([
+      { method: 'get', path: `/admin/providers/${providerId}` },
+      { method: 'get', path: `/admin/providers/${providerId}/detail` },
+      { method: 'get', path: `/admin/providers/${providerId}/documents` },
+      { method: 'get', path: `/admin/proveedores/${providerId}` },
+      { method: 'get', path: `/admin/proveedores/${providerId}/detalle` },
+      { method: 'get', path: `/admin/proveedores/${providerId}/documentos` },
+      { method: 'get', path: `/admin/operators/${providerId}` },
+      { method: 'get', path: `/admin/operators/${providerId}/documents` },
+    ])
+
+    const detailRecord = pickRecord(response, [
+      'provider',
+      'proveedor',
+      'company',
+      'empresa',
+      'operator',
+      'data',
+    ])
+
+    if (detailRecord && typeof detailRecord === 'object') {
+      return mergeProviderDetailIntoSelection(provider, detailRecord)
+    }
+  } catch (error) {
+    console.warn?.('[admin-provider-detail] no se pudo cargar detalle fresco', {
+      providerId,
+      message: error?.message || '',
+    })
+  } finally {
+    loadingProviderDetail.value = false
+  }
+
+  return provider
+}
+
+async function openProviderDetail(provider) {
+  selectedProvider.value = provider
+  const [enrichedProvider] = await Promise.all([
+    loadProviderDetail(provider),
+    loadSelectedProviderActivity(provider?.id || provider?.provider_id),
+  ])
+  if (selectedProvider.value?.id === provider?.id) {
+    selectedProvider.value = enrichedProvider
+  }
+}
+
+function documentActionKey(providerId, documentId, action) {
+  return `${providerId || 'provider'}:${documentId || 'document'}:${action}`
+}
+
+function isDocumentActionLoading(providerId, documentId, action) {
+  return activeDocumentActionKey.value === documentActionKey(providerId, documentId, action)
+}
+
+function validationActionKey(providerId, action) {
+  return `${providerId || 'provider'}:${action}`
+}
+
+function isValidationActionLoading(providerId, action) {
+  return activeValidationActionKey.value === validationActionKey(providerId, action)
+}
+
+function requirementActionKey(providerId, requirementKey, action) {
+  return `${providerId || 'provider'}:${requirementKey || 'requirement'}:${action}`
+}
+
+function isRequirementActionLoading(providerId, requirementKey, action) {
+  return activeRequirementActionKey.value === requirementActionKey(providerId, requirementKey, action)
+}
+
+async function loadSelectedProviderActivity(providerId) {
+  if (!providerId) {
+    selectedProviderActivity.value = []
+    return
+  }
+
+  try {
+    loadingSelectedProviderActivity.value = true
+    const response = await requestWithCandidates([
+      { method: 'get', path: `/admin/providers/${providerId}/activity` },
+      { method: 'get', path: `/admin/proveedores/${providerId}/actividad` },
+    ])
+
+    selectedProviderActivity.value = Array.isArray(response?.data)
+      ? response.data
+      : Array.isArray(response?.activity)
+        ? response.activity
+        : []
+  } catch (error) {
+    selectedProviderActivity.value = []
+    ui.pushToast({
+      tone: 'error',
+      title: 'No se pudo cargar la actividad',
+      message: error?.message || 'No se pudo cargar el registro del expediente.',
+    })
+  } finally {
+    loadingSelectedProviderActivity.value = false
+  }
+}
+
+async function refreshSelectedProviderState(provider = selectedProvider.value) {
+  const providerId = provider?.id || provider?.provider_id
+  if (!providerId) return
+
+  const refreshedProvider = await loadProviderDetail(provider)
+  syncProviderRecord(refreshedProvider)
+  await loadSelectedProviderActivity(providerId)
+}
+
+function syncProviderRecord(updatedProvider = {}) {
+  const providerId = updatedProvider?.id || updatedProvider?.provider_id
+  if (!providerId) return
+
+  const localRecord = props.providers.find((item) => String(item.id || item.provider_id || '') === String(providerId))
+  if (localRecord) Object.assign(localRecord, updatedProvider)
+  if (selectedProvider.value && String(selectedProvider.value.id || selectedProvider.value.provider_id || '') === String(providerId)) {
+    selectedProvider.value = mergeProviderDetailIntoSelection(selectedProvider.value, updatedProvider)
+  }
+}
+
+async function previewProviderDocument(provider, documentRecord) {
+  const providerId = provider?.id || provider?.provider_id
+  const documentId = documentRecord?.id
+  const directUrl = documentRecord?.url || documentRecord?.downloadUrl
+
+  if (directUrl && typeof window !== 'undefined') {
+    window.open(directUrl, '_blank', 'noopener,noreferrer')
+    return
+  }
+
+  try {
+    activeDocumentActionKey.value = documentActionKey(providerId, documentId, 'preview')
+    const response = await requestWithCandidates([
+      { method: 'download', path: `/admin/providers/${providerId}/documents/${documentId}/download` },
+      { method: 'download', path: `/admin/proveedores/${providerId}/documentos/${documentId}/download` },
+      { method: 'download', path: `/admin/company-documents/${documentId}/download` },
+    ])
+    const url = URL.createObjectURL(response.blob)
+    if (typeof window !== 'undefined') {
+      window.open(url, '_blank', 'noopener,noreferrer')
+      window.setTimeout(() => URL.revokeObjectURL(url), 60000)
+    }
+  } catch (error) {
+    ui.pushToast({
+      tone: 'error',
+      title: 'No se pudo abrir el documento',
+      message: error?.message || 'El backend no devolvio el archivo solicitado.',
+    })
+  } finally {
+    activeDocumentActionKey.value = ''
+  }
+}
+
+async function downloadProviderDocument(provider, documentRecord) {
+  const providerId = provider?.id || provider?.provider_id
+  const documentId = documentRecord?.id
+
+  try {
+    activeDocumentActionKey.value = documentActionKey(providerId, documentId, 'download')
+    const response = await requestWithCandidates([
+      { method: 'download', path: `/admin/providers/${providerId}/documents/${documentId}/download` },
+      { method: 'download', path: `/admin/proveedores/${providerId}/documentos/${documentId}/download` },
+      { method: 'download', path: `/admin/company-documents/${documentId}/download` },
+    ])
+    const url = URL.createObjectURL(response.blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download =
+      documentRecord?.fileName || documentRecord?.name || `documento-operador-${documentId || 'legal'}`
+    document.body.appendChild(anchor)
+    anchor.click()
+    document.body.removeChild(anchor)
+    URL.revokeObjectURL(url)
+  } catch (error) {
+    ui.pushToast({
+      tone: 'error',
+      title: 'No se pudo descargar el documento',
+      message: error?.message || 'El backend no devolvio el archivo solicitado.',
+    })
+  } finally {
+    activeDocumentActionKey.value = ''
+  }
+}
+
+async function updateProviderDocumentStatus(provider, documentRecord, status, notes = '') {
+  const providerId = provider?.id || provider?.provider_id
+  const documentId = documentRecord?.id
+
+  try {
+    activeDocumentActionKey.value = documentActionKey(providerId, documentId, status)
+    const payload = {
+      status,
+      validation_status: status,
+      review_status: status,
+      notes,
+      observation: notes,
+      observacion: notes,
+    }
+
+    const response = await requestWithCandidates([
+      { method: 'patch', path: `/admin/providers/${providerId}/documents/${documentId}`, body: payload },
+      { method: 'patch', path: `/admin/proveedores/${providerId}/documentos/${documentId}`, body: payload },
+      { method: 'post', path: `/admin/providers/${providerId}/documents/${documentId}/${status}`, body: payload },
+      { method: 'post', path: `/admin/company-documents/${documentId}/${status}`, body: payload },
+    ])
+
+    const updatedDocument = response?.document && typeof response.document === 'object'
+      ? providerDocuments({ documents: [response.document] })[0]
+      : { ...documentRecord, status, notes: notes || documentRecord.notes }
+
+    const nextDocuments = providerDocuments(provider).map((item) =>
+      item.id === documentId ? { ...item, ...updatedDocument } : item,
+    )
+
+    provider.documents = nextDocuments
+    if (selectedProvider.value === provider) {
+      selectedProvider.value.documents = nextDocuments
+    }
+
+    await refreshSelectedProviderState(provider)
+
+    ui.pushToast({
+      tone: status === 'approved' ? 'success' : 'warning',
+      title: status === 'approved' ? 'Documento aprobado' : 'Documento rechazado',
+      message:
+        status === 'approved'
+          ? `${updatedDocument.name} ya quedo validado para el operador.`
+          : `${updatedDocument.name} quedo marcado con observaciones administrativas.`,
+    })
+  } catch (error) {
+    ui.pushToast({
+      tone: 'error',
+      title: 'No se pudo actualizar el documento',
+      message: error?.message || 'La validacion documental no pudo guardarse.',
+    })
+  } finally {
+    activeDocumentActionKey.value = ''
+  }
+}
+
+async function approveProviderDocument(provider, documentRecord) {
+  await updateProviderDocumentStatus(provider, documentRecord, 'approved')
+}
+
+async function rejectProviderDocument(provider, documentRecord) {
+  if (typeof window === 'undefined') return
+  const note = window.prompt('Observacion para rechazar el documento', documentRecord?.notes || '')
+  if (note == null) return
+  await updateProviderDocumentStatus(provider, documentRecord, 'rejected', note)
+}
+
+async function updateProviderValidation(provider, action, notes = '') {
+  const providerId = provider?.id || provider?.provider_id
+  if (!providerId) return
+
+  try {
+    activeValidationActionKey.value = validationActionKey(providerId, action)
+    const trimmedNotes = String(notes || '').trim()
+    const payload =
+      action === 'request_changes'
+        ? {
+            notes: trimmedNotes,
+            admin_notes: trimmedNotes,
+            changes_notes: trimmedNotes,
+          }
+        : action === 'reject'
+          ? {
+              notes: trimmedNotes,
+              admin_notes: trimmedNotes,
+              rejection_reason: trimmedNotes,
+            }
+          : trimmedNotes
+            ? {
+                notes: trimmedNotes,
+                admin_notes: trimmedNotes,
+              }
+            : {}
+    const response = await requestWithCandidates([
+      { method: 'post', path: `/admin/providers/${providerId}/validate`, body: payload, when: action === 'validate' },
+      { method: 'post', path: `/admin/proveedores/${providerId}/validar`, body: payload, when: action === 'validate' },
+      { method: 'post', path: `/admin/proveedores/${providerId}/aprobar`, body: payload, when: action === 'validate' },
+      { method: 'post', path: `/admin/providers/${providerId}/request-changes`, body: payload, when: action === 'request_changes' },
+      { method: 'post', path: `/admin/proveedores/${providerId}/solicitar-cambios`, body: payload, when: action === 'request_changes' },
+      { method: 'post', path: `/admin/proveedores/${providerId}/suspender`, body: payload, when: action === 'request_changes' },
+      { method: 'post', path: `/admin/providers/${providerId}/reject`, body: payload, when: action === 'reject' },
+      { method: 'post', path: `/admin/proveedores/${providerId}/cancelar-validacion`, body: payload, when: action === 'reject' },
+      { method: 'post', path: `/admin/proveedores/${providerId}/rechazar`, body: payload, when: action === 'reject' },
+    ]
+      .filter((candidate) => candidate.when !== false)
+      .map((candidate) => {
+        const nextCandidate = { ...candidate }
+        delete nextCandidate.when
+        return nextCandidate
+      }))
+
+    const updatedProvider = pickRecord(response, ['provider', 'proveedor', 'company', 'empresa', 'data'])
+    if (updatedProvider && typeof updatedProvider === 'object') {
+      syncProviderRecord(updatedProvider)
+      const refreshedProvider = await loadProviderDetail(updatedProvider)
+      syncProviderRecord(refreshedProvider)
+    }
+
+    await loadSelectedProviderActivity(providerId)
+
+    emit('refresh')
+
+    const messages = {
+      validate: {
+        tone: 'success',
+        title: 'Operador validado correctamente',
+        message: 'El expediente completo fue validado por administracion y el acceso operativo quedo habilitado.',
+      },
+      request_changes: {
+        tone: 'warning',
+        title: 'Cambios solicitados',
+        message: 'El operador debera corregir el expediente antes de volver a revision.',
+      },
+      reject: {
+        tone: 'warning',
+        title: 'Validacion cancelada',
+        message: 'El acceso operativo del operador quedo deshabilitado.',
+      },
+    }
+
+    ui.pushToast(messages[action])
+  } catch (error) {
+    const validationErrors = error?.payload?.errors?.validation
+    const details = Array.isArray(validationErrors)
+      ? validationErrors.join(' ')
+      : error?.message || 'La accion administrativa no pudo guardarse.'
+
+    ui.pushToast({
+      tone: 'error',
+      title: 'No se pudo actualizar la validacion',
+      message: details,
+    })
+  } finally {
+    activeValidationActionKey.value = ''
+  }
+}
+
+async function validateSelectedProvider() {
+  if (!selectedProvider.value || !selectedProviderReview.value) return
+
+  if (!selectedProviderReview.value.canValidate) {
+    ui.pushToast({
+      tone: 'warning',
+      title: 'No se puede validar todavia',
+      message: selectedProviderReview.value.missingValidationItems.map((item) => item.message).join(' '),
+    })
+    return
+  }
+
+  await updateProviderValidation(selectedProvider.value, 'validate')
+}
+
+async function requestChangesSelectedProvider() {
+  if (!selectedProvider.value || typeof window === 'undefined') return
+  const note = window.prompt('Comentarios obligatorios para solicitar cambios', selectedProvider.value.admin_validation_notes || '')
+  if (note == null) return
+  if (!String(note).trim()) {
+    ui.pushToast({
+      tone: 'warning',
+      title: 'Comentario requerido',
+      message: 'Debes indicar los cambios requeridos antes de guardar.',
+    })
+    return
+  }
+
+  await updateProviderValidation(selectedProvider.value, 'request_changes', note.trim())
+}
+
+async function rejectSelectedProvider() {
+  if (!selectedProvider.value || typeof window === 'undefined') return
+  const note = window.prompt('Motivo obligatorio para cancelar o rechazar al operador', selectedProvider.value.admin_validation_notes || '')
+  if (note == null) return
+  if (!String(note).trim()) {
+    ui.pushToast({
+      tone: 'warning',
+      title: 'Motivo requerido',
+      message: 'Debes indicar el motivo del rechazo antes de guardar.',
+    })
+    return
+  }
+
+  await updateProviderValidation(selectedProvider.value, 'reject', note.trim())
+}
+
+async function updateRequirementDecision(requirement, action) {
+  const provider = selectedProvider.value
+  const providerId = provider?.id || provider?.provider_id
+  const requirementKey = requirement?.key
+  if (!providerId || !requirementKey) return
+
+  let note = ''
+  if (action === 'reject') {
+    if (typeof window === 'undefined') return
+    note = window.prompt(`Motivo obligatorio para cancelar ${requirement.label}`, requirement?.adminNote || '') || ''
+    if (!String(note).trim()) {
+      ui.pushToast({
+        tone: 'warning',
+        title: 'Comentario requerido',
+        message: 'Debes indicar el motivo administrativo antes de guardar.',
+      })
+      return
+    }
+  }
+
+  try {
+    activeRequirementActionKey.value = requirementActionKey(providerId, requirementKey, action)
+    const payload = note
+      ? {
+          notes: note.trim(),
+          admin_notes: note.trim(),
+        }
+      : {}
+    const response = await requestWithCandidates([
+      { method: 'post', path: `/admin/providers/${providerId}/requirements/${requirementKey}/approve`, body: payload, when: action === 'approve' },
+      { method: 'post', path: `/admin/proveedores/${providerId}/requisitos/${requirementKey}/aprobar`, body: payload, when: action === 'approve' },
+      { method: 'post', path: `/admin/providers/${providerId}/requirements/${requirementKey}/reject`, body: payload, when: action === 'reject' },
+      { method: 'post', path: `/admin/proveedores/${providerId}/requisitos/${requirementKey}/rechazar`, body: payload, when: action === 'reject' },
+    ]
+      .filter((candidate) => candidate.when !== false)
+      .map((candidate) => {
+        const nextCandidate = { ...candidate }
+        delete nextCandidate.when
+        return nextCandidate
+      }))
+
+    const updatedProvider = pickRecord(response, ['provider', 'proveedor', 'company', 'empresa', 'data'])
+    if (updatedProvider && typeof updatedProvider === 'object') {
+      syncProviderRecord(updatedProvider)
+    }
+
+    await refreshSelectedProviderState(provider)
+    emit('refresh')
+
+    ui.pushToast({
+      tone: action === 'approve' ? 'success' : 'warning',
+      title: action === 'approve' ? 'Requisito validado' : 'Requisito cancelado',
+      message:
+        action === 'approve'
+          ? `${requirement.label} quedó validado por administración.`
+          : `${requirement.label} quedó marcado con observaciones administrativas.`,
+    })
+  } catch (error) {
+    const validationErrors = error?.payload?.errors?.validation
+    const details = Array.isArray(validationErrors)
+      ? validationErrors.join(' ')
+      : error?.message || 'La decisión por requisito no pudo guardarse.'
+
+    ui.pushToast({
+      tone: 'error',
+      title: 'No se pudo guardar la decisión',
+      message: details,
+    })
+  } finally {
+    activeRequirementActionKey.value = ''
+  }
 }
 
 async function openProviderAircraft(provider) {
@@ -412,6 +1141,82 @@ async function openProviderAircraft(provider) {
               </article>
             </div>
           </section>
+
+          <section class="provider-detail-panel">
+            <div class="provider-detail-panel-head">
+              <span class="eyebrow">Documentacion legal del operador</span>
+              <strong>Revision, descarga y dictamen documental</strong>
+            </div>
+
+            <p v-if="loadingProviderDetail" class="provider-documents-loading">
+              Cargando expediente documental del proveedor...
+            </p>
+
+            <div v-else-if="selectedProviderDocuments.length" class="provider-documents-list">
+              <article
+                v-for="documentRecord in selectedProviderDocuments"
+                :key="documentRecord.id"
+                class="provider-document-card"
+              >
+                <div class="provider-document-head">
+                  <div>
+                    <strong>{{ documentRecord.name }}</strong>
+                    <p class="muted">
+                      {{ documentRecord.mimeType || 'Tipo no disponible' }} ·
+                      {{ formatDocumentSize(documentRecord.size) }}
+                    </p>
+                  </div>
+                  <span :class="['status-pill', `status-pill-${documentStatusTone(documentRecord.status)}`]">
+                    {{ documentStatusLabel(documentRecord.status) }}
+                  </span>
+                </div>
+
+                <div class="provider-document-meta">
+                  <span>Archivo: {{ documentRecord.fileName || 'Sin file_name' }}</span>
+                  <span>Fecha de carga: {{ formatDocumentDate(documentRecord.createdAt) }}</span>
+                </div>
+
+                <p v-if="documentRecord.notes" class="muted">Observacion: {{ documentRecord.notes }}</p>
+
+                <div class="provider-document-actions">
+                  <button
+                    type="button"
+                    class="provider-link provider-link-secondary"
+                    :disabled="isDocumentActionLoading(selectedProvider.id, documentRecord.id, 'preview')"
+                    @click="previewProviderDocument(selectedProvider, documentRecord)"
+                  >
+                    Ver documento
+                  </button>
+                  <button
+                    type="button"
+                    class="provider-link provider-link-secondary"
+                    :disabled="isDocumentActionLoading(selectedProvider.id, documentRecord.id, 'download')"
+                    @click="downloadProviderDocument(selectedProvider, documentRecord)"
+                  >
+                    Descargar
+                  </button>
+                  <button
+                    type="button"
+                    class="provider-link"
+                    :disabled="isDocumentActionLoading(selectedProvider.id, documentRecord.id, 'approved')"
+                    @click="approveProviderDocument(selectedProvider, documentRecord)"
+                  >
+                    Aprobar documento
+                  </button>
+                  <button
+                    type="button"
+                    class="provider-link provider-link-danger"
+                    :disabled="isDocumentActionLoading(selectedProvider.id, documentRecord.id, 'rejected')"
+                    @click="rejectProviderDocument(selectedProvider, documentRecord)"
+                  >
+                    Rechazar documento
+                  </button>
+                </div>
+              </article>
+            </div>
+
+            <p v-else class="empty-state provider-documents-empty">Sin documentos cargados</p>
+          </section>
         </div>
 
         <aside class="provider-detail-sidebar">
@@ -432,6 +1237,257 @@ async function openProviderAircraft(provider) {
               </article>
             </div>
           </section>
+<section class="provider-detail-panel provider-admin-decision-panel">
+  <div class="provider-admin-decision-head">
+    <div>
+      <span class="eyebrow">Control de validación del operador</span>
+      <strong>{{ getValidationPanelHeadline() }}</strong>
+      <p>
+        {{ getValidationPanelDetail() }}
+      </p>
+    </div>
+
+    <span
+      :class="[
+        'admin-decision-status',
+        selectedProviderReview.canValidate ? 'is-ready' : 'is-blocked'
+      ]"
+    >
+      {{ selectedProviderReview.canValidate ? 'Listo para validar' : 'Bloqueado por requisitos' }}
+    </span>
+  </div>
+
+  <div
+    v-if="!selectedProviderReview.canValidate"
+    class="admin-decision-blocked-note"
+  >
+    <strong>Validación bloqueada</strong>
+    <span>{{ missingValidationLabelsText() }}</span>
+  </div>
+
+  <div v-else-if="selectedProviderReview.statusMeta.key !== 'approved'" class="admin-decision-ready-note">
+    <strong>Listo para validación administrativa</strong>
+    <span>El expediente de empresa ya cumple todos los requisitos obligatorios.</span>
+  </div>
+
+  <section class="admin-validation-checklist">
+    <div class="admin-validation-checklist__head">
+      <strong>Checklist de validación administrativa</strong>
+      <span>La validación del operador revisa todo el expediente de empresa.</span>
+    </div>
+
+    <div class="admin-validation-checklist__grid">
+      <article
+        v-for="item in selectedProviderReview.validationRequirements"
+        :key="item.key"
+        :class="[
+          'admin-validation-check',
+          `tone-${validationRequirementTone(item)}`
+        ]"
+      >
+        <span class="admin-validation-check__icon">{{ validationRequirementIcon(item) }}</span>
+        <div class="admin-validation-check__copy">
+          <strong>{{ item.label }}</strong>
+          <small>{{ validationRequirementStateLabel(item) }}</small>
+          <small
+            :class="[
+              'admin-validation-check__response',
+              `tone-${validationRequirementResponseTone(item)}`
+            ]"
+          >
+            {{ validationRequirementResponseLabel(item) }}
+          </small>
+          <small v-if="item.respondedAt || item.actorName">
+            {{ formatDateTime(item.respondedAt) }}<span v-if="item.actorName"> · {{ item.actorName }}</span>
+          </small>
+          <small v-if="item.adminNote">{{ item.adminNote }}</small>
+        </div>
+        <div class="admin-validation-check__actions">
+          <button
+            type="button"
+            class="ghost-button"
+            :disabled="isAnyValidationActionLoading() || !item.complete"
+            @click="updateRequirementDecision(item, 'approve')"
+          >
+            {{ isRequirementActionLoading(selectedProvider.id, item.key, 'approve') ? 'Validando...' : 'Validar' }}
+          </button>
+          <button
+            type="button"
+            class="ghost-button ghost-button-warning"
+            :disabled="isAnyValidationActionLoading()"
+            @click="updateRequirementDecision(item, 'reject')"
+          >
+            {{ isRequirementActionLoading(selectedProvider.id, item.key, 'reject') ? 'Guardando...' : 'Cancelar' }}
+          </button>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <div class="admin-action-grid">
+    <button
+      type="button"
+      :class="[
+        'admin-action-card',
+        'admin-action-primary',
+        {
+          'is-selected': isAdminActionSelected('validate'),
+          'is-disabled': !selectedProviderReview.canValidate,
+          'is-loading': isValidationActionLoading(selectedProvider.id, 'validate')
+        }
+      ]"
+      :aria-disabled="!selectedProviderReview.canValidate || isAnyValidationActionLoading()"
+      @click="handleCorporateAdminAction('validate')"
+    >
+      <span class="admin-action-icon">✓</span>
+      <span class="admin-action-copy">
+        <strong>
+          {{ isValidationActionLoading(selectedProvider.id, 'validate') ? 'Validando operador...' : 'Validar operador' }}
+        </strong>
+        <small v-if="selectedProviderReview.canValidate">
+          Aprueba formalmente al operador y habilita su acceso a la plataforma.
+        </small>
+        <small v-else>
+          Bloqueado hasta completar los requisitos obligatorios.
+        </small>
+      </span>
+      <span v-if="isAdminActionSelected('validate')" class="admin-action-selected">
+        Seleccionado
+      </span>
+    </button>
+
+    <button
+      type="button"
+      :class="[
+        'admin-action-card',
+        'admin-action-warning',
+        {
+          'is-selected': isAdminActionSelected('request_changes'),
+          'is-loading': isValidationActionLoading(selectedProvider.id, 'request_changes')
+        }
+      ]"
+      :disabled="isAnyValidationActionLoading()"
+      @click="handleCorporateAdminAction('request_changes')"
+    >
+      <span class="admin-action-icon">!</span>
+      <span class="admin-action-copy">
+        <strong>
+          {{ isValidationActionLoading(selectedProvider.id, 'request_changes') ? 'Registrando cambios...' : 'Solicitar cambios' }}
+        </strong>
+        <small>
+          Envía observaciones formales al operador para corregir información pendiente.
+        </small>
+      </span>
+      <span v-if="isAdminActionSelected('request_changes')" class="admin-action-selected">
+        Seleccionado
+      </span>
+    </button>
+
+    <button
+      type="button"
+      :class="[
+        'admin-action-card',
+        'admin-action-danger',
+        {
+          'is-selected': isAdminActionSelected('reject'),
+          'is-loading': isValidationActionLoading(selectedProvider.id, 'reject')
+        }
+      ]"
+      :disabled="isAnyValidationActionLoading()"
+      @click="handleCorporateAdminAction('reject')"
+    >
+      <span class="admin-action-icon">×</span>
+      <span class="admin-action-copy">
+        <strong>
+          {{ isValidationActionLoading(selectedProvider.id, 'reject') ? 'Cancelando validación...' : 'Cancelar validación' }}
+        </strong>
+        <small>
+          Rechaza o cancela el proceso de validación administrativa del operador.
+        </small>
+      </span>
+      <span v-if="isAdminActionSelected('reject')" class="admin-action-selected">
+        Seleccionado
+      </span>
+    </button>
+
+    <button
+      type="button"
+      :class="[
+        'admin-action-card',
+        'admin-action-neutral',
+        { 'is-selected': isAdminActionSelected('aircraft') }
+      ]"
+      :disabled="isAnyValidationActionLoading()"
+      @click="handleCorporateAdminAction('aircraft')"
+    >
+      <span class="admin-action-icon">✈</span>
+      <span class="admin-action-copy">
+        <strong>Revisar aeronaves</strong>
+        <small>
+          Abre el módulo de revisión de aeronaves registradas por este operador.
+        </small>
+      </span>
+      <span v-if="isAdminActionSelected('aircraft')" class="admin-action-selected">
+        Seleccionado
+      </span>
+    </button>
+
+    <button
+      type="button"
+      :class="[
+        'admin-action-card',
+        'admin-action-secondary',
+        { 'is-selected': isAdminActionSelected('close') }
+      ]"
+      :disabled="isAnyValidationActionLoading()"
+      @click="handleCorporateAdminAction('close')"
+    >
+      <span class="admin-action-icon">↗</span>
+      <span class="admin-action-copy">
+        <strong>Continuar después</strong>
+        <small>
+          Cierra la revisión sin modificar el estado administrativo del operador.
+        </small>
+      </span>
+      <span v-if="isAdminActionSelected('close')" class="admin-action-selected">
+        Seleccionado
+      </span>
+    </button>
+  </div>
+</section>
+
+          <section class="provider-detail-panel provider-activity-panel">
+            <div class="provider-detail-panel-head">
+              <span class="eyebrow">Actividad del proveedor</span>
+              <strong>Registro del expediente</strong>
+            </div>
+
+            <div class="provider-activity-list">
+              <p v-if="loadingSelectedProviderActivity" class="provider-activity-empty">
+                Cargando actividad del expediente...
+              </p>
+
+              <article
+                v-for="entry in selectedProviderActivity"
+                :key="entry.id"
+                :class="[
+                  'provider-activity-item',
+                  `tone-${resolveActivityTone(entry.event_type)}`
+                ]"
+              >
+                <span class="activity-dot"></span>
+                <div>
+                  <strong>{{ entry.title }}</strong>
+                  <p>{{ entry.description }}</p>
+                  <small>{{ formatDateTime(entry.created_at) }} · {{ entry.actor_name || 'Proveedor' }}</small>
+                </div>
+              </article>
+
+              <p v-if="!loadingSelectedProviderActivity && !selectedProviderActivity.length" class="provider-activity-empty">
+                Todavía no hay actividad registrada para este expediente.
+              </p>
+            </div>
+          </section>
 
           <section class="provider-detail-panel">
             <div class="provider-detail-panel-head">
@@ -450,20 +1506,7 @@ async function openProviderAircraft(provider) {
             </div>
           </section>
 
-          <section class="provider-detail-panel">
-            <div class="provider-detail-panel-head">
-              <span class="eyebrow">Acciones admin</span>
-              <strong>Flujo rapido</strong>
-            </div>
-            <div class="provider-quick-actions">
-              <button type="button" class="provider-link" @click="openProviderAircraft(selectedProvider)">
-                Revisar aeronaves
-              </button>
-              <button type="button" class="provider-link provider-link-secondary" @click="closeProviderDetail">
-                Continuar despues
-              </button>
-            </div>
-          </section>
+      
         </aside>
       </div>
     </section>
@@ -471,6 +1514,7 @@ async function openProviderAircraft(provider) {
 </template>
 
 <style scoped>
+/*------------------------------------------------------------------------------------------------------------------------------*/
 .providers-page {
   --providers-ink: #17324a;
   --providers-ink-soft: #60758b;
@@ -626,6 +1670,8 @@ async function openProviderAircraft(provider) {
     box-shadow 0.2s ease,
     background 0.2s ease;
 }
+/*------------------------------------------------------------------------------------------------------------------------------*/
+
 
 .search-field input:focus {
   border-color: rgba(70, 137, 181, 0.45);
@@ -861,6 +1907,10 @@ async function openProviderAircraft(provider) {
   gap: 0.75rem;
 }
 
+.provider-link-danger {
+  color: var(--providers-danger);
+}
+
 .empty-state {
   border-radius: 1.4rem;
   border: 1px solid rgba(114, 145, 174, 0.18);
@@ -945,6 +1995,7 @@ async function openProviderAircraft(provider) {
 .provider-detail-kpis,
 .provider-detail-checklist,
 .provider-data-grid,
+.provider-documents-list,
 .provider-summary-list,
 .provider-alerts-list,
 .provider-quick-actions {
@@ -1015,7 +2066,8 @@ async function openProviderAircraft(provider) {
 .provider-check-item,
 .provider-summary-row,
 .provider-alert-row,
-.provider-data-card {
+.provider-data-card,
+.provider-document-card {
   border-radius: 1rem;
   padding: 0.9rem 1rem;
 }
@@ -1069,6 +2121,13 @@ async function openProviderAircraft(provider) {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(249, 250, 252, 0.88));
 }
 
+.provider-document-card {
+  border: 1px solid rgba(132, 154, 176, 0.14);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(244, 247, 251, 0.92));
+  display: grid;
+  gap: 0.75rem;
+}
+
 .provider-data-card-wide {
   grid-column: 1 / -1;
 }
@@ -1111,6 +2170,34 @@ async function openProviderAircraft(provider) {
 .provider-detail-stat strong {
   color: var(--providers-ink);
   font-size: 1.25rem;
+}
+
+.provider-document-head,
+.provider-document-meta,
+.provider-document-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.provider-document-meta {
+  color: var(--providers-ink-soft);
+  font-size: 0.88rem;
+}
+
+.provider-document-actions {
+  justify-content: flex-start;
+}
+
+.provider-documents-loading,
+.provider-documents-empty {
+  color: var(--providers-ink);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(249, 250, 252, 0.88));
+  border-radius: 1rem;
+  padding: 1rem;
+  border: 1px solid rgba(132, 154, 176, 0.14);
 }
 
 .provider-summary-row,
@@ -1175,6 +2262,421 @@ async function openProviderAircraft(provider) {
   background: linear-gradient(180deg, rgba(254, 235, 231, 0.92), rgba(251, 222, 216, 0.84));
   color: #8e3328;
 }
+/*----------------------------------------------------------------------------------------------------*/
+.provider-admin-decision-panel {
+  border: 1px solid rgba(23, 50, 74, 0.18);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 248, 250, 0.96));
+  box-shadow:
+    0 18px 38px rgba(20, 44, 67, 0.08),
+    inset 0 3px 0 rgba(215, 166, 77, 0.62);
+}
+
+.provider-admin-decision-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: start;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid rgba(132, 154, 176, 0.16);
+  padding-bottom: 1rem;
+}
+
+.provider-admin-decision-head strong {
+  display: block;
+  color: var(--providers-ink);
+  font-size: 1.05rem;
+  font-weight: 900;
+}
+
+.provider-admin-decision-head p {
+  max-width: 28rem;
+  margin: 0.35rem 0 0;
+  color: var(--providers-ink-soft);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.admin-decision-status {
+  border-radius: 999px;
+  padding: 0.52rem 0.82rem;
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.admin-decision-status.is-ready {
+  color: #0f5b39;
+  background: #e4f6ec;
+  border: 1px solid rgba(47, 143, 104, 0.24);
+}
+
+.admin-decision-status.is-blocked {
+  color: #7c4d05;
+  background: #fff1d6;
+  border: 1px solid rgba(198, 134, 32, 0.3);
+}
+
+.admin-decision-blocked-note {
+  display: grid;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+  border: 1px solid rgba(198, 134, 32, 0.24);
+  border-radius: 1rem;
+  background: linear-gradient(180deg, #fff9eb 0%, #f9ecd0 100%);
+  padding: 0.9rem 1rem;
+}
+
+.admin-decision-blocked-note strong {
+  color: #7c4d05;
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.admin-decision-blocked-note span {
+  color: #70480a;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.admin-decision-ready-note {
+  display: grid;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+  border: 1px solid rgba(47, 143, 104, 0.24);
+  border-radius: 1rem;
+  background: linear-gradient(180deg, #eefaf4 0%, #dcf2e6 100%);
+  padding: 0.9rem 1rem;
+}
+
+.admin-decision-ready-note strong {
+  color: #0f5b39;
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.admin-decision-ready-note span {
+  color: #1f6c49;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.admin-validation-checklist {
+  display: grid;
+  gap: 0.9rem;
+  margin-bottom: 1rem;
+  border: 1px solid rgba(132, 154, 176, 0.14);
+  border-radius: 1.1rem;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(247, 249, 251, 0.92));
+  padding: 1rem;
+}
+
+.admin-validation-checklist__head {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.admin-validation-checklist__head strong {
+  color: var(--providers-ink);
+  font-size: 0.98rem;
+}
+
+.admin-validation-checklist__head span {
+  color: var(--providers-ink-soft);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.admin-validation-checklist__grid {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.admin-validation-check {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0.75rem;
+  border: 1px solid rgba(132, 154, 176, 0.14);
+  border-radius: 0.95rem;
+  padding: 0.85rem 0.95rem;
+}
+
+.admin-validation-check__icon {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  font-size: 0.95rem;
+  font-weight: 900;
+}
+
+.admin-validation-check__copy {
+  display: grid;
+  gap: 0.16rem;
+}
+
+.admin-validation-check__copy strong {
+  color: var(--providers-ink);
+  font-size: 0.92rem;
+}
+
+.admin-validation-check__copy small {
+  color: var(--providers-ink-soft);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.admin-validation-check__response {
+  width: fit-content;
+  border-radius: 999px;
+  padding: 0.16rem 0.55rem;
+}
+
+.admin-validation-check__response.tone-success {
+  color: #0f5b39;
+  background: rgba(47, 143, 104, 0.12);
+}
+
+.admin-validation-check__response.tone-danger {
+  color: #8e3328;
+  background: rgba(207, 102, 91, 0.12);
+}
+
+.admin-validation-check__response.tone-warning {
+  color: #8f5a05;
+  background: rgba(198, 134, 32, 0.12);
+}
+
+.admin-validation-check__response.tone-info {
+  color: #295978;
+  background: rgba(79, 135, 177, 0.12);
+}
+
+.admin-validation-check__actions {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.admin-validation-check.tone-success {
+  border-color: rgba(47, 143, 104, 0.18);
+  background: linear-gradient(180deg, rgba(240, 250, 245, 0.96), rgba(227, 245, 236, 0.92));
+}
+
+.admin-validation-check.tone-success .admin-validation-check__icon {
+  color: #0f5b39;
+  background: rgba(47, 143, 104, 0.16);
+}
+
+.admin-validation-check.tone-warning {
+  border-color: rgba(198, 134, 32, 0.22);
+  background: linear-gradient(180deg, rgba(255, 249, 236, 0.96), rgba(251, 240, 214, 0.92));
+}
+
+.admin-validation-check.tone-warning .admin-validation-check__icon {
+  color: #8f5a05;
+  background: rgba(198, 134, 32, 0.14);
+}
+
+.provider-activity-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.provider-activity-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: start;
+  border: 1px solid rgba(132, 154, 176, 0.14);
+  border-radius: 1rem;
+  padding: 0.9rem 1rem;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(247, 249, 251, 0.92));
+}
+
+.provider-activity-item strong {
+  color: var(--providers-ink);
+}
+
+.provider-activity-item p,
+.provider-activity-item small,
+.provider-activity-empty {
+  margin: 0.18rem 0 0;
+  color: var(--providers-ink-soft);
+}
+
+.provider-activity-item.tone-success {
+  border-color: rgba(47, 143, 104, 0.18);
+}
+
+.provider-activity-item.tone-warning {
+  border-color: rgba(198, 134, 32, 0.24);
+}
+
+.activity-dot {
+  width: 0.72rem;
+  height: 0.72rem;
+  margin-top: 0.35rem;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #d7a64d 0%, #f1c974 100%);
+  box-shadow: 0 0 0 6px rgba(215, 166, 77, 0.14);
+}
+
+.ghost-button-warning {
+  border-color: rgba(198, 134, 32, 0.24);
+  color: #8f5a05;
+}
+
+.admin-action-grid {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.admin-action-card {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 2.5rem minmax(0, 1fr) auto;
+  gap: 0.85rem;
+  align-items: center;
+  border: 1px solid rgba(132, 154, 176, 0.18);
+  border-radius: 1rem;
+  background: #ffffff;
+  padding: 0.95rem;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 12px 26px rgba(20, 44, 67, 0.06);
+  transition:
+    transform 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease;
+}
+
+.admin-action-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(23, 50, 74, 0.3);
+  box-shadow: 0 18px 34px rgba(20, 44, 67, 0.12);
+}
+
+.admin-action-card.is-selected {
+  border-color: rgba(23, 50, 74, 0.52);
+  background: linear-gradient(180deg, #ffffff 0%, #f4f7fa 100%);
+  box-shadow:
+    0 18px 34px rgba(20, 44, 67, 0.14),
+    inset 4px 0 0 var(--providers-ink);
+}
+
+.admin-action-card.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.68;
+  background: linear-gradient(180deg, #f8fafc 0%, #eef2f6 100%);
+}
+
+.admin-action-card:focus-visible {
+  outline: 3px solid rgba(215, 166, 77, 0.35);
+  outline-offset: 3px;
+}
+
+.admin-action-icon {
+  width: 2.5rem;
+  height: 2.5rem;
+  display: grid;
+  place-items: center;
+  border-radius: 0.85rem;
+  font-size: 0.98rem;
+  font-weight: 900;
+}
+
+.admin-action-copy {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.admin-action-copy strong {
+  color: var(--providers-ink);
+  font-size: 0.94rem;
+  font-weight: 900;
+}
+
+.admin-action-copy small {
+  color: var(--providers-ink-soft);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.admin-action-selected {
+  border-radius: 999px;
+  background: rgba(23, 50, 74, 0.08);
+  color: var(--providers-ink);
+  padding: 0.34rem 0.6rem;
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+
+-------------------------------------------------------------------------------
+.admin-action-primary .admin-action-icon {
+  background: linear-gradient(180deg, #1d3a56 0%, #163047 100%);
+  color: #ffffff;
+}
+
+.admin-action-warning .admin-action-icon {
+  background: linear-gradient(180deg, #f6dda0 0%, #ebc97a 100%);
+  color: #533400;
+}
+
+.admin-action-danger .admin-action-icon {
+  background: linear-gradient(180deg, #fde5e1 0%, #f7cbc5 100%);
+  color: #8e3328;
+}
+
+.admin-action-neutral .admin-action-icon {
+  background: linear-gradient(180deg, #dfedf8 0%, #cfe2f1 100%);
+  color: #295978;
+}
+
+.admin-action-secondary .admin-action-icon {
+  background: linear-gradient(180deg, #eef3f7 0%, #dfe7ee 100%);
+  color: #45627f;
+}
+
+.admin-action-primary.is-selected {
+  border-color: rgba(23, 50, 74, 0.52);
+}
+
+.admin-action-warning.is-selected {
+  border-color: rgba(215, 166, 77, 0.62);
+  box-shadow:
+    0 18px 34px rgba(215, 166, 77, 0.16),
+    inset 4px 0 0 var(--providers-accent);
+}
+
+.admin-action-danger.is-selected {
+  border-color: rgba(207, 102, 91, 0.52);
+  box-shadow:
+    0 18px 34px rgba(207, 102, 91, 0.14),
+    inset 4px 0 0 var(--providers-danger);
+}
+
+@media (max-width: 760px) {
+  .provider-admin-decision-head,
+  .admin-action-card {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-action-selected {
+    width: fit-content;
+  }
+}
 
 @media (max-width: 1180px) {
   .provider-grid {
@@ -1204,7 +2706,10 @@ async function openProviderAircraft(provider) {
   .provider-detail-panel-head,
   .provider-detail-title-row,
   .provider-summary-row,
-  .provider-alert-row {
+  .provider-alert-row,
+  .provider-document-head,
+  .provider-document-meta,
+  .provider-document-actions {
     display: grid;
   }
 
@@ -1216,5 +2721,6 @@ async function openProviderAircraft(provider) {
   .provider-detail-modal {
     inset: 0.75rem;
   }
+  
 }
 </style>

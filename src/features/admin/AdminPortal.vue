@@ -935,6 +935,32 @@ function normalizeAdminAircraft(item = {}) {
   }
 }
 
+function normalizeAdminProviderDocument(item = {}, index = 0) {
+  const rawPath =
+    item.download_url ||
+    item.downloadUrl ||
+    item.url ||
+    item.file_url ||
+    item.fileUrl ||
+    item.path ||
+    item.storage_path ||
+    ''
+
+  return {
+    ...item,
+    id: item.id || index + 1,
+    original_name:
+      item.original_name || item.document_name || item.name || item.file_name || `Documento ${index + 1}`,
+    file_name: item.file_name || item.filename || '',
+    mime_type: item.mime_type || item.mime || item.content_type || '',
+    size: Number(item.size || item.file_size || 0),
+    status: item.status || item.state || item.validation_status || item.review_status || 'Pendiente',
+    created_at: item.created_at || item.uploaded_at || item.updated_at || '',
+    url: rawPath || '',
+    download_url: item.download_url || item.downloadUrl || rawPath || '',
+  }
+}
+
 function normalizeAdminProvider(item = {}) {
   const provider = item && typeof item === 'object' ? item : {}
   const user = provider.user && typeof provider.user === 'object' ? provider.user : {}
@@ -951,6 +977,10 @@ function normalizeAdminProvider(item = {}) {
       profile,
     },
   })
+  const providerDocuments = [
+    ...pickCollection(provider, ['documents', 'legal_documents', 'company_documents', 'documentos']),
+    ...pickCollection(profile, ['documents', 'legal_documents', 'company_documents', 'documentos']),
+  ]
 
   return {
     ...provider,
@@ -1025,6 +1055,10 @@ function normalizeAdminProvider(item = {}) {
           pending: Number(aircraftMetrics.pending || provider.pending_aircraft_count || 0),
         }
       : null,
+    documents: providerDocuments.map((document, index) => normalizeAdminProviderDocument(document, index)),
+    documents_count:
+      Number(provider.documents_count || provider.legal_documents_count || provider.company_documents_count || 0) ||
+      providerDocuments.length,
     user,
   }
 }
@@ -1142,6 +1176,13 @@ function mergeProviderCatalog(records = []) {
           item.contact_name && item.contact_name !== 'Sin contacto' ? item.contact_name : current.contact_name,
         base_airport:
           item.base_airport && item.base_airport !== 'Base pendiente' ? item.base_airport : current.base_airport,
+        documents:
+          Array.isArray(item.documents) && item.documents.length
+            ? item.documents
+            : Array.isArray(current.documents)
+              ? current.documents
+              : [],
+        documents_count: Number(item.documents_count || 0) || Number(current.documents_count || 0),
       })
     })
 
@@ -2825,6 +2866,7 @@ watch(
     v-else-if="section === 'proveedores'"
     :providers="providers"
     :aircraft="aircraft"
+    @refresh="loadProviders({ preserveExisting: false })"
   />
   <AdminAircraftSubscriptionsSection
     v-else-if="section === 'aeronaves'"

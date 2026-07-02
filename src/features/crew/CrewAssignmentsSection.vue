@@ -1,3 +1,7 @@
+///--------------------------------------------------------------------------------------------
+/// VISTA DE ASIGNACIONES DE MISION OPERATIVA PARA TRIPULACION
+///--------------------------------------------------------------------------------------------
+
 <script setup>
 import { computed, ref, watch } from 'vue'
 import CrewUiIcon from './CrewUiIcon.vue'

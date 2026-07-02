@@ -1,3 +1,9 @@
+///--------------------------------------------------------------------------------------------
+/// VISTA DE DISPONIBILIDAD DE TRIPULACION, CON CALENDARIO OPERATIVO Y REGISTRO DE BLOQUEOS DE DISPONIBILIDAD. PERMITE MARCAR DISPONIBLE, DESCANSO, NO DISPONIBLE O SOLICITAR BLOQUEO. MUESTRA RESUMEN DE ESTADOS POR MES Y BITACORA DE CAMBIOS.
+///--------------------------------------------------------------------------------------------
+
+
+
 <script setup>
 import { computed, ref, watch } from 'vue'
 import CrewUiIcon from './CrewUiIcon.vue'

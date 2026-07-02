@@ -305,8 +305,33 @@ function getDefaultStatusErrorMessage(status = 0) {
   return 'Ocurrio un problema al procesar la solicitud.'
 }
 
+function looksLikeDatabaseErrorMessage(message = '') {
+  const normalized = String(message || '')
+    .trim()
+    .toLowerCase()
+
+  if (!normalized) return false
+
+  return [
+    'sqlstate[',
+    'syntax error at or near',
+    'undefined column',
+    'column ',
+    'select ',
+    'insert into',
+    'update ',
+    'delete from',
+    'connection: pgsql',
+    'connection: mysql',
+  ].some((token) => normalized.includes(token))
+}
+
 function extractApiErrorMessage(payload = {}, status = 0) {
   if (typeof payload?.message === 'string' && payload.message.trim()) {
+    if (looksLikeDatabaseErrorMessage(payload.message)) {
+      return getDefaultStatusErrorMessage(status)
+    }
+
     if (payload.message !== `Error ${status}`) {
       return payload.message
     }
