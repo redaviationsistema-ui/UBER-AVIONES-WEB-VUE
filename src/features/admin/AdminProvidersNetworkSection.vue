@@ -31,12 +31,17 @@ const loadingSelectedProviderActivity = ref(false)
 
 
 function missingValidationLabelsText() {
-  if (!selectedProviderReview.value?.missingValidationItems?.length) {
-    return 'Todos los requisitos administrativos están completos.'
+  const pendingItems =
+    selectedProviderReview.value?.validationRequirements?.filter(
+      (item) => !item.complete || !isRequirementApproved(item),
+    ) || []
+
+  if (!pendingItems.length) {
+    return 'Todos los requisitos administrativos ya fueron aprobados.'
   }
 
-  return `Faltan requisitos obligatorios: ${selectedProviderReview.value.missingValidationItems
-    .map((item) => item.label)
+  return `Faltan requisitos por aprobar: ${pendingItems
+    .map((item) => (item.complete ? `${item.label} (pendiente de validacion admin)` : `${item.label} (dato incompleto)`))
     .join(', ')}.`
 }
 
@@ -53,35 +58,58 @@ function getValidationPanelDetail() {
     return 'La validacion del operador ya fue aprobada manualmente y el acceso operativo quedo habilitado.'
   }
   if (selectedProviderReview.value.canValidate) {
-    return 'Todos los requisitos obligatorios del expediente estan completos. Ya puedes validar formalmente al operador.'
+    return 'Todos los requisitos del checklist ya fueron aprobados individualmente. Ya puedes validar formalmente al operador.'
   }
-  return 'La validacion del operador revisa todo el expediente de empresa, no solo la aprobacion de documentos individuales.'
+  return 'Cada requisito debe aprobarse o cancelarse por separado. Validar el operador completo solo se habilita cuando todos esten aprobados.'
 }
 
 function validationRequirementStateLabel(item = {}) {
-  return item.complete ? 'Completo' : 'Pendiente'
+  return item.complete ? 'Dato completo' : 'Dato pendiente'
+}
+
+function normalizeRequirementResponseStatus(item = {}) {
+  return String(item.responseStatus || '').trim().toLowerCase()
+}
+
+function isRequirementApproved(item = {}) {
+  return ['approved', 'aprobado', 'validated', 'validado'].includes(normalizeRequirementResponseStatus(item))
+}
+
+function isRequirementRejected(item = {}) {
+  return ['rejected', 'rechazado', 'rechazada', 'cancelled', 'canceled', 'cancelado'].includes(
+    normalizeRequirementResponseStatus(item),
+  )
 }
 
 function validationRequirementTone(item = {}) {
-  return item.complete ? 'success' : 'warning'
+  if (isRequirementApproved(item)) return 'success'
+  if (isRequirementRejected(item)) return 'danger'
+  return item.complete ? 'info' : 'warning'
 }
 
 function validationRequirementIcon(item = {}) {
-  return item.complete ? '✓' : '!'
+  if (isRequirementApproved(item)) return '✓'
+  if (isRequirementRejected(item)) return '×'
+  return item.complete ? '•' : '!'
 }
 
 function validationRequirementResponseLabel(item = {}) {
-  const normalized = String(item.responseStatus || '').trim().toLowerCase()
-  if (normalized === 'approved') return 'Validado por admin'
-  if (normalized === 'rejected') return 'Cancelado por admin'
-  return item.complete ? 'Listo para revision' : 'Pendiente'
+  if (isRequirementApproved(item)) return 'Aprobado por administracion'
+  if (isRequirementRejected(item)) return 'Cancelado por administracion'
+  return 'Pendiente de decision administrativa'
 }
 
 function validationRequirementResponseTone(item = {}) {
-  const normalized = String(item.responseStatus || '').trim().toLowerCase()
-  if (normalized === 'approved') return 'success'
-  if (normalized === 'rejected') return 'danger'
+  if (isRequirementApproved(item)) return 'success'
+  if (isRequirementRejected(item)) return 'danger'
   return item.complete ? 'info' : 'warning'
+}
+
+function validationRequirementHint(item = {}) {
+  if (isRequirementApproved(item)) return 'Este requisito ya fue aprobado de forma individual.'
+  if (isRequirementRejected(item)) return 'Este requisito fue cancelado y requiere correccion o nueva revision.'
+  if (item.complete) return 'El dato ya esta completo y listo para que Admin lo valide o lo cancele.'
+  return 'Aun faltan datos del operador para poder aprobar este requisito.'
 }
 
 function formatDateTime(value) {
@@ -526,6 +554,13 @@ function requirementActionKey(providerId, requirementKey, action) {
 
 function isRequirementActionLoading(providerId, requirementKey, action) {
   return activeRequirementActionKey.value === requirementActionKey(providerId, requirementKey, action)
+}
+
+function isRequirementBusy(providerId, requirementKey) {
+  return (
+    activeRequirementActionKey.value.startsWith(`${providerId || 'provider'}:${requirementKey || 'requirement'}:`) ||
+    Boolean(activeValidationActionKey.value)
+  )
 }
 
 async function loadSelectedProviderActivity(providerId) {
@@ -1267,7 +1302,7 @@ async function openProviderAircraft(provider) {
 
   <div v-else-if="selectedProviderReview.statusMeta.key !== 'approved'" class="admin-decision-ready-note">
     <strong>Listo para validación administrativa</strong>
-    <span>El expediente de empresa ya cumple todos los requisitos obligatorios.</span>
+    <span>Todos los requisitos del checklist ya fueron aprobados individualmente.</span>
   </div>
 
   <section class="admin-validation-checklist">
@@ -1297,27 +1332,36 @@ async function openProviderAircraft(provider) {
           >
             {{ validationRequirementResponseLabel(item) }}
           </small>
+          <small class="admin-validation-check__hint">{{ validationRequirementHint(item) }}</small>
           <small v-if="item.respondedAt || item.actorName">
             {{ formatDateTime(item.respondedAt) }}<span v-if="item.actorName"> · {{ item.actorName }}</span>
           </small>
-          <small v-if="item.adminNote">{{ item.adminNote }}</small>
+          <small v-if="item.adminNote" class="admin-validation-check__note">Motivo: {{ item.adminNote }}</small>
         </div>
         <div class="admin-validation-check__actions">
           <button
             type="button"
-            class="ghost-button"
-            :disabled="isAnyValidationActionLoading() || !item.complete"
+            :class="[
+              'admin-validation-check__button',
+              'admin-validation-check__button--approve',
+              { 'is-active': isRequirementApproved(item) }
+            ]"
+            :disabled="isRequirementBusy(selectedProvider.id || selectedProvider.provider_id, item.key) || !item.complete"
             @click="updateRequirementDecision(item, 'approve')"
           >
-            {{ isRequirementActionLoading(selectedProvider.id, item.key, 'approve') ? 'Validando...' : 'Validar' }}
+            {{ isRequirementActionLoading(selectedProvider.id || selectedProvider.provider_id, item.key, 'approve') ? 'Validando...' : 'Validar' }}
           </button>
           <button
             type="button"
-            class="ghost-button ghost-button-warning"
-            :disabled="isAnyValidationActionLoading()"
+            :class="[
+              'admin-validation-check__button',
+              'admin-validation-check__button--reject',
+              { 'is-active': isRequirementRejected(item) }
+            ]"
+            :disabled="isRequirementBusy(selectedProvider.id || selectedProvider.provider_id, item.key)"
             @click="updateRequirementDecision(item, 'reject')"
           >
-            {{ isRequirementActionLoading(selectedProvider.id, item.key, 'reject') ? 'Guardando...' : 'Cancelar' }}
+            {{ isRequirementActionLoading(selectedProvider.id || selectedProvider.provider_id, item.key, 'reject') ? 'Guardando...' : 'Cancelar' }}
           </button>
         </div>
       </article>
@@ -1786,8 +1830,8 @@ async function openProviderAircraft(provider) {
 
 .status-pill {
   border-radius: 999px;
-  padding: 0.42rem 0.82rem;
-  font-size: 0.74rem;
+  padding: 0.34rem 0.68rem;
+  font-size: 0.68rem;
   font-weight: 800;
   white-space: nowrap;
 }
@@ -1871,11 +1915,11 @@ async function openProviderAircraft(provider) {
   border: 0;
   border-radius: 999px;
   background: linear-gradient(180deg, #f6dda0 0%, #ebc97a 100%);
-  padding: 0.68rem 1rem;
+  padding: 0.52rem 0.8rem;
   color: #533400;
-  font-size: 0.92rem;
+  font-size: 0.82rem;
   font-weight: 800;
-  box-shadow: 0 12px 24px rgba(215, 166, 77, 0.22);
+  box-shadow: 0 10px 18px rgba(215, 166, 77, 0.18);
   transition:
     transform 0.2s ease,
     box-shadow 0.2s ease,
@@ -1919,6 +1963,7 @@ async function openProviderAircraft(provider) {
     var(--providers-panel);
   color: #ffffff;
   box-shadow: var(--providers-shadow);
+  padding: 0.95rem 1rem;
 }
 
 .provider-detail-backdrop {
@@ -1933,7 +1978,9 @@ async function openProviderAircraft(provider) {
   position: fixed;
   inset: 1.5rem;
   width: auto;
-  overflow: auto;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   border: 1px solid rgba(126, 151, 176, 0.18);
   border-radius: 1.8rem;
   background:
@@ -1942,31 +1989,33 @@ async function openProviderAircraft(provider) {
     linear-gradient(180deg, rgba(253, 251, 246, 0.99), rgba(240, 236, 228, 0.99));
   box-shadow: 0 30px 70px rgba(20, 44, 67, 0.24);
   z-index: 31;
-  padding: 1.2rem;
+  padding: 1rem 1rem 0.95rem;
 }
 
 .provider-detail-head,
 .provider-detail-grid {
   display: grid;
-  gap: 1rem;
+  gap: 0.8rem;
 }
 
 .provider-detail-head {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
-  margin-bottom: 1rem;
+  margin-bottom: 0.8rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid rgba(132, 154, 176, 0.14);
 }
 
 .provider-detail-head-actions {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.55rem;
 }
 
 .provider-detail-head h4 {
-  margin: 0.25rem 0 0;
+  margin: 0.18rem 0 0;
   color: var(--providers-ink);
-  font-size: 1.35rem;
+  font-size: 1.28rem;
 }
 
 .provider-detail-close {
@@ -1974,7 +2023,8 @@ async function openProviderAircraft(provider) {
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.88);
   color: var(--providers-ink);
-  padding: 0.7rem 1rem;
+  padding: 0.56rem 0.85rem;
+  font-size: 0.86rem;
   font-weight: 700;
   cursor: pointer;
 }
@@ -1985,8 +2035,10 @@ async function openProviderAircraft(provider) {
 
 .provider-detail-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(19rem, 0.9fr);
-  gap: 1rem;
+  grid-template-columns: minmax(0, 1.7fr) minmax(20rem, 0.95fr);
+  gap: 0.85rem;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .provider-detail-main,
@@ -2000,64 +2052,82 @@ async function openProviderAircraft(provider) {
 .provider-alerts-list,
 .provider-quick-actions {
   display: grid;
-  gap: 0.9rem;
+  gap: 0.65rem;
+}
+
+.provider-detail-main,
+.provider-detail-sidebar {
+  min-height: 0;
+  align-content: start;
+}
+
+.provider-detail-main {
+  overflow: auto;
+  padding-right: 0.2rem;
+}
+
+.provider-detail-sidebar {
+  overflow: auto;
+  padding-right: 0.15rem;
 }
 
 .provider-detail-panel,
 .provider-detail-hero-card {
   border: 1px solid rgba(132, 154, 176, 0.14);
-  border-radius: 1.3rem;
+  border-radius: 1.1rem;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(247, 246, 242, 0.76));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
-  padding: 1rem;
+  padding: 0.82rem 0.88rem;
 }
 
 .provider-detail-hero {
-  grid-template-columns: minmax(0, 1.2fr) minmax(16rem, 0.8fr);
+  grid-template-columns: minmax(0, 1.25fr) minmax(14rem, 0.75fr);
+  gap: 0.75rem;
 }
 
 .provider-detail-title-row {
   display: flex;
   align-items: start;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 0.75rem;
 }
 
 .provider-detail-company {
   display: block;
   color: var(--providers-ink);
-  font-size: clamp(1.8rem, 3vw, 2.6rem);
+  font-size: clamp(1.45rem, 2.5vw, 2.1rem);
   line-height: 0.95;
   letter-spacing: -0.04em;
 }
 
 .provider-detail-subtitle {
-  margin: 0.45rem 0 0;
+  margin: 0.28rem 0 0;
   color: var(--providers-ink-soft);
+  font-size: 0.88rem;
 }
 
 .provider-detail-progress {
-  min-width: 7rem;
-  border-radius: 1.1rem;
+  min-width: 5.7rem;
+  border-radius: 0.95rem;
   background:
     radial-gradient(circle at top, rgba(92, 142, 176, 0.18), transparent 44%),
     linear-gradient(180deg, #1d3a56 0%, #163047 100%);
-  padding: 1rem;
+  padding: 0.72rem 0.8rem;
   color: #ffffff;
   text-align: center;
-  box-shadow: 0 16px 28px rgba(20, 44, 67, 0.18);
+  box-shadow: 0 12px 22px rgba(20, 44, 67, 0.16);
 }
 
 .provider-detail-progress strong {
   display: block;
-  font-size: 2rem;
+  font-size: 1.55rem;
   line-height: 1;
 }
 
 .provider-detail-progress span {
   color: rgba(234, 241, 246, 0.72);
-  font-size: 0.78rem;
+  font-size: 0.7rem;
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -2068,24 +2138,26 @@ async function openProviderAircraft(provider) {
 .provider-alert-row,
 .provider-data-card,
 .provider-document-card {
-  border-radius: 1rem;
-  padding: 0.9rem 1rem;
+  border-radius: 0.9rem;
+  padding: 0.72rem 0.8rem;
 }
 
 .provider-detail-checklist {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.55rem;
 }
 
 .provider-check-item {
   border: 1px solid rgba(128, 152, 177, 0.18);
   background: linear-gradient(180deg, rgba(243, 247, 251, 0.92), rgba(238, 243, 248, 0.88));
+  min-height: 0;
 }
 
 .provider-check-item strong,
 .provider-data-card span {
   display: block;
   color: #8a6b36;
-  font-size: 0.74rem;
+  font-size: 0.68rem;
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -2095,6 +2167,8 @@ async function openProviderAircraft(provider) {
 .provider-data-card strong {
   color: var(--providers-ink);
   font-weight: 800;
+  font-size: 0.88rem;
+  line-height: 1.28;
 }
 
 .provider-check-item.is-complete {
@@ -2114,18 +2188,20 @@ async function openProviderAircraft(provider) {
 
 .provider-data-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
 }
 
 .provider-data-card {
   border: 1px solid rgba(132, 154, 176, 0.14);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(249, 250, 252, 0.88));
+  min-height: 0;
 }
 
 .provider-document-card {
   border: 1px solid rgba(132, 154, 176, 0.14);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(244, 247, 251, 0.92));
   display: grid;
-  gap: 0.75rem;
+  gap: 0.55rem;
 }
 
 .provider-data-card-wide {
@@ -2136,32 +2212,39 @@ async function openProviderAircraft(provider) {
   display: flex;
   align-items: start;
   justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 0.85rem;
+  gap: 0.75rem;
+  margin-bottom: 0.55rem;
 }
 
 .provider-detail-panel-head strong {
   color: var(--providers-ink);
+  font-size: 0.94rem;
+  line-height: 1.25;
 }
 
 .provider-detail-kpis {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
 }
 
 .provider-detail-stat {
-  display: grid;
-  gap: 0.35rem;
-  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.18rem;
+  min-height: 5.25rem;
+  padding: 0.72rem 0.8rem;
   border: 1px solid rgba(132, 154, 176, 0.14);
-  border-radius: 1rem;
+  border-radius: 0.95rem;
   background:
     radial-gradient(circle at top right, rgba(92, 142, 176, 0.08), transparent 34%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(246, 248, 251, 0.84));
+  text-align: center;
 }
 
 .provider-detail-stat span {
   color: var(--providers-ink-soft);
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -2169,7 +2252,8 @@ async function openProviderAircraft(provider) {
 
 .provider-detail-stat strong {
   color: var(--providers-ink);
-  font-size: 1.25rem;
+  font-size: 1.6rem;
+  line-height: 1;
 }
 
 .provider-document-head,
@@ -2184,20 +2268,23 @@ async function openProviderAircraft(provider) {
 
 .provider-document-meta {
   color: var(--providers-ink-soft);
-  font-size: 0.88rem;
+  font-size: 0.79rem;
 }
 
 .provider-document-actions {
   justify-content: flex-start;
+  gap: 0.45rem;
 }
 
 .provider-documents-loading,
 .provider-documents-empty {
   color: var(--providers-ink);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(249, 250, 252, 0.88));
-  border-radius: 1rem;
-  padding: 1rem;
+  border-radius: 0.95rem;
+  padding: 0.75rem 0.85rem;
   border: 1px solid rgba(132, 154, 176, 0.14);
+  min-height: 0;
+  font-size: 0.86rem;
 }
 
 .provider-summary-row,
@@ -2205,18 +2292,21 @@ async function openProviderAircraft(provider) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 0.75rem;
   border: 1px solid rgba(132, 154, 176, 0.12);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 250, 252, 0.9));
 }
 
 .provider-summary-row span {
   color: var(--providers-ink-soft);
+  font-size: 0.8rem;
 }
 
 .provider-summary-row strong {
   color: var(--providers-ink);
   text-align: right;
+  font-size: 0.84rem;
+  line-height: 1.25;
 }
 
 .provider-summary-row.tone-success {
@@ -2275,32 +2365,32 @@ async function openProviderAircraft(provider) {
 .provider-admin-decision-head {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 1rem;
+  gap: 0.75rem;
   align-items: start;
-  margin-bottom: 1rem;
+  margin-bottom: 0.8rem;
   border-bottom: 1px solid rgba(132, 154, 176, 0.16);
-  padding-bottom: 1rem;
+  padding-bottom: 0.8rem;
 }
 
 .provider-admin-decision-head strong {
   display: block;
   color: var(--providers-ink);
-  font-size: 1.05rem;
+  font-size: 0.98rem;
   font-weight: 900;
 }
 
 .provider-admin-decision-head p {
-  max-width: 28rem;
-  margin: 0.35rem 0 0;
+  max-width: 24rem;
+  margin: 0.22rem 0 0;
   color: var(--providers-ink-soft);
-  font-size: 0.84rem;
-  line-height: 1.45;
+  font-size: 0.78rem;
+  line-height: 1.35;
 }
 
 .admin-decision-status {
   border-radius: 999px;
-  padding: 0.52rem 0.82rem;
-  font-size: 0.68rem;
+  padding: 0.42rem 0.7rem;
+  font-size: 0.64rem;
   font-weight: 900;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -2321,12 +2411,12 @@ async function openProviderAircraft(provider) {
 
 .admin-decision-blocked-note {
   display: grid;
-  gap: 0.35rem;
-  margin-bottom: 1rem;
+  gap: 0.25rem;
+  margin-bottom: 0.8rem;
   border: 1px solid rgba(198, 134, 32, 0.24);
-  border-radius: 1rem;
+  border-radius: 0.9rem;
   background: linear-gradient(180deg, #fff9eb 0%, #f9ecd0 100%);
-  padding: 0.9rem 1rem;
+  padding: 0.72rem 0.8rem;
 }
 
 .admin-decision-blocked-note strong {
@@ -2339,18 +2429,18 @@ async function openProviderAircraft(provider) {
 
 .admin-decision-blocked-note span {
   color: #70480a;
-  font-size: 0.84rem;
-  line-height: 1.45;
+  font-size: 0.78rem;
+  line-height: 1.35;
 }
 
 .admin-decision-ready-note {
   display: grid;
-  gap: 0.35rem;
-  margin-bottom: 1rem;
+  gap: 0.25rem;
+  margin-bottom: 0.8rem;
   border: 1px solid rgba(47, 143, 104, 0.24);
-  border-radius: 1rem;
+  border-radius: 0.9rem;
   background: linear-gradient(180deg, #eefaf4 0%, #dcf2e6 100%);
-  padding: 0.9rem 1rem;
+  padding: 0.72rem 0.8rem;
 }
 
 .admin-decision-ready-note strong {
@@ -2363,18 +2453,18 @@ async function openProviderAircraft(provider) {
 
 .admin-decision-ready-note span {
   color: #1f6c49;
-  font-size: 0.84rem;
-  line-height: 1.45;
+  font-size: 0.78rem;
+  line-height: 1.35;
 }
 
 .admin-validation-checklist {
   display: grid;
-  gap: 0.9rem;
-  margin-bottom: 1rem;
+  gap: 0.7rem;
+  margin-bottom: 0.8rem;
   border: 1px solid rgba(132, 154, 176, 0.14);
-  border-radius: 1.1rem;
+  border-radius: 1rem;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(247, 249, 251, 0.92));
-  padding: 1rem;
+  padding: 0.8rem;
 }
 
 .admin-validation-checklist__head {
@@ -2384,60 +2474,65 @@ async function openProviderAircraft(provider) {
 
 .admin-validation-checklist__head strong {
   color: var(--providers-ink);
-  font-size: 0.98rem;
+  font-size: 0.92rem;
 }
 
 .admin-validation-checklist__head span {
   color: var(--providers-ink-soft);
-  font-size: 0.84rem;
-  line-height: 1.45;
+  font-size: 0.76rem;
+  line-height: 1.35;
 }
 
 .admin-validation-checklist__grid {
   display: grid;
-  gap: 0.75rem;
+  gap: 0.55rem;
 }
 
 .admin-validation-check {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: start;
-  gap: 0.75rem;
+  gap: 0.6rem;
   border: 1px solid rgba(132, 154, 176, 0.14);
-  border-radius: 0.95rem;
-  padding: 0.85rem 0.95rem;
+  border-radius: 0.85rem;
+  padding: 0.68rem 0.75rem;
 }
 
 .admin-validation-check__icon {
   display: grid;
   place-items: center;
-  width: 2rem;
-  height: 2rem;
+  width: 1.75rem;
+  height: 1.75rem;
   border-radius: 999px;
-  font-size: 0.95rem;
+  font-size: 0.82rem;
   font-weight: 900;
 }
 
 .admin-validation-check__copy {
   display: grid;
-  gap: 0.16rem;
+  gap: 0.12rem;
 }
 
 .admin-validation-check__copy strong {
   color: var(--providers-ink);
-  font-size: 0.92rem;
+  font-size: 0.86rem;
 }
 
 .admin-validation-check__copy small {
   color: var(--providers-ink-soft);
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   font-weight: 700;
+}
+
+.admin-validation-check__hint {
+  color: var(--providers-ink-soft);
+  font-weight: 600;
 }
 
 .admin-validation-check__response {
   width: fit-content;
   border-radius: 999px;
-  padding: 0.16rem 0.55rem;
+  padding: 0.14rem 0.48rem;
 }
 
 .admin-validation-check__response.tone-success {
@@ -2461,8 +2556,76 @@ async function openProviderAircraft(provider) {
 }
 
 .admin-validation-check__actions {
-  display: grid;
-  gap: 0.45rem;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  min-width: 0;
+  padding-left: 0.2rem;
+}
+
+.admin-validation-check__button {
+  appearance: none;
+  border: 1px solid rgba(23, 50, 74, 0.18);
+  border-radius: 0.72rem;
+  background: #ffffff;
+  color: var(--providers-ink);
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1.2;
+  padding: 0.5rem 0.68rem;
+  cursor: pointer;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+}
+
+.admin-validation-check__button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 20px rgba(20, 44, 67, 0.08);
+}
+
+.admin-validation-check__button:focus-visible {
+  outline: 3px solid rgba(215, 166, 77, 0.3);
+  outline-offset: 2px;
+}
+
+.admin-validation-check__button:disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+  box-shadow: none;
+}
+
+.admin-validation-check__button--approve {
+  border-color: rgba(47, 143, 104, 0.28);
+  color: #0f5b39;
+  background: rgba(240, 250, 245, 0.92);
+}
+
+.admin-validation-check__button--approve.is-active {
+  border-color: rgba(47, 143, 104, 0.46);
+  background: linear-gradient(180deg, rgba(232, 247, 239, 0.98), rgba(220, 242, 230, 0.98));
+  box-shadow: inset 0 0 0 1px rgba(47, 143, 104, 0.08);
+}
+
+.admin-validation-check__button--reject {
+  border-color: rgba(207, 102, 91, 0.28);
+  color: #8e3328;
+  background: rgba(253, 239, 236, 0.96);
+}
+
+.admin-validation-check__button--reject.is-active {
+  border-color: rgba(207, 102, 91, 0.48);
+  background: linear-gradient(180deg, rgba(254, 232, 228, 0.98), rgba(251, 220, 214, 0.98));
+  box-shadow: inset 0 0 0 1px rgba(207, 102, 91, 0.08);
+}
+
+.admin-validation-check__note {
+  color: #8e3328;
+  font-weight: 800;
 }
 
 .admin-validation-check.tone-success {
@@ -2475,6 +2638,16 @@ async function openProviderAircraft(provider) {
   background: rgba(47, 143, 104, 0.16);
 }
 
+.admin-validation-check.tone-info {
+  border-color: rgba(79, 135, 177, 0.2);
+  background: linear-gradient(180deg, rgba(244, 249, 253, 0.96), rgba(232, 242, 249, 0.92));
+}
+
+.admin-validation-check.tone-info .admin-validation-check__icon {
+  color: #295978;
+  background: rgba(79, 135, 177, 0.14);
+}
+
 .admin-validation-check.tone-warning {
   border-color: rgba(198, 134, 32, 0.22);
   background: linear-gradient(180deg, rgba(255, 249, 236, 0.96), rgba(251, 240, 214, 0.92));
@@ -2485,19 +2658,29 @@ async function openProviderAircraft(provider) {
   background: rgba(198, 134, 32, 0.14);
 }
 
+.admin-validation-check.tone-danger {
+  border-color: rgba(207, 102, 91, 0.22);
+  background: linear-gradient(180deg, rgba(254, 243, 241, 0.96), rgba(251, 231, 227, 0.92));
+}
+
+.admin-validation-check.tone-danger .admin-validation-check__icon {
+  color: #8e3328;
+  background: rgba(207, 102, 91, 0.12);
+}
+
 .provider-activity-list {
   display: grid;
-  gap: 0.75rem;
+  gap: 0.55rem;
 }
 
 .provider-activity-item {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  gap: 0.75rem;
+  gap: 0.65rem;
   align-items: start;
   border: 1px solid rgba(132, 154, 176, 0.14);
-  border-radius: 1rem;
-  padding: 0.9rem 1rem;
+  border-radius: 0.9rem;
+  padding: 0.72rem 0.8rem;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(247, 249, 251, 0.92));
 }
 
@@ -2510,6 +2693,8 @@ async function openProviderAircraft(provider) {
 .provider-activity-empty {
   margin: 0.18rem 0 0;
   color: var(--providers-ink-soft);
+  font-size: 0.76rem;
+  line-height: 1.35;
 }
 
 .provider-activity-item.tone-success {
@@ -2536,19 +2721,19 @@ async function openProviderAircraft(provider) {
 
 .admin-action-grid {
   display: grid;
-  gap: 0.8rem;
+  gap: 0.6rem;
 }
 
 .admin-action-card {
   width: 100%;
   display: grid;
-  grid-template-columns: 2.5rem minmax(0, 1fr) auto;
-  gap: 0.85rem;
+  grid-template-columns: 2.2rem minmax(0, 1fr) auto;
+  gap: 0.7rem;
   align-items: center;
   border: 1px solid rgba(132, 154, 176, 0.18);
-  border-radius: 1rem;
+  border-radius: 0.95rem;
   background: #ffffff;
-  padding: 0.95rem;
+  padding: 0.72rem 0.78rem;
   text-align: left;
   cursor: pointer;
   box-shadow: 0 12px 26px rgba(20, 44, 67, 0.06);
@@ -2585,12 +2770,12 @@ async function openProviderAircraft(provider) {
 }
 
 .admin-action-icon {
-  width: 2.5rem;
-  height: 2.5rem;
+  width: 2.2rem;
+  height: 2.2rem;
   display: grid;
   place-items: center;
-  border-radius: 0.85rem;
-  font-size: 0.98rem;
+  border-radius: 0.72rem;
+  font-size: 0.88rem;
   font-weight: 900;
 }
 
@@ -2601,13 +2786,13 @@ async function openProviderAircraft(provider) {
 
 .admin-action-copy strong {
   color: var(--providers-ink);
-  font-size: 0.94rem;
+  font-size: 0.86rem;
   font-weight: 900;
 }
 
 .admin-action-copy small {
   color: var(--providers-ink-soft);
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   line-height: 1.35;
 }
 
@@ -2615,8 +2800,8 @@ async function openProviderAircraft(provider) {
   border-radius: 999px;
   background: rgba(23, 50, 74, 0.08);
   color: var(--providers-ink);
-  padding: 0.34rem 0.6rem;
-  font-size: 0.66rem;
+  padding: 0.26rem 0.5rem;
+  font-size: 0.6rem;
   font-weight: 900;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -2668,6 +2853,21 @@ async function openProviderAircraft(provider) {
 }
 
 @media (max-width: 760px) {
+  .admin-validation-check {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .admin-validation-check__actions {
+    grid-column: 1 / -1;
+    min-width: 0;
+    justify-content: stretch;
+  }
+
+  .admin-validation-check__button {
+    flex: 1 1 0;
+    justify-content: center;
+  }
+
   .provider-admin-decision-head,
   .admin-action-card {
     grid-template-columns: 1fr;
@@ -2686,6 +2886,12 @@ async function openProviderAircraft(provider) {
   .provider-detail-layout,
   .provider-detail-hero {
     grid-template-columns: 1fr;
+  }
+
+  .provider-detail-main,
+  .provider-detail-sidebar {
+    overflow: visible;
+    padding-right: 0;
   }
 }
 
@@ -2720,7 +2926,14 @@ async function openProviderAircraft(provider) {
 
   .provider-detail-modal {
     inset: 0.75rem;
+    padding: 0.82rem 0.82rem 0.78rem;
+    overflow: auto;
+    display: block;
   }
-  
+
+  .provider-detail-head {
+    margin-bottom: 0.7rem;
+    padding-bottom: 0.65rem;
+  }
 }
 </style>

@@ -76,6 +76,10 @@ function resolveSatValidationStatus(provider = {}) {
   return provider.rfc ? 'approved' : 'pending'
 }
 
+function requirementResponseApproved(item = {}) {
+  return ['approved', 'aprobado', 'validated', 'validado'].includes(normalizeToken(item.responseStatus))
+}
+
 function resolveValidationRequirements(provider = {}, metrics = {}) {
   const backendRequirements = Array.isArray(provider.validation_requirements)
     ? provider.validation_requirements
@@ -118,7 +122,7 @@ function resolveValidationRequirements(provider = {}, metrics = {}) {
   return [
     {
       key: 'company_identity',
-      label: 'Identidad corporativa',
+      label: 'Datos de empresa completos',
       complete: hasCompanyData,
       message: 'Faltan datos corporativos del operador.',
     },
@@ -286,9 +290,11 @@ export function buildProviderReviewFlow(provider = {}, metrics = {}) {
   const satStatus = resolveSatValidationStatus(provider)
   const validationRequirements = resolveValidationRequirements(provider, metrics)
   const missingValidationItems = validationRequirements.filter((item) => !item.complete)
-  const canValidate =
-    Boolean(provider.can_validate ?? provider.canValidate) ||
-    (!('can_validate' in provider) && !('canValidate' in provider) && missingValidationItems.length === 0)
+  const approvedValidationItems = validationRequirements.filter((item) => requirementResponseApproved(item))
+  const allRequirementsApproved =
+    validationRequirements.length > 0 && validationRequirements.every((item) => item.complete && requirementResponseApproved(item))
+  const explicitCanValidate = provider.can_validate ?? provider.canValidate
+  const canValidate = allRequirementsApproved && (explicitCanValidate == null ? true : Boolean(explicitCanValidate))
 
   const checklist = [
     { id: 'company', label: 'Datos empresa', complete: hasCompanyData },
@@ -318,6 +324,11 @@ export function buildProviderReviewFlow(provider = {}, metrics = {}) {
       label: 'Documentacion legal',
       value: documentCount ? (areLegalDocumentsApproved(provider) ? `${documentCount} documento(s)` : 'Pendiente de dictamen') : 'Sin documentos',
       tone: areLegalDocumentsApproved(provider) ? 'success' : documentCount ? 'warning' : 'warning',
+    },
+    {
+      label: 'Requisitos admin aprobados',
+      value: `${approvedValidationItems.length}/${validationRequirements.length}`,
+      tone: allRequirementsApproved ? 'success' : approvedValidationItems.length ? 'warning' : 'neutral',
     },
     {
       label: 'Aeronaves activas',

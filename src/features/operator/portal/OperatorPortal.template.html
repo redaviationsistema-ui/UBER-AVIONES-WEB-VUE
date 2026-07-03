@@ -322,15 +322,15 @@
             <h2>{{ providerName }}</h2>
             <strong class="operator-certification-name">{{ providerName }}</strong>
             <p class="muted">
-              Operador activo · {{ companyOperationalBase }} · {{ aircraft.length }} aeronaves ·
+              {{ companyStatusMeta.label }} · {{ companyOperationalBase }} · {{ aircraft.length }} aeronaves ·
               {{ companyStatusMeta.label }}
             </p>
           </div>
           <div class="operator-certification-badges">
-            <span>Operador activo</span>
-            <span>Base principal</span>
-            <span>Flota</span>
-            <span>Estado</span>
+            <span>{{ companyStatusMeta.label }}</span>
+            <span>{{ companyOperationalBase }}</span>
+            <span>{{ aircraft.length }} aeronaves</span>
+            <span>{{ activeAircraft }} activas</span>
           </div>
           <span class="status-pill" :data-tone="companyStatusMeta.tone">{{
             companyStatusMeta.label
@@ -357,11 +357,12 @@
                   </div>
 
         <div class="company-form-sections">
-          <section class="company-form-section">
+          <section class="company-form-section" data-company-section="company-identity">
             <div class="section-head compact-head">
               <div>
                 <p class="eyebrow">Corporate Identity</p>
                 <h3>Identidad corporativa</h3>
+                <p class="muted">Completa los datos fiscales y operativos que Admin va a revisar.</p>
               </div>
             </div>
 
@@ -382,14 +383,31 @@
                 <input
                   v-model="companyForm.rfc"
                   type="text"
+                  maxlength="13"
+                  placeholder="AAA010101AAA"
                   :class="{ 'input-error': formErrors.company.rfc }"
                 />
+                <small v-if="!formErrors.company.rfc && companyForm.rfc && !companyRfcIsValid" class="field-error">
+                  El RFC debe tener formato mexicano valido.
+                </small>
                 <small v-if="formErrors.company.rfc" class="field-error">{{
                   formErrors.company.rfc
                 }}</small>
               </label>
+              <label>
+                <span>Base operativa principal</span>
+                <input
+                  v-model="companyForm.operationalBase"
+                  type="text"
+                  placeholder="Toluca / MMCN"
+                  :class="{ 'input-error': formErrors.company.operationalBase }"
+                />
+                <small v-if="formErrors.company.operationalBase" class="field-error">{{
+                  formErrors.company.operationalBase
+                }}</small>
+              </label>
               <label class="span-2">
-                <span>Direccion</span>
+                <span>Direccion fiscal</span>
                 <input
                   v-model="companyForm.address"
                   type="text"
@@ -413,7 +431,7 @@
             </div>
           </section>
 
-          <section class="company-form-section">
+          <section class="company-form-section" data-company-section="company-contact">
             <div class="section-head compact-head">
               <div>
                 <p class="eyebrow">Operations Communication</p>
@@ -447,7 +465,7 @@
             </div>
           </section>
 
-          <section class="company-form-section">
+          <section class="company-form-section" data-company-section="company-representative">
             <div class="section-head compact-head">
               <div>
                 <p class="eyebrow">Authorized Representative</p>
@@ -521,30 +539,185 @@
             </div>
           </section>
 
-          <section class="company-form-section">
+          <section class="company-form-section" data-company-section="sat">
+            <div class="section-head compact-head">
+              <div>
+                <p class="eyebrow">SAT Validation</p>
+                <h3>Validacion SAT / Constancia fiscal</h3>
+                <p class="muted">Sube la constancia de situacion fiscal y reemplazala cuando cambie.</p>
+              </div>
+            </div>
+
+            <article class="company-doc-card company-doc-card--sat">
+              <div class="company-doc-card__main">
+                <div>
+                  <strong>{{ getCompanyDocumentDefinition('sat_certificate')?.label }}</strong>
+                  <p class="muted">
+                    {{ companySatDocument ? 'Archivo cargado en expediente.' : 'Aun no hay constancia cargada.' }}
+                  </p>
+                </div>
+                <span class="status-pill" :data-tone="companySatDocument ? getCompanyDocumentStateTone(companySatDocument.state) : 'warning'">
+                  {{ companySatDocument ? humanizeCompanyDocumentState(companySatDocument.state) : 'Pendiente' }}
+                </span>
+              </div>
+
+              <div class="company-doc-card__meta">
+                <span>{{ companySatDocument?.name || 'Sin archivo' }}</span>
+                <span v-if="companySatDocument?.notes">Comentario admin: {{ companySatDocument.notes }}</span>
+              </div>
+
+              <div class="company-doc-card__actions">
+                <label class="ghost-button company-doc-upload-button">
+                  <input
+                    type="file"
+                    class="upload-dropzone-input"
+                    accept=".pdf,image/*"
+                    @change="setCompanyDocumentDraft('sat_certificate', $event.target.files?.[0] || null)"
+                  />
+                  {{ companySatDocument ? 'Reemplazar archivo' : 'Subir archivo' }}
+                </label>
+                <button
+                  type="button"
+                  class="ghost-button"
+                  :disabled="!getCompanyDocumentDraft('sat_certificate').file"
+                  @click="uploadCompanyDocumentDraft('sat_certificate')"
+                >
+                  Guardar constancia
+                </button>
+                <button
+                  type="button"
+                  class="ghost-button"
+                  :disabled="!companySatDocument"
+                  @click="openCompanyDocument(companySatDocument)"
+                >
+                  Ver archivo
+                </button>
+              </div>
+
+              <small v-if="getCompanyDocumentDraft('sat_certificate').name" class="helper-copy">
+                Listo para subir: {{ getCompanyDocumentDraft('sat_certificate').name }}
+              </small>
+              <small v-if="formErrors.company.sat_certificate" class="field-error">{{ formErrors.company.sat_certificate }}</small>
+            </article>
+          </section>
+
+          <section class="company-form-section" data-company-section="legal-documents">
             <div class="section-head compact-head">
               <div>
                 <p class="eyebrow">Legal Document Center</p>
                 <h3>Carga legal y respaldo</h3>
+                <p class="muted">Carga cada requisito por separado para que el estado refleje el avance real.</p>
               </div>
             </div>
 
-            <label
-              class="upload-dropzone"
-              :class="{ 'input-error': formErrors.company.newDocumentFile }"
-            >
-              <input
-                type="file"
-                class="upload-dropzone-input"
-                @change="setCompanyDocumentFile($event.target.files?.[0] || null)"
-              />
-              <strong>Arrastra documentos aqui</strong>
-              <span>o selecciona un archivo para subir al expediente de empresa</span>
-              <small>PDF, DOCX o imagen · maximo 10 MB</small>
-            </label>
-            <small v-if="formErrors.company.newDocumentFile" class="field-error">{{
-              formErrors.company.newDocumentFile
-            }}</small>
+            <div class="company-doc-grid">
+              <article
+                v-for="definition in companyRequiredLegalDocuments"
+                :key="definition.id"
+                class="company-doc-card"
+              >
+                <div class="company-doc-card__main">
+                  <div>
+                    <strong>{{ definition.label }}</strong>
+                    <p class="muted">{{ definition.helper }}</p>
+                  </div>
+                  <span
+                    class="status-pill"
+                    :data-tone="companyDocumentsByDefinition[definition.id] ? getCompanyDocumentStateTone(companyDocumentsByDefinition[definition.id].state) : 'warning'"
+                  >
+                    {{
+                      companyDocumentsByDefinition[definition.id]
+                        ? humanizeCompanyDocumentState(companyDocumentsByDefinition[definition.id].state)
+                        : 'Pendiente'
+                    }}
+                  </span>
+                </div>
+
+                <div class="company-doc-card__meta">
+                  <span>{{ companyDocumentsByDefinition[definition.id]?.name || 'Sin archivo cargado' }}</span>
+                  <span v-if="companyDocumentsByDefinition[definition.id]?.notes">
+                    Comentario admin: {{ companyDocumentsByDefinition[definition.id].notes }}
+                  </span>
+                </div>
+
+                <div class="company-doc-card__actions">
+                  <label class="ghost-button company-doc-upload-button">
+                    <input
+                      type="file"
+                      class="upload-dropzone-input"
+                      :accept="definition.accepts"
+                      @change="setCompanyDocumentDraft(definition.id, $event.target.files?.[0] || null)"
+                    />
+                    {{ companyDocumentsByDefinition[definition.id] ? 'Reemplazar archivo' : 'Subir archivo' }}
+                  </label>
+                  <button
+                    type="button"
+                    class="ghost-button"
+                    :disabled="!getCompanyDocumentDraft(definition.id).file"
+                    @click="uploadCompanyDocumentDraft(definition.id)"
+                  >
+                    Guardar
+                  </button>
+                  <button
+                    type="button"
+                    class="ghost-button"
+                    :disabled="!companyDocumentsByDefinition[definition.id]"
+                    @click="openCompanyDocument(companyDocumentsByDefinition[definition.id])"
+                  >
+                    Ver archivo
+                  </button>
+                </div>
+
+                <small v-if="getCompanyDocumentDraft(definition.id).name" class="helper-copy">
+                  Listo para subir: {{ getCompanyDocumentDraft(definition.id).name }}
+                </small>
+                <small v-if="formErrors.company[definition.id]" class="field-error">{{ formErrors.company[definition.id] }}</small>
+              </article>
+            </div>
+          </section>
+
+          <section class="company-form-section" data-company-section="fleet">
+            <div class="section-head compact-head">
+              <div>
+                <p class="eyebrow">Fleet Registration</p>
+                <h3>Flota registrada</h3>
+                <p class="muted">Registra aeronaves y completa su expediente sin salir de la revision de empresa.</p>
+              </div>
+              <button type="button" class="primary-action" @click="openAircraftWizard()">
+                Agregar aeronave
+              </button>
+            </div>
+
+            <div v-if="aircraft.length" class="company-fleet-list">
+              <article v-for="item in aircraft.slice(0, 4)" :key="item.id" class="company-fleet-card">
+                <div class="company-fleet-card__head">
+                  <div>
+                    <strong>{{ item.registration || 'Sin matricula' }}</strong>
+                    <p class="muted">{{ item.manufacturer || 'Fabricante pendiente' }} · {{ item.name || 'Modelo pendiente' }}</p>
+                  </div>
+                  <span class="status-pill" :data-tone="getAircraftLiveStatus(item).tone">
+                    {{ getAircraftLiveStatus(item).label }}
+                  </span>
+                </div>
+                <div class="company-fleet-card__grid">
+                  <span><strong>Categoria:</strong> {{ item.category || 'Pendiente' }}</span>
+                  <span><strong>Pax:</strong> {{ item.capacity || 'Pendiente' }}</span>
+                  <span><strong>Base:</strong> {{ item.base || 'Pendiente' }}</span>
+                  <span><strong>Documentos:</strong> {{ item.documents?.length || 0 }}</span>
+                </div>
+                <div class="company-doc-card__actions">
+                  <button type="button" class="ghost-button" @click="openAircraftWizard(item, 'edit')">Editar aeronave</button>
+                  <button type="button" class="ghost-button" @click="openAircraftWizardAtStep(item, 4, 'edit')">Documentos</button>
+                  <button type="button" class="ghost-button" @click="openAircraftWizardAtStep(item, 3, 'edit')">Fotos</button>
+                </div>
+              </article>
+            </div>
+
+            <div v-else class="company-empty-inline">
+              <strong>No hay aeronaves registradas.</strong>
+              <p class="muted">Agrega al menos una aeronave con matricula, fabricante, modelo, categoria, capacidad, base y expediente tecnico.</p>
+              <button type="button" class="ghost-button" @click="openAircraftWizard()">Agregar aeronave</button>
+            </div>
           </section>
         </div>
 
@@ -555,7 +728,7 @@
           {{ formSuccess.company }}
         </p>
         <p v-if="companyForm.newDocumentName" class="muted helper-copy">
-          Documento listo: {{ companyForm.newDocumentName }}
+          Documento general listo: {{ companyForm.newDocumentName }}
         </p>
 
         <div class="inline-actions">
@@ -589,19 +762,13 @@
             exclusivamente de la decision manual del administrador.
           </p>
           <div class="company-checklist">
-            <span class="progress-chip" :data-tone="companyForm.legalName ? 'success' : 'warning'"
-              >Datos de empresa</span
-            >
-            <span class="progress-chip" :data-tone="companyForm.rfc ? 'success' : 'warning'"
-              >RFC cargado</span
-            >
             <span
+              v-for="chip in companyReadinessChips"
+              :key="chip.id"
               class="progress-chip"
-              :data-tone="company.documents.length ? 'success' : 'warning'"
-              >Documentacion legal</span
+              :data-tone="chip.tone"
             >
-            <span class="progress-chip" :data-tone="company.accessEnabled ? 'success' : companyStatusMeta.tone">
-              {{ company.accessEnabled ? 'Acceso operativo habilitado' : 'Pendiente de validacion admin' }}
+              {{ chip.label }}
             </span>
           </div>
           <p class="muted">Ultima revision: {{ companyLastAuditDate }}</p>
@@ -626,6 +793,14 @@
             :data-tone="alert.tone"
           >
             <strong>{{ alert.title }}</strong>
+            <button
+              v-if="alert.actionLabel"
+              type="button"
+              class="ghost-button company-alert-action"
+              @click="handleCompanyAlertAction(alert)"
+            >
+              {{ alert.actionLabel }}
+            </button>
           </article>
         </div>
 
@@ -644,41 +819,13 @@
           </div>
         </div>
 
-        <div class="status-list" v-if="companyRequirementResponses.length">
-          <div class="status-row">
-            <span>Respuesta de administración</span>
-            <strong>Requisitos revisados</strong>
-          </div>
-          <div
-            v-for="item in companyRequirementResponses"
-            :key="`company-response-${item.key}`"
-            class="status-row"
-          >
-            <span>{{ item.label }}</span>
-            <strong>
-              {{
-                String(item.response_status || item.responseStatus || '').toLowerCase() === 'approved'
-                  ? 'Validado por administración'
-                  : 'Corrección solicitada'
-              }}
-            </strong>
-          </div>
-          <div
-            v-for="item in companyRequirementResponses.filter((entry) => entry.admin_note || entry.adminNote)"
-            :key="`company-response-note-${item.key}`"
-            class="status-row"
-          >
-            <span>{{ item.label }}</span>
-            <strong>{{ item.admin_note || item.adminNote }}</strong>
-          </div>
-        </div>
-
         <div class="document-list company-document-list">
           <article v-for="document in company.documents" :key="document.id" class="list-card">
             <div>
               <strong>{{ document.name }}</strong>
               <p class="muted">Estado: {{ humanizeCompanyDocumentState(document.state) }}</p>
             </div>
+            <button type="button" class="ghost-button" @click="openCompanyDocument(document)">Ver archivo</button>
           </article>
           <p v-if="!company.documents.length" class="empty-state">
             Aun no hay documentos visibles en el expediente legal del operador.

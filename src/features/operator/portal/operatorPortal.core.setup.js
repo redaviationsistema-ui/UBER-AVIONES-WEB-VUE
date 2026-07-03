@@ -1,4 +1,4 @@
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { requestWithCandidates, pickCollection, pickRecord } from '../../../lib/backendCrud'
 import { api, resolveMediaUrl } from '../../../lib/api'
@@ -367,6 +367,7 @@ const companyForm = reactive({
   phone: '',
   email: '',
   address: '',
+  operationalBase: '',
   legalRepresentative: '',
   jetAPrice: '',
   marginPercent: '',
@@ -374,6 +375,8 @@ const companyForm = reactive({
   newDocumentFile: null,
   newDocumentName: '',
 })
+
+const companyDocumentDrafts = reactive({})
 
 const aircraftForm = reactive({
   name: '',
@@ -2212,7 +2215,66 @@ const companyStatusMeta = computed(() => {
   })
 })
 
-const providerCanRegisterAircraft = computed(() => Boolean(company.accessEnabled))
+const providerCanRegisterAircraft = computed(() => company.canRegisterAircraft !== false)
+
+const companyRfcIsValid = computed(() => isValidMexicanRfc(companyForm.rfc))
+
+const companyHasIdentityData = computed(
+  () =>
+    Boolean(
+      String(companyForm.legalName || '').trim() &&
+        String(companyForm.tradeName || '').trim() &&
+        String(companyForm.address || '').trim() &&
+        String(companyForm.operationalBase || '').trim(),
+    ),
+)
+
+const companyHasContactData = computed(
+  () => Boolean(String(companyForm.phone || '').trim() && String(companyForm.email || '').trim()),
+)
+
+const companySatApproved = computed(() =>
+  ['approved', 'aprobado', 'validated', 'validado'].includes(
+    String(company.satValidationStatus || '').toLowerCase(),
+  ),
+)
+
+const companyDocumentsByDefinition = computed(() => {
+  const entries = Object.fromEntries(
+    companyDocumentDefinitions.map((definition) => [definition.id, null]),
+  )
+
+  company.documents.forEach((document) => {
+    companyDocumentDefinitions.forEach((definition) => {
+      if (!entries[definition.id] && matchesCompanyDocumentDefinition(document, definition)) {
+        entries[definition.id] = document
+      }
+    })
+  })
+
+  return entries
+})
+
+const companySatDocument = computed(() => companyDocumentsByDefinition.value.sat_certificate || null)
+
+const companyRequiredLegalDocuments = computed(() =>
+  companyDocumentDefinitions.filter((definition) => definition.section === 'legal'),
+)
+
+const companyMandatoryLegalDocuments = computed(() =>
+  companyRequiredLegalDocuments.value.filter((definition) => definition.required !== false),
+)
+
+const companyLegalDocumentsComplete = computed(() =>
+  companyMandatoryLegalDocuments.value.every((definition) => companyDocumentsByDefinition.value[definition.id]),
+)
+
+const companyLegalDocumentsApproved = computed(() =>
+  companyMandatoryLegalDocuments.value.every((definition) => {
+    const document = companyDocumentsByDefinition.value[definition.id]
+    return document && getCompanyDocumentStateTone(document.state) === 'success'
+  }),
+)
 
 const companyAdminDecisionCopy = computed(() => {
   if (company.accessEnabled && company.adminValidationStatus === 'approved') {
@@ -2272,17 +2334,19 @@ const companyLastAuditDate = computed(() => {
 const companyOperationalBase = computed(() => aircraft.value[0]?.base || company.base || 'Base por definir')
 
 const companyOnboardingSteps = computed(() => {
-  const hasCompanyData = Boolean(companyForm.legalName && companyForm.address)
-  const hasContact = Boolean(companyForm.phone && companyForm.email)
-  const hasFiscal = Boolean(companyForm.rfc)
-  const hasDocuments = company.documents.length > 0
+  const hasCompanyData = companyHasIdentityData.value
+  const hasContact = companyHasContactData.value
+  const hasFiscal = companyRfcIsValid.value
+  const hasSat = Boolean(companySatDocument.value)
+  const hasDocuments = companyLegalDocumentsComplete.value
   const hasAircraft = aircraft.value.length > 0
 
   return [
     { id: 'company', label: 'Datos empresa', complete: hasCompanyData },
     { id: 'contact', label: 'Contacto', complete: hasContact },
-    { id: 'tax', label: 'RFC', complete: hasFiscal },
-    { id: 'documents', label: 'Documentos', complete: hasDocuments, pending: !hasDocuments },
+    { id: 'tax', label: 'RFC valido', complete: hasFiscal },
+    { id: 'sat', label: 'Constancia SAT', complete: hasSat, pending: !hasSat },
+    { id: 'documents', label: 'Documentacion legal', complete: hasDocuments, pending: !hasDocuments },
     { id: 'aircraft', label: 'Aeronaves', complete: hasAircraft, pending: !hasAircraft },
   ]
 })
@@ -2304,27 +2368,19 @@ const companyValidationSummary = computed(() => [
   },
   {
     label: 'Validacion SAT',
-    value:
-      ['approved', 'aprobado', 'validated', 'validado'].includes(
-        String(company.satValidationStatus || '').toLowerCase(),
-      )
-        ? 'Verificada'
-        : 'Pendiente',
-    tone:
-      ['approved', 'aprobado', 'validated', 'validado'].includes(
-        String(company.satValidationStatus || '').toLowerCase(),
-      )
-        ? 'success'
-        : 'warning',
+    value: companySatDocument.value ? (companySatApproved.value ? 'Aprobada' : humanizeCompanyDocumentState(companySatDocument.value.state)) : 'Pendiente',
+    tone: companySatApproved.value ? 'success' : companySatDocument.value ? getCompanyDocumentStateTone(companySatDocument.value.state) : 'warning',
   },
   {
     label: 'Documentacion legal',
-    value: company.documents.length ? `${company.documents.length} documento(s)` : 'Sin documentos',
-    tone: company.documents.length ? 'success' : 'warning',
+    value: companyLegalDocumentsComplete.value
+      ? `${companyMandatoryLegalDocuments.value.filter((definition) => companyDocumentsByDefinition.value[definition.id]).length}/${companyMandatoryLegalDocuments.value.length} requerida(s)`
+      : `${companyMandatoryLegalDocuments.value.filter((definition) => companyDocumentsByDefinition.value[definition.id]).length}/${companyMandatoryLegalDocuments.value.length} cargada(s)`,
+    tone: companyLegalDocumentsApproved.value ? 'success' : companyLegalDocumentsComplete.value ? 'info' : 'warning',
   },
   {
     label: 'Aeronaves activas',
-    value: `${activeAircraft.value} registradas`,
+    value: activeAircraft.value ? `${activeAircraft.value} activas` : `${aircraft.value.length} registradas`,
     tone: activeAircraft.value ? 'success' : 'neutral',
   },
   {
@@ -2336,17 +2392,13 @@ const companyValidationSummary = computed(() => [
   },
   {
     label: 'Acceso operativo',
-    value: company.accessEnabled ? 'Habilitado' : 'Pendiente de validacion admin',
+    value: company.accessEnabled ? 'Habilitado' : 'Pendiente de validacion administrador',
     tone: company.accessEnabled ? 'success' : 'warning',
   },
 ])
 
 const companyAlerts = computed(() => {
   const alerts = []
-
-  const missingRequirements = Array.isArray(company.validationRequirements)
-    ? company.validationRequirements.filter((item) => !item.complete)
-    : []
 
   if (company.adminValidationStatus === 'changes_required') {
     alerts.push({
@@ -2364,15 +2416,56 @@ const companyAlerts = computed(() => {
     alerts.push({ tone: 'info', title: 'Expediente enviado a revision administrativa.' })
   }
 
-  if (missingRequirements.length && company.adminValidationStatus !== 'approved') {
-    missingRequirements.slice(0, 3).forEach((item) => {
-      alerts.push({ tone: 'warning', title: item.message || `${item.label} pendiente` })
+  if (!companyRfcIsValid.value) {
+    alerts.push({
+      tone: 'warning',
+      title: 'Falta RFC valido',
+      actionLabel: 'Completar RFC',
+      actionKey: 'company-rfc',
     })
-  } else if (!alerts.length) {
+  }
+
+  if (!companySatDocument.value || !companySatApproved.value) {
+    alerts.push({
+      tone: companySatDocument.value ? 'info' : 'warning',
+      title: companySatDocument.value ? 'Validacion SAT pendiente' : 'Sube tu constancia fiscal',
+      actionLabel: 'Subir constancia SAT',
+      actionKey: 'sat',
+    })
+  }
+
+  if (!companyLegalDocumentsComplete.value) {
+    alerts.push({
+      tone: 'warning',
+      title: 'Documentacion legal incompleta',
+      actionLabel: 'Subir documentos',
+      actionKey: 'legal-documents',
+    })
+  }
+
+  if (!String(companyForm.operationalBase || '').trim()) {
+    alerts.push({
+      tone: 'warning',
+      title: 'Falta base operativa',
+      actionLabel: 'Definir base',
+      actionKey: 'company-identity',
+    })
+  }
+
+  if (!activeAircraft.value) {
+    alerts.push({
+      tone: aircraft.value.length ? 'info' : 'warning',
+      title: aircraft.value.length ? 'No hay aeronaves activas' : 'No hay aeronaves registradas',
+      actionLabel: 'Agregar aeronave',
+      actionKey: 'fleet',
+    })
+  }
+
+  if (!alerts.length) {
     alerts.push({ tone: 'info', title: 'Expediente pendiente de validacion administrativa.' })
   }
 
-  return alerts.slice(0, 3)
+  return alerts.slice(0, 6)
 })
 
 const companyAuditTimeline = computed(() =>
@@ -2386,6 +2479,38 @@ const companyAuditTimeline = computed(() =>
       actor: entry.actor,
     })),
 )
+
+const companyReadinessChips = computed(() => [
+  {
+    id: 'company_data',
+    label: companyHasIdentityData.value ? 'Datos de empresa completos' : 'Completa datos de empresa',
+    tone: companyHasIdentityData.value ? 'success' : 'warning',
+  },
+  {
+    id: 'rfc',
+    label: companyRfcIsValid.value ? 'RFC valido' : 'RFC pendiente',
+    tone: companyRfcIsValid.value ? 'success' : 'warning',
+  },
+  {
+    id: 'sat',
+    label: companySatDocument.value
+      ? companySatApproved.value
+        ? 'Constancia SAT aprobada'
+        : 'Constancia SAT cargada'
+      : 'Constancia SAT pendiente',
+    tone: companySatApproved.value ? 'success' : companySatDocument.value ? 'info' : 'warning',
+  },
+  {
+    id: 'legal_docs',
+    label: companyLegalDocumentsComplete.value ? 'Documentacion legal capturada' : 'Documentacion legal incompleta',
+    tone: companyLegalDocumentsApproved.value ? 'success' : companyLegalDocumentsComplete.value ? 'info' : 'warning',
+  },
+  {
+    id: 'aircraft',
+    label: activeAircraft.value ? 'Flota activa disponible' : aircraft.value.length ? 'Flota registrada sin activacion' : 'Flota pendiente',
+    tone: activeAircraft.value ? 'success' : aircraft.value.length ? 'info' : 'warning',
+  },
+])
 
 const dashboardCompletion = computed(() => {
   const modules = [
@@ -3310,6 +3435,24 @@ function createEmptyCompany() {
   }
 }
 
+function normalizeMexicanRfc(value = '') {
+  return String(value || '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '')
+}
+
+function isValidMexicanRfc(value = '') {
+  return mexicanRfcPattern.test(normalizeMexicanRfc(value))
+}
+
+function clearCompanyDocumentDraft(type = '') {
+  companyDocumentDrafts[type] = {
+    file: null,
+    name: '',
+  }
+}
+
 function createEmptyProviderOperationalReleaseForm() {
   return {
     status: 'pending',
@@ -4041,17 +4184,19 @@ function applyLocalProviderOperationalRelease(requestId, releasePayload, sharedW
 
 function syncCompanyForm() {
   companyForm.legalName = company.legalName
-  companyForm.rfc = company.rfc
+  companyForm.rfc = normalizeMexicanRfc(company.rfc)
   companyForm.tradeName = company.tradeName
   companyForm.phone = company.phone
   companyForm.email = company.email
   companyForm.address = company.address
+  companyForm.operationalBase = company.base
   companyForm.legalRepresentative = company.legalRepresentative
   companyForm.jetAPrice = company.jetAPrice
   companyForm.marginPercent = company.marginPercent
   companyForm.fixedFee = company.fixedFee
   companyForm.newDocumentFile = null
   companyForm.newDocumentName = ''
+  companyDocumentDefinitions.forEach((definition) => clearCompanyDocumentDraft(definition.id))
 }
 
 function pushHistory(module, action) {
@@ -4511,7 +4656,7 @@ function applyAvailabilityResponse(payload) {
 }
 
 function goToSection(section, query = {}) {
-  router.push({
+  return router.push({
     name: 'operador',
     params: { section },
     query,
@@ -4546,7 +4691,7 @@ function normalizeCompany(raw = {}) {
             ? raw.files
             : []
   const accessEnabled = Boolean(raw.access_enabled ?? raw.accessEnabled ?? company.accessEnabled)
-  const canRegisterAircraft = raw.can_register_aircraft ?? accessEnabled
+  const canRegisterAircraft = raw.can_register_aircraft ?? raw.canRegisterAircraft ?? true
 
   return {
     legalName:
@@ -4631,6 +4776,8 @@ function normalizeCompanyDocument(raw = {}, index = 0) {
     createdAt: raw.created_at || raw.uploaded_at || raw.updated_at || '',
     state: raw.status || raw.state || raw.validation_status || raw.review_status || 'pendiente',
     notes: raw.notes || raw.observation || raw.observacion || raw.admin_notes || '',
+    documentType: raw.document_type || raw.documentType || raw.type || raw.category || '',
+    rejectedReason: raw.rejection_reason || raw.rejectionReason || raw.admin_notes || raw.notes || '',
   }
 }
 
@@ -4646,8 +4793,103 @@ function humanizeCompanyDocumentState(value = '') {
   return String(value || 'Pendiente')
 }
 
+function getCompanyDocumentStateTone(value = '') {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (!normalized) return 'warning'
+  if (normalized.includes('aprob') || normalized === 'approved') return 'success'
+  if (normalized.includes('rech') || normalized === 'rejected') return 'danger'
+  if (normalized.includes('review') || normalized.includes('revision')) return 'info'
+  if (normalized.includes('carg') || normalized.includes('uploaded')) return 'info'
+  return 'warning'
+}
+
+function normalizeSearchToken(value = '') {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+}
+
+function getCompanyDocumentDefinition(definitionId = '') {
+  return companyDocumentDefinitions.find((definition) => definition.id === definitionId) || null
+}
+
+function matchesCompanyDocumentDefinition(document = {}, definition = {}) {
+  const documentType = normalizeSearchToken(document.documentType)
+  const name = normalizeSearchToken(
+    document.originalName || document.name || document.fileName || document.path || '',
+  )
+
+  return (definition.matchers || []).some((matcher) => {
+    const token = normalizeSearchToken(matcher)
+    return documentType === token || name.includes(token)
+  })
+}
+
 const minimumAircraftYear = 1900
 const maximumAircraftYear = new Date().getFullYear() + 1
+
+const mexicanRfcPattern = /^([A-Z&Ñ]{3,4})\d{6}[A-Z0-9]{3}$/
+
+const companyDocumentDefinitions = [
+  {
+    id: 'sat_certificate',
+    label: 'Constancia de situacion fiscal',
+    section: 'sat',
+    required: true,
+    accepts: '.pdf,image/*',
+    helper: 'Sube PDF o imagen de la constancia SAT.',
+    matchers: ['sat_certificate', 'constancia_fiscal', 'constancia_sat', 'situacion_fiscal', 'sat'],
+  },
+  {
+    id: 'articles_of_incorporation',
+    label: 'Acta constitutiva',
+    section: 'legal',
+    required: true,
+    accepts: '.pdf,image/*',
+    helper: 'Documento legal de constitucion de la empresa.',
+    matchers: ['articles_of_incorporation', 'acta_constitutiva', 'acta constitutiva'],
+  },
+  {
+    id: 'legal_representative_power',
+    label: 'Poder del representante legal',
+    section: 'legal',
+    required: true,
+    accepts: '.pdf,image/*',
+    helper: 'Poder notarial o documento equivalente del representante.',
+    matchers: ['legal_representative_power', 'poder_representante', 'poder del representante', 'power'],
+  },
+  {
+    id: 'legal_representative_id',
+    label: 'Identificacion oficial del representante',
+    section: 'legal',
+    required: true,
+    accepts: '.pdf,image/*',
+    helper: 'INE, pasaporte u otra identificacion oficial vigente.',
+    matchers: ['legal_representative_id', 'identificacion_representante', 'identificacion oficial', 'ine', 'pasaporte'],
+  },
+  {
+    id: 'tax_address_proof',
+    label: 'Comprobante de domicilio fiscal',
+    section: 'legal',
+    required: true,
+    accepts: '.pdf,image/*',
+    helper: 'Recibo o comprobante del domicilio fiscal registrado.',
+    matchers: ['tax_address_proof', 'domicilio_fiscal', 'comprobante_domicilio', 'domicilio fiscal'],
+  },
+  {
+    id: 'operational_permit',
+    label: 'Permiso operativo o documentacion aeronautica',
+    section: 'legal',
+    required: false,
+    accepts: '.pdf,image/*',
+    helper: 'Solo si aplica a tu operacion o regulacion.',
+    matchers: ['operational_permit', 'permiso_operativo', 'documentacion_aeronautica', 'permiso operativo'],
+  },
+]
+
+companyDocumentDefinitions.forEach((definition) => {
+  clearCompanyDocumentDraft(definition.id)
+})
 
 function normalizeAircraftYear(value) {
   const rawValue = String(value ?? '').trim()
@@ -6475,6 +6717,45 @@ function setCompanyDocumentFile(file) {
   companyForm.newDocumentName = file?.name || ''
 }
 
+function setCompanyDocumentDraft(definitionId, file) {
+  const definition = getCompanyDocumentDefinition(definitionId)
+  if (!definition) return
+
+  companyDocumentDrafts[definitionId] = {
+    file: file || null,
+    name: file?.name || '',
+  }
+}
+
+function getCompanyDocumentDraft(definitionId) {
+  return companyDocumentDrafts[definitionId] || { file: null, name: '' }
+}
+
+function validateCompanyDocumentDraft(file, definitionId = '') {
+  if (!(file instanceof File)) return 'Selecciona un archivo valido.'
+  const definition = getCompanyDocumentDefinition(definitionId)
+  const extension = String(file.name || '').toLowerCase()
+  const kind = getDocumentKind(file)
+
+  if (!['image', 'pdf'].includes(kind) && !extension.endsWith('.doc') && !extension.endsWith('.docx')) {
+    return 'Solo se permiten PDF, imagen o Word.'
+  }
+
+  if (kind === 'image' && file.size > maxImageDocumentBytes) {
+    return `La imagen supera ${formatFileSize(maxImageDocumentBytes)}.`
+  }
+
+  if (kind === 'pdf' && file.size > maxPdfDocumentBytes) {
+    return `El PDF supera ${formatFileSize(maxPdfDocumentBytes)}.`
+  }
+
+  if (definition?.id === 'sat_certificate' && !['image', 'pdf'].includes(kind)) {
+    return 'La constancia SAT solo acepta PDF o imagen.'
+  }
+
+  return ''
+}
+
 function buildCompanyDocumentDebugPayload(formData) {
   return Array.from(formData.entries()).map(([key, value]) => {
     if (value instanceof File) {
@@ -6519,12 +6800,25 @@ async function reloadCompany() {
   }
 }
 
-async function uploadCompanyDocument() {
-  if (!companyForm.newDocumentFile) return false
+async function uploadCompanyDocument(options = {}) {
+  const file = options.file || companyForm.newDocumentFile
+  if (!(file instanceof File)) return false
 
   const formData = new FormData()
-  formData.append('file', companyForm.newDocumentFile)
-  formData.append('document_name', companyForm.newDocumentName || companyForm.newDocumentFile.name)
+  const documentType = options.documentType || ''
+  const documentName = options.documentName || companyForm.newDocumentName || file.name
+  const existingDocumentId = options.existingDocumentId || ''
+
+  formData.append('file', file)
+  formData.append('document_name', documentName)
+  if (documentType) {
+    formData.append('document_type', documentType)
+    formData.append('document_category', documentType)
+    formData.append('document_slot', documentType)
+  }
+  if (existingDocumentId) {
+    formData.append('replace_document_id', String(existingDocumentId))
+  }
 
   const response = await requestWithCandidates([
     { method: 'postForm', path: '/proveedor/empresa/documentos', formData },
@@ -6545,6 +6839,88 @@ async function uploadCompanyDocument() {
 
   await reloadCompany()
   return true
+}
+
+async function uploadCompanyDocumentDraft(definitionId) {
+  const definition = getCompanyDocumentDefinition(definitionId)
+  const draft = getCompanyDocumentDraft(definitionId)
+  if (!definition || !(draft.file instanceof File)) return false
+
+  const validationError = validateCompanyDocumentDraft(draft.file, definitionId)
+  if (validationError) {
+    setFormErrors('company', {
+      ...formErrors.company,
+      [definitionId]: validationError,
+    })
+    return false
+  }
+
+  const existingDocument = companyDocumentsByDefinition.value[definitionId]
+  await uploadCompanyDocument({
+    file: draft.file,
+    documentType: definitionId,
+    documentName: definition.label,
+    existingDocumentId: existingDocument?.id || '',
+  })
+  clearCompanyDocumentDraft(definitionId)
+  setFormErrors('company', {
+    ...formErrors.company,
+    [definitionId]: '',
+  })
+  return true
+}
+
+async function uploadPendingCompanyDocuments() {
+  for (const definition of companyDocumentDefinitions) {
+    const draft = getCompanyDocumentDraft(definition.id)
+    if (draft.file instanceof File) {
+      await uploadCompanyDocumentDraft(definition.id)
+    }
+  }
+
+  if (companyForm.newDocumentFile instanceof File) {
+    await uploadCompanyDocument()
+  }
+}
+
+function openCompanyDocument(document = null) {
+  const targetUrl = document?.downloadUrl || document?.url || ''
+  if (!targetUrl || typeof window === 'undefined') return
+  window.open(targetUrl, '_blank', 'noopener,noreferrer')
+}
+
+async function focusCompanySection(sectionId = '') {
+  if (props.section !== 'empresa') {
+    await goToSection('empresa')
+  }
+
+  await nextTick()
+  if (typeof window === 'undefined') return
+
+  const selector = `[data-company-section="${sectionId}"]`
+  const target = document.querySelector(selector)
+  if (target instanceof HTMLElement) {
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    const focusable = target.querySelector('input, button, textarea, select')
+    if (focusable instanceof HTMLElement) {
+      window.setTimeout(() => focusable.focus({ preventScroll: true }), 220)
+    }
+  }
+}
+
+async function handleCompanyAlertAction(alert = {}) {
+  const actionKey = String(alert.actionKey || '').trim()
+  if (!actionKey) return
+
+  if (actionKey === 'fleet') {
+    await focusCompanySection('fleet')
+    if (!aircraft.value.length) {
+      openAircraftWizard()
+    }
+    return
+  }
+
+  await focusCompanySection(actionKey)
 }
 
 function resetAircraftForm() {
@@ -6760,8 +7136,8 @@ function openAircraftWizard(item = null, mode = 'edit') {
   if (!item && mode !== 'view' && !providerCanRegisterAircraft.value) {
     ui.pushToast({
       tone: 'warning',
-      title: 'Validacion pendiente',
-      message: 'Primero necesitamos que Admin apruebe la cuenta del proveedor antes de registrar aeronaves.',
+      title: 'Captura limitada',
+      message: 'No fue posible habilitar el registro de aeronaves con la configuracion actual del proveedor.',
     })
     goToSection('empresa')
     return
@@ -8245,15 +8621,36 @@ function schedulePortalLoad() {
 
 async function saveCompany() {
   clearFormFeedback('company')
+  const normalizedRfc = normalizeMexicanRfc(companyForm.rfc)
+  companyForm.rfc = normalizedRfc
+
+  const localErrors = {
+    legalName: String(companyForm.legalName || '').trim() ? '' : 'Ingresa la razon social.',
+    tradeName: String(companyForm.tradeName || '').trim() ? '' : 'Ingresa el nombre comercial.',
+    rfc: normalizedRfc ? (isValidMexicanRfc(normalizedRfc) ? '' : 'Ingresa un RFC mexicano valido.') : 'El RFC es obligatorio.',
+    address: String(companyForm.address || '').trim() ? '' : 'Ingresa la direccion fiscal.',
+    operationalBase: String(companyForm.operationalBase || '').trim() ? '' : 'Define la base operativa principal.',
+  }
+
+  if (Object.values(localErrors).some(Boolean)) {
+    setFormErrors('company', {
+      ...formErrors.company,
+      ...localErrors,
+    })
+    return
+  }
+
   const pendingDocumentFile = companyForm.newDocumentFile
   const pendingDocumentName = companyForm.newDocumentName
   const payload = {
     legal_name: companyForm.legalName,
-    rfc: companyForm.rfc,
+    rfc: normalizedRfc,
     commercial_name: companyForm.tradeName,
     phone: companyForm.phone,
     email: companyForm.email,
     address: companyForm.address,
+    base: companyForm.operationalBase,
+    base_airport: companyForm.operationalBase,
     legal_representative: companyForm.legalRepresentative,
     jet_a_price: Number(companyForm.jetAPrice || 0),
     margin_percent: Number(companyForm.marginPercent || 0),
@@ -8275,8 +8672,9 @@ async function saveCompany() {
     if (pendingDocumentFile) {
       companyForm.newDocumentFile = pendingDocumentFile
       companyForm.newDocumentName = pendingDocumentName || pendingDocumentFile.name
-      await uploadCompanyDocument()
     }
+
+    await uploadPendingCompanyDocuments()
 
     pushHistory('Mi empresa', 'Datos de empresa actualizados')
     setFormSuccess('company', 'Los cambios de la empresa se guardaron correctamente.')
@@ -8296,6 +8694,8 @@ async function saveCompany() {
         phone: 'phone',
         email: 'email',
         address: 'address',
+        base: 'operationalBase',
+        base_airport: 'operationalBase',
         legal_representative: 'legalRepresentative',
         jet_a_price: 'jetAPrice',
         margin_percent: 'marginPercent',
@@ -8312,6 +8712,7 @@ async function saveCompany() {
 async function sendCompanyToReview() {
   try {
     clearFormFeedback('company')
+    await uploadPendingCompanyDocuments()
     const selectedFile = companyForm.newDocumentFile
     const selectedFileName = companyForm.newDocumentName || selectedFile?.name || ''
     const formData = new FormData()
@@ -10463,12 +10864,22 @@ watch(
       aircraftWizardModeMeta,
       aircraftWizardSnapshot,
       companyStatusMeta,
+      companyRfcIsValid,
+      companyHasIdentityData,
+      companyHasContactData,
+      companySatApproved,
+      companyDocumentsByDefinition,
+      companySatDocument,
+      companyRequiredLegalDocuments,
+      companyLegalDocumentsComplete,
+      companyLegalDocumentsApproved,
       companyAdminDecisionCopy,
       companyRequirementResponses,
       companyLastAuditDate,
       companyOperationalBase,
       companyOnboardingSteps,
       companyOnboardingProgress,
+      companyReadinessChips,
       companyValidationSummary,
       companyAlerts,
       companyAuditTimeline,
@@ -10564,6 +10975,8 @@ watch(
       openProviderRelease,
       normalizeCompany,
       normalizeCompanyDocument,
+      normalizeMexicanRfc,
+      isValidMexicanRfc,
       normalizeAircraft,
       normalizeAircraftImage,
       normalizeAircraftDocument,
@@ -10611,9 +11024,20 @@ watch(
       normalizeHistory,
       hydrateCompany,
       humanizeCompanyDocumentState,
+      getCompanyDocumentStateTone,
+      getCompanyDocumentDefinition,
+      matchesCompanyDocumentDefinition,
       setCompanyDocumentFile,
+      setCompanyDocumentDraft,
+      getCompanyDocumentDraft,
+      validateCompanyDocumentDraft,
       reloadCompany,
       uploadCompanyDocument,
+      uploadCompanyDocumentDraft,
+      uploadPendingCompanyDocuments,
+      openCompanyDocument,
+      focusCompanySection,
+      handleCompanyAlertAction,
       resetAircraftForm,
       uppercaseText,
       nullableText,
