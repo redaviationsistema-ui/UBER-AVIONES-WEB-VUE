@@ -354,7 +354,7 @@
               :style="{ width: `${companyOnboardingProgress.percent}%` }"
             ></span>
           </div>
-                  </div>
+        </div>
 
         <div class="company-form-sections">
           <section class="company-form-section" data-company-section="company-identity">
@@ -384,7 +384,7 @@
                   v-model="companyForm.rfc"
                   type="text"
                   maxlength="13"
-                  placeholder="AAA010101AAA"
+                  placeholder=" "
                   :class="{ 'input-error': formErrors.company.rfc }"
                 />
                 <small v-if="!formErrors.company.rfc && companyForm.rfc && !companyRfcIsValid" class="field-error">
@@ -732,9 +732,21 @@
         </p>
 
         <div class="inline-actions">
-          <button type="button" class="ghost-button" @click="saveCompany">Guardar cambios</button>
-          <button type="button" class="primary-action" @click="sendCompanyToReview">
-            Enviar empresa a revision
+          <button
+            type="button"
+            class="ghost-button"
+            :disabled="savingCompany || sendingCompanyToReview"
+            @click="saveCompany"
+          >
+            {{ savingCompany ? 'Guardando...' : 'Guardar cambios' }}
+          </button>
+          <button
+            type="button"
+            class="primary-action"
+            :disabled="savingCompany || sendingCompanyToReview"
+            @click="sendCompanyToReview"
+          >
+            {{ sendingCompanyToReview ? 'Enviando a revision...' : 'Enviar empresa a revision' }}
           </button>
         </div>
       </article>

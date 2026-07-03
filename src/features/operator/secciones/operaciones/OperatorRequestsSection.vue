@@ -1,3 +1,8 @@
+
+/*----------------------------------------------------------------------------------------------*/
+// VISTA DE SECCION DE SOLICITUDES DEL PORTAL DE OPERADOR
+/*----------------------------------------------------------------------------------------------*/
+
 <script setup>
 const props = defineProps({
   requestForm: { type: Object, required: true },

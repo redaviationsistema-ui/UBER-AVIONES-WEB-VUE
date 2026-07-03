@@ -18,7 +18,7 @@ import {
   SHARED_WORKFLOW_STEPS,
 } from '../../../utils/flightWorkflow'
 import { emitWorkflowSync, subscribeWorkflowSync } from '../../../lib/workflowSync'
-import { echo, isEchoConfigured } from '../../../plugins/echo'
+import { echo, isEchoConfigured, syncEchoAuthToken } from '../../../plugins/echo'
 import { getAdminReservations } from '../../admin/adminReservationsApi'
 import { deriveClientWorkflowStatus } from '../../client/clientBookingApi'
 import { useAuthStore } from '../../../stores/auth'
@@ -67,6 +67,16 @@ import { createOperatorPortalBillingDomain } from './operatorPortal.billing'
 import { createOperatorPortalAircraftDomain } from './operatorPortal.aircraft'
 import { createOperatorPortalRequestsDomain } from './operatorPortal.requests'
 import { createOperatorPortalReleaseDomain } from './operatorPortal.release'
+import {
+  buildCompanyFieldErrors,
+  buildCompanyPayload,
+  buildCompanyReviewCandidates,
+  buildCompanyReviewFormData,
+  buildCompanySaveCandidates,
+  COMPANY_FORM_ERROR_KEYS,
+  hasCompanyFieldErrors,
+  sanitizeCompanyPayloadForSave,
+} from './operatorPortal.companyFlow'
 import { buildAircraftPayload, buildAircraftWizardStepErrors } from './aircraftWizardUtils'
 
 export {
@@ -493,6 +503,9 @@ const formSuccess = reactive({
   crew: '',
   settings: '',
 })
+
+const savingCompany = ref(false)
+const sendingCompanyToReview = ref(false)
 
 const aircraftWizardOpen = ref(false)
 
@@ -6051,6 +6064,8 @@ function subscribeProviderFlightRequests() {
     return
   }
 
+  syncEchoAuthToken()
+
   const nextChannelName = `provider.${providerId.value}`
   if (providerFlightRequestsChannelName === nextChannelName && providerFlightRequestsChannel) return
 
@@ -6874,12 +6889,157 @@ async function uploadPendingCompanyDocuments() {
   for (const definition of companyDocumentDefinitions) {
     const draft = getCompanyDocumentDraft(definition.id)
     if (draft.file instanceof File) {
-      await uploadCompanyDocumentDraft(definition.id)
+      const uploaded = await uploadCompanyDocumentDraft(definition.id)
+      if (!uploaded) {
+        return false
+      }
     }
   }
 
   if (companyForm.newDocumentFile instanceof File) {
-    await uploadCompanyDocument()
+    const uploaded = await uploadCompanyDocument()
+    if (!uploaded) {
+      return false
+    }
+  }
+
+  return true
+}
+
+function capturePendingCompanyDocumentState() {
+  return {
+    newDocumentFile: companyForm.newDocumentFile instanceof File ? companyForm.newDocumentFile : null,
+    newDocumentName: companyForm.newDocumentName || '',
+    drafts: Object.fromEntries(
+      companyDocumentDefinitions.map((definition) => {
+        const draft = getCompanyDocumentDraft(definition.id)
+        return [
+          definition.id,
+          {
+            file: draft.file instanceof File ? draft.file : null,
+            name: draft.name || '',
+          },
+        ]
+      }),
+    ),
+  }
+}
+
+function restorePendingCompanyDocumentState(snapshot = {}) {
+  companyForm.newDocumentFile = snapshot.newDocumentFile instanceof File ? snapshot.newDocumentFile : null
+  companyForm.newDocumentName =
+    snapshot.newDocumentName || snapshot.newDocumentFile?.name || ''
+
+  companyDocumentDefinitions.forEach((definition) => {
+    const draft = snapshot.drafts?.[definition.id]
+    setCompanyDocumentDraft(definition.id, draft?.file instanceof File ? draft.file : null)
+  })
+}
+
+function clearCompanyFieldErrors() {
+  setFormErrors('company', {
+    ...formErrors.company,
+    ...Object.fromEntries(COMPANY_FORM_ERROR_KEYS.map((key) => [key, ''])),
+  })
+}
+
+function validateCompanyForm(options = {}) {
+  const normalizedRfc = normalizeMexicanRfc(companyForm.rfc)
+  companyForm.rfc = normalizedRfc
+
+  const fieldErrors = buildCompanyFieldErrors(companyForm, {
+    normalizedRfc,
+    isValidRfc: isValidMexicanRfc(normalizedRfc),
+    requireReviewSubmission: options.requireReviewSubmission === true,
+    hasRequiredLegalDocuments:
+      options.hasRequiredLegalDocuments !== false,
+    allowPartialSave: options.allowPartialSave === true,
+  })
+
+  if (hasCompanyFieldErrors(fieldErrors)) {
+    setFormErrors('company', {
+      ...formErrors.company,
+      ...fieldErrors,
+    })
+    return {
+      valid: false,
+      normalizedRfc,
+      fieldErrors,
+    }
+  }
+
+  clearCompanyFieldErrors()
+
+  return {
+    valid: true,
+    normalizedRfc,
+    fieldErrors,
+  }
+}
+
+async function persistCompanyProfile(options = {}) {
+  const validation = validateCompanyForm({
+    requireReviewSubmission: options.requireReviewSubmission === true,
+    hasRequiredLegalDocuments: options.hasRequiredLegalDocuments,
+    allowPartialSave: options.allowPartialSave === true,
+  })
+
+  if (!validation.valid) {
+    if (validation.fieldErrors._form) {
+      showError('Expediente incompleto', validation.fieldErrors._form)
+    }
+    return false
+  }
+
+  const pendingDocumentsSnapshot = capturePendingCompanyDocumentState()
+  const payload = options.allowPartialSave === true
+    ? sanitizeCompanyPayloadForSave(buildCompanyPayload(companyForm, validation.normalizedRfc))
+    : buildCompanyPayload(companyForm, validation.normalizedRfc)
+
+  try {
+    const response = await requestWithCandidates(buildCompanySaveCandidates(payload))
+    const record = pickRecord(response, ['provider', 'company', 'empresa'])
+    if (record && Object.keys(record).length) {
+      hydrateCompany(record)
+    } else {
+      hydrateCompany(payload)
+      await reloadCompany()
+    }
+
+    restorePendingCompanyDocumentState(pendingDocumentsSnapshot)
+
+    if (options.uploadPendingDocuments !== false) {
+      const uploaded = await uploadPendingCompanyDocuments()
+      if (!uploaded && options.failWhenDocumentUploadFails !== false) {
+        return false
+      }
+    }
+
+    return true
+  } catch (error) {
+    const message = applyBackendValidationErrors(
+      'company',
+      error,
+      {
+        legal_name: 'legalName',
+        rfc: 'rfc',
+        commercial_name: 'tradeName',
+        phone: 'phone',
+        email: 'email',
+        address: 'address',
+        base: 'operationalBase',
+        base_airport: 'operationalBase',
+        legal_representative: 'legalRepresentative',
+        jet_a_price: 'jetAPrice',
+        margin_percent: 'marginPercent',
+        fixed_fee: 'fixedFee',
+        file: 'newDocumentFile',
+        document_name: 'newDocumentName',
+      },
+      'La empresa no pudo guardarse en la base de datos.',
+    )
+    showError('No se pudo guardar', message)
+    return false
   }
 }
 
@@ -8620,122 +8780,87 @@ function schedulePortalLoad() {
 }
 
 async function saveCompany() {
+  if (savingCompany.value || sendingCompanyToReview.value) return
+
+  savingCompany.value = true
   clearFormFeedback('company')
-  const normalizedRfc = normalizeMexicanRfc(companyForm.rfc)
-  companyForm.rfc = normalizedRfc
-
-  const localErrors = {
-    legalName: String(companyForm.legalName || '').trim() ? '' : 'Ingresa la razon social.',
-    tradeName: String(companyForm.tradeName || '').trim() ? '' : 'Ingresa el nombre comercial.',
-    rfc: normalizedRfc ? (isValidMexicanRfc(normalizedRfc) ? '' : 'Ingresa un RFC mexicano valido.') : 'El RFC es obligatorio.',
-    address: String(companyForm.address || '').trim() ? '' : 'Ingresa la direccion fiscal.',
-    operationalBase: String(companyForm.operationalBase || '').trim() ? '' : 'Define la base operativa principal.',
-  }
-
-  if (Object.values(localErrors).some(Boolean)) {
-    setFormErrors('company', {
-      ...formErrors.company,
-      ...localErrors,
-    })
-    return
-  }
-
-  const pendingDocumentFile = companyForm.newDocumentFile
-  const pendingDocumentName = companyForm.newDocumentName
-  const payload = {
-    legal_name: companyForm.legalName,
-    rfc: normalizedRfc,
-    commercial_name: companyForm.tradeName,
-    phone: companyForm.phone,
-    email: companyForm.email,
-    address: companyForm.address,
-    base: companyForm.operationalBase,
-    base_airport: companyForm.operationalBase,
-    legal_representative: companyForm.legalRepresentative,
-    jet_a_price: Number(companyForm.jetAPrice || 0),
-    margin_percent: Number(companyForm.marginPercent || 0),
-    fixed_fee: Number(companyForm.fixedFee || 0),
-  }
-
   try {
-    const response = await requestWithCandidates([
-      { method: 'put', path: '/proveedor/empresa', body: payload },
-    ])
+    const persisted = await persistCompanyProfile({
+      allowPartialSave: true,
+    })
+    if (!persisted) return
 
-    const record = pickRecord(response, ['provider', 'company', 'empresa'])
-    if (record && Object.keys(record).length) {
-      hydrateCompany(record)
-    } else {
-      hydrateCompany(payload)
+    const skippedFields = []
+    if (String(companyForm.email || '').trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(companyForm.email || '').trim())) {
+      skippedFields.push('email')
+      setFormErrors('company', {
+        ...formErrors.company,
+        email: 'El correo no se envio porque no tiene un formato valido.',
+      })
     }
-
-    if (pendingDocumentFile) {
-      companyForm.newDocumentFile = pendingDocumentFile
-      companyForm.newDocumentName = pendingDocumentName || pendingDocumentFile.name
-    }
-
-    await uploadPendingCompanyDocuments()
 
     pushHistory('Mi empresa', 'Datos de empresa actualizados')
-    setFormSuccess('company', 'Los cambios de la empresa se guardaron correctamente.')
+    setFormSuccess(
+      'company',
+      skippedFields.length
+        ? 'Se guardaron los cambios disponibles. Algunos campos con formato invalido no se enviaron.'
+        : 'Los cambios de la empresa se guardaron correctamente.',
+    )
     ui.pushToast({
       tone: 'success',
       title: 'Empresa actualizada',
-      message: 'Los datos del proveedor ya quedaron sincronizados con backend.',
+      message: skippedFields.length
+        ? 'La empresa se actualizo. Los campos con formato invalido se omitieron para no bloquear el guardado.'
+        : 'Los datos del proveedor ya quedaron sincronizados con backend.',
     })
-  } catch (error) {
-    const message = applyBackendValidationErrors(
-      'company',
-      error,
-      {
-        legal_name: 'legalName',
-        rfc: 'rfc',
-        commercial_name: 'tradeName',
-        phone: 'phone',
-        email: 'email',
-        address: 'address',
-        base: 'operationalBase',
-        base_airport: 'operationalBase',
-        legal_representative: 'legalRepresentative',
-        jet_a_price: 'jetAPrice',
-        margin_percent: 'marginPercent',
-        fixed_fee: 'fixedFee',
-        file: 'newDocumentFile',
-        document_name: 'newDocumentName',
-      },
-      'La empresa no pudo guardarse en la base de datos.',
-    )
-    showError('No se pudo guardar', message)
+  } finally {
+    savingCompany.value = false
   }
 }
 
 async function sendCompanyToReview() {
+  if (savingCompany.value || sendingCompanyToReview.value) return
+
+  sendingCompanyToReview.value = true
   try {
     clearFormFeedback('company')
-    await uploadPendingCompanyDocuments()
-    const selectedFile = companyForm.newDocumentFile
-    const selectedFileName = companyForm.newDocumentName || selectedFile?.name || ''
-    const formData = new FormData()
+    const hadSelectedInlineDocument = companyForm.newDocumentFile instanceof File
+    const persisted = await persistCompanyProfile({
+      requireReviewSubmission: true,
+      hasRequiredLegalDocuments: true,
+      uploadPendingDocuments: true,
+    })
+    if (!persisted) return
 
-    formData.append('review_status', 'pending_validation')
-    formData.append('validation_status', 'pending_validation')
-    formData.append('status', 'pending_validation')
+    await reloadCompany()
+
+    if (!companyLegalDocumentsComplete.value) {
+      const reviewErrors = buildCompanyFieldErrors(companyForm, {
+        normalizedRfc: normalizeMexicanRfc(companyForm.rfc),
+        isValidRfc: companyRfcIsValid.value,
+        requireReviewSubmission: true,
+        hasRequiredLegalDocuments: false,
+      })
+      setFormErrors('company', {
+        ...formErrors.company,
+        ...reviewErrors,
+      })
+      showError('Expediente incompleto', reviewErrors._form)
+      return
+    }
+
+    const selectedFile = companyForm.newDocumentFile instanceof File ? companyForm.newDocumentFile : null
+    const selectedFileName = companyForm.newDocumentName || selectedFile?.name || ''
+    const formData = buildCompanyReviewFormData({
+      selectedFile,
+      selectedFileName,
+    })
 
     if (selectedFile) {
-      formData.append('file', selectedFile)
-      formData.append('document', selectedFile)
-      formData.append('documents[]', selectedFile)
-      formData.append('legal_document', selectedFile)
-      formData.append('document_name', selectedFileName)
-      formData.append('original_name', selectedFileName)
       logCompanyReviewUpload(formData, selectedFile)
     }
 
-    const response = await requestWithCandidates([
-      { method: 'postForm', path: '/proveedor/empresa/enviar-revision', formData },
-      { method: 'postForm', path: '/provider/company/send-review', formData },
-      { method: 'postForm', path: '/operator/company/send-review', formData },
-    ])
+    const response = await requestWithCandidates(buildCompanyReviewCandidates(formData))
 
     const record = pickRecord(response, ['provider', 'company', 'empresa'])
     if (record && Object.keys(record).length) {
@@ -8748,25 +8873,14 @@ async function sendCompanyToReview() {
       company.accessEnabled = false
     }
 
-    if (selectedFile && !company.documents.length) {
-      await reloadCompany()
-    }
-
-    if (selectedFile && !company.documents.length) {
-      companyForm.newDocumentFile = selectedFile
-      companyForm.newDocumentName = selectedFileName
-      console.warn?.(
-        '[provider-review] enviar-revision no regreso documents. Ejecutando carga legacy /empresa/documentos.',
-      )
-      await uploadCompanyDocument()
-      await reloadCompany()
-    }
+    await reloadCompany()
 
     pushHistory('Mi empresa', 'Empresa enviada a revision')
+    setFormSuccess('company', 'La empresa fue enviada a revision administrativa.')
     ui.pushToast({
       tone: 'success',
       title: 'Revision solicitada',
-      message: selectedFile
+      message: hadSelectedInlineDocument
         ? 'La empresa y su documento legal fueron enviados para revision administrativa.'
         : 'La empresa fue enviada para su revision administrativa.',
     })
@@ -8775,6 +8889,8 @@ async function sendCompanyToReview() {
       'No se pudo enviar a revision',
       error.message || 'La empresa no pudo enviarse a revision en la base de datos.',
     )
+  } finally {
+    sendingCompanyToReview.value = false
   }
 }
 
@@ -10727,6 +10843,8 @@ watch(
       selectedAvailabilityCalendarAircraftId,
       availabilityWeekAnchor,
       companyForm,
+      savingCompany,
+      sendingCompanyToReview,
       aircraftForm,
       imageForm,
       documentForm,

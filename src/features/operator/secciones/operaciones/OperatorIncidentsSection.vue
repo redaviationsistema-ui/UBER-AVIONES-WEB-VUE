@@ -1,3 +1,6 @@
+/*----------------------------------------------------------------------------------------------*/
+// VISTA DE SECCION DE INCIDENCIAS DEL PORTAL DE OPERADOR
+/*----------------------------------------------------------------------------------------------*/
 <script setup>
 defineProps({
   incidentForm: { type: Object, required: true },

@@ -679,6 +679,45 @@ describe('getClientTrips', () => {
     expect(trips[0].workflow_status).toBe('contrato pendiente')
     expect(resolveWorkflowState(trips[0].workflow_status).id).toBe('contract_pending')
   })
+
+  it('merges historial reservations when the contract flow explicitly requires reservation context', async () => {
+    api.get.mockImplementation(async (path) => {
+      if (path === '/client/flight-requests') {
+        return {
+          flight_requests: [
+            {
+              id: 161,
+              aircraft_model: 'LEARJET 31A',
+              workflow_status: 'proveedor aceptado',
+            },
+          ],
+        }
+      }
+
+      if (path === '/cliente/historial') {
+        return {
+          reservation: {
+            id: 25,
+            flight_request_id: 161,
+            aircraft: 'LEARJET 31A',
+            status: 'pending_payment',
+            contract_status: 'generated',
+          },
+        }
+      }
+
+      throw new Error(`Unexpected path: ${path}`)
+    })
+
+    const trips = await getClientTrips({ requireReservations: true })
+
+    expect(api.get).toHaveBeenCalledWith('/client/flight-requests', expect.any(Object))
+    expect(api.get).toHaveBeenCalledWith('/cliente/historial', expect.any(Object))
+    expect(trips).toHaveLength(1)
+    expect(trips[0].id).toBe('25')
+    expect(trips[0].flight_request_id).toBe('161')
+    expect(trips[0].is_reservation).toBe(true)
+  })
 })
 
 describe('markClientTripReadyForPayment', () => {

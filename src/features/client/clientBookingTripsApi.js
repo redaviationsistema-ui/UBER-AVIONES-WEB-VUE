@@ -3,4 +3,5 @@ export {
   normalizeTrip,
   getClientTrips,
   getClientTrip,
+  getClientReservation,
 } from './clientBookingImplementation'

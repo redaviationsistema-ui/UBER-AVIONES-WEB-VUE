@@ -1,3 +1,7 @@
+
+/*----------------------------------------------------------------------------------------------*/
+// VISTA DE SECCION DE OPERACIONES DEL PORTAL DE OPERADOR
+/*----------------------------------------------------------------------------------------------*/
 <script setup>
 defineProps({
   operationForm: { type: Object, required: true },

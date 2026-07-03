@@ -60,7 +60,7 @@ describe('providerReview helpers', () => {
     )
 
     expect(resolveProviderStatusMeta({ status: 'pending_validation' }).label).toBe('En revision')
-    expect(flow.progress.percent).toBe(40)
+    expect(flow.progress.percent).toBe(57)
     expect(flow.checklist.find((item) => item.id === 'tax')?.complete).toBe(false)
     expect(flow.alerts.some((alert) => alert.title.includes('documentacion legal'))).toBe(true)
   })

@@ -9,12 +9,17 @@ const {
   pushToastMock,
   subscribeWorkflowSyncMock,
   authStoreMock,
+  sendToDocuSignMock,
+  generateAndSendContractMock,
+  persistPendingContractContextMock,
   getClientTripsMock,
   getClientTripMock,
+  getClientReservationMock,
   getClientDestinationsMock,
   getClientFlightPackagesMock,
   getClientAccessStatusMock,
   getClientAccessPaymentSuccessMock,
+  ensureClientReservationMock,
   saveClientAssistedPaymentMock,
 } = vi.hoisted(() => ({
   routeMock: {
@@ -27,6 +32,9 @@ const {
   },
   pushToastMock: vi.fn(),
   subscribeWorkflowSyncMock: vi.fn(() => vi.fn()),
+  sendToDocuSignMock: vi.fn(),
+  generateAndSendContractMock: vi.fn(),
+  persistPendingContractContextMock: vi.fn(),
   authStoreMock: {
     user: {
       id: 'user-1',
@@ -48,10 +56,12 @@ const {
   },
   getClientTripsMock: vi.fn(),
   getClientTripMock: vi.fn(),
+  getClientReservationMock: vi.fn(),
   getClientDestinationsMock: vi.fn(),
   getClientFlightPackagesMock: vi.fn(),
   getClientAccessStatusMock: vi.fn(),
   getClientAccessPaymentSuccessMock: vi.fn(),
+  ensureClientReservationMock: vi.fn(),
   saveClientAssistedPaymentMock: vi.fn(),
 }))
 
@@ -78,11 +88,12 @@ vi.mock('../services/contractApi', () => ({
   buildContractResultUrl: vi.fn(() => ''),
   clearPendingContractContext: vi.fn(),
   contractApi: {
+    sendToDocuSign: sendToDocuSignMock,
     getContractStatus: vi.fn(),
   },
-  generateAndSendContract: vi.fn(),
+  generateAndSendContract: generateAndSendContractMock,
   normalizeContractFrontendState: vi.fn((value = {}) => value?.frontend_state || {}),
-  persistPendingContractContext: vi.fn(),
+  persistPendingContractContext: persistPendingContractContextMock,
   readPendingContractContext: vi.fn(() => null),
 }))
 
@@ -92,11 +103,12 @@ vi.mock('../features/client/clientBookingApi', () => ({
   createClientCheckout: vi.fn(),
   createClientFlightRequest: vi.fn(),
   createClientPaymentIntent: vi.fn(),
-  ensureClientReservation: vi.fn(),
+  ensureClientReservation: ensureClientReservationMock,
   getClientAccessPaymentSuccess: getClientAccessPaymentSuccessMock,
   getClientAccessStatus: getClientAccessStatusMock,
   getClientDestinations: getClientDestinationsMock,
   getClientFlightPackages: getClientFlightPackagesMock,
+  getClientReservation: getClientReservationMock,
   getClientTrip: getClientTripMock,
   getClientTrips: getClientTripsMock,
   markClientTripPaymentConfirmed: vi.fn(),
@@ -130,11 +142,9 @@ function buildReservation(overrides = {}) {
   }
 }
 
-async function mountView() {
+async function mountView(props = { section: 'pago' }) {
   const wrapper = shallowMount(PortalClienteVista, {
-    props: {
-      section: 'pago',
-    },
+    props,
     global: {
       stubs: {
         ActiveTrips: true,
@@ -147,6 +157,7 @@ async function mountView() {
   })
 
   await flushPromises()
+  await flushPromises()
   return wrapper
 }
 
@@ -158,6 +169,7 @@ beforeEach(() => {
 
   getClientTripsMock.mockResolvedValue([buildReservation()])
   getClientTripMock.mockResolvedValue(buildReservation())
+  getClientReservationMock.mockResolvedValue(buildReservation())
   getClientDestinationsMock.mockResolvedValue([])
   getClientFlightPackagesMock.mockResolvedValue([{ code: 'essential', name: 'Essential' }])
   getClientAccessStatusMock.mockResolvedValue({
@@ -169,6 +181,13 @@ beforeEach(() => {
     },
   })
   getClientAccessPaymentSuccessMock.mockResolvedValue({})
+  ensureClientReservationMock.mockResolvedValue({
+    reservation: {
+      id: 'res-1',
+      flight_request_id: 'fr-1',
+      workflow_status: 'contrato pendiente',
+    },
+  })
   saveClientAssistedPaymentMock.mockResolvedValue({
     id: 'res-1',
     flight_request_id: 'fr-1',
@@ -180,6 +199,25 @@ beforeEach(() => {
   global.fetch = vi.fn().mockResolvedValue({
     ok: true,
     json: vi.fn().mockResolvedValue({ success: true }),
+  })
+  global.requestAnimationFrame = vi.fn((callback) => {
+    callback()
+    return 1
+  })
+  global.cancelAnimationFrame = vi.fn()
+  sendToDocuSignMock.mockResolvedValue({
+    signing_url: 'https://demo.docusign.net/Signing/start',
+    docusign_status: 'sent',
+    contract: {
+      id: 'contract-1',
+    },
+  })
+  generateAndSendContractMock.mockResolvedValue({
+    signing_url: 'https://demo.docusign.net/Signing/start',
+    docusign_status: 'sent',
+    contract: {
+      id: 'contract-1',
+    },
   })
 })
 
@@ -274,5 +312,99 @@ describe('PortalClienteVista assisted payment notifications', () => {
         message: expect.stringContaining('correo no pudo enviarse'),
       }),
     )
+  })
+})
+
+describe('PortalClienteVista contract bootstrap', () => {
+  it('auto-creates the reservation when contract opens from a flight request context', async () => {
+    routeMock.params.id = 'fr-77'
+
+    getClientTripsMock.mockResolvedValue([
+      buildReservation({
+        id: 'fr-77',
+        flight_request_id: '',
+        is_reservation: false,
+        status: 'provider_accepted',
+        workflow_status: 'contrato pendiente',
+      }),
+    ])
+    ensureClientReservationMock.mockResolvedValue({
+      data: {
+        reservation: {
+          id: 'res-77',
+          flight_request_id: 'fr-77',
+          workflow_status: 'contrato pendiente',
+        },
+      },
+    })
+
+    await mountView({ section: 'contrato' })
+
+    expect(ensureClientReservationMock).toHaveBeenCalledWith(
+      { flight_request_id: 'fr-77' },
+      expect.objectContaining({ timeoutMs: 20000 }),
+    )
+    expect(routerMock.push).toHaveBeenCalledWith({
+      name: 'cliente-detalle',
+      params: { section: 'contrato', id: 'res-77' },
+    })
+  })
+
+  it('hydrates a direct contract route from reservation detail when the list payload misses that reservation', async () => {
+    routeMock.params.id = '25'
+
+    getClientTripsMock.mockResolvedValue([
+      buildReservation({
+        id: '161',
+        flight_request_id: '',
+        is_reservation: false,
+        status: 'provider_accepted',
+        workflow_status: 'contrato pendiente',
+      }),
+    ])
+    getClientReservationMock.mockResolvedValue(
+      buildReservation({
+        id: '25',
+        flight_request_id: '161',
+        is_reservation: true,
+        status: 'pending_payment',
+        workflow_status: 'contrato pendiente',
+      }),
+    )
+
+    await mountView({ section: 'contrato' })
+
+    expect(getClientReservationMock).toHaveBeenCalledWith(
+      '25',
+      expect.objectContaining({ timeoutMs: expect.any(Number) }),
+    )
+    expect(routerMock.push).not.toHaveBeenCalledWith({
+      name: 'cliente',
+      params: { section: 'viajes' },
+    })
+  })
+
+  it('forwards the persisted backend contract payload when the contract already exists', async () => {
+    const wrapper = await mountView({ section: 'contrato' })
+
+    await wrapper.vm.handleContractConfirm({
+      contract_id: 'contract-1',
+      document_source: 'backend_contract_snapshot',
+      full_contract_html: '<html><body>Contrato backend</body></html>',
+      contract_snapshot: {
+        final_price: '$12,350.00',
+      },
+    })
+    await flushPromises()
+
+    expect(generateAndSendContractMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        full_contract_html: '<html><body>Contrato backend</body></html>',
+        document_source: 'backend_contract_snapshot',
+      }),
+      expect.objectContaining({ timeoutMs: 120000 }),
+    )
+    expect(sendToDocuSignMock).not.toHaveBeenCalled()
+    expect(persistPendingContractContextMock).toHaveBeenCalled()
   })
 })

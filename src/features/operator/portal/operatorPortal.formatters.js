@@ -1,3 +1,7 @@
+/*----------------------------------------------------------------------------------------------*/
+// VISTA DE UTILIDADES PARA EL PORTAL DE OPERADOR
+/*----------------------------------------------------------------------------------------------*/  
+
 export function formatDateTimeRange(value = '') {
   if (!value) return 'Sin fecha'
   const normalized = String(value)

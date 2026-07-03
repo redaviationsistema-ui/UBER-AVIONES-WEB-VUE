@@ -258,6 +258,37 @@ function parsePrice(value) {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
+function pickFirstNonEmptyString(...candidates) {
+  for (const candidate of candidates) {
+    const normalized = String(candidate || '').trim()
+    if (normalized) return normalized
+  }
+
+  return ''
+}
+
+function contractHtmlContainsClientSignatureAnchor(html = '') {
+  return String(html || '').includes(clientSignatureAnchor)
+}
+
+function injectClientSignatureAnchorIntoHtml(html = '') {
+  const normalizedHtml = String(html || '')
+  if (!normalizedHtml) return ''
+  if (contractHtmlContainsClientSignatureAnchor(normalizedHtml)) return normalizedHtml
+
+  const anchorMarkup = `
+    <div data-docusign-anchor="client-signature" style="margin-top:8px;text-align:center;">
+      <span style="display:inline-block;color:#f8f2e6;font-size:2px;line-height:2px;">${clientSignatureAnchor}</span>
+    </div>
+  `
+
+  if (normalizedHtml.includes('</body>')) {
+    return normalizedHtml.replace('</body>', `${anchorMarkup}\n</body>`)
+  }
+
+  return `${normalizedHtml}\n${anchorMarkup}`
+}
+
 function parsePassengerCount(value) {
   if (value === null || value === undefined || value === '') return 0
 
@@ -599,6 +630,50 @@ const persistedContractSnapshot = computed(() =>
   typeof termsSnapshot.value.client_contract_snapshot === 'object'
     ? termsSnapshot.value.client_contract_snapshot
     : {},
+)
+const persistedBackendContractHtml = computed(() =>
+  pickFirstNonEmptyString(
+    termsSnapshot.value.full_contract_html,
+    termsSnapshot.value.document_html,
+    termsSnapshot.value.contract_html,
+    contractRecord.value.full_contract_html,
+    contractRecord.value.document_html,
+    contractRecord.value.contract_html,
+    contractRecord.value.html,
+  ),
+)
+const preparedBackendContractHtml = computed(() =>
+  injectClientSignatureAnchorIntoHtml(persistedBackendContractHtml.value),
+)
+const persistedBackendContractText = computed(() =>
+  pickFirstNonEmptyString(
+    termsSnapshot.value.full_contract_text,
+    termsSnapshot.value.contract_plain_text,
+    contractRecord.value.full_contract_text,
+    contractRecord.value.contract_plain_text,
+    contractRecord.value.plain_text,
+  ),
+)
+const persistedDocumentSource = computed(() =>
+  pickFirstNonEmptyString(
+    termsSnapshot.value.document_source,
+    contractRecord.value.document_source,
+    persistedBackendContractHtml.value ? 'backend_contract_snapshot' : '',
+  ),
+)
+const persistedSourceContractPath = computed(() =>
+  pickFirstNonEmptyString(
+    termsSnapshot.value.source_contract_path,
+    contractRecord.value.source_contract_path,
+    contractRecord.value.document_url,
+    contractRecord.value.pdf_url,
+  ),
+)
+const hasBackendContractHtml = computed(() => Boolean(persistedBackendContractHtml.value))
+const backendContractNeedsInjectedAnchor = computed(
+  () =>
+    Boolean(persistedBackendContractHtml.value) &&
+    !contractHtmlContainsClientSignatureAnchor(persistedBackendContractHtml.value),
 )
 const resolvedContractSnapshot = computed(() => ({
   contract_version:
@@ -1087,12 +1162,12 @@ function buildContractPlainText() {
     `Salida: ${departureDate.value}`,
     `Cliente: ${customerLabel.value}`,
     `Representante: ${customerRepresentative.value}`,
-    `Domicilio: ${customerAddress.value}`,
+    
     `Aeronave: ${aircraftLabel.value}`,
     `Categoria: ${aircraftCategory.value}`,
     `Servicio: ${serviceTier.value}`,
     `Pasajeros: ${passengerLabel.value}`,
-    `Operador: ${operatorLabel.value}`,
+    
     `Costo total: ${finalPrice.value}`,
     `Deposito: ${depositAmount.value}`,
     `Saldo: ${balanceAmount.value}`,
@@ -1440,15 +1515,24 @@ async function handleConfirmClick() {
   const resolvedFlightRequestId =
     resolveEntityIdentifier(props.reservation?.flight_request_id) ||
     resolveEntityIdentifier(props.reservation?.request_id)
-  const [embeddedLogoSrc, embeddedHeaderSrc] = await Promise.all([
-    convertPublicAssetToDataUrl('logo.png'),
-    convertPublicAssetToDataUrl('MARGEN/image.png'),
-  ])
-  const fullContractHtml = buildContractHtmlDocument({
-    logoSrc: embeddedLogoSrc,
-    headerSrc: embeddedHeaderSrc,
-  })
-  const fullContractPlainText = buildContractPlainText()
+  let fullContractHtml = preparedBackendContractHtml.value
+  let fullContractPlainText = persistedBackendContractText.value
+
+  if (!fullContractHtml) {
+    const [embeddedLogoSrc, embeddedHeaderSrc] = await Promise.all([
+      convertPublicAssetToDataUrl('logo.png'),
+      convertPublicAssetToDataUrl('MARGEN/image.png'),
+    ])
+
+    fullContractHtml = buildContractHtmlDocument({
+      logoSrc: embeddedLogoSrc,
+      headerSrc: embeddedHeaderSrc,
+    })
+  }
+
+  if (!fullContractPlainText) {
+    fullContractPlainText = buildContractPlainText()
+  }
 
   signatureError.value = ''
   emit('confirm', {
@@ -1459,8 +1543,12 @@ async function handleConfirmClick() {
     document_html: fullContractHtml,
     full_contract_html: fullContractHtml,
     full_contract_text: fullContractPlainText,
-    source_contract_path: buildContractSourcePath(resolvedReservationId),
-    document_source: 'client_contract_full_html',
+    source_contract_path:
+      persistedSourceContractPath.value || buildContractSourcePath(resolvedReservationId),
+    document_source:
+      persistedDocumentSource.value && backendContractNeedsInjectedAnchor.value
+        ? `${persistedDocumentSource.value}_with_client_anchor`
+        : persistedDocumentSource.value || 'client_contract_full_html',
     id: resolvedReservationId,
     reservation: resolvedReservationId,
     reservation_id: resolvedReservationId,
@@ -1478,7 +1566,26 @@ async function handleConfirmClick() {
 
 <template>
   <article ref="contractRoot" class="contract-preview contract-pdf">
-    <section class="contract-sheet">
+    <section v-if="hasBackendContractHtml" class="backend-contract-shell contract-card">
+      <div class="backend-contract-shell__header">
+        <div>
+          <span class="eyebrow">Contrato desde backend</span>
+          <strong>Documento oficial listo para firma</strong>
+        </div>
+        <span class="contract-badge">SINCRONIZADO</span>
+      </div>
+      <p v-if="backendContractNeedsInjectedAnchor" class="backend-contract-shell__note">
+        El contrato del backend no traia anchor de firma DocuSign; se agrego de forma compatible
+        para conservar la firma embebida.
+      </p>
+      <iframe
+        class="backend-contract-shell__frame"
+        :srcdoc="preparedBackendContractHtml"
+        title="Contrato del backend"
+      />
+    </section>
+
+    <section v-else class="contract-sheet">
       <header class="contract-brandbar">
         <img :src="contractHeaderSrc" alt="Sky Group" class="contract-brandbar__banner" />
       </header>
@@ -1562,17 +1669,7 @@ async function handleConfirmClick() {
             Orozco, Manzana 007, C.P. 50225, San Miguel Totoltepec, Toluca de Lerdo, Estado de
             México, legalmente representada en este acto por José Luis Hernández Ortiz, quien cuenta
             con facultades suficientes para este acto, en lo sucesivo el
-            <strong>Prestador del Servicio</strong>.
-          </p>
-          <p>
-            Y <strong>{{ customerLabel }}</strong
-            >, persona física o moral según corresponda, con domicilio en
-            <strong>{{ customerAddress }}</strong
-            >, por su propio derecho o representada en este acto por
-            <strong>{{ customerRepresentative }}</strong
-            >, quien declara contar con la capacidad jurídica y/o facultades suficientes para
-            obligarse en los términos del presente Contrato, en lo sucesivo el
-            <strong>Cliente</strong>.
+            
           </p>
         </div>
 
@@ -1803,6 +1900,47 @@ async function handleConfirmClick() {
   padding: 0.9rem;
   border-radius: 18px;
   background: #efebe3;
+}
+
+.backend-contract-shell {
+  display: grid;
+  gap: 0.9rem;
+  padding: 1rem;
+  border: 1px solid #ded3c1;
+  border-radius: 22px;
+  background: #fffdfa;
+}
+
+.backend-contract-shell__header {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.backend-contract-shell__header strong {
+  display: block;
+  margin-top: 0.15rem;
+  color: #17120c;
+  font-size: 1rem;
+}
+
+.backend-contract-shell__frame {
+  width: 100%;
+  min-height: 78rem;
+  border: 1px solid #e7dccd;
+  border-radius: 18px;
+  background: #ffffff;
+}
+
+.backend-contract-shell__note {
+  margin: 0;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid #eadcb8;
+  border-radius: 14px;
+  background: #faf2dd;
+  color: #6b5422;
+  font-size: 0.9rem;
 }
 
 .contract-block h3 {

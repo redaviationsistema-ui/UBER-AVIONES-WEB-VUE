@@ -1,3 +1,7 @@
+/*----------------------------------------------------------------------------------------------*/
+// VISTA DE UTILIDADES PARA EL PORTAL DE OPERADOR
+/*----------------------------------------------------------------------------------------------*/  
+
 export function createIncidentUtils(deps = {}) {
   const normalizeMediaUrl =
     typeof deps.normalizeMediaUrl === 'function' ? deps.normalizeMediaUrl : (value = '') => value

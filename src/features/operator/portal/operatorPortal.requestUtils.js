@@ -1,3 +1,7 @@
+/*----------------------------------------------------------------------------------------------*/
+//VISTA DE UTILIDADES PARA EL PORTAL DE OPERADOR
+/*----------------------------------------------------------------------------------------------*/
+
 import { normalizeWorkflowLabel, resolveWorkflowState } from '../../../utils/flightWorkflow'
 
 const OPERATOR_PENDING_DECISION_WORKFLOW_IDS = new Set(['reserved', 'provider_pending'])

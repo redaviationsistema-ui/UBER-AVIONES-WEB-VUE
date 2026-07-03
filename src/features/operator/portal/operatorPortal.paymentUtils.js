@@ -1,3 +1,7 @@
+/*----------------------------------------------------------------------------------------------*/  
+// VISTA DE UTILIDADES PARA EL PORTAL DE OPERADOR
+/*----------------------------------------------------------------------------------------------*/
+
 export function compactBillingReference(value = '') {
   const normalized = String(value || '').trim()
   if (!normalized) return ''

@@ -1,3 +1,7 @@
+/*----------------------------------------------------------------------------------------------*/
+// VISTA DE COMPONENTE PRINCIPAL DEL PORTAL DE OPERADOR
+/*----------------------------------------------------------------------------------------------*/    
+
 import { defineComponent } from 'vue'
 import OperatorCrewSection from '../secciones/personal/OperatorCrewSection.vue'
 import {

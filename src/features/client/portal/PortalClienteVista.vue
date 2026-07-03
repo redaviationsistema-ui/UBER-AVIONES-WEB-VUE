@@ -27,6 +27,7 @@ import {
   createClientPaymentIntent,
   getClientDestinations,
   getClientFlightPackages,
+  getClientReservation,
   getClientTrip,
   markClientTripPaymentConfirmed,
   markClientTripReadyForPayment,
@@ -91,6 +92,8 @@ let reservationConfirmedRedirectTimer = null
 const appliedSignedContractReturnKey = ref('')
 const appliedCommercialAccessCheckoutKey = ref('')
 const appliedReservationCheckoutKey = ref('')
+const activeContractReservationBootstrapKey = ref('')
+const lastContractReservationBootstrapKey = ref('')
 let commercialAccessStatusRequestPromise = null
 const CLIENT_TRIPS_TIMEOUT_MS = Number(import.meta.env.VITE_CLIENT_TRIPS_TIMEOUT_MS || 45000)
 const CLIENT_QUOTES_TIMEOUT_MS = Number(import.meta.env.VITE_CLIENT_QUOTES_TIMEOUT_MS || 45000)
@@ -196,6 +199,34 @@ function resolveContractSigningUrl(payload = {}) {
       payload?.data?.recipient_view_url ||
       '',
   ).trim()
+}
+
+function resolveReservationRecordFromPayload(payload = null) {
+  const candidates = [
+    payload?.reservation,
+    payload?.data?.reservation,
+    payload?.booking,
+    payload?.data?.booking,
+    payload?.flight_request?.reservation,
+    payload?.flightRequest?.reservation,
+    payload?.data?.flight_request?.reservation,
+    payload?.data?.flightRequest?.reservation,
+    payload?.reservation?.data,
+    payload?.data?.data,
+    payload?.data,
+    payload,
+  ]
+
+  return (
+    candidates.find((candidate) => {
+      if (!candidate || typeof candidate !== 'object') return false
+      return Boolean(
+        resolveEntityIdentifier(candidate) ||
+          resolveEntityIdentifier(candidate?.reservation) ||
+          resolveEntityIdentifier(candidate?.booking),
+      )
+    }) || null
+  )
 }
 
 function isDocuSignRecipientSigningUrl(url = '') {
@@ -4557,11 +4588,19 @@ async function handleContractConfirm(contractPayload = {}) {
     const existingContractId = String(
       contractPayload?.contract_id || baseReservation.contract?.id || baseReservation.contract_id || '',
     ).trim()
+    const hasIncomingContractMarkup = Boolean(
+      String(
+        contractPayload?.full_contract_html ||
+          contractPayload?.document_html ||
+          contractPayload?.contract_html ||
+          '',
+      ).trim(),
+    )
 
     let contractResponse = null
     let contractId = existingContractId
 
-    if (contractId && dedicatedDocusignSendPath && !contractPayload?.full_contract_html) {
+    if (contractId && dedicatedDocusignSendPath && !hasIncomingContractMarkup) {
       contractResponse = await contractApi.sendToDocuSign(contractId, { timeoutMs: 120000 })
     } else {
       const callbackUrl = buildContractResultUrl({
@@ -4955,6 +4994,24 @@ async function ensureReservationForSelectedTrip(targetId = '') {
     ) || selectedReservation.value
 
   if (!trip) {
+    if (normalizedTargetId) {
+      try {
+        const reservationRecord = await getClientReservation(normalizedTargetId, {
+          timeoutMs: CLIENT_TRIPS_TIMEOUT_MS,
+        })
+        upsertReservationDetail({
+          ...reservationRecord,
+          is_reservation: true,
+        })
+        return {
+          ...reservationRecord,
+          is_reservation: true,
+        }
+      } catch {
+        // Si no existe como reserva, seguimos con el flujo normal y reportamos el error original.
+      }
+    }
+
     throw new Error('No encontramos un viaje activo para abrir el contrato.')
   }
 
@@ -4972,9 +5029,10 @@ async function ensureReservationForSelectedTrip(targetId = '') {
     { flight_request_id: flightRequestId },
     { timeoutMs: 20000 },
   )
-  const reservationRecord = payload?.reservation || payload?.data || payload
+  const reservationRecord = resolveReservationRecordFromPayload(payload)
+  const resolvedReservationId = resolveEntityIdentifier(reservationRecord)
 
-  if (!reservationRecord?.id) {
+  if (!resolvedReservationId) {
     throw new Error('No se pudo crear la reserva para abrir el contrato.')
   }
 
@@ -4983,8 +5041,8 @@ async function ensureReservationForSelectedTrip(targetId = '') {
   return {
     ...trip,
     ...reservationRecord,
-    id: reservationRecord.id,
-    flight_request_id: reservationRecord.flight_request_id || flightRequestId,
+    id: resolvedReservationId,
+    flight_request_id: resolveEntityIdentifier(reservationRecord?.flight_request_id) || flightRequestId,
     is_reservation: true,
   }
 }
@@ -4999,6 +5057,63 @@ async function handleOpenContract(targetId = '') {
       title: 'No se pudo abrir el contrato',
       message: error?.message || 'Necesitamos una reserva valida antes de mostrar el contrato.',
     })
+  }
+}
+
+async function ensureContractReservationContext() {
+  if (props.section !== 'contrato') return
+  if (!hasReservationsLoaded.value) return
+  if (commercialAccessCheckoutReturnMode.value) return
+  if (selectedReservation.value?.is_reservation) {
+    activeContractReservationBootstrapKey.value = ''
+    lastContractReservationBootstrapKey.value = ''
+    return
+  }
+
+  const targetId =
+    resolveEntityIdentifier(selectedReservation.value) ||
+    resolveEntityIdentifier(routeId.value) ||
+    resolveEntityIdentifier(reservations.value[0])
+
+  if (!targetId) return
+
+  const bootstrapKey = `contrato:${targetId}`
+  if (
+    activeContractReservationBootstrapKey.value === bootstrapKey ||
+    lastContractReservationBootstrapKey.value === bootstrapKey
+  ) {
+    return
+  }
+
+  activeContractReservationBootstrapKey.value = bootstrapKey
+  lastContractReservationBootstrapKey.value = bootstrapKey
+
+  try {
+    const reservation = await ensureReservationForSelectedTrip(targetId)
+    const resolvedReservationId = resolveEntityIdentifier(reservation?.id)
+
+    if (!resolvedReservationId) {
+      throw new Error('No se pudo identificar la reserva del contrato.')
+    }
+
+    if (
+      String(routeId.value || '').trim() !== resolvedReservationId ||
+      !selectedReservation.value?.is_reservation
+    ) {
+      go('contrato', resolvedReservationId)
+    }
+  } catch (error) {
+    ui.pushToast({
+      tone: 'warning',
+      title: 'Contrato en preparación',
+      message:
+        error?.message ||
+        'Seguimos preparando tu reserva para abrir el contrato. Intenta de nuevo en unos segundos.',
+    })
+  } finally {
+    if (activeContractReservationBootstrapKey.value === bootstrapKey) {
+      activeContractReservationBootstrapKey.value = ''
+    }
   }
 }
 
@@ -5615,6 +5730,7 @@ async function refreshReservations({ silent = false } = {}) {
       const trips = await getClientTrips({
         timeoutMs: CLIENT_TRIPS_TIMEOUT_MS,
         query: { per_page: 10 },
+        requireReservations: needsReservationContext.value,
       })
       reservations.value = trips
       hasBootstrappedReservations.value = true
@@ -5920,6 +6036,21 @@ watch(
   () => [props.section, canRenderReservationWorkflow.value, reservationContextId.value],
   () => {
     scheduleReservationConfirmedRedirect()
+  },
+  { immediate: true },
+)
+
+watch(
+  () => [
+    props.section,
+    hasReservationsLoaded.value,
+    routeId.value,
+    selectedReservation.value?.id || '',
+    selectedReservation.value?.flight_request_id || '',
+    selectedReservation.value?.is_reservation === true,
+  ],
+  () => {
+    void ensureContractReservationContext()
   },
   { immediate: true },
 )

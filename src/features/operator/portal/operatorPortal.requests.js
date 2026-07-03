@@ -1,3 +1,7 @@
+/*----------------------------------------------------------------------------------------------*/
+// VISTA DE UTILIDADES PARA EL PORTAL DE OPERADOR
+/*----------------------------------------------------------------------------------------------*/
+
 export function createOperatorPortalRequestsDomain(ctx = {}) {
   const {
     requests,

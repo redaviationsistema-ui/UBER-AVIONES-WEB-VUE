@@ -57,6 +57,9 @@ const CLIENT_TRIPS_PATHS = [
 ].sort((current, next) => rankClientTripsPath(current) - rankClientTripsPath(next))
 let preferredClientTripsPath = ''
 const CLIENT_TRIP_SHOW_PATHS = CLIENT_TRIPS_PATHS.filter((path) => path.includes('/flight-requests'))
+const CLIENT_RESERVATION_SHOW_PATHS = [
+  ...new Set(['/cliente/reservas/:id', '/client/reservations/:id', '/cliente/historial/:id'].filter(Boolean)),
+]
 const CLIENT_TRIP_CREATE_PATH =
   configuredTripCreatePath ||
   (configuredTripsPath && !configuredTripsPath.includes('/historial') ? configuredTripsPath : '') ||
@@ -1569,6 +1572,156 @@ function normalizeArray(payload, keys = []) {
   return []
 }
 
+function normalizeCollectionCandidates(payload, collectionKeys = [], singularKeys = []) {
+  const collection = normalizeArray(payload, collectionKeys)
+  if (collection.length) return collection
+
+  for (const key of singularKeys) {
+    const candidate = payload?.[key]
+    if (candidate && typeof candidate === 'object') {
+      return [candidate]
+    }
+  }
+
+  return []
+}
+
+function collectClientTripsFromPayload(payload = {}, path = '') {
+  const reservations = normalizeCollectionCandidates(payload, ['reservations'], ['reservation']).map(
+    (item) => normalizeTrip(item, { entityType: 'reservation' }),
+  )
+  const flightRequests = normalizeCollectionCandidates(
+    payload,
+    ['flight_requests'],
+    ['flight_request'],
+  ).map((item) => normalizeTrip(item, { entityType: 'flight_request' }))
+
+  let trips = []
+
+  if (reservations.length || flightRequests.length) {
+    const flightRequestMap = new Map(
+      flightRequests.map((item) => [String(item.id || item.flight_request_id || '').trim(), item]),
+    )
+    const seenKeys = new Set()
+    const normalizedReservations = reservations.map((item) => {
+      const mergeKey = String(item.flight_request_id || item.id || '').trim()
+      const requestRecord = mergeKey ? flightRequestMap.get(mergeKey) || null : null
+      const mergedRecord = requestRecord ? mergeTripRecords(item, requestRecord) : item
+      const requestWorkflowStatus = requestRecord
+        ? requestRecord.explicit_workflow_status ||
+          requestRecord.workflow_status ||
+          deriveClientWorkflowStatus(requestRecord) ||
+          ''
+        : ''
+      const reservationWorkflowStatus =
+        item.explicit_workflow_status ||
+        item.workflow_status ||
+        deriveClientWorkflowStatus(item) ||
+        ''
+      const freshestExplicitWorkflowStatus = requestRecord
+        ? pickMostRelevantExplicitWorkflow(item, requestRecord)
+        : item.explicit_workflow_status || ''
+      const freshestWorkflowStatus = preferMostAdvancedWorkflowValue(
+        reservationWorkflowStatus,
+        requestWorkflowStatus,
+      )
+      const resolvedWorkflowStatus =
+        freshestExplicitWorkflowStatus ||
+        freshestWorkflowStatus ||
+        deriveClientWorkflowStatus(mergedRecord) ||
+        mergedRecord.workflow_status ||
+        mergedRecord.status ||
+        ''
+
+      return {
+        ...mergedRecord,
+        flight_request_id: item.flight_request_id || requestRecord?.id || item.id || '',
+        is_reservation: true,
+        id: item.id,
+        workflow_status: resolvedWorkflowStatus,
+        contract_status:
+          mergedRecord.contract?.status ||
+          mergedRecord.contract_status ||
+          item.contract?.status ||
+          '',
+        contract_signed_at:
+          mergedRecord.contract?.signed_at ||
+          mergedRecord.contract_signed_at ||
+          item.contract?.signed_at ||
+          '',
+      }
+    })
+
+    trips.push(...normalizedReservations)
+
+    normalizedReservations.forEach((item) => {
+      const mergeKey = String(item.flight_request_id || item.id || '').trim()
+      if (mergeKey) seenKeys.add(mergeKey)
+    })
+
+    flightRequests.forEach((item) => {
+      const mergeKey = String(item.id || item.flight_request_id || '').trim()
+      if (mergeKey && seenKeys.has(mergeKey)) return
+      trips.push(item)
+    })
+
+    return trips
+  }
+
+  const fallbackEntityType = path.includes('/reservas') || path.includes('/historial')
+    ? 'reservation'
+    : 'flight_request'
+
+  return normalizeArray(payload, ['trips', 'reservations', 'flight_requests']).map((item) =>
+    normalizeTrip(item, { entityType: fallbackEntityType }),
+  )
+}
+
+function mergeClientTripsCollections(baseTrips = [], incomingTrips = []) {
+  const mergedTrips = [...baseTrips]
+
+  incomingTrips.forEach((incoming) => {
+    const incomingReservationId = String(incoming?.id || '').trim()
+    const incomingFlightRequestId = String(incoming?.flight_request_id || '').trim()
+    const index = mergedTrips.findIndex((current) => {
+      const currentReservationId = String(current?.id || '').trim()
+      const currentFlightRequestId = String(current?.flight_request_id || '').trim()
+
+      return (
+        (incomingReservationId && incomingReservationId === currentReservationId) ||
+        (incomingFlightRequestId && incomingFlightRequestId === currentFlightRequestId) ||
+        (incomingReservationId && incomingReservationId === currentFlightRequestId) ||
+        (incomingFlightRequestId && incomingFlightRequestId === currentReservationId)
+      )
+    })
+
+    if (index === -1) {
+      mergedTrips.push(incoming)
+      return
+    }
+
+    const current = mergedTrips[index]
+    const preferIncomingAsBase = Boolean(incoming?.is_reservation && !current?.is_reservation)
+    const baseRecord = preferIncomingAsBase ? incoming : current
+    const detailRecord = preferIncomingAsBase ? current : incoming
+    const mergedRecord = mergeTripRecords(baseRecord, detailRecord)
+
+    mergedTrips[index] = {
+      ...mergedRecord,
+      id: incomingReservationId || String(mergedRecord.id || '').trim() || current?.id || incoming?.id || '',
+      flight_request_id:
+        incomingFlightRequestId ||
+        String(mergedRecord.flight_request_id || '').trim() ||
+        current?.flight_request_id ||
+        incoming?.flight_request_id ||
+        '',
+      is_reservation: Boolean(current?.is_reservation || incoming?.is_reservation),
+    }
+  })
+
+  return mergedTrips
+}
+
 async function getAircraftFromDatabase(query = {}) {
   if (!CLIENT_AIRCRAFT_PATHS.length) return []
 
@@ -2645,99 +2798,25 @@ export async function getClientTrips(options = {}) {
     per_page: 10,
     ...options.query,
   }
+  const requireReservations = options.requireReservations === true
   const candidatePaths = preferredClientTripsPath
     ? [
         preferredClientTripsPath,
         ...CLIENT_TRIPS_PATHS.filter((path) => path !== preferredClientTripsPath),
       ]
     : CLIENT_TRIPS_PATHS
+  let aggregatedTrips = []
+  let hasSuccessfulPayload = false
 
   for (const path of candidatePaths) {
     try {
       const payload = await api.get(path, { ...options, query: mergedQuery })
-      const reservations = normalizeArray(payload, ['reservations']).map((item) =>
-        normalizeTrip(item, { entityType: 'reservation' }),
-      )
-      const flightRequests = normalizeArray(payload, ['flight_requests']).map((item) =>
-        normalizeTrip(item, { entityType: 'flight_request' }),
-      )
+      let trips = collectClientTripsFromPayload(payload, path)
+      hasSuccessfulPayload = true
 
-      let trips = []
-
-      if (reservations.length || flightRequests.length) {
-        const flightRequestMap = new Map(
-          flightRequests.map((item) => [
-            String(item.id || item.flight_request_id || '').trim(),
-            item,
-          ]),
-        )
-        const seenKeys = new Set()
-        const normalizedReservations = reservations.map((item) => {
-          const mergeKey = String(item.flight_request_id || item.id || '').trim()
-          const requestRecord = mergeKey ? flightRequestMap.get(mergeKey) || null : null
-          const mergedRecord = requestRecord ? mergeTripRecords(item, requestRecord) : item
-          const requestWorkflowStatus = requestRecord
-            ? requestRecord.explicit_workflow_status ||
-              requestRecord.workflow_status ||
-              deriveClientWorkflowStatus(requestRecord) ||
-              ''
-            : ''
-          const reservationWorkflowStatus =
-            item.explicit_workflow_status ||
-            item.workflow_status ||
-            deriveClientWorkflowStatus(item) ||
-            ''
-          const freshestExplicitWorkflowStatus = requestRecord
-            ? pickMostRelevantExplicitWorkflow(item, requestRecord)
-            : item.explicit_workflow_status || ''
-          const freshestWorkflowStatus = preferMostAdvancedWorkflowValue(
-            reservationWorkflowStatus,
-            requestWorkflowStatus,
-          )
-          const resolvedWorkflowStatus =
-            freshestExplicitWorkflowStatus ||
-            freshestWorkflowStatus ||
-            deriveClientWorkflowStatus(mergedRecord) ||
-            mergedRecord.workflow_status ||
-            mergedRecord.status ||
-            ''
-
-          return {
-            ...mergedRecord,
-            flight_request_id: item.flight_request_id || requestRecord?.id || item.id || '',
-            is_reservation: true,
-            id: item.id,
-            workflow_status: resolvedWorkflowStatus,
-            contract_status:
-              mergedRecord.contract?.status ||
-              mergedRecord.contract_status ||
-              item.contract?.status ||
-              '',
-            contract_signed_at:
-              mergedRecord.contract?.signed_at ||
-              mergedRecord.contract_signed_at ||
-              item.contract?.signed_at ||
-              '',
-          }
-        })
-
-        trips.push(...normalizedReservations)
-
-        normalizedReservations.forEach((item) => {
-          const mergeKey = String(item.flight_request_id || item.id || '').trim()
-          if (mergeKey) seenKeys.add(mergeKey)
-        })
-
-        flightRequests.forEach((item) => {
-          const mergeKey = String(item.id || item.flight_request_id || '').trim()
-          if (mergeKey && seenKeys.has(mergeKey)) return
-          trips.push(item)
-        })
-      } else {
-        const fallbackEntityType = path.includes('/reservas') ? 'reservation' : 'flight_request'
-        trips = normalizeArray(payload, ['trips', 'reservations', 'flight_requests']).map((item) =>
-          normalizeTrip(item, { entityType: fallbackEntityType }),
-        )
+      if (requireReservations) {
+        aggregatedTrips = mergeClientTripsCollections(aggregatedTrips, trips)
+        continue
       }
 
       trips = trips.sort((first, second) => tripSortValue(second) - tripSortValue(first))
@@ -2747,6 +2826,24 @@ export async function getClientTrips(options = {}) {
     } catch {
       continue
     }
+  }
+
+  if (requireReservations && hasSuccessfulPayload) {
+    aggregatedTrips = aggregatedTrips.sort(
+      (first, second) => tripSortValue(second) - tripSortValue(first),
+    )
+
+    if (aggregatedTrips.length) {
+      const hasReservationRecords = aggregatedTrips.some((item) => item?.is_reservation)
+      const preferredPath = hasReservationRecords
+        ? candidatePaths.find((path) => path.includes('/historial'))
+        : candidatePaths[0]
+      if (preferredPath) {
+        preferredClientTripsPath = preferredPath
+      }
+    }
+
+    return aggregatedTrips
   }
 
   return []
@@ -2774,6 +2871,37 @@ export async function getClientTrip(flightRequestId, options = {}) {
   }
 
   throw new Error('No se pudo cargar el detalle del viaje.')
+}
+
+export async function getClientReservation(reservationId, options = {}) {
+  const normalizedId = normalizeEntityIdentifier(reservationId)
+
+  if (!normalizedId) {
+    throw new Error('No encontramos la reserva del cliente.')
+  }
+
+  const payload = await requestWithCandidates(
+    CLIENT_RESERVATION_SHOW_PATHS.map((path) => ({
+      method: 'get',
+      path: replaceRouteId(path, normalizedId),
+      timeoutMs: options.timeoutMs,
+    })),
+  )
+
+  const reservationPayload =
+    payload?.reservation ||
+    payload?.booking ||
+    payload?.trip ||
+    payload?.data?.reservation ||
+    payload?.data?.booking ||
+    payload?.data ||
+    payload
+
+  if (reservationPayload && typeof reservationPayload === 'object') {
+    return normalizeTrip(reservationPayload, { entityType: 'reservation' })
+  }
+
+  throw new Error('No se pudo cargar la reserva del cliente.')
 }
 
 function replaceRouteId(path, reservationId) {

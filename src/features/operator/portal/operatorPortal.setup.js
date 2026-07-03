@@ -1,3 +1,7 @@
+/*----------------------------------------------------------------------------------------------*/
+/// VISTA DE CONFIGURACION DEL PORTAL DE OPERADOR
+/*----------------------------------------------------------------------------------------------*/
+
 export {
   findOperatorRequestByIdentifier,
   hasOperatorTrackingActivity,

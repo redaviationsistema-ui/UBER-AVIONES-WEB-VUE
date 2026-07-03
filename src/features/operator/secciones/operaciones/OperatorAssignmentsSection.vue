@@ -1,3 +1,7 @@
+/*----------------------------------------------------------------------------------------------*/
+// VISTA DE SECCION DE ASIGNACIONES DEL PORTAL DE OPERADOR
+/*----------------------------------------------------------------------------------------------*/
+
 <script setup>
 defineProps({
   assignmentForm: { type: Object, required: true },

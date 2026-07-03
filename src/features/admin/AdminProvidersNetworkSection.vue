@@ -10,6 +10,7 @@ import {
   resolveProviderRepresentativeName,
   resolveProviderStatusMeta,
 } from '../../lib/providerReview'
+import { normalizeAdminProviderDocument } from '../../lib/providerCompanyDocuments'
 
 const props = defineProps({
   providers: { type: Array, required: true },
@@ -227,6 +228,7 @@ function providerDocuments(provider = {}) {
   ])
 
   return rawDocuments.map((item, index) => {
+    const metadata = normalizeAdminProviderDocument(item, index)
     const rawUrl =
       item.download_url ||
       item.downloadUrl ||
@@ -239,6 +241,7 @@ function providerDocuments(provider = {}) {
 
     return {
       ...item,
+      ...metadata,
       id: item.id || index + 1,
       name:
         item.original_name || item.document_name || item.name || item.file_name || `Documento ${index + 1}`,
@@ -1194,9 +1197,11 @@ async function openProviderAircraft(provider) {
                 class="provider-document-card"
               >
                 <div class="provider-document-head">
-                  <div>
-                    <strong>{{ documentRecord.name }}</strong>
-                    <p class="muted">
+                  <div class="provider-document-head__copy">
+                    <strong>{{ documentRecord.definitionLabel }}</strong>
+                    <p class="muted">{{ documentRecord.sectionLabel }}</p>
+                    <p class="muted provider-document-summary">
+                      {{ documentRecord.name }} ·
                       {{ documentRecord.mimeType || 'Tipo no disponible' }} ·
                       {{ formatDocumentSize(documentRecord.size) }}
                     </p>
@@ -1207,8 +1212,28 @@ async function openProviderAircraft(provider) {
                 </div>
 
                 <div class="provider-document-meta">
-                  <span>Archivo: {{ documentRecord.fileName || 'Sin file_name' }}</span>
-                  <span>Fecha de carga: {{ formatDocumentDate(documentRecord.createdAt) }}</span>
+                  <article class="provider-document-meta-item">
+                    <span>Archivo</span>
+                    <strong>{{ documentRecord.fileName || 'Sin file_name' }}</strong>
+                  </article>
+                  <article class="provider-document-meta-item">
+                    <span>Clave</span>
+                    <strong>{{ documentRecord.definitionKey || 'Sin clave' }}</strong>
+                  </article>
+                  <article class="provider-document-meta-item">
+                    <span>Fecha de carga</span>
+                    <strong>{{ formatDocumentDate(documentRecord.createdAt) }}</strong>
+                  </article>
+                </div>
+
+                <div v-if="documentRecord.fieldMap.length" class="provider-document-columns">
+                  <span
+                    v-for="field in documentRecord.fieldMap"
+                    :key="`${documentRecord.id}-${field.column}`"
+                    class="provider-document-column-pill"
+                  >
+                    {{ field.column }}: {{ field.value }}
+                  </span>
                 </div>
 
                 <p v-if="documentRecord.notes" class="muted">Observacion: {{ documentRecord.notes }}</p>
@@ -1523,6 +1548,10 @@ async function openProviderAircraft(provider) {
                 <div>
                   <strong>{{ entry.title }}</strong>
                   <p>{{ entry.description }}</p>
+                  <p v-if="entry.metadata?.document_slot || entry.metadata?.document_definition_label" class="muted">
+                    {{ entry.metadata?.document_definition_label || 'Documento' }}
+                    <span v-if="entry.metadata?.document_section_label"> · {{ entry.metadata.document_section_label }}</span>
+                  </p>
                   <small>{{ formatDateTime(entry.created_at) }} · {{ entry.actor_name || 'Proveedor' }}</small>
                 </div>
               </article>
@@ -2201,7 +2230,7 @@ async function openProviderAircraft(provider) {
   border: 1px solid rgba(132, 154, 176, 0.14);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(244, 247, 251, 0.92));
   display: grid;
-  gap: 0.55rem;
+  gap: 0.7rem;
 }
 
 .provider-data-card-wide {
@@ -2257,7 +2286,6 @@ async function openProviderAircraft(provider) {
 }
 
 .provider-document-head,
-.provider-document-meta,
 .provider-document-actions {
   display: flex;
   align-items: center;
@@ -2266,9 +2294,68 @@ async function openProviderAircraft(provider) {
   flex-wrap: wrap;
 }
 
+.provider-document-head {
+  align-items: flex-start;
+}
+
+.provider-document-head__copy {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.provider-document-head__copy strong {
+  color: var(--providers-ink);
+}
+
+.provider-document-summary {
+  overflow-wrap: anywhere;
+}
+
 .provider-document-meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.provider-document-meta-item {
+  display: grid;
+  gap: 0.14rem;
+  min-width: 0;
+  padding: 0.58rem 0.68rem;
+  border: 1px solid rgba(132, 154, 176, 0.16);
+  border-radius: 0.85rem;
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.provider-document-meta-item span {
+  color: #8a6b36;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.provider-document-meta-item strong {
   color: var(--providers-ink-soft);
-  font-size: 0.79rem;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.provider-document-columns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.provider-document-column-pill {
+  border: 1px solid rgba(95, 122, 149, 0.22);
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  color: var(--providers-ink-soft);
+  font-size: 0.78rem;
+  background: rgba(255, 255, 255, 0.82);
 }
 
 .provider-document-actions {
@@ -2914,9 +3001,12 @@ async function openProviderAircraft(provider) {
   .provider-summary-row,
   .provider-alert-row,
   .provider-document-head,
-  .provider-document-meta,
   .provider-document-actions {
     display: grid;
+  }
+
+  .provider-document-meta {
+    grid-template-columns: 1fr;
   }
 
   .provider-meta-row {

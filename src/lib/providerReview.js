@@ -206,7 +206,13 @@ export function resolveProviderRepresentativeName(provider = {}) {
 
 export function resolveProviderAdminValidationStatus(provider = {}) {
   const explicit = normalizeToken(
-    provider.admin_validation_status || provider.adminValidationStatus || provider.review_status || provider.reviewStatus,
+    provider.admin_validation_status ||
+      provider.adminValidationStatus ||
+      provider.review_status ||
+      provider.reviewStatus ||
+      provider.validation_status ||
+      provider.validationStatus ||
+      provider.status,
   )
 
   if (explicit === 'expediente_incompleto') return 'draft'
@@ -255,7 +261,7 @@ export function resolveProviderStatusMeta(provider = {}) {
   if (normalized === 'pending_review' || normalized === 'pending_validation') {
     return {
       key: 'pending',
-      label: 'Pendiente de revision',
+      label: 'En revision',
       tone: 'warning',
       headline: 'Expediente enviado a revision administrativa',
     }

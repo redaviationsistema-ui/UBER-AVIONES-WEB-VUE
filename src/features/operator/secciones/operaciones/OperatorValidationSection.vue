@@ -1,3 +1,8 @@
+
+/*----------------------------------------------------------------------------------------------*/
+// VISTA DE SECCION DE VALIDACIONES DEL PORTAL DE OPERADOR
+/*----------------------------------------------------------------------------------------------*/
+
 <script setup>
 defineProps({
   validationForm: { type: Object, required: true },

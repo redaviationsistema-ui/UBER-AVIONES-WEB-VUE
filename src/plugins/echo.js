@@ -75,6 +75,23 @@ export function createEchoClient() {
 
 export const echo = createEchoClient()
 
+export function syncEchoAuthToken() {
+  if (!echo?.options?.auth) return
+
+  const nextToken = getStoredToken() || ''
+  const currentHeaders =
+    echo.options.auth.headers && typeof echo.options.auth.headers === 'object'
+      ? echo.options.auth.headers
+      : {}
+
+  echo.options.auth.headers = {
+    ...currentHeaders,
+    Authorization: `Bearer ${nextToken}`,
+    Accept: 'application/json',
+  }
+}
+
 if (echo) {
+  syncEchoAuthToken()
   window.Echo = echo
 }
