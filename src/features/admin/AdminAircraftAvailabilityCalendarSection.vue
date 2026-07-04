@@ -1016,6 +1016,7 @@ onMounted(() => {
   display: grid;
   gap: 1.25rem;
   padding: 1.25rem;
+    background-color: #fff;
 }
 
 .calendar-page__head,
