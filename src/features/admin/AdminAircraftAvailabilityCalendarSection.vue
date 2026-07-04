@@ -1365,6 +1365,7 @@ onMounted(() => {
   gap: 1rem;
   padding: 1.25rem;
   border-radius: 28px;
+  background: #fff;
 }
 
 .calendar-modal__head {
