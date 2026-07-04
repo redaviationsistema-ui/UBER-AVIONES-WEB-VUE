@@ -57,6 +57,10 @@ function aircraftFactChips(aircraft, itinerary, helpers) {
     helpers.aircraftSpeedLine(aircraft, itinerary),
   ].filter(Boolean)
 }
+
+function aircraftIsAvailable(aircraft) {
+  return aircraft?.is_available !== false
+}
 </script>
 
 <template>
@@ -141,7 +145,11 @@ function aircraftFactChips(aircraft, itinerary, helpers) {
       <div v-if="searching" class="loading-band">Haciendo match con operadores activos...</div>
       <div v-else-if="serverSearchError" class="empty-state">{{ serverSearchError }}</div>
 
-      <article v-if="featuredAircraft" class="aircraft-hero-card aircraft-hero-card--editorial">
+      <article
+        v-if="featuredAircraft"
+        class="aircraft-hero-card aircraft-hero-card--editorial"
+        :class="{ 'aircraft-card--unavailable': !aircraftIsAvailable(featuredAircraft) }"
+      >
         <div
           class="aircraft-thumb aircraft-thumb-hero aircraft-thumb-hero--single"
           :class="{ 'aircraft-thumb--placeholder': !featuredAircraft.image_url }"
@@ -193,6 +201,9 @@ function aircraftFactChips(aircraft, itinerary, helpers) {
           <p v-if="aircraftBillingNote(featuredAircraft)" class="aircraft-billing-note">
             {{ aircraftBillingNote(featuredAircraft) }}
           </p>
+          <p v-if="!aircraftIsAvailable(featuredAircraft)" class="aircraft-unavailable-note">
+            Aeronave no disponible para este horario
+          </p>
 
           <div class="hero-includes hero-includes--editorial">
             <span v-for="item in aircraftIncludes(featuredAircraft)" :key="item">{{ item }}</span>
@@ -201,7 +212,7 @@ function aircraftFactChips(aircraft, itinerary, helpers) {
           <div class="hero-actions hero-actions--editorial">
             <button
               type="button"
-              :disabled="Boolean(reservingAircraftId)"
+              :disabled="Boolean(reservingAircraftId) || !aircraftIsAvailable(featuredAircraft)"
               @click="$emit('request-reservation', featuredAircraft)"
             >
               {{ reservationActionLabel(featuredAircraft) }}
@@ -223,6 +234,7 @@ function aircraftFactChips(aircraft, itinerary, helpers) {
             v-for="(aircraft, index) in secondaryAircraftOptions"
             :key="aircraft.id"
             class="aircraft-card aircraft-card-compact aircraft-card-compact--refined"
+            :class="{ 'aircraft-card--unavailable': !aircraftIsAvailable(aircraft) }"
           >
             <div
               class="aircraft-thumb aircraft-thumb--card"
@@ -269,10 +281,13 @@ function aircraftFactChips(aircraft, itinerary, helpers) {
               <p v-if="aircraftBillingNote(aircraft)" class="aircraft-billing-note">
                 {{ aircraftBillingNote(aircraft) }}
               </p>
+              <p v-if="!aircraftIsAvailable(aircraft)" class="aircraft-unavailable-note">
+                Aeronave no disponible para este horario
+              </p>
               <div class="card-actions card-actions--refined">
                 <button
                   type="button"
-                  :disabled="Boolean(reservingAircraftId)"
+                  :disabled="Boolean(reservingAircraftId) || !aircraftIsAvailable(aircraft)"
                   @click="$emit('request-reservation', aircraft)"
                 >
                   {{ reservationActionLabel(aircraft) }}
@@ -633,6 +648,13 @@ function aircraftFactChips(aircraft, itinerary, helpers) {
   box-shadow: 0 14px 30px rgba(37, 99, 235, 0.22);
 }
 
+.hero-actions--editorial button:disabled,
+.card-actions--refined button:disabled {
+  cursor: not-allowed;
+  background: linear-gradient(135deg, #94a3b8, #cbd5e1);
+  box-shadow: none;
+}
+
 .results-section {
   display: grid;
   gap: 1rem;
@@ -678,6 +700,10 @@ function aircraftFactChips(aircraft, itinerary, helpers) {
   box-shadow: 0 20px 44px rgba(15, 23, 42, 0.07);
 }
 
+.aircraft-card--unavailable {
+  opacity: 0.78;
+}
+
 .aircraft-copy--refined {
   display: grid;
   gap: 0.9rem;
@@ -709,6 +735,13 @@ function aircraftFactChips(aircraft, itinerary, helpers) {
 .card-actions--refined {
   display: flex;
   justify-content: flex-start;
+}
+
+.aircraft-unavailable-note {
+  margin: 0;
+  color: #b91c1c;
+  font-size: 0.92rem;
+  font-weight: 700;
 }
 
 .aircraft-card-compact--refined .card-actions--refined button,

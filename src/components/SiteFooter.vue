@@ -14,8 +14,8 @@ import BrandLogo from './BrandLogo.vue'
           seguimiento centralizado.
         </p>
 
-        <div class="store-links">
-          <a href="#" class="store-badge" aria-label="Disponible en Google Play">
+        <div class="store-links" aria-label="Aplicaciones moviles disponibles proximamente">
+          <span class="store-badge" aria-label="Google Play disponible proximamente">
             <span class="store-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" role="img">
                 <path
@@ -34,9 +34,9 @@ import BrandLogo from './BrandLogo.vue'
               <small>Disponible en</small>
               <strong>Google Play</strong>
             </span>
-          </a>
+          </span>
 
-          <a href="#" class="store-badge" aria-label="Disponible en App Store">
+          <span class="store-badge" aria-label="App Store disponible proximamente">
             <span class="store-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" role="img">
                 <path
@@ -49,7 +49,7 @@ import BrandLogo from './BrandLogo.vue'
               <small>Consiguelo en</small>
               <strong>App Store</strong>
             </span>
-          </a>
+          </span>
         </div>
       </div>
 
@@ -65,19 +65,17 @@ import BrandLogo from './BrandLogo.vue'
         <section>
           <h3>Operacion</h3>
           <RouterLink :to="{ name: 'login-cliente' }">Cliente</RouterLink>
-          <RouterLink :to="{ name: 'acceso', query: { role: 'provider' } }">Operador</RouterLink>
-          <RouterLink :to="{ name: 'acceso', query: { role: 'sobrecargo' } }"
-            >Sobrecargo</RouterLink
-          >
-          <RouterLink :to="{ name: 'acceso', query: { role: 'admin' } }">Administrativo</RouterLink>
+          <RouterLink :to="{ name: 'login', query: { role: 'provider' } }">Operador</RouterLink>
+          <RouterLink :to="{ name: 'login', query: { role: 'sobrecargo' } }">Sobrecargo</RouterLink>
+          <RouterLink :to="{ name: 'login', query: { role: 'admin' } }">Administrativo</RouterLink>
         </section>
 
         <section>
           <h3>Acceso y soporte</h3>
           <RouterLink to="/login-cliente">Iniciar sesion</RouterLink>
           <a href="https://wa.me/525500000000" target="_blank" rel="noreferrer">WhatsApp</a>
-          <RouterLink to="/help">Centro de ayuda</RouterLink>
-          <a href="#inicio">Volver arriba</a>
+          <RouterLink to="/ayuda">Centro de ayuda</RouterLink>
+          <RouterLink to="/">Volver arriba</RouterLink>
         </section>
 
         <section>

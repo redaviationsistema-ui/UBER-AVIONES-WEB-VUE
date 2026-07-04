@@ -297,6 +297,7 @@ function nextActionDetail(status = '') {
 function workflowSupportLines(reservation = {}) {
   const workflowValue = reservationWorkflowValue(reservation)
   const stateId = workflowId(workflowValue)
+  const paymentStatus = String(reservation.payment_status || '').trim().toLowerCase()
   const lines = []
 
   if (reservation.flight_package) {
@@ -317,6 +318,10 @@ function workflowSupportLines(reservation = {}) {
 
   if (stateId === 'payment_confirmed') {
     lines.push('🛫 Vuelo en liberacion operativa')
+  }
+
+  if (paymentStatus === 'paid') {
+    lines.push('Pagado · Aeronave reservada')
   }
 
   if (reservation.operator) {
@@ -645,16 +650,36 @@ function contractEnabled(reservation = {}) {
   return hasWorkflowIn(reservationWorkflowValue(reservation), [
     'provider_accepted',
     'contract_pending',
+    'contract_signed',
   ])
 }
 
 function paymentEnabled(reservation = {}) {
-  if (!reservation?.is_reservation) return false
+  const paymentStatus = String(
+    reservation?.payment_status || reservation?.payment_order?.status || '',
+  )
+    .trim()
+    .toLowerCase()
+  const contractStatus = String(
+    reservation?.contract_status || reservation?.contract?.status || '',
+  )
+    .trim()
+    .toLowerCase()
 
-  return hasWorkflowIn(reservationWorkflowValue(reservation), [
-    'contract_signed',
-    'payment_pending',
-  ])
+  return (
+    hasWorkflowIn(reservationWorkflowValue(reservation), [
+      'contract_signed',
+      'payment_pending',
+      'payment_confirmed',
+      'flight_confirmed',
+      'tracking_live',
+      'completed',
+    ]) ||
+    contractStatus === 'signed' ||
+    ['pending', 'pendiente de pago', 'pending_manual_payment', 'pending_manual_validation'].includes(
+      paymentStatus,
+    )
+  )
 }
 
 function flightEnabled(reservation = {}) {
@@ -664,6 +689,10 @@ function flightEnabled(reservation = {}) {
     'tracking_live',
     'completed',
   ])
+}
+
+function reservationActionTargetId(reservation = {}) {
+  return reservation.id || reservation.flight_request_id || reservation.request_id || ''
 }
 
 function conciergeEnabled(reservation = {}) {
@@ -891,24 +920,28 @@ watch(
         <button
           type="button"
           :disabled="!contractEnabled(reservation)"
-          @click="$emit('open-contract', reservation.id)"
+          @click="$emit('open-contract', reservationActionTargetId(reservation))"
         >
           📄 Contrato
         </button>
         <button
           type="button"
           :disabled="!paymentEnabled(reservation)"
-          @click="$emit('open-payment', reservation.id)"
+          @click="$emit('open-payment', reservationActionTargetId(reservation))"
         >
           💳 Pago
         </button>
-        <button type="button" :disabled="!flightEnabled(reservation)">
+        <button
+          type="button"
+          :disabled="!flightEnabled(reservation)"
+          @click="$emit('open-detail', reservationActionTargetId(reservation))"
+        >
           {{ flightActionLabel(reservation) }}
         </button>
         <button
           type="button"
           :disabled="!conciergeEnabled(reservation)"
-          @click="$emit('open-concierge', reservation.id)"
+          @click="$emit('open-concierge', reservationActionTargetId(reservation))"
         >
           🎧 Concierge
         </button>

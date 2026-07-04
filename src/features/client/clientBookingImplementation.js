@@ -91,6 +91,11 @@ const CLIENT_CHECKOUT_PATHS = [
     ),
   ),
 ]
+const CLIENT_RESERVATION_CHECKOUT_SUCCESS_PATHS = [
+  ...new Set(
+    ['/cliente/stripe/checkout/success', '/stripe/checkout/success'].filter(Boolean),
+  ),
+]
 const CLIENT_PAYMENT_INTENT_PATHS = [
   ...new Set(
     [
@@ -3590,17 +3595,46 @@ export async function createClientCheckout(flightRequestId, payload = {}, option
     booking_id: normalizedId,
     ...payload,
   }
-  let lastError = null
 
-  for (const path of CLIENT_CHECKOUT_PATHS) {
-    try {
-      return await api.post(path, body, options)
-    } catch (error) {
-      lastError = error
-    }
-  }
+  return requestWithCandidates(
+    CLIENT_CHECKOUT_PATHS.map((path) => ({
+      method: 'post',
+      path,
+      body,
+      timeoutMs: options.timeoutMs,
+    })),
+  )
+}
 
-  throw lastError || new Error('No se pudo iniciar  Checkout.')
+export async function getClientReservationCheckoutSuccess(payload = {}, options = {}) {
+  const sessionId = String(
+    payload?.session_id ||
+      payload?.sessionId ||
+      payload?.checkout_session_id ||
+      payload?.checkoutSessionId ||
+      payload?.stripe_checkout_session_id ||
+      '',
+  ).trim()
+  const reservationId = normalizeEntityIdentifier(
+    payload?.reservation_id || payload?.reservationId || payload?.booking_id || payload?.bookingId,
+  )
+  const flightRequestId = normalizeEntityIdentifier(
+    payload?.flight_request_id || payload?.flightRequestId,
+  )
+
+  return requestWithCandidates(
+    CLIENT_RESERVATION_CHECKOUT_SUCCESS_PATHS.map((path) => ({
+      method: 'get',
+      path,
+      query: {
+        session_id: sessionId || undefined,
+        reservation_id: reservationId || undefined,
+        booking_id: reservationId || undefined,
+        flight_request_id: flightRequestId || undefined,
+      },
+      timeoutMs: options.timeoutMs,
+    })),
+  )
 }
 
 export async function createClientPaymentIntent(flightRequestId, payload = {}, options = {}) {
@@ -3684,32 +3718,22 @@ export async function createClientWireIntent(flightRequestId, payload = {}, opti
 }
 
 export async function createClientAccessCheckout(payload = {}, options = {}) {
-  let lastError = null
-
-  for (const path of CLIENT_ACCESS_CHECKOUT_PATHS) {
-    try {
-      logClientPaymentRegistration('create-access-checkout:request', {
+  try {
+    return await requestWithCandidates(
+      CLIENT_ACCESS_CHECKOUT_PATHS.map((path) => ({
+        method: 'post',
         path,
         body: payload,
-      })
-      const response = await api.post(path, payload, options)
-      logClientPaymentRegistration('create-access-checkout:response', {
-        path,
-        body: payload,
-        response,
-      })
-      return response
-    } catch (error) {
-      logClientPaymentRegistration('create-access-checkout:error', {
-        path,
-        body: payload,
-        error,
-      })
-      lastError = error
-    }
+        timeoutMs: options.timeoutMs,
+      })),
+    )
+  } catch (error) {
+    logClientPaymentRegistration('create-access-checkout:error', {
+      body: payload,
+      error,
+    })
+    throw error
   }
-
-  throw lastError || new Error('No se pudo iniciar Stripe Checkout para el acceso comercial.')
 }
 
 export async function getClientAccessPaymentSuccess(payload = {}, options = {}) {

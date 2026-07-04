@@ -162,4 +162,19 @@ describe('ViajesActivos', () => {
     expect(aircraftImage.element.getAttribute('src')).toContain('data:image/svg+xml')
     expect(aircraftImage.element.dataset.fallbackApplied).toBe('true')
   })
+
+  it('shows the paid and reserved aircraft copy when payment_status is paid', () => {
+    const wrapper = mountTrips({
+      reservations: [
+        buildReservation({
+          status: 'payment_confirmed',
+          workflow_status: 'payment_confirmed',
+          payment_status: 'paid',
+        }),
+      ],
+      initialTab: 'proximos',
+    })
+
+    expect(wrapper.text()).toContain('Pagado · Aeronave reservada')
+  })
 })

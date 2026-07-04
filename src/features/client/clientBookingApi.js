@@ -25,6 +25,7 @@ export {
   ensureClientReservation,
   downloadClientReservationContract,
   createClientCheckout,
+  getClientReservationCheckoutSuccess,
   createClientPaymentIntent,
   createClientWireIntent,
 } from './clientBookingPaymentsApi'

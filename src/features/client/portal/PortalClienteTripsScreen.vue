@@ -30,6 +30,7 @@ defineProps({
   paymentInlineError: { type: String, default: '' },
   paymentLastReference: { type: String, default: '' },
   paymentMethodCards: { type: Array, required: true },
+  paymentMethodExplicitlySelected: { type: Boolean, required: true },
   paymentMethodSummaryLabel: { type: String, default: '' },
   paymentProofUploading: { type: Boolean, required: true },
   paymentRouteHeadline: { type: String, required: true },
@@ -148,7 +149,10 @@ defineEmits([
               :key="method.id"
               type="button"
               class="payment-method-card"
-              :class="{ 'payment-method-card--active': selectedPaymentMethod === method.id }"
+              :class="{
+                'payment-method-card--active':
+                  paymentMethodExplicitlySelected && selectedPaymentMethod === method.id,
+              }"
               @click="$emit('update:selected-payment-method', method.id)"
             >
               <strong>{{ method.label }}</strong>
@@ -338,7 +342,8 @@ defineEmits([
           :disabled="
             paymentSubmitting ||
             commercialAccessCheckoutReturnPending ||
-            reservationCheckoutReturnPending
+            reservationCheckoutReturnPending ||
+            (!commercialAccessCheckoutReturnMode && !paymentMethodExplicitlySelected)
           "
           @click="$emit('payment-submit')"
         >
@@ -351,9 +356,9 @@ defineEmits([
                   ? 'Procesando...'
                   : commercialAccessCheckoutReturnMode
                     ? commercialAccessCtaLabel
-                    : !selectedPaymentMethod
+                    : !paymentMethodExplicitlySelected
                       ? 'Selecciona metodo de pago'
-                      : selectedPaymentMethod === 'assisted'
+                    : selectedPaymentMethod === 'assisted'
                         ? assistedPrimaryCtaLabel
                         : 'Continuar a Stripe'
           }}
@@ -371,7 +376,7 @@ defineEmits([
           hasReservationsLoaded
             ? selectedReservation?.is_reservation
               ? 'Pago disponible despues de la firma'
-              : 'No encontramos una reserva para pagar'
+              : 'Preparando checkout'
             : 'Preparando checkout'
         }}
       </h2>
@@ -380,19 +385,14 @@ defineEmits([
           selectedReservation?.is_reservation
             ? selectedReservationFrontendState.status_message ||
               'El pago se habilitara cuando el contrato tenga ready_for_payment en true.'
-            : 'Primero necesitamos identificar una reserva activa para abrir el checkout.'
+            : 'Estamos preparando la reserva correcta para abrir tu checkout.'
         }}
       </p>
       <p v-else>Estamos cargando la informacion de tu reserva antes de abrir el pago.</p>
       <div class="confirmation-actions">
-        <button
-          v-if="selectedReservation?.is_reservation"
-          type="button"
-          @click="$emit('go', 'contrato', reservationContextId)"
-        >
-          Volver al contrato
+        <button type="button" @click="$emit('go', selectedReservation?.is_reservation ? 'contrato' : 'viajes', reservationContextId)">
+          {{ selectedReservation?.is_reservation ? 'Volver al contrato' : 'Ver mis vuelos' }}
         </button>
-        <button v-else type="button" @click="$emit('go', 'viajes')">Ver mis vuelos</button>
         <button class="secondary-button" type="button" @click="$emit('go', 'reservar')">
           Reservar vuelo
         </button>
@@ -456,3 +456,320 @@ defineEmits([
     />
   </section>
 </template>
+
+<style scoped>
+.screen {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.document-panel,
+.payment-summary-card,
+.payment-method-card,
+.payment-mode-panel,
+.payment-wire-card,
+.payment-field--stacked,
+.commercial-payment-brief__card {
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  border-radius: 24px;
+  background: linear-gradient(180deg, #fffdfa, #f7f1e6);
+  box-shadow: 0 18px 44px rgba(17, 17, 17, 0.06);
+}
+
+.document-panel {
+  padding: 1.4rem;
+}
+
+.confirmation-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.confirmation-actions,
+.payment-assisted-actions__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.eyebrow,
+.payment-summary-card__eyebrow {
+  color: #c89a32;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.payment-checkout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 420px);
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.payment-checkout__main {
+  display: grid;
+  gap: 1.35rem;
+}
+
+.payment-back {
+  width: fit-content;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #111111;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-weight: 700;
+}
+
+.payment-checkout__hero,
+.payment-mode-panel__copy,
+.payment-section,
+.payment-summary-card,
+.payment-assisted-actions {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.payment-checkout__hero p,
+.payment-mode-panel__copy p,
+.payment-proof-hint,
+.payment-proof-name,
+.payment-inline-error,
+.payment-summary-card__route {
+  margin: 0;
+}
+
+.payment-section h3,
+.payment-summary-card h3 {
+  margin: 0;
+  color: #111111;
+  font-size: clamp(1.2rem, 2vw, 1.7rem);
+}
+
+.payment-method-grid,
+.commercial-payment-brief {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.payment-method-card {
+  display: grid;
+  gap: 0.42rem;
+  min-height: 128px;
+  padding: 1.15rem;
+  background: linear-gradient(180deg, #ffffff, #f8f5ee);
+  text-align: left;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.payment-method-card strong,
+.payment-summary-card strong,
+.payment-totals__total span,
+.payment-totals__total strong {
+  color: #111111;
+}
+
+.payment-method-card span,
+.payment-summary-meta span,
+.payment-totals span,
+.payment-proof-hint,
+.payment-proof-name,
+.payment-field span {
+  color: #655d52;
+}
+
+.payment-method-card--active {
+  border-color: rgba(191, 151, 65, 0.52);
+  box-shadow: 0 18px 44px rgba(17, 17, 17, 0.08);
+  background: linear-gradient(180deg, #fffdf7, #ffffff);
+}
+
+.payment-mode-panel,
+.payment-wire-card,
+.payment-field--stacked,
+.payment-summary-card,
+.commercial-payment-brief__card {
+  padding: 1rem 1.1rem;
+  background: #ffffff;
+}
+
+.payment-wire-card {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.payment-wire-card p,
+.payment-summary-meta p,
+.payment-totals p {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: start;
+  margin: 0;
+}
+
+.payment-wire-card strong,
+.payment-summary-meta strong,
+.payment-totals strong {
+  text-align: right;
+}
+
+.payment-field {
+  display: grid;
+  gap: 0.42rem;
+}
+
+.payment-field input {
+  width: 100%;
+  min-height: 3rem;
+  padding: 0 0.1rem;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: #111111;
+  font: inherit;
+}
+
+.payment-field input::placeholder {
+  color: #9d9589;
+}
+
+.payment-summary-card {
+  position: sticky;
+  top: 6rem;
+  gap: 1rem;
+  padding: 1.4rem;
+  background:
+    radial-gradient(circle at top right, rgba(191, 151, 65, 0.14), transparent 30%),
+    linear-gradient(180deg, #fffdfa, #f6f0e5);
+}
+
+.payment-totals {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.payment-totals__total {
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(17, 17, 17, 0.08);
+}
+
+.payment-inline-error {
+  color: #8e2d2d;
+  font-weight: 700;
+}
+
+.payment-proof-input {
+  display: none;
+}
+
+.payment-submit,
+.primary-action,
+.secondary-button,
+.ghost-button,
+.confirmation-actions button {
+  min-height: 3.15rem;
+  padding: 0.85rem 1.2rem;
+  border-radius: 16px;
+  border: 1px solid rgba(17, 17, 17, 0.1);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    opacity 160ms ease;
+}
+
+.payment-submit,
+.primary-action {
+  color: #ffffff;
+  background: #111111;
+  box-shadow: 0 16px 30px rgba(17, 17, 17, 0.16);
+}
+
+.secondary-button,
+.ghost-button,
+.confirmation-actions button {
+  color: #111111;
+  background: #ffffff;
+}
+
+.payment-submit:disabled,
+.primary-action:disabled,
+.secondary-button:disabled,
+.ghost-button:disabled,
+.confirmation-actions button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.payment-submit:not(:disabled):hover,
+.primary-action:not(:disabled):hover,
+.secondary-button:not(:disabled):hover,
+.ghost-button:not(:disabled):hover,
+.confirmation-actions button:not(:disabled):hover,
+.payment-method-card:hover {
+  transform: translateY(-2px);
+}
+
+@media (max-width: 980px) {
+  .payment-checkout {
+    grid-template-columns: 1fr;
+  }
+
+  .payment-summary-card {
+    position: static;
+  }
+}
+
+@media (max-width: 760px) {
+  .payment-method-grid,
+  .commercial-payment-brief {
+    grid-template-columns: 1fr;
+  }
+
+  .document-panel,
+  .payment-summary-card,
+  .payment-method-card,
+  .payment-mode-panel,
+  .payment-wire-card,
+  .payment-field--stacked,
+  .commercial-payment-brief__card {
+    border-radius: 18px;
+  }
+
+  .document-panel,
+  .payment-summary-card,
+  .payment-method-card,
+  .payment-mode-panel,
+  .payment-wire-card,
+  .payment-field--stacked,
+  .commercial-payment-brief__card {
+    padding: 0.9rem;
+  }
+
+  .confirmation-actions,
+  .payment-assisted-actions__row {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .payment-submit,
+  .primary-action,
+  .secondary-button,
+  .ghost-button,
+  .confirmation-actions button {
+    width: 100%;
+  }
+}
+</style>

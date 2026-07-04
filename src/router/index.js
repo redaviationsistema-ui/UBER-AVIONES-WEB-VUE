@@ -11,6 +11,7 @@ const MembershipsView = () => import('../views/MembershipsView.vue')
 const CoverageView = () => import('../views/CoverageView.vue')
 const HelpView = () => import('../views/HelpView.vue')
 const ClientLoginView = () => import('../views/ClientLoginView.vue')
+const LoginView = () => import('../views/LoginView.vue')
 const ContractResultView = () => import('../views/ContractResultView.vue')
 const RegisterView = () => import('../views/RegisterView.vue')
 const RoleView = () => import('../views/RoleView.vue')
@@ -70,7 +71,10 @@ const router = createRouter({
     {
       path: '/acceso',
       name: 'acceso',
-      redirect: '/',
+      redirect: (to) => ({
+        name: 'login',
+        query: to.query,
+      }),
     },
     {
       path: '/login',
@@ -82,7 +86,8 @@ const router = createRouter({
     {
       path: '/login-operacion',
       name: 'login',
-      redirect: '/',
+      component: LoginView,
+      meta: { guestOnly: true, hideTopbar: true },
     },
     {
       path: '/registro',

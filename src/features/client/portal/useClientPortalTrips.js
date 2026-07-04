@@ -35,7 +35,7 @@ export function useClientPortalTrips({
     }
     if (props.section === 'pago') {
       if (commercialAccessCheckoutReturnMode.value) return true
-      return Boolean(selectedReservation.value?.is_reservation) && paymentReadyForCheckout.value
+      return Boolean(selectedReservation.value) && paymentReadyForCheckout.value
     }
     return Boolean(selectedReservation.value)
   })

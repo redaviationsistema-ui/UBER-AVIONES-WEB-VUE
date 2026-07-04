@@ -21,6 +21,7 @@ const {
   getClientAccessPaymentSuccessMock,
   ensureClientReservationMock,
   saveClientAssistedPaymentMock,
+  createClientFlightRequestMock,
 } = vi.hoisted(() => ({
   routeMock: {
     params: { id: 'res-1' },
@@ -63,6 +64,7 @@ const {
   getClientAccessPaymentSuccessMock: vi.fn(),
   ensureClientReservationMock: vi.fn(),
   saveClientAssistedPaymentMock: vi.fn(),
+  createClientFlightRequestMock: vi.fn(),
 }))
 
 vi.mock('vue-router', () => ({
@@ -101,7 +103,7 @@ vi.mock('../features/client/clientBookingApi', () => ({
   cancelClientAccessPayment: vi.fn(),
   createClientAccessCheckout: vi.fn(),
   createClientCheckout: vi.fn(),
-  createClientFlightRequest: vi.fn(),
+  createClientFlightRequest: createClientFlightRequestMock,
   createClientPaymentIntent: vi.fn(),
   ensureClientReservation: ensureClientReservationMock,
   getClientAccessPaymentSuccess: getClientAccessPaymentSuccessMock,
@@ -193,6 +195,14 @@ beforeEach(() => {
     flight_request_id: 'fr-1',
     payment_order: {
       reference: 'REF-123',
+    },
+  })
+  createClientFlightRequestMock.mockResolvedValue({
+    flight_request: {
+      id: 'fr-created-1',
+      flight_request_id: 'fr-created-1',
+      workflow_status: 'provider_pending',
+      payment_status: 'pending',
     },
   })
 
@@ -406,5 +416,62 @@ describe('PortalClienteVista contract bootstrap', () => {
     )
     expect(sendToDocuSignMock).not.toHaveBeenCalled()
     expect(persistPendingContractContextMock).toHaveBeenCalled()
+  })
+})
+
+describe('PortalClienteVista reservation availability safeguards', () => {
+  it('blocks reservation immediately when the selected aircraft is already unavailable', async () => {
+    const wrapper = await mountView({ section: 'reservar' })
+
+    await wrapper.vm.requestReservation({
+      id: 'aircraft-1',
+      aircraft: 'Learjet 31A',
+      is_available: false,
+    })
+
+    expect(createClientFlightRequestMock).not.toHaveBeenCalled()
+    expect(wrapper.vm.serverSearchError).toBe(
+      'La aeronave ya no está disponible para ese horario. Por favor selecciona otra opción.',
+    )
+    expect(pushToastMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tone: 'error',
+        title: 'Aeronave no disponible',
+        message: 'La aeronave ya no está disponible para ese horario. Por favor selecciona otra opción.',
+      }),
+    )
+  })
+
+  it('shows the availability conflict message when backend returns HTTP 409 AIRCRAFT_NOT_AVAILABLE', async () => {
+    createClientFlightRequestMock.mockRejectedValueOnce({
+      status: 409,
+      message: 'Conflict',
+      payload: {
+        code: 'AIRCRAFT_NOT_AVAILABLE',
+      },
+    })
+
+    const wrapper = await mountView({ section: 'reservar' })
+
+    await wrapper.vm.requestReservation({
+      id: 'aircraft-2',
+      aircraft: 'Citation XLS',
+      cabin: 'Citation XLS',
+      is_available: true,
+      provider_id: 22,
+      aircraft_id: 77,
+    })
+    await flushPromises()
+
+    expect(pushToastMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tone: 'error',
+        title: 'No se pudo solicitar la reserva',
+        message: 'La aeronave ya no está disponible para ese horario. Por favor selecciona otra opción.',
+      }),
+    )
+    expect(wrapper.vm.serverSearchError).toBe(
+      'La aeronave ya no está disponible para ese horario. Por favor selecciona otra opción.',
+    )
   })
 })

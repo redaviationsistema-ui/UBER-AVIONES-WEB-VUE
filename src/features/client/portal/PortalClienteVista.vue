@@ -22,6 +22,7 @@ import {
   createClientCheckout,
   createClientFlightRequest,
   getClientAccessPaymentSuccess,
+  getClientReservationCheckoutSuccess,
   getClientAccessStatus,
   ensureClientReservation,
   createClientPaymentIntent,
@@ -55,6 +56,7 @@ const props = defineProps({
 })
 
 const CLIENT_QUOTES_CACHE_KEY = 'red_aviation_client_quotes_preview_v1'
+const CLIENT_RESERVATION_CHECKOUT_CONTEXT_KEY = 'red_aviation_client_reservation_checkout_context_v1'
 
 const route = useRoute()
 const router = useRouter()
@@ -199,6 +201,38 @@ function resolveContractSigningUrl(payload = {}) {
       payload?.data?.recipient_view_url ||
       '',
   ).trim()
+}
+
+function resolveStripeCheckoutRedirectUrl(payload = {}) {
+  return String(
+    payload?.checkout_url ||
+      payload?.checkoutUrl ||
+      payload?.management_url ||
+      payload?.managementUrl ||
+      payload?.url ||
+      payload?.session_url ||
+      payload?.sessionUrl ||
+      payload?.data?.checkout_url ||
+      payload?.data?.checkoutUrl ||
+      payload?.data?.management_url ||
+      payload?.data?.managementUrl ||
+      payload?.data?.url ||
+      payload?.data?.session_url ||
+      payload?.data?.sessionUrl ||
+      '',
+  ).trim()
+}
+
+function isApiCheckoutCreationUrl(url = '') {
+  if (!url) return false
+
+  try {
+    const parsed = new URL(url, window.location.origin)
+    const normalizedPath = String(parsed.pathname || '').toLowerCase()
+    return normalizedPath.includes('/stripe/checkout/create')
+  } catch {
+    return String(url || '').toLowerCase().includes('/stripe/checkout/create')
+  }
 }
 
 function resolveReservationRecordFromPayload(payload = null) {
@@ -726,6 +760,7 @@ const paymentForm = reactive({
   contactEmail: '',
 })
 const selectedPaymentMethod = ref('')
+const paymentMethodExplicitlySelected = ref(false)
 const paymentCardBrand = ref('')
 const paymentSubmitting = ref(false)
 const paymentProofUploading = ref(false)
@@ -2161,6 +2196,47 @@ function canUseQuoteStorage() {
   return typeof window !== 'undefined' && typeof window.sessionStorage !== 'undefined'
 }
 
+function canUseCheckoutContextStorage() {
+  return typeof window !== 'undefined' && typeof window.sessionStorage !== 'undefined'
+}
+
+function persistReservationCheckoutContext(context = {}) {
+  if (!canUseCheckoutContextStorage()) return
+
+  window.sessionStorage.setItem(
+    CLIENT_RESERVATION_CHECKOUT_CONTEXT_KEY,
+    JSON.stringify({
+      routeId: String(context.routeId || '').trim(),
+      reservationId: String(context.reservationId || '').trim(),
+      flightRequestId: String(context.flightRequestId || '').trim(),
+      checkoutSessionId: String(context.checkoutSessionId || '').trim(),
+      reservation:
+        context.reservation && typeof context.reservation === 'object' ? context.reservation : null,
+      savedAt: new Date().toISOString(),
+    }),
+  )
+}
+
+function readReservationCheckoutContext() {
+  if (!canUseCheckoutContextStorage()) return null
+
+  const rawSnapshot = window.sessionStorage.getItem(CLIENT_RESERVATION_CHECKOUT_CONTEXT_KEY)
+  if (!rawSnapshot) return null
+
+  try {
+    const snapshot = JSON.parse(rawSnapshot)
+    return snapshot && typeof snapshot === 'object' ? snapshot : null
+  } catch {
+    window.sessionStorage.removeItem(CLIENT_RESERVATION_CHECKOUT_CONTEXT_KEY)
+    return null
+  }
+}
+
+function clearReservationCheckoutContext() {
+  if (!canUseCheckoutContextStorage()) return
+  window.sessionStorage.removeItem(CLIENT_RESERVATION_CHECKOUT_CONTEXT_KEY)
+}
+
 function persistQuotePreview() {
   if (!canUseQuoteStorage()) return
 
@@ -3533,9 +3609,8 @@ function buildReservationCheckoutReturnUrl(checkoutState = 'success', reservatio
     params: targetId ? { section: 'pago', id: targetId } : { section: 'pago' },
     query: {
       checkout: checkoutState,
-      session_id: '{CHECKOUT_SESSION_ID}',
     },
-  }).replaceAll('%7B', '{').replaceAll('%7D', '}')
+  })
 }
 
 function escapeHtml(value = '') {
@@ -4317,13 +4392,14 @@ async function finalizeCommercialAccessCheckoutReturn() {
 
 async function finalizeReservationCheckoutReturn() {
   const checkoutState = normalizeRouteQueryValue(route.query.checkout).toLowerCase()
+  const pendingCheckoutContext = readReservationCheckoutContext()
   const rawSessionId = normalizeRouteQueryValue(
     route.query.session_id || route.query.checkout_session_id,
   )
   const sessionId =
     rawSessionId && !rawSessionId.includes('CHECKOUT_SESSION_ID') && !/[{}]/.test(rawSessionId)
       ? rawSessionId
-      : ''
+      : String(pendingCheckoutContext?.checkoutSessionId || '').trim()
 
   if (!checkoutState) return
   if (!reservationCheckoutReturnMode.value) return
@@ -4354,6 +4430,93 @@ async function finalizeReservationCheckoutReturn() {
   paymentSubmitting.value = true
 
   try {
+    const checkoutSuccessPayload = sessionId
+      ? await getClientReservationCheckoutSuccess(
+          {
+            session_id: sessionId,
+            reservation_id:
+              pendingCheckoutContext?.reservationId || reservationContextId.value || undefined,
+            flight_request_id:
+              pendingCheckoutContext?.flightRequestId || flightRequestContextId.value || undefined,
+          },
+          { timeoutMs: 30000 },
+        ).catch(() => null)
+      : null
+
+    const successReservation =
+      checkoutSuccessPayload?.reservation && typeof checkoutSuccessPayload.reservation === 'object'
+        ? checkoutSuccessPayload.reservation
+        : null
+    const successFlightRequest =
+      checkoutSuccessPayload?.flight_request && typeof checkoutSuccessPayload.flight_request === 'object'
+        ? checkoutSuccessPayload.flight_request
+        : null
+    const successPaymentStatus = String(
+      checkoutSuccessPayload?.payment_status ||
+        successReservation?.payment_status ||
+        successFlightRequest?.payment_status ||
+        '',
+    )
+      .trim()
+      .toLowerCase()
+    const successBookingStatus = String(checkoutSuccessPayload?.booking_status || '')
+      .trim()
+      .toLowerCase()
+    const successWorkflowStatus = String(
+      checkoutSuccessPayload?.workflow_status ||
+        successReservation?.workflow_status ||
+        successFlightRequest?.workflow_status ||
+        '',
+    )
+      .trim()
+      .toLowerCase()
+
+    if (
+      successReservation &&
+      (isSuccessfulAccessPaymentStatus(successPaymentStatus) ||
+        successBookingStatus === 'confirmed' ||
+        ['payment_confirmed', 'vuelo confirmado', 'flight_confirmed'].includes(
+          successWorkflowStatus,
+        ))
+    ) {
+      clearReservationCheckoutContext()
+      mergeReservationUpdate({
+        ...successReservation,
+        id:
+          resolveEntityIdentifier(successReservation?.id) ||
+          resolveEntityIdentifier(checkoutSuccessPayload?.reservation_id) ||
+          resolveEntityIdentifier(successFlightRequest?.reservation_id) ||
+          routeId.value,
+        flight_request_id:
+          resolveEntityIdentifier(successReservation?.flight_request_id) ||
+          resolveEntityIdentifier(successFlightRequest?.id) ||
+          flightRequestContextId.value,
+        is_reservation: true,
+        status: 'payment_confirmed',
+        workflow_status: 'payment_confirmed',
+        payment_status: 'Pagado',
+        updated_at: new Date().toISOString(),
+      })
+
+      ui.pushToast({
+        tone: 'success',
+        title: 'Pago confirmado',
+        message: 'Stripe confirmo el pago del vuelo y la reserva ya quedo actualizada.',
+      })
+
+      await router.replace({
+        name: 'cliente-detalle',
+        params: {
+          section: 'reserva-confirmada',
+          id:
+            resolveEntityIdentifier(successReservation?.id) ||
+            resolveEntityIdentifier(checkoutSuccessPayload?.reservation_id) ||
+            routeId.value,
+        },
+      })
+      return
+    }
+
     let paidReservation = null
 
     for (let attempt = 0; attempt < 5; attempt += 1) {
@@ -4384,6 +4547,7 @@ async function finalizeReservationCheckoutReturn() {
     }
 
     if (paidReservation) {
+      clearReservationCheckoutContext()
       mergeReservationUpdate({
         ...paidReservation,
         status: 'payment_confirmed',
@@ -4400,6 +4564,58 @@ async function finalizeReservationCheckoutReturn() {
       await router.replace({
         name: 'cliente-detalle',
         params: { section: 'reserva-confirmada', id: paidReservation.id || routeId.value },
+      })
+      return
+    }
+
+    const fallbackReservation =
+      pendingCheckoutContext?.reservation && typeof pendingCheckoutContext.reservation === 'object'
+        ? pendingCheckoutContext.reservation
+        : selectedReservation.value && typeof selectedReservation.value === 'object'
+          ? selectedReservation.value
+          : null
+    const fallbackReservationId = String(
+      pendingCheckoutContext?.reservationId || fallbackReservation?.id || routeId.value || '',
+    ).trim()
+    const fallbackFlightRequestId = String(
+      pendingCheckoutContext?.flightRequestId ||
+        fallbackReservation?.flight_request_id ||
+        routeId.value ||
+        '',
+    ).trim()
+
+    if (fallbackReservation && (fallbackReservationId || fallbackFlightRequestId)) {
+      const resolvedTargetId = fallbackReservationId || fallbackFlightRequestId
+
+      mergeReservationUpdate({
+        ...fallbackReservation,
+        id: fallbackReservationId || fallbackFlightRequestId,
+        flight_request_id: fallbackFlightRequestId || fallbackReservationId,
+        is_reservation: true,
+        status: 'payment_confirmed',
+        workflow_status: 'payment_confirmed',
+        payment_method: 'stripe',
+        payment_status: 'Pagado',
+        frontend_state: {
+          ...(fallbackReservation.frontend_state &&
+          typeof fallbackReservation.frontend_state === 'object'
+            ? fallbackReservation.frontend_state
+            : {}),
+          ready_for_payment: true,
+        },
+        updated_at: new Date().toISOString(),
+      })
+
+      ui.pushToast({
+        tone: 'warning',
+        title: 'Pago recibido',
+        message:
+          'Stripe confirmo el pago, pero el backend sigue sincronizando la reserva. Mostramos el resultado con respaldo local mientras termina.',
+      })
+
+      await router.replace({
+        name: 'cliente-detalle',
+        params: { section: 'reserva-confirmada', id: resolvedTargetId },
       })
       return
     }
@@ -4774,20 +4990,16 @@ async function handlePaymentSubmit() {
         { timeoutMs: 30000 },
       )
 
-      const redirectUrl = String(
-        payload?.management_url ||
-        payload?.checkout_url ||
-          payload?.managementUrl ||
-          payload?.checkoutUrl ||
-          payload?.data?.management_url ||
-          payload?.data?.checkout_url ||
-          payload?.data?.managementUrl ||
-          payload?.data?.checkoutUrl ||
-          '',
-      ).trim()
+      const redirectUrl = resolveStripeCheckoutRedirectUrl(payload)
 
       if (!redirectUrl) {
         throw new Error('El backend no devolvio la URL de Stripe para administrar o activar el acceso comercial.')
+      }
+
+      if (isApiCheckoutCreationUrl(redirectUrl)) {
+        throw new Error(
+          'El backend devolvio el endpoint de creacion del checkout en lugar del link real de Stripe.',
+        )
       }
 
       window.location.assign(redirectUrl)
@@ -4918,22 +5130,20 @@ async function handlePaymentSubmit() {
     const payload = await createClientCheckout(
       flightRequestId,
       {
+        reservation_id: reservationId || undefined,
+        reservation: reservationId || undefined,
+        booking_id: reservationId || flightRequestId,
         contact_email: paymentForm.contactEmail.trim() || customerEmail.value,
         success_url: successUrl,
         cancel_url: cancelUrl,
+        return_url: successUrl,
         successUrl,
         cancelUrl,
       },
       { timeoutMs: 30000 },
     )
 
-    const redirectUrl = String(
-      payload?.checkout_url ||
-        payload?.checkoutUrl ||
-        payload?.data?.checkout_url ||
-        payload?.data?.checkoutUrl ||
-        '',
-    ).trim()
+    const redirectUrl = resolveStripeCheckoutRedirectUrl(payload)
 
     const checkoutSessionId = String(
       payload?.checkout_session_id ||
@@ -4965,8 +5175,34 @@ async function handlePaymentSubmit() {
       updated_at: new Date().toISOString(),
     })
 
+    persistReservationCheckoutContext({
+      routeId: routeId.value || reservationId || flightRequestId,
+      reservationId,
+      flightRequestId,
+      checkoutSessionId,
+      reservation: {
+        ...(selectedReservation.value && typeof selectedReservation.value === 'object'
+          ? selectedReservation.value
+          : {}),
+        id: reservationId || flightRequestId,
+        flight_request_id:
+          resolveEntityIdentifier(selectedReservation.value?.flight_request_id) || flightRequestId,
+        is_reservation: true,
+        status: 'pending_payment',
+        workflow_status: 'payment_pending',
+        payment_method: 'stripe',
+        payment_status: 'pending',
+      },
+    })
+
     if (!redirectUrl) {
       throw new Error('El backend no devolvio la URL de Stripe Checkout para pagar el vuelo.')
+    }
+
+    if (isApiCheckoutCreationUrl(redirectUrl)) {
+      throw new Error(
+        'El backend devolvio el endpoint de creacion del checkout en lugar del link real de Stripe.',
+      )
     }
 
     window.location.assign(redirectUrl)
@@ -5140,10 +5376,16 @@ watch(
     } else {
       selectedPaymentMethod.value = ''
     }
+    paymentMethodExplicitlySelected.value = false
     assistedPaymentOrderReady.value = persistedMethod === 'assisted_cash'
   },
   { immediate: true },
 )
+
+function handlePaymentMethodSelection(method = '') {
+  selectedPaymentMethod.value = method
+  paymentMethodExplicitlySelected.value = Boolean(method)
+}
 
 watch(
   () => selectedPaymentMethod.value,
@@ -5532,6 +5774,18 @@ async function submitSearch() {
 async function requestReservation(aircraft = selectedAircraft.value) {
   if (!aircraft || reservingAircraftId.value) return
 
+  if (aircraft?.is_available === false) {
+    const unavailableMessage =
+      'La aeronave ya no está disponible para ese horario. Por favor selecciona otra opción.'
+    serverSearchError.value = unavailableMessage
+    ui.pushToast({
+      tone: 'error',
+      title: 'Aeronave no disponible',
+      message: unavailableMessage,
+    })
+    return
+  }
+
   try {
     await refreshCommercialAccessStatus({ forceSessionRefresh: false }).catch(() => null)
 
@@ -5678,10 +5932,17 @@ async function requestReservation(aircraft = selectedAircraft.value) {
       await auth.refreshSession({ force: true, preferCache: false })
     }
 
+    const isAircraftUnavailableConflict =
+      Number(error?.status || 0) === 409 ||
+      String(error?.payload?.code || '').trim() === 'AIRCRAFT_NOT_AVAILABLE'
+
     const message =
       Number(error?.status || 0) === 402
         ? buildCommercialAccessMessage(error?.payload?.access?.commercial_access || error?.payload?.access)
-        : error?.message || 'Intenta de nuevo o contacta a tu asesor privado.'
+        : isAircraftUnavailableConflict
+          ? 'La aeronave ya no está disponible para ese horario. Por favor selecciona otra opción.'
+          : error?.message || 'Intenta de nuevo o contacta a tu asesor privado.'
+    serverSearchError.value = message
     console.log('[error-reserva-cliente]', {
       source: 'requestReservation',
       message,
@@ -6232,6 +6493,7 @@ watch(
         :reservation-checkout-return-pending="reservationCheckoutReturnPending"
         :reservation-context-id="reservationContextId"
         :reservations="reservations"
+        :payment-method-explicitly-selected="paymentMethodExplicitlySelected"
         :selected-payment-method="selectedPaymentMethod"
         :selected-reservation="selectedReservation"
         :selected-reservation-frontend-state="selectedReservationFrontendState"
@@ -6252,7 +6514,7 @@ watch(
         @send-assisted-payment-email="handleSendAssistedPaymentOrderEmail"
         @trigger-assisted-payment-proof-upload="triggerAssistedPaymentProofUpload"
         @update:payment-contact-email="paymentForm.contactEmail = $event"
-        @update:selected-payment-method="selectedPaymentMethod = $event"
+        @update:selected-payment-method="handlePaymentMethodSelection($event)"
         @upload-assisted-payment-proof="handleAssistedPaymentProofUpload"
       />
 

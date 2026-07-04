@@ -9,6 +9,7 @@ import { emitWorkflowSync, subscribeWorkflowSync } from '../../lib/workflowSync'
 import { resolveProviderRepresentativeName } from '../../lib/providerReview'
 
 const AdminAlertsSection = defineAsyncComponent(() => import('./AdminAlertsSection.vue'))
+const AdminAircraftAvailabilityCalendarSection = defineAsyncComponent(() => import('./AdminAircraftAvailabilityCalendarSection.vue'))
 const AdminAircraftSubscriptionsSection = defineAsyncComponent(() => import('./AdminAircraftSubscriptionsSection.vue'))
 const AdminCrewAvailabilitySection = defineAsyncComponent(() => import('./AdminCrewAvailabilitySection.vue'))
 const AdminCrewDirectorySection = defineAsyncComponent(() => import('./AdminCrewDirectorySection.vue'))
@@ -345,6 +346,15 @@ const adminSections = {
     fields: ['Sobrecargo', 'Base', 'Dia', 'Estado', 'Comentario'],
     details: ['Semana operativa', 'Bloqueos', 'Operaciones ligadas', 'Bitacora'],
     edits: ['Estado', 'Comentario administrativo'],
+  },
+  'disponibilidad-aeronaves': {
+    eyebrow: 'Flota',
+    title: 'Disponibilidad de aeronaves',
+    description: 'Monitorea bloqueos reales de flota por empresa, reserva, horario y motivo operativo.',
+    actions: ['Filtrar por empresa', 'Filtrar por aeronave', 'Cambiar vista', 'Abrir reserva'],
+    fields: ['Empresa', 'Aeronave', 'Cliente', 'Ruta', 'Horario', 'Estado', 'Motivo'],
+    details: ['Bloqueo', 'Reserva', 'Pago', 'Empresa', 'Ruta', 'Ventana operativa'],
+    edits: ['Navegacion de calendario', 'Filtros de vista'],
   },
   'sobrecargos-en-vuelo': {
     eyebrow: 'Sobrecargos',
@@ -1895,6 +1905,11 @@ async function loadPortalSection(section) {
     return
   }
 
+  if (section === 'disponibilidad-aeronaves') {
+    await Promise.all([loadAircraft(), loadProviders({ preserveExisting: true })])
+    return
+  }
+
   if (section === 'suscripciones') {
     await reconcilePendingClientAccessPayments({ silent: true })
     await Promise.all([loadAircraft(), loadSubscriptions(), loadClients(clientTableQuery), loadAccessPayments(), loadSubscriptionPayments()])
@@ -2948,6 +2963,11 @@ watch(
     :audit-entries="crewAuditEntries"
     :status-options="crewAvailabilityStatuses"
     @audit-crew="auditCrew"
+  />
+  <AdminAircraftAvailabilityCalendarSection
+    v-else-if="section === 'disponibilidad-aeronaves'"
+    :providers="providers"
+    :aircraft="aircraft"
   />
   <AdminReservationsSection
     v-else-if="section === 'reservas'"

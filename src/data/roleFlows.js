@@ -55,6 +55,7 @@ export const roleSections = {
     { id: 'clientes', label: 'Clientes', icon: 'account' },
     { id: 'proveedores', label: 'Proveedores', icon: 'shield' },
     { id: 'aeronaves', label: 'Aeronaves', icon: 'jet' },
+    { id: 'disponibilidad-aeronaves', label: 'Disponibilidad de Aeronaves', icon: 'calendar' },
     { id: 'pagos-proveedor', label: 'Pagos proveedor', icon: 'wallet' },
     { id: 'operadores', label: 'Operadores', icon: 'clipboard' },
     { id: 'sobrecargos', label: 'Directorio de sobrecargos', icon: 'crew' },
@@ -98,7 +99,7 @@ export const roleSectionGroups = {
     { label: 'Cliente y Comercial', ids: ['clientes', 'reservas', 'contratos', 'suscripciones', 'pagos'] },
     {
       label: 'Operacion y Proveedores',
-      ids: ['proveedores', 'aeronaves', 'pagos-proveedor', 'operadores', 'liberaciones', 'documentos'],
+      ids: ['proveedores', 'aeronaves', 'disponibilidad-aeronaves', 'pagos-proveedor', 'operadores', 'liberaciones', 'documentos'],
     },
     { label: 'Sobrecargos', ids: ['sobrecargos', 'disponibilidad', 'sobrecargo-operaciones', 'sobrecargos-en-vuelo', 'incidencias'] },
     { label: 'Control Interno', ids: ['ejecutivo', 'importaciones', 'usuarios', 'configuracion'] },

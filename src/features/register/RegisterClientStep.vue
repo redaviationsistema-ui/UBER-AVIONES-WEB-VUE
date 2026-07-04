@@ -24,13 +24,14 @@ function handleUppercaseInput(event, form, field) {
     </p>
 
     <label v-if="form.role === 'provider'">
-      Nombre comercial de la empresa
+      Nombre de la empresa
       <input
         v-model="form.companyName"
         type="text"
         placeholder="Nombre comercial de la empresa"
         autocomplete="organization"
       />
+      <small>Usa el nombre comercial con el que opera la empresa.</small>
     </label>
 
     <label v-if="form.role === 'provider'">
