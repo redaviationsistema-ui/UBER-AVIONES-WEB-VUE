@@ -2,8 +2,8 @@
 // VISTA DE COMPONENTE PRINCIPAL DEL PORTAL DE OPERADOR
 /*----------------------------------------------------------------------------------------------*/
 
-<template src="./OperatorPortal.template.html"></template>
-<script src="./OperatorPortal.component.js"></script>
+<template src="./PortalOperador.plantilla.html"></template>
+<script src="./PortalOperador.componente.js"></script>
 <style scoped src="./styles/partes/OperatorPortal.inicio.parte-01.css"></style>
 <style scoped src="./styles/partes/OperatorPortal.inicio.parte-02.css"></style>
 <style scoped src="./styles/partes/OperatorPortal.inicio.parte-03.css"></style>

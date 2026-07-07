@@ -753,9 +753,9 @@ function reservationTab(reservation = {}) {
 }
 
 const tabOptions = [
-  { key: 'activos', label: 'Activos' },
-  { key: 'proximos', label: 'Proximos' },
-  { key: 'historial', label: 'Historial' },
+  { key: 'activos', label: 'Activos', icon: '✈' },
+  { key: 'proximos', label: 'Proximos', icon: '🗓' },
+  { key: 'historial', label: 'Historial', icon: '🧾' },
 ]
 
 function normalizeTabKey(value = '') {
@@ -818,7 +818,8 @@ watch(
         type="button"
         @click="activeTab = tab.key"
       >
-        {{ tab.label }}
+        <span class="tab-icon" aria-hidden="true">{{ tab.icon }}</span>
+        <span>{{ tab.label }}</span>
       </button>
     </div>
 
@@ -944,13 +945,6 @@ watch(
         >
           {{ flightActionLabel(reservation) }}
         </button>
-        <button
-          type="button"
-          :disabled="!conciergeEnabled(reservation)"
-          @click="$emit('open-concierge', reservationActionTargetId(reservation))"
-        >
-          🎧 Concierge
-        </button>
       </div>
     </article>
 
@@ -967,6 +961,11 @@ watch(
 .active-trips {
   display: grid;
   gap: 1.25rem;
+  padding: clamp(1.1rem, 2vw, 1.8rem);
+  border: 0;
+  border-radius: 34px;
+  background: #ffffff;
+  box-shadow: none;
 }
 
 .screen-head {
@@ -1019,13 +1018,24 @@ span {
   gap: 0.65rem;
 }
 
+.tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.tab-icon {
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
 button {
   min-height: 2.8rem;
   border: 0;
   border-radius: 14px;
   padding: 0 1rem;
   background: #ece8df;
-  color: #111111;
+  color: #14233e;
   font-weight: 800;
   cursor: pointer;
   transition:
@@ -1036,13 +1046,14 @@ button {
 
 .refresh-button {
   flex-shrink: 0;
-  background: #111111;
+  background: linear-gradient(135deg, #14233e, #304668);
   color: #ffffff;
+  box-shadow: 0 12px 28px rgba(20, 35, 62, 0.18);
 }
 
 button:hover {
   transform: translateY(-1px);
-  box-shadow: 0 10px 24px rgba(17, 17, 17, 0.08);
+  box-shadow: 0 10px 24px rgba(26, 45, 79, 0.1);
 }
 
 button:disabled {
@@ -1053,7 +1064,13 @@ button:disabled {
 }
 
 .tabs .active {
-  background: #111111;
+  background: linear-gradient(135deg, #14233e, #304668);
+  color: #ffffff;
+  box-shadow: 0 10px 24px rgba(20, 35, 62, 0.16);
+}
+
+.tabs .active span,
+.tabs .active .tab-icon {
   color: #ffffff;
 }
 
@@ -1061,9 +1078,8 @@ button:disabled {
 .empty-state {
   border: 1px solid #e5e1d8;
   border-radius: 24px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 244, 237, 0.92)), #ffffff;
-  box-shadow: 0 18px 45px rgba(77, 63, 27, 0.08);
+  background: #ffffff;
+  box-shadow: 0 14px 34px rgba(77, 63, 27, 0.05);
 }
 
 .empty-state {
@@ -1103,7 +1119,7 @@ button:disabled {
   min-height: 100px;
   overflow: hidden;
   border-radius: 16px;
-  background: linear-gradient(135deg, #111111, #4b4233);
+  background: linear-gradient(135deg, #14233e, #304668);
   color: #ffffff;
   font-weight: 800;
 }
@@ -1115,7 +1131,7 @@ button:disabled {
 }
 
 .executive-card__media--placeholder {
-  background: linear-gradient(135deg, #6f6558, #111111);
+  background: linear-gradient(135deg, #526985, #14233e);
 }
 
 .executive-card__copy {
@@ -1339,14 +1355,15 @@ button:disabled {
 
 .card-actions--premium button {
   background: #ffffff;
-  color: #111111;
+  color: #14233e;
   border: 1px solid #ded6c8;
 }
 
 .card-actions--premium button:last-child {
-  background: #111111;
+  background: linear-gradient(135deg, #14233e, #304668);
   color: #ffffff;
-  border-color: #111111;
+  border-color: #14233e;
+  box-shadow: 0 12px 28px rgba(20, 35, 62, 0.16);
 }
 
 .card-actions--premium button:disabled {
@@ -1370,6 +1387,7 @@ button:disabled {
 
 @media (max-width: 760px) {
   .active-trips {
+    padding: 0.9rem;
     gap: 0.9rem;
   }
 

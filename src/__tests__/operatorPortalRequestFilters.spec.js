@@ -13,8 +13,8 @@ let buildRequestFullRoute
 let buildRealtimeRequestPayload
 
 beforeAll(async () => {
-  const module = await import('../features/operator/portal/OperatorPortal.component.js')
-  const requestUtils = await import('../features/operator/portal/operatorPortal.requestUtils.js')
+  const module = await import('../features/operator/portal/PortalOperador.componente.js')
+  const requestUtils = await import('../features/operator/portal/portalOperador.utilidadesSolicitudes.js')
   resolveOperatorRequestQueue = module.resolveOperatorRequestQueue
   hasOperatorTrackingActivity = module.hasOperatorTrackingActivity
   shouldShowRealtimeRequestInBanner = module.shouldShowRealtimeRequestInBanner

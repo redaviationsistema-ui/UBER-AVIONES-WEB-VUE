@@ -11,6 +11,6 @@ export {
   resolveOperatorRequestQueue,
   shouldShowRealtimeRequestInBanner,
   useOperatorPortalSetup,
-} from './operatorPortal.core.setup'
+} from './portalOperador.nucleo'
 
-export { shouldKeepOperatorRealtimeRequestVisible } from './operatorPortal.requestUtils'
+export { shouldKeepOperatorRealtimeRequestVisible } from './portalOperador.utilidadesSolicitudes'

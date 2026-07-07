@@ -1,7 +1,6 @@
 <script>
 import { defineComponent } from 'vue'
 import ClientTopNav from '../ClientTopNav.vue'
-import ConciergeFloatingButton from '../ConciergeFloatingButton.vue'
 import PortalClienteProfileScreen from './PortalClienteProfileScreen.vue'
 import PortalClienteReservationScreen from './PortalClienteReservationScreen.vue'
 import PortalClienteTripsScreen from './PortalClienteTripsScreen.vue'
@@ -12,7 +11,6 @@ export default defineComponent({
   name: 'PortalClienteVista',
   components: {
     ClientTopNav,
-    ConciergeFloatingButton,
     PortalClienteProfileScreen,
     PortalClienteReservationScreen,
     PortalClienteTripsScreen,
@@ -249,6 +247,5 @@ export default defineComponent({
       </div>
     </transition>
 
-    <ConciergeFloatingButton @open="go('soporte')" />
   </div>
 </template>

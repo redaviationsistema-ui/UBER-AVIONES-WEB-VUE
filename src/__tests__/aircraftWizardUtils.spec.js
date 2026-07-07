@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildAircraftPayload,
   buildAircraftWizardStepErrors,
-} from '../features/operator/portal/aircraftWizardUtils'
+} from '../features/operator/portal/utilidadesWizardAeronave'
 
 const baseForm = {
   name: 'LEGACY 600',

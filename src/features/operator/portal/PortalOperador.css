@@ -4,7 +4,7 @@
 
 /*
   El portal fue dividido en modulos para que el mantenimiento sea mas simple.
-  Los estilos activos ahora se cargan desde `OperatorPortal.vue` con estos archivos:
+  Los estilos activos ahora se cargan desde `PortalOperador.vue` con estos archivos:
 
   - ./styles/OperatorPortal.inicio.css
   - ./styles/OperatorPortal.incidencias.css

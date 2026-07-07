@@ -1,6 +1,7 @@
 <script setup>
 import { computed, defineAsyncComponent, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import BrandLogo from '../components/BrandLogo.vue'
 import RegisterProgress from '../features/register/RegisterProgress.vue'
 import {
   allowedRoles,
@@ -115,7 +116,12 @@ const registerIntroCopy = computed(() =>
 const loginRoute = computed(() =>
   form.role === 'client'
     ? { name: 'login-cliente' }
-    : { name: 'login', query: { role: form.role } },
+    : { name: 'login-cliente' },
+)
+const backRoute = computed(() =>
+  form.role === 'client'
+    ? { name: 'login-cliente' }
+    : { name: 'login-cliente' },
 )
 
 const currentStepId = computed(() => selectedStep.value?.id || wizardSteps.value[0]?.id || '')
@@ -421,6 +427,11 @@ function nextStep() {
 
 function previousStep() {
   errorMessage.value = ''
+  if (currentStep.value === 0) {
+    router.push(backRoute.value)
+    return
+  }
+
   currentStep.value = Math.max(currentStep.value - 1, 0)
 }
 
@@ -649,7 +660,9 @@ async function submit() {
 
     <section class="register-shell">
       <aside class="register-aside">
-        <RouterLink to="/" class="brand">Sky Group</RouterLink>
+        <RouterLink to="/" class="brand" aria-label="Sky Group">
+          <BrandLogo variant="dark" :width="280" />
+        </RouterLink>
 
         <div class="aside-copy">
           <p class="eyebrow">Nuevo usuario</p>
@@ -693,7 +706,7 @@ async function submit() {
             <button
               type="button"
               class="secondary-button"
-              :disabled="currentStep === 0 || auth.loading"
+              :disabled="auth.loading"
               @click="previousStep"
             >
               Regresar

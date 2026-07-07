@@ -123,13 +123,7 @@ defineProps({
               </div>
             </div>
 
-            <div class="profile-mini-note">
-              <strong>Perfil sincronizado</strong>
-              <p>
-                Estos datos se usan como referencia rápida en flujos de pago, reservas y atención
-                ejecutiva.
-              </p>
-            </div>
+          
           </article>
 
           <article class="profile-panel profile-panel--renewal" :data-tone="commercialAccessRenewalPanel.tone">
@@ -165,7 +159,6 @@ defineProps({
                 <span class="profile-overline">Experience</span>
                 <h3>Lo que esta vista resuelve</h3>
               </div>
-              <span class="profile-panel__badge">UX premium</span>
             </div>
 
             <div class="profile-bullet-list">
@@ -258,16 +251,20 @@ defineProps({
 
 <style scoped>
 .profile-screen {
-  --profile-ink: #151515;
-  --profile-muted: #666053;
-  --profile-soft: #f5f0e6;
-  --profile-line: rgba(21, 21, 21, 0.08);
-  --profile-gold: #a77b2d;
-  --profile-gold-soft: #f1e2bf;
-  --profile-panel: rgba(255, 255, 255, 0.82);
-  --profile-panel-strong: #fffdfa;
+  --profile-ink: #13294b;
+  --profile-ink-soft: #334766;
+  --profile-muted: #687a96;
+  --profile-soft: #f7f3ea;
+  --profile-line: rgba(19, 41, 75, 0.09);
+  --profile-gold: #b48a3c;
+  --profile-gold-soft: #f2dfb2;
+  --profile-panel: rgba(255, 252, 246, 0.88);
+  --profile-panel-strong: #fffdf8;
   display: grid;
   gap: 1.2rem;
+  padding: clamp(1rem, 2vw, 1.5rem);
+  border-radius: 34px;
+  background: #ffffff;
 }
 
 .profile-shell,
@@ -283,21 +280,17 @@ defineProps({
 .profile-hero {
   position: relative;
   overflow: hidden;
-  padding: clamp(1.2rem, 3vw, 2rem);
-  border: 1px solid rgba(167, 123, 45, 0.2);
-  border-radius: 30px;
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(249, 243, 231, 0.88)),
-    linear-gradient(180deg, #fffdfa, #f3ede2);
-  box-shadow: 0 24px 60px rgba(17, 17, 17, 0.08);
+  padding: clamp(1.45rem, 3vw, 2.35rem);
+  border: 1px solid rgba(220, 227, 239, 0.9);
+  border-radius: 34px;
+  background: #ffffff;
+  box-shadow: 0 20px 48px rgba(26, 45, 79, 0.06);
 }
 
 .profile-hero__backdrop {
   position: absolute;
   inset: 0;
-  background:
-    radial-gradient(circle at top right, rgba(167, 123, 45, 0.18), transparent 28%),
-    radial-gradient(circle at left center, rgba(17, 17, 17, 0.06), transparent 26%);
+  background: none;
   pointer-events: none;
 }
 
@@ -323,15 +316,15 @@ defineProps({
   height: clamp(4.8rem, 10vw, 6rem);
   border-radius: 28px;
   background:
-    linear-gradient(135deg, #111111, #4b4338),
-    linear-gradient(180deg, #f7e5b2, #d0a85b);
+    linear-gradient(135deg, #0f1728, #22385d),
+    linear-gradient(180deg, #f5e2b0, #c7983c);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.1),
-    0 20px 36px rgba(17, 17, 17, 0.18);
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 20px 36px rgba(15, 23, 40, 0.2);
 }
 
 .profile-avatar span {
-  color: #f5eddc;
+  color: #fff7e8;
   font-size: clamp(1.3rem, 3vw, 1.9rem);
   font-weight: 900;
   letter-spacing: 0.08em;
@@ -389,18 +382,19 @@ defineProps({
 }
 
 .profile-pill--primary {
-  background: #111111;
+  background: linear-gradient(135deg, #14233e, #304668);
   color: #ffffff;
+  box-shadow: 0 12px 30px rgba(20, 35, 62, 0.18);
 }
 
 .profile-pill--muted {
-  background: rgba(17, 17, 17, 0.06);
-  color: var(--profile-ink);
+  background: rgba(19, 41, 75, 0.07);
+  color: var(--profile-ink-soft);
 }
 
 .profile-pill--accent {
-  background: linear-gradient(135deg, #f6e9c5, #ecd6a0);
-  color: #8d6723;
+  background: linear-gradient(135deg, #f8ecd0, #edd5a0);
+  color: #98712c;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
 
@@ -409,20 +403,18 @@ defineProps({
 .profile-story-card,
 .profile-kpi-card {
   border: 1px solid var(--profile-line);
-  border-radius: 24px;
-  background: var(--profile-panel);
+  border-radius: 28px;
+  background: #ffffff;
   backdrop-filter: blur(16px);
-  box-shadow: 0 18px 40px rgba(17, 17, 17, 0.05);
+  box-shadow: none;
 }
 
 .profile-plan-card {
   display: grid;
   align-content: start;
   gap: 0.55rem;
-  padding: 1.2rem;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(246, 239, 225, 0.88)),
-    var(--profile-panel);
+  padding: 1.3rem;
+  background: #ffffff;
 }
 
 .profile-plan-card__label,
@@ -440,7 +432,7 @@ defineProps({
 .profile-kpi-card__label,
 .profile-contact-item span,
 .profile-fact-card span {
-  color: #8c6a1f;
+  color: #9d7830;
 }
 
 .profile-plan-card strong {
@@ -459,8 +451,8 @@ defineProps({
   min-height: 2.2rem;
   padding: 0 0.85rem;
   border-radius: 999px;
-  background: rgba(17, 17, 17, 0.06);
-  color: #433d34;
+  background: rgba(19, 41, 75, 0.07);
+  color: #435774;
   font-size: 0.82rem;
   font-weight: 700;
 }
@@ -479,16 +471,25 @@ defineProps({
   display: grid;
   gap: 0.4rem;
   padding: 1rem 1.05rem;
+  border-color: rgba(255, 255, 255, 0.06);
+  background:
+    radial-gradient(circle at top left, rgba(216, 182, 106, 0.12), transparent 22%),
+    linear-gradient(160deg, #112441, #0d1c34 72%);
+  box-shadow: none;
 }
 
 .profile-kpi-card strong {
   font-size: clamp(1.45rem, 3vw, 2rem);
   line-height: 1;
-  color: var(--profile-ink);
+  color: #ffffff;
 }
 
 .profile-kpi-card small {
-  color: #6d6658;
+  color: rgba(238, 243, 250, 0.78);
+}
+
+.profile-kpi-card__label {
+  color: rgba(234, 213, 168, 0.88);
 }
 
 .profile-signal-grid {
@@ -499,12 +500,10 @@ defineProps({
   display: grid;
   gap: 0.45rem;
   padding: 1rem 1.05rem;
-  border: 1px solid rgba(17, 17, 17, 0.06);
-  border-radius: 20px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(245, 239, 228, 0.9)),
-    var(--profile-panel);
-  box-shadow: 0 16px 32px rgba(17, 17, 17, 0.04);
+  border: 1px solid rgba(19, 41, 75, 0.08);
+  border-radius: 24px;
+  background: #ffffff;
+  box-shadow: none;
 }
 
 .profile-signal-card strong {
@@ -533,9 +532,7 @@ defineProps({
 }
 
 .profile-panel--renewal {
-  background:
-    radial-gradient(circle at top right, rgba(167, 123, 45, 0.12), transparent 32%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(247, 241, 229, 0.92));
+  background: #ffffff;
 }
 
 .profile-panel--renewal[data-tone='success'] {
@@ -563,8 +560,8 @@ defineProps({
   min-height: 2rem;
   padding: 0 0.75rem;
   border-radius: 999px;
-  background: rgba(17, 17, 17, 0.06);
-  color: #4d473e;
+  background: rgba(19, 41, 75, 0.06);
+  color: #556884;
 }
 
 .profile-contact-list {
@@ -577,9 +574,9 @@ defineProps({
   display: grid;
   gap: 0.3rem;
   padding: 0.95rem 1rem;
-  border: 1px solid rgba(17, 17, 17, 0.06);
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(19, 41, 75, 0.08);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.76);
 }
 
 .profile-contact-item strong,
@@ -591,8 +588,8 @@ defineProps({
   display: grid;
   gap: 0.35rem;
   padding: 1rem;
-  border-radius: 18px;
-  background: linear-gradient(180deg, rgba(17, 17, 17, 0.04), rgba(17, 17, 17, 0.02));
+  border-radius: 20px;
+  background: linear-gradient(180deg, rgba(19, 41, 75, 0.05), rgba(19, 41, 75, 0.02));
 }
 
 .profile-mini-note strong,
@@ -614,7 +611,7 @@ defineProps({
 }
 
 .profile-panel__footnote {
-  color: #6d6658;
+  color: #6c7d96;
   line-height: 1.5;
 }
 
@@ -642,7 +639,7 @@ defineProps({
 }
 
 .profile-bullet-item__dot {
-  background: linear-gradient(180deg, #111111, #6c624f);
+  background: linear-gradient(180deg, #14233e, #8f6b2d);
 }
 
 .profile-timeline__dot--done {
@@ -666,15 +663,13 @@ defineProps({
   display: grid;
   gap: 0.65rem;
   padding: 1.2rem;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(249, 244, 235, 0.9)),
-    var(--profile-panel);
+  background: #ffffff;
 }
 
 .profile-story-card--dark {
   background:
-    radial-gradient(circle at top right, rgba(255, 209, 102, 0.12), transparent 30%),
-    linear-gradient(180deg, #1f1d1a, #2c2924);
+    radial-gradient(circle at top right, rgba(233, 200, 124, 0.16), transparent 30%),
+    linear-gradient(180deg, #172844, #0f1d35);
   border-color: rgba(255, 255, 255, 0.06);
 }
 
@@ -706,7 +701,7 @@ defineProps({
 @media (max-width: 720px) {
   .profile-hero {
     padding: 1rem;
-    border-radius: 24px;
+    border-radius: 26px;
   }
 
   .profile-identity {
@@ -726,7 +721,7 @@ defineProps({
   .profile-kpi-card,
   .profile-story-card,
   .profile-plan-card {
-    border-radius: 20px;
+    border-radius: 22px;
   }
 
   .profile-panel__head {

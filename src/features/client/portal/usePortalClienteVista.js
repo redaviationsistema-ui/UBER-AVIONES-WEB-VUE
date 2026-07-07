@@ -1355,14 +1355,7 @@ const commercialAccessRenewalPanel = computed(() => {
           ? formatAccessLongDate(renewalCycle.paidAt)
           : 'Sin cargo confirmado',
       },
-      {
-        label: 'Suscripción Stripe',
-        value: formatCompactBillingReference(identifiers.subscriptionId),
-      },
-      {
-        label: 'Cliente Stripe',
-        value: formatCompactBillingReference(identifiers.customerId),
-      },
+     
     ],
   }
 })

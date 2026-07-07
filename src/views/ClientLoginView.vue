@@ -437,8 +437,9 @@ async function submit() {
 }
 
 .brand {
-  display: inline-flex;
-  width: fit-content;
+  display: flex;
+  width: 100%;
+  justify-content: center;
   margin-bottom: 1.5rem;
   color: #111111;
   text-decoration: none;

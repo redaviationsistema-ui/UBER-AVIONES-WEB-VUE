@@ -713,16 +713,31 @@ onMounted(() => {
             :class="{ active: viewMode === mode }"
             @click="viewMode = mode"
           >
-            {{ mode === 'month' ? 'Mes' : mode === 'week' ? 'Semana' : 'Dia' }}
+            <span class="calendar-button__icon" aria-hidden="true">
+              {{ mode === 'month' ? '▦' : mode === 'week' ? '☰' : '◷' }}
+            </span>
+            <span>{{ mode === 'month' ? 'Mes' : mode === 'week' ? 'Semana' : 'Dia' }}</span>
           </button>
         </div>
 
         <div class="range-switch">
-          <button type="button" @click="shiftRange(-1)">Anterior</button>
+          <button type="button" @click="shiftRange(-1)">
+            <span class="calendar-button__icon" aria-hidden="true">←</span>
+            <span>Anterior</span>
+          </button>
           <strong>{{ rangeTitle }}</strong>
-          <button type="button" @click="shiftRange(1)">Siguiente</button>
-          <button type="button" class="ghost" @click="goToday">Hoy</button>
-          <button type="button" class="ghost" @click="refreshCalendar">Actualizar</button>
+          <button type="button" @click="shiftRange(1)">
+            <span>Siguiente</span>
+            <span class="calendar-button__icon" aria-hidden="true">→</span>
+          </button>
+          <button type="button" class="ghost" @click="goToday">
+            <span class="calendar-button__icon" aria-hidden="true">●</span>
+            <span>Hoy</span>
+          </button>
+          <button type="button" class="ghost" @click="refreshCalendar">
+            <span class="calendar-button__icon" aria-hidden="true">↻</span>
+            <span>Actualizar</span>
+          </button>
         </div>
       </div>
     </header>
@@ -919,40 +934,6 @@ onMounted(() => {
           <p v-else class="muted">Sin salidas proximas registradas.</p>
         </article>
 
-        <article class="sidebar-card">
-          <span class="eyebrow">Alertas operativas</span>
-          <div v-if="operationsDashboard.operational_alerts?.length" class="activity-list">
-            <div v-for="alert in operationsDashboard.operational_alerts" :key="`${alert.type}-${alert.aircraft_id || alert.title}`">
-              <strong>{{ alert.title }}</strong>
-              <span>{{ alert.message }}</span>
-            </div>
-          </div>
-          <p v-else class="muted">Sin alertas activas.</p>
-        </article>
-
-        <article class="sidebar-card">
-          <span class="eyebrow">Bitacora operativa</span>
-          <div v-if="operationHistory.length" class="activity-list">
-            <div v-for="entry in operationHistory" :key="`history-${entry.id}`">
-              <strong>{{ entry.description || entry.action }}</strong>
-              <span>{{ entry.user?.name || 'Sistema' }}</span>
-              <small>{{ formatHistoryDate(entry.created_at) }}</small>
-            </div>
-          </div>
-          <p v-else class="muted">Sin movimientos recientes.</p>
-        </article>
-
-        <article class="sidebar-card">
-          <span class="eyebrow">Notificaciones admin</span>
-          <div v-if="adminNotifications.length" class="activity-list">
-            <div v-for="notification in adminNotifications" :key="`notification-${notification.id}`">
-              <strong>{{ notification.title || notification.type }}</strong>
-              <span>{{ notification.message || 'Sin detalle' }}</span>
-              <small>{{ formatHistoryDate(notification.created_at) }}</small>
-            </div>
-          </div>
-          <p v-else class="muted">Sin notificaciones recientes.</p>
-        </article>
       </aside>
     </div>
 
@@ -1062,6 +1043,10 @@ onMounted(() => {
 .range-switch button,
 .calendar-modal__actions button,
 .manual-block-form button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
   min-height: 42px;
   padding: 0.7rem 1rem;
   border-radius: 999px;
@@ -1083,6 +1068,14 @@ onMounted(() => {
 
 .range-switch .ghost {
   background: rgba(15, 23, 42, 0.04);
+}
+
+.calendar-button__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.95rem;
+  line-height: 1;
 }
 
 .calendar-toolbar {
@@ -1140,7 +1133,8 @@ onMounted(() => {
 }
 
 .calendar-legend {
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
 }
 
 .calendar-legend article,
@@ -1154,10 +1148,16 @@ onMounted(() => {
 }
 
 .calendar-legend article {
+  justify-content: flex-start;
   padding: 0.8rem 0.9rem;
   border-radius: 18px;
   background: rgba(248, 250, 252, 0.96);
   border: 1px solid rgba(148, 163, 184, 0.18);
+  min-width: 0;
+}
+
+.calendar-legend article strong {
+  color: #d4a62f;
 }
 
 .calendar-legend span {
@@ -1409,6 +1409,10 @@ onMounted(() => {
   .calendar-page__actions {
     justify-items: start;
   }
+
+  .calendar-legend {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 760px) {
@@ -1426,6 +1430,10 @@ onMounted(() => {
 
   .calendar-grid__row {
     grid-template-columns: 180px repeat(var(--slots, 1), minmax(0, 1fr));
+  }
+
+  .calendar-legend {
+    grid-template-columns: 1fr;
   }
 }
 </style>

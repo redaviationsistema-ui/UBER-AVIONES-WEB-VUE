@@ -19,9 +19,9 @@ const emit = defineEmits(['open'])
   border: 1px solid rgba(191, 151, 65, 0.42);
   border-radius: 999px;
   padding: 0 1.2rem;
-  background: linear-gradient(135deg, #111111, #2d2920);
+  background: linear-gradient(135deg, #14233e, #304668);
   color: #ffffff;
-  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.24);
+  box-shadow: 0 18px 42px rgba(20, 35, 62, 0.24);
   font-weight: 800;
   cursor: pointer;
 }
@@ -36,7 +36,7 @@ const emit = defineEmits(['open'])
     padding: 0;
     border-radius: 999px;
     font-size: 0;
-    box-shadow: 0 10px 22px rgba(0, 0, 0, 0.16);
+    box-shadow: 0 10px 22px rgba(20, 35, 62, 0.18);
   }
 
   .floating-concierge::before {

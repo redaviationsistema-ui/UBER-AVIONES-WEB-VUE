@@ -171,7 +171,7 @@ applyRole(selectedRole.value)
           </button>
 
           <button type="button" class="secondary-button" @click="backToIdentifier">
-            Cambiar correo o teléfono
+            Regresar
           </button>
 
           <p v-if="errorMessage" class="error">
@@ -261,7 +261,9 @@ applyRole(selectedRole.value)
 
         <div class="helper-links">
           <span>¿Necesitas acceso cliente?</span>
-          <RouterLink to="/login-cliente">Ir a login cliente</RouterLink>
+          <RouterLink :to="{ name: 'registro', query: { role: 'client' } }">
+            Ir a registro cliente
+          </RouterLink>
         </div>
 
         <p class="terms">
@@ -395,14 +397,22 @@ applyRole(selectedRole.value)
 
 .secondary-button {
   width: 100%;
-  height: 46px;
-  border: 1px solid #d8d8d8;
-  border-radius: 10px;
-  color: #111111;
-  background: #f4f4f4;
-  font-size: 0.96rem;
-  font-weight: 700;
+  min-height: 58px;
+  border: 1px solid #d6dde5;
+  border-radius: 18px;
+  color: #18212a;
+  background: #f4f6f8;
+  font-size: 1rem;
+  font-weight: 800;
   cursor: pointer;
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    opacity 0.18s ease;
+}
+
+.secondary-button:hover {
+  transform: translateY(-1px);
 }
 
 .primary-button:disabled {

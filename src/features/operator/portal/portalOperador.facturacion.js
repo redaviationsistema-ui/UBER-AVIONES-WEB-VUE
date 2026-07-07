@@ -2,7 +2,7 @@
 // VISTA DE UTILIDADES PARA EL PORTAL DE OPERADOR
 /*----------------------------------------------------------------------------------------------*/  
 
-import { compactBillingReference, normalizePayment as normalizePaymentEntry } from './operatorPortal.paymentUtils'
+import { compactBillingReference, normalizePayment as normalizePaymentEntry } from './portalOperador.utilidadesPagos'
 
 export function createOperatorPortalBillingDomain(ctx = {}) {
   const {

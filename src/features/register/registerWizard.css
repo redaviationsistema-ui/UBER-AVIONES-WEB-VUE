@@ -1,9 +1,7 @@
 .register-page {
   min-height: 100vh;
   padding: clamp(1.2rem, 4vw, 2rem);
-  background:
-    radial-gradient(circle at top left, rgba(214, 181, 101, 0.14), transparent 24%),
-    linear-gradient(180deg, #f3efe7 0%, #ece7de 100%);
+  background: #ffffff;
   color: #111111;
 }
 
@@ -16,13 +14,11 @@
 
 .register-page .register-aside,
 .register-page .register-panel {
-  border: 1px solid rgba(16, 17, 20, 0.08);
-  border-radius: 28px;
+  border: 1px solid rgba(224, 215, 197, 0.92);
+  border-radius: 32px;
   padding: clamp(1.4rem, 4vw, 2rem);
-  background: rgba(255, 255, 255, 0.78);
-  box-shadow:
-    0 24px 60px rgba(19, 27, 38, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  background: #ffffff;
+  box-shadow: none;
 }
 
 .register-page .register-aside {
@@ -32,6 +28,9 @@
 }
 
 .register-page .brand {
+  display: flex;
+  justify-content: center;
+  width: 100%;
   color: #111111;
   font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif;
   font-size: 1.35rem;
@@ -101,15 +100,15 @@
   width: 2rem;
   height: 2rem;
   place-items: center;
-  border: 1px solid #ded5c6;
+  border: 1px solid #e2d8c7;
   border-radius: 999px;
   background: #ffffff;
 }
 
 .register-page .progress-dot.active small,
 .register-page .progress-dot.complete small {
-  border-color: #111111;
-  background: #111111;
+  border-color: #162746;
+  background: #162746;
   color: #ffffff;
 }
 
@@ -177,9 +176,9 @@
   display: grid;
   gap: 1rem;
   border: 1px solid rgba(16, 17, 20, 0.08);
-  border-radius: 24px;
+  border-radius: 26px;
   padding: 1.15rem;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 251, 245, 0.98));
+  background: #ffffff;
 }
 
 .register-page .field-action-row {
@@ -500,19 +499,21 @@
   display: grid;
   gap: 0.45rem;
   min-height: 8rem;
-  border: 1px solid #ded5c6;
-  border-radius: 8px;
+  border: 1px solid #e3dacb;
+  border-radius: 16px;
   padding: 1rem;
   background: #ffffff;
-  color: #111111;
+  color: #495057;
   text-align: left;
   cursor: pointer;
+  box-shadow: 0 8px 22px rgba(58, 45, 21, 0.04);
 }
 
 .register-page .role-option.selected {
-  border-color: #111111;
-  background: #111111;
+  border-color: #162746;
+  background: linear-gradient(180deg, #1a1f28 0%, #111111 100%);
   color: #ffffff;
+  box-shadow: 0 18px 36px rgba(17, 17, 17, 0.16);
 }
 
 .register-page .role-option span,
@@ -541,9 +542,9 @@
 .register-page .scan-button {
   min-height: 3.45rem;
   padding: 0 1.25rem;
-  border: 1px solid #111111;
-  border-radius: 14px;
-  background: #111111;
+  border: 1px solid #162746;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #162746, #304668);
   color: #ffffff;
   font-weight: 900;
   cursor: pointer;
@@ -558,6 +559,32 @@
   border-color: #d2c2a3;
   background: #fff8eb;
   color: #6b4d12;
+}
+
+.register-page .primary-button,
+.register-page .secondary-button {
+  min-height: 4rem;
+  border-radius: 18px;
+  font-size: 0.95rem;
+  font-weight: 900;
+}
+
+.register-page .primary-button {
+  border: 1px solid #d9ad39;
+  background: linear-gradient(180deg, #efbf49 0%, #d9a12e 100%);
+  color: #141414;
+  box-shadow: 0 16px 34px rgba(217, 161, 46, 0.22);
+}
+
+.register-page .secondary-button {
+  border: 1px solid #e3dacb;
+  background: #ffffff;
+  color: #6f675b;
+  box-shadow: none;
+}
+
+.register-page .secondary-button:disabled {
+  opacity: 0.55;
 }
 
 .register-page .scan-results {
@@ -1099,6 +1126,49 @@
 }
 
 .register-page .register-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.register-page .register-links a {
+  color: #9a7422;
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.register-page .register-links a:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 980px) {
+  .register-page .register-shell {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .register-page {
+    padding: 0.9rem;
+  }
+
+  .register-page .register-aside,
+  .register-page .register-panel {
+    border-radius: 24px;
+    padding: 1.2rem;
+  }
+
+  .register-page .role-grid,
+  .register-page .file-grid,
+  .register-page .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .register-page .license-upload-row {
+    grid-template-columns: 1fr;
+  }
+}
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;

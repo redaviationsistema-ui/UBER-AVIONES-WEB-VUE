@@ -1766,7 +1766,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .client-dashboard-page {
   min-height: 100vh;
-  background: #f7f6f3;
+  background: #ffffff;
   color: #111111;
 }
 

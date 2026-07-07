@@ -291,7 +291,7 @@ function legStatusClass(leg = {}) {
               </span>
               <span class="control-copy">
                 <strong>Redondo</strong>
-                <small>Mismo origen y regreso</small>
+                <small>Salida y regreso</small>
               </span>
             </button>
             <button
@@ -331,8 +331,8 @@ function legStatusClass(leg = {}) {
               <span class="mode-intro__eyebrow">Viaje redondo</span>
               <strong>Define salida y regreso en un mismo flujo ejecutivo.</strong>
               <p>
-                Ideal para juntas, inspecciones o regreso el mismo dia con control total del
-                itinerario.
+                Ideal para viajes con retorno previsto, aunque la hora exacta o la duracion total
+                del vuelo aun esten por definirse.
               </p>
             </div>
           </div>
@@ -506,7 +506,7 @@ function legStatusClass(leg = {}) {
               <div class="trip-panel__body trip-panel__body--return">
                 <label class="date-field"><span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 2h2v2h6V2h2v2h3v18H4V4h3V2Zm12 8H5v10h14V10Z" fill="currentColor"/></svg></span>Fecha regreso</span><input :value="form.returnDate" type="date" @input="updateFormField('returnDate', $event)" /></label>
                 <div class="trip-panel__note">
-                  <span>El tramo de regreso toma automáticamente el aeropuerto inverso del viaje de salida.</span>
+                  <span>Tomamos automaticamente la ruta inversa del tramo de salida para que solo definas la fecha estimada de regreso.</span>
                 </div>
               </div>
             </article>
@@ -665,6 +665,11 @@ function legStatusClass(leg = {}) {
 .flight-search-hero {
   display: grid;
   gap: 1.5rem;
+  padding: clamp(1.1rem, 2vw, 1.8rem);
+  border: 0;
+  border-radius: 34px;
+  background: #ffffff;
+  box-shadow: none;
 }
 
 .hero-status-bar {
@@ -720,6 +725,10 @@ function legStatusClass(leg = {}) {
   column-gap: 2.35rem;
   row-gap: 1.5rem;
   align-items: start;
+  padding: clamp(0.35rem, 1vw, 0.6rem);
+  border-radius: 30px;
+  background: #ffffff;
+  box-shadow: none;
 }
 
 .hero-copy-panel {
@@ -753,10 +762,10 @@ function legStatusClass(leg = {}) {
 }
 
 .search-copy {
-  border: 1px solid rgba(212, 199, 173, 0.62);
+  border: 1px solid rgba(223, 210, 183, 0.72);
   border-radius: 28px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(251, 248, 241, 0.98));
-  box-shadow: 0 24px 60px rgba(75, 60, 31, 0.08);
+  background: linear-gradient(180deg, #ffffff, #fffdfa);
+  box-shadow: 0 24px 60px rgba(75, 60, 31, 0.06);
   padding: clamp(1.2rem, 2vw, 1.7rem);
   overflow: visible;
 }
@@ -1411,8 +1420,11 @@ button {
   display: grid;
   gap: 1rem;
   padding: 1.25rem;
-  background: linear-gradient(180deg, #171717, #101010);
+  background:
+    radial-gradient(circle at top left, rgba(218, 186, 114, 0.14), transparent 26%),
+    linear-gradient(180deg, #172844, #0f1d35);
   color: #ffffff;
+  box-shadow: 0 22px 44px rgba(20, 35, 62, 0.2);
 }
 
 .concierge-card__icon {
@@ -1422,8 +1434,8 @@ button {
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  background: rgba(181, 138, 52, 0.18);
-  color: #cfaa57;
+  background: rgba(212, 178, 103, 0.18);
+  color: #ddb45c;
 }
 
 .concierge-card__icon svg {
@@ -1437,7 +1449,7 @@ button {
 }
 
 .concierge-card__copy span {
-  color: #cfaa57;
+  color: #ddb45c;
   font-size: 0.7rem;
   font-weight: 800;
   letter-spacing: 0.08em;
@@ -1451,7 +1463,7 @@ button {
 
 .concierge-card__action {
   min-height: 3rem;
-  background: linear-gradient(180deg, #b9903d, #a77f2b);
+  background: linear-gradient(180deg, #c59a3d, #b4872a);
   color: #ffffff;
 }
 
@@ -1558,6 +1570,11 @@ button {
 }
 
 @media (max-width: 760px) {
+  .flight-search-hero {
+    padding: 0.9rem;
+    border-radius: 24px;
+  }
+
   .hero-copy-panel {
     margin-left: 0;
     margin-right: 0;
@@ -1565,6 +1582,11 @@ button {
 
   .search-copy {
     overflow: visible;
+  }
+
+  .hero-layout {
+    padding: 0;
+    background: transparent;
   }
 
   .hero-status-bar__account {

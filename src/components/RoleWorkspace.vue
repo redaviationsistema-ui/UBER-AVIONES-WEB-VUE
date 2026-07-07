@@ -21,7 +21,7 @@ const AdminPortal = defineAsyncComponent(() => import('../features/admin/AdminPo
 const ClientPortal = defineAsyncComponent(() => import('../features/client/ClientPortal.vue'))
 const CrewPortal = defineAsyncComponent(() => import('../features/crew/CrewPortal.vue'))
 const OperatorPortal = defineAsyncComponent(
-  () => import('../features/operator/portal/OperatorPortal.vue'),
+  () => import('../features/operator/portal/PortalOperador.vue'),
 )
 
 const props = defineProps({
@@ -241,6 +241,13 @@ const workspaceAdminIcons = {
   ],
   aeronaves: [
     'M3 15l7-3 4-6 2-.5-1 5.5L21 9l1 1.5-6.5 2.5L19 17.5l-1.5 1-5.5-4-7 1.5z',
+  ],
+  'disponibilidad-aeronaves': [
+    'M7 4v3',
+    'M17 4v3',
+    'M4 9h16',
+    'M5 7a2 2 0 012-2h10a2 2 0 012 2v10a2 2 0 01-2 2H7a2 2 0 01-2-2V7z',
+    'M8 14.75l3-1.25 1.75-2.75.9-.2-.45 2.55L17 12l.45.7-2.95 1.15L16 16l-.7.45-2.5-1.55L9 15.6z',
   ],
   'pagos-proveedor': [
     'M3.5 7.5h17',

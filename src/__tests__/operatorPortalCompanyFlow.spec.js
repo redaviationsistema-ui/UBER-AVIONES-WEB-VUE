@@ -7,7 +7,7 @@ import {
   buildCompanySaveCandidates,
   hasCompanyFieldErrors,
   sanitizeCompanyPayloadForSave,
-} from '../features/operator/portal/operatorPortal.companyFlow'
+} from '../features/operator/portal/portalOperador.flujoEmpresa'
 
 describe('operator portal company flow helpers', () => {
   it('validates the minimum company fields for save', () => {

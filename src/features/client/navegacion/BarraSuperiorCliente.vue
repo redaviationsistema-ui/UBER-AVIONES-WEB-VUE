@@ -161,6 +161,7 @@ const profileLabel = computed(() => resolvedProfileName.value.toUpperCase())
   border-bottom: 1px solid rgba(229, 225, 216, 0.8);
   background: rgba(255, 255, 255, 0.96);
   backdrop-filter: blur(18px);
+  box-shadow: 0 18px 40px rgba(26, 45, 79, 0.05);
 }
 
 .client-top-nav__actions {
@@ -190,7 +191,7 @@ const profileLabel = computed(() => resolvedProfileName.value.toUpperCase())
   border-radius: 16px;
   padding: 0 1.15rem;
   background: transparent;
-  color: #26231f;
+  color: #314662;
   font-weight: 800;
   cursor: pointer;
 }
@@ -223,9 +224,9 @@ const profileLabel = computed(() => resolvedProfileName.value.toUpperCase())
 
 .client-main-nav button.active,
 .client-main-nav button:hover {
-  background: #111111;
+  background: linear-gradient(135deg, #14233e, #304668);
   color: #ffffff;
-  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.14);
+  box-shadow: 0 12px 28px rgba(20, 35, 62, 0.2);
 }
 
 .client-main-nav button.active .nav-label,
@@ -255,7 +256,7 @@ const profileLabel = computed(() => resolvedProfileName.value.toUpperCase())
   border: 0;
   border-radius: 999px;
   background: transparent;
-  color: #2a2622;
+  color: #314662;
   cursor: pointer;
 }
 
@@ -292,7 +293,7 @@ const profileLabel = computed(() => resolvedProfileName.value.toUpperCase())
   border: 1px solid rgba(229, 225, 216, 0.95);
   border-radius: 18px;
   background: linear-gradient(180deg, #ffffff, #fcfaf6);
-  box-shadow: 0 10px 26px rgba(17, 17, 17, 0.06);
+  box-shadow: 0 10px 26px rgba(26, 45, 79, 0.08);
   transition:
     transform 160ms ease,
     box-shadow 160ms ease,
@@ -306,7 +307,7 @@ const profileLabel = computed(() => resolvedProfileName.value.toUpperCase())
   height: 2.2rem;
   place-items: center;
   border-radius: 999px;
-  background: #111111;
+  background: linear-gradient(135deg, #14233e, #304668);
   color: #ffffff;
   font-size: 0.92rem;
   font-weight: 900;
@@ -319,7 +320,7 @@ const profileLabel = computed(() => resolvedProfileName.value.toUpperCase())
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #2b2723;
+  color: #22385d;
   font-size: 0.9rem;
   font-weight: 900;
   letter-spacing: -0.01em;
@@ -328,14 +329,14 @@ const profileLabel = computed(() => resolvedProfileName.value.toUpperCase())
 .profile-button:hover {
   transform: translateY(-1px);
   border-color: rgba(214, 201, 175, 0.95);
-  box-shadow: 0 14px 30px rgba(17, 17, 17, 0.08);
+  box-shadow: 0 14px 30px rgba(26, 45, 79, 0.12);
 }
 
 .profile-button__chevron {
   width: 1rem;
   height: 1rem;
   flex: 0 0 auto;
-  color: #5f5b54;
+  color: #6b7f9c;
 }
 
 .profile-dropdown {
@@ -352,7 +353,7 @@ const profileLabel = computed(() => resolvedProfileName.value.toUpperCase())
   background:
     radial-gradient(circle at top right, rgba(243, 234, 210, 0.75), transparent 34%),
     linear-gradient(180deg, #ffffff, #fbf8f2);
-  box-shadow: 0 28px 60px rgba(17, 17, 17, 0.16);
+  box-shadow: 0 28px 60px rgba(26, 45, 79, 0.14);
 }
 
 .profile-dropdown__header {
@@ -369,11 +370,11 @@ const profileLabel = computed(() => resolvedProfileName.value.toUpperCase())
   width: 3.7rem;
   height: 3.7rem;
   border-radius: 999px;
-  background: #111111;
+  background: linear-gradient(135deg, #14233e, #304668);
   color: #ffffff;
   font-size: 1.35rem;
   font-weight: 900;
-  box-shadow: 0 14px 28px rgba(17, 17, 17, 0.14);
+  box-shadow: 0 14px 28px rgba(20, 35, 62, 0.18);
 }
 
 .profile-dropdown__identity {
@@ -384,7 +385,7 @@ const profileLabel = computed(() => resolvedProfileName.value.toUpperCase())
 }
 
 .profile-dropdown__identity strong {
-  color: #1a1a1a;
+  color: #14233e;
   font-size: 1.15rem;
   line-height: 1.05;
   letter-spacing: -0.03em;
@@ -453,8 +454,8 @@ const profileLabel = computed(() => resolvedProfileName.value.toUpperCase())
 }
 
 .profile-dropdown__actions button:not(.logout-option) {
-  background: linear-gradient(180deg, #f5efe2, #efe7d8);
-  color: #24211c;
+  background: linear-gradient(180deg, #edf2fa, #e2eaf6);
+  color: #22385d;
 }
 
 .profile-dropdown__actions .logout-option {
@@ -464,7 +465,7 @@ const profileLabel = computed(() => resolvedProfileName.value.toUpperCase())
 
 .profile-dropdown__actions button:hover {
   transform: translateY(-1px);
-  box-shadow: 0 14px 26px rgba(17, 17, 17, 0.08);
+  box-shadow: 0 14px 26px rgba(26, 45, 79, 0.1);
 }
 
 @media (max-width: 760px) {
@@ -496,10 +497,11 @@ const profileLabel = computed(() => resolvedProfileName.value.toUpperCase())
     border: 1px solid #dedbd2;
     border-radius: 999px;
     padding: 0 0.72rem;
-    background: #111111;
+    background: linear-gradient(135deg, #14233e, #304668);
     color: #ffffff;
     font-size: 0.78rem;
     font-weight: 800;
+    box-shadow: 0 10px 24px rgba(20, 35, 62, 0.18);
   }
 
   .client-brand :deep(img),

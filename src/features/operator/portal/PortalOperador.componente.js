@@ -14,7 +14,7 @@ import {
   shouldKeepOperatorRealtimeRequestVisible,
   shouldShowRealtimeRequestInBanner,
   useOperatorPortalSetup,
-} from './operatorPortal.setup'
+} from './portalOperador.configuracion'
 
 export {
   findOperatorRequestByIdentifier,
@@ -28,7 +28,7 @@ export {
 }
 
 export default defineComponent({
-  name: 'OperatorPortal',
+  name: 'PortalOperador',
   components: {
     OperatorCrewSection,
   },
