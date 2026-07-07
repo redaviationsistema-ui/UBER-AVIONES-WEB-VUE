@@ -1,0 +1,987 @@
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) textarea {
+  border: 1px solid rgba(203, 213, 225, 0.9);
+  background: rgba(255, 255, 255, 0.94);
+  color: #11253f;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .primary-action {
+  border-color: rgba(15, 39, 71, 0.2);
+  background: linear-gradient(135deg, #0f2747, #24446f);
+  color: #ffffff;
+}
+
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .ghost-button,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .badge,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .progress-chip,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .status-pill {
+  border-color: rgba(226, 232, 240, 0.96);
+  background: rgba(255, 255, 255, 0.96);
+  color: #516987;
+  box-shadow: none;
+}
+
+@media (max-width: 760px) {
+  :is(
+    .operator-certification-luxury,
+    .fleet-operations-luxury,
+    .operator-costs-luxury,
+    .availability-control-luxury,
+    .flight-ops-command-luxury,
+    .flight-release-luxury,
+    .flight-tracking-luxury,
+    .operator-crew-luxury,
+    .operator-incidents-dashboard,
+    .payments-cockpit-page,
+    .operator-history-luxury,
+    .operator-settings-luxury
+  ) {
+    padding: 0;
+  }
+}
+
+/* Final light executive pass for operator costs. */
+.operator-portal-page:has(.operator-costs-luxury) {
+  background:
+    radial-gradient(circle at 16% 10%, rgba(241, 245, 249, 0.72), transparent 24%),
+    radial-gradient(circle at 84% 8%, rgba(250, 245, 235, 0.42), transparent 18%),
+    linear-gradient(180deg, #fcfcfb 0%, #f5f5f3 50%, #fbfbfa 100%);
+  color: #10233d;
+}
+
+.operator-costs-luxury {
+  color: #10233d;
+}
+
+.operator-costs-luxury::before {
+  background:
+    radial-gradient(circle at 18% 16%, rgba(255, 255, 255, 0.94), transparent 24%),
+    radial-gradient(circle at 82% 6%, rgba(245, 242, 235, 0.7), transparent 20%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0));
+}
+
+.operator-costs-luxury .surface {
+  border-color: rgba(226, 232, 240, 0.96);
+  background:
+    radial-gradient(circle at top right, rgba(249, 249, 247, 0.4), transparent 26%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(247, 250, 255, 0.985));
+  box-shadow:
+    0 16px 36px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.operator-costs-luxury .table-shell,
+.operator-costs-luxury .pricing-table-shell {
+  border-color: rgba(226, 232, 240, 0.96);
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(248, 250, 252, 0.985)),
+    rgba(255, 255, 255, 0.98);
+  box-shadow:
+    0 16px 36px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.operator-costs-luxury .pricing-table-head {
+  border-bottom-color: rgba(226, 232, 240, 0.96);
+  background:
+    linear-gradient(180deg, rgba(248, 250, 252, 0.98), rgba(241, 245, 249, 0.98)),
+    rgba(248, 250, 252, 0.98);
+  color: #6b7f99;
+}
+
+.operator-costs-luxury .pricing-table-row {
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.operator-costs-luxury .pricing-table-row + .pricing-table-row {
+  border-top-color: rgba(226, 232, 240, 0.96);
+}
+
+.operator-costs-luxury .pricing-aircraft-cell strong {
+  color: #11253f;
+}
+
+.operator-costs-luxury .pricing-aircraft-cell .muted {
+  color: #60748f;
+}
+
+.operator-costs-luxury .pricing-table-row input {
+  border-color: rgba(203, 213, 225, 0.96);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.98);
+  color: #11253f;
+  box-shadow:
+    inset 0 1px 2px rgba(15, 23, 42, 0.04),
+    0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.operator-costs-luxury .pricing-table-row input:focus {
+  border-color: rgba(96, 165, 250, 0.55);
+  box-shadow:
+    0 0 0 3px rgba(191, 219, 254, 0.58),
+    inset 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.operator-costs-luxury .pricing-save-button {
+  border: 1px solid rgba(15, 39, 71, 0.16);
+  border-radius: 16px;
+  background: linear-gradient(135deg, #17345c, #24446f);
+  color: #ffffff;
+  box-shadow: 0 10px 20px rgba(36, 68, 111, 0.14);
+}
+
+.operator-costs-luxury .pricing-save-button:hover {
+  box-shadow: 0 14px 28px rgba(36, 68, 111, 0.18);
+}
+
+/* Final light executive pass for operator settings. */
+.operator-portal-page:has(.operator-settings-luxury) {
+  background:
+    radial-gradient(circle at 14% 8%, rgba(191, 219, 254, 0.24), transparent 30%),
+    radial-gradient(circle at 86% 12%, rgba(254, 240, 214, 0.24), transparent 24%),
+    linear-gradient(180deg, #f5f8fc 0%, #eef4fb 100%);
+  color: #10233d;
+}
+
+.operator-settings-luxury {
+  color: #10233d;
+}
+
+.operator-settings-luxury .surface,
+.operator-settings-luxury .status-row {
+  border-color: rgba(226, 232, 240, 0.96);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(247, 250, 255, 0.98)),
+    rgba(255, 255, 255, 0.96);
+  color: #10233d;
+  box-shadow:
+    0 16px 38px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.operator-settings-luxury .section-head h2,
+.operator-settings-luxury .status-row strong {
+  color: #10233d;
+}
+
+.operator-settings-luxury .eyebrow,
+.operator-settings-luxury .toggle-row > span,
+.operator-settings-luxury .status-row > span {
+  color: #6b7f99;
+}
+
+.operator-settings-luxury .toggle-list {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.operator-settings-luxury .toggle-row {
+  min-height: 6.2rem;
+  padding: 1rem 1rem 1.05rem;
+  border: 1px solid rgba(226, 232, 240, 0.96);
+  border-radius: 20px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(248, 250, 252, 0.98)),
+    rgba(255, 255, 255, 0.96);
+  color: #10233d;
+  box-shadow:
+    0 12px 26px rgba(15, 23, 42, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.operator-settings-luxury .toggle-row input[type='checkbox'] {
+  width: 1.2rem;
+  min-height: 1.2rem;
+  accent-color: #24446f;
+}
+
+.operator-settings-luxury select {
+  border-color: rgba(203, 213, 225, 0.9);
+  background: rgba(255, 255, 255, 0.98);
+  color: #111111;
+  -webkit-text-fill-color: #111111;
+}
+
+.operator-settings-luxury select option {
+  background: #ffffff;
+  color: #111111;
+}
+
+.operator-settings-luxury .primary-action {
+  border-color: rgba(36, 68, 111, 0.18);
+  background: linear-gradient(135deg, #24446f, #3f6aa1);
+  color: #ffffff;
+}
+
+/* Final color correction for Aeronaves view */
+.operator-portal-page:has(.fleet-operations-luxury) {
+  background:
+    radial-gradient(circle at 14% 8%, rgba(191, 219, 254, 0.32), transparent 18%),
+    radial-gradient(circle at 88% 10%, rgba(147, 197, 253, 0.14), transparent 18%),
+    linear-gradient(180deg, #f7fbff 0%, #eef4fb 55%, #f8fbff 100%);
+}
+
+.fleet-operations-luxury .fleet-hero {
+  border-color: rgba(226, 232, 240, 0.96);
+  background:
+    radial-gradient(circle at top right, rgba(191, 219, 254, 0.14), transparent 24%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(247, 250, 255, 0.97));
+  box-shadow:
+    0 18px 36px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.86);
+}
+
+.fleet-operations-luxury .fleet-hero::before,
+.fleet-operations-luxury .fleet-hero::after {
+  opacity: 0.12;
+  filter: blur(10px);
+}
+
+.fleet-operations-luxury .fleet-hero h1,
+.fleet-operations-luxury .fleet-toolbar h2,
+.fleet-operations-luxury .fleet-compact-title strong,
+.fleet-operations-luxury .fleet-table-aircraft strong,
+.fleet-operations-luxury .fleet-kpi-card strong,
+.fleet-operations-luxury .fleet-compact-stats strong,
+.fleet-operations-luxury .fleet-compact-info-card strong,
+.fleet-operations-luxury .wizard-hero-copy h2,
+.fleet-operations-luxury .wizard-stage-header h3,
+.fleet-operations-luxury .wizard-panel h3,
+.fleet-operations-luxury .wizard-review-card strong,
+.fleet-operations-luxury .wizard-sidebar-card strong,
+.fleet-operations-luxury .wizard-sidebar-stat strong {
+  color: #11253f;
+}
+
+.fleet-operations-luxury .eyebrow,
+.fleet-operations-luxury .fleet-kpi-card span,
+.fleet-operations-luxury .fleet-search-field span,
+.fleet-operations-luxury .fleet-filter-row label span,
+.fleet-operations-luxury .fleet-compact-stats span,
+.fleet-operations-luxury .fleet-compact-info-card span,
+.fleet-operations-luxury .wizard-panel label > span,
+.fleet-operations-luxury .document-upload-grid .field > span,
+.fleet-operations-luxury .mini-label {
+  color: #6b7f99;
+}
+
+.fleet-operations-luxury .muted,
+.fleet-operations-luxury .fleet-kpi-card p,
+.fleet-operations-luxury .fleet-compact-title p,
+.fleet-operations-luxury .fleet-compact-info-card small,
+.fleet-operations-luxury .fleet-compact-missing,
+.fleet-operations-luxury .fleet-table-aircraft small,
+.fleet-operations-luxury .wizard-hero-copy .muted,
+.fleet-operations-luxury .wizard-stage-detail,
+.fleet-operations-luxury .wizard-review-card p,
+.fleet-operations-luxury .wizard-sidebar-card .muted,
+.fleet-operations-luxury .wizard-sidebar-stat span,
+.fleet-operations-luxury .document-type-card span,
+.fleet-operations-luxury .document-type-card small,
+.fleet-operations-luxury .document-preview-card span,
+.fleet-operations-luxury .stored-document-card .muted,
+.fleet-operations-luxury .document-dropzone span,
+.fleet-operations-luxury .document-dropzone small {
+  color: #60748f;
+}
+
+.fleet-operations-luxury .fleet-kpi-card,
+.fleet-operations-luxury .fleet-filter-shell,
+.fleet-operations-luxury .fleet-table-shell,
+.fleet-operations-luxury .fleet-table-row,
+.fleet-operations-luxury .fleet-compact-card,
+.fleet-operations-luxury .fleet-compact-stats div,
+.fleet-operations-luxury .fleet-compact-info-card,
+.fleet-operations-luxury .fleet-card-menu,
+.fleet-operations-luxury .wizard-stage-header,
+.fleet-operations-luxury .wizard-panel,
+.fleet-operations-luxury .wizard-review-card,
+.fleet-operations-luxury .wizard-sidebar-card,
+.fleet-operations-luxury .document-type-card,
+.fleet-operations-luxury .document-preview-card,
+.fleet-operations-luxury .stored-document-card,
+.fleet-operations-luxury .stored-image-card,
+.fleet-operations-luxury .document-dropzone {
+  border-color: rgba(226, 232, 240, 0.96);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(247, 250, 255, 0.97)),
+    rgba(255, 255, 255, 0.95);
+  color: #10233d;
+  box-shadow:
+    0 14px 30px rgba(15, 23, 42, 0.07),
+    inset 0 1px 0 rgba(255, 255, 255, 0.86);
+}
+
+.fleet-operations-luxury .fleet-kpi-card[data-tone='success'],
+.fleet-operations-luxury .fleet-kpi-card[data-tone='warning'],
+.fleet-operations-luxury .fleet-kpi-card[data-tone='info'],
+.fleet-operations-luxury .fleet-kpi-card[data-tone='neutral'] {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(247, 250, 255, 0.97)),
+    rgba(255, 255, 255, 0.95);
+}
+
+.fleet-operations-luxury .fleet-filter-shell,
+.fleet-operations-luxury .fleet-table-shell,
+.fleet-operations-luxury .fleet-section-card--catalog,
+.fleet-operations-luxury .surface {
+  border-color: rgba(226, 232, 240, 0.96);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.992), rgba(247, 250, 255, 0.975)),
+    rgba(255, 255, 255, 0.96);
+}
+
+.fleet-operations-luxury .fleet-search-field,
+.fleet-operations-luxury .fleet-view-switch,
+.fleet-operations-luxury .fleet-status-tabs button,
+.fleet-operations-luxury .fleet-compact-details summary {
+  border-color: rgba(226, 232, 240, 0.96);
+  background: rgba(248, 250, 252, 0.98);
+  color: #60748f;
+}
+
+.fleet-operations-luxury .fleet-search-field input,
+.fleet-operations-luxury .fleet-filter-row select,
+.fleet-operations-luxury .wizard-panel input,
+.fleet-operations-luxury .wizard-panel select,
+.fleet-operations-luxury .document-upload-grid select {
+  border-color: rgba(203, 213, 225, 0.9);
+  background: rgba(255, 255, 255, 0.96);
+  color: #11253f;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.fleet-operations-luxury .fleet-filter-row select option,
+.fleet-operations-luxury .wizard-panel select option {
+  color: #11253f;
+  background: #ffffff;
+}
+
+.fleet-operations-luxury .fleet-view-switch button,
+.fleet-operations-luxury .fleet-status-tabs button {
+  color: #60748f;
+}
+
+.fleet-operations-luxury .fleet-view-switch button.active,
+.fleet-operations-luxury .fleet-status-tabs button.active,
+.fleet-operations-luxury .fleet-view-switch button:hover,
+.fleet-operations-luxury .fleet-status-tabs button:hover {
+  border-color: rgba(148, 163, 184, 0.26);
+  background: rgba(239, 246, 255, 0.96);
+  color: #24446f;
+  box-shadow: none;
+}
+
+.fleet-operations-luxury .fleet-compact-card {
+  border-color: rgba(226, 232, 240, 0.96);
+  box-shadow:
+    0 16px 34px rgba(15, 23, 42, 0.09),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.fleet-operations-luxury .fleet-compact-card:hover {
+  border-color: rgba(148, 163, 184, 0.3);
+  box-shadow:
+    0 18px 38px rgba(15, 23, 42, 0.1),
+    0 0 0 1px rgba(255, 255, 255, 0.42);
+  transform: translateY(-4px) scale(1.01);
+}
+
+.fleet-operations-luxury .fleet-compact-visual {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(15, 23, 42, 0.16) 100%),
+    linear-gradient(180deg, rgba(239, 246, 255, 0.46), rgba(219, 234, 254, 0.14));
+}
+
+.fleet-operations-luxury .fleet-compact-visual::after {
+  height: 52%;
+  background: linear-gradient(180deg, transparent, rgba(15, 23, 42, 0.32));
+}
+
+.fleet-operations-luxury .status-pill {
+  border-color: rgba(226, 232, 240, 0.96);
+  background: rgba(255, 255, 255, 0.96);
+  color: #516987;
+  backdrop-filter: blur(12px);
+}
+
+.fleet-operations-luxury .status-pill[data-tone='success'] {
+  border-color: rgba(187, 247, 208, 0.9);
+  background: rgba(244, 251, 246, 0.98);
+  color: #2f6f4f;
+  box-shadow: none;
+}
+
+.fleet-operations-luxury .status-pill[data-tone='warning'],
+.fleet-operations-luxury .status-pill[data-tone='info'],
+.fleet-operations-luxury .status-pill--ghost {
+  border-color: rgba(226, 232, 240, 0.96);
+  background: rgba(248, 250, 252, 0.98);
+  color: #60748f;
+}
+
+.fleet-operations-luxury .status-pill[data-tone='danger'] {
+  border-color: rgba(254, 226, 226, 0.92);
+  background: rgba(254, 242, 242, 0.98);
+  color: #b45353;
+}
+
+.fleet-operations-luxury .fleet-table-head {
+  border-bottom-color: rgba(226, 232, 240, 0.96);
+  background: rgba(248, 250, 252, 0.98);
+  color: #6b7f99;
+}
+
+.fleet-operations-luxury .fleet-table-row {
+  border-bottom-color: rgba(226, 232, 240, 0.9);
+}
+
+.fleet-operations-luxury .ghost-button,
+.fleet-operations-luxury .card-menu-button {
+  border-color: rgba(226, 232, 240, 0.96);
+  background: rgba(255, 255, 255, 0.96);
+  color: #24446f;
+  box-shadow: none;
+}
+
+.fleet-operations-luxury .primary-action,
+.fleet-operations-luxury .fleet-card-actions .ghost-button:nth-child(2) {
+  border-color: rgba(15, 39, 71, 0.2);
+  background: linear-gradient(135deg, #0f2747, #24446f);
+  color: #ffffff;
+}
+
+.fleet-operations-luxury .ghost-button:hover,
+.fleet-operations-luxury .primary-action:hover,
+.fleet-operations-luxury .card-menu-button:hover {
+  border-color: rgba(148, 163, 184, 0.28);
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
+  transform: translateY(-2px);
+}
+
+.fleet-operations-luxury .card-menu-button {
+  color: #60748f;
+}
+
+.fleet-operations-luxury .fleet-card-menu button {
+  color: #24446f;
+}
+
+.fleet-operations-luxury .fleet-card-menu button:hover {
+  background: rgba(239, 246, 255, 0.96);
+}
+
+.fleet-operations-luxury .empty-state {
+  border-color: rgba(226, 232, 240, 0.96);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(247, 250, 255, 0.97)),
+    rgba(255, 255, 255, 0.95);
+  color: #60748f;
+}
+
+.fleet-operations-luxury .wizard-overlay {
+  background:
+    radial-gradient(circle at 18% 0%, rgba(191, 219, 254, 0.22), transparent 30%),
+    rgba(15, 23, 42, 0.22);
+  backdrop-filter: blur(18px);
+}
+
+.fleet-operations-luxury .wizard-modal {
+  border-color: rgba(226, 232, 240, 0.96);
+  background:
+    radial-gradient(circle at 16% 0%, rgba(191, 219, 254, 0.18), transparent 30%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(247, 250, 255, 0.985));
+  color: #10233d;
+  box-shadow:
+    0 32px 80px rgba(15, 23, 42, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.fleet-operations-luxury .wizard-modal::before {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.42)),
+    url('https://images.unsplash.com/photo-1540962351504-03099e0a754b?auto=format&fit=crop&w=1600&q=80');
+  opacity: 0.08;
+}
+
+.fleet-operations-luxury .wizard-sticky-head {
+  border-bottom-color: rgba(226, 232, 240, 0.96);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.985), rgba(247, 250, 255, 0.97)),
+    rgba(255, 255, 255, 0.94);
+}
+
+.fleet-operations-luxury .wizard-hero-step,
+.fleet-operations-luxury .wizard-progress-copy span,
+.fleet-operations-luxury .wizard-step span,
+.fleet-operations-luxury .wizard-step small {
+  color: #6b7f99;
+}
+
+.fleet-operations-luxury .wizard-progress-shell,
+.fleet-operations-luxury .wizard-close-button,
+.fleet-operations-luxury .wizard-step {
+  border-color: rgba(226, 232, 240, 0.96);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(248, 250, 252, 0.97)),
+    rgba(255, 255, 255, 0.95);
+  color: #10233d;
+  box-shadow:
+    0 12px 24px rgba(15, 23, 42, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.fleet-operations-luxury .wizard-progress-copy strong,
+.fleet-operations-luxury .wizard-step strong {
+  color: #11253f;
+}
+
+.fleet-operations-luxury .wizard-progress-bar {
+  background: rgba(203, 213, 225, 0.75);
+}
+
+.fleet-operations-luxury .wizard-progress-bar .progress-bar-fill {
+  background: linear-gradient(90deg, #0f2747, #2f5c9a 55%, #7fb3ff);
+  box-shadow: 0 8px 20px rgba(47, 92, 154, 0.16);
+}
+
+.fleet-operations-luxury .wizard-step:hover,
+.fleet-operations-luxury .wizard-step.active {
+  border-color: rgba(148, 163, 184, 0.28);
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08);
+  transform: translateY(-2px);
+}
+
+.fleet-operations-luxury .wizard-step.complete {
+  border-color: rgba(220, 252, 231, 0.96);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(247, 251, 248, 0.97)),
+    rgba(255, 255, 255, 0.95);
+}
+
+.fleet-operations-luxury .wizard-step.complete span::after {
+  color: #2f855a;
+}
+
+.fleet-operations-luxury .document-dropzone strong,
+.fleet-operations-luxury .document-type-card strong {
+  color: #11253f;
+}
+
+.fleet-operations-luxury .stored-image-preview,
+.fleet-operations-luxury .document-preview-card img,
+.fleet-operations-luxury .pdf-preview {
+  background: #f8fbff;
+}
+
+.fleet-operations-luxury .wizard-sidebar-card--hero {
+  background:
+    radial-gradient(circle at 70% 18%, rgba(191, 219, 254, 0.2), transparent 28%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(245, 249, 255, 0.97));
+}
+
+.fleet-operations-luxury .wizard-sidebar-card--hero::after {
+  border-color: rgba(148, 163, 184, 0.36);
+  filter: none;
+  opacity: 0.42;
+}
+
+.fleet-operations-luxury .wizard-sidebar-highlight span {
+  border-color: rgba(191, 219, 254, 0.32);
+  background: rgba(239, 246, 255, 0.96);
+  color: #4f6f9f;
+}
+
+.fleet-operations-luxury .wizard-sidebar-stat {
+  border-bottom-color: rgba(226, 232, 240, 0.9);
+}
+
+.fleet-operations-luxury .wizard-footer {
+  border-top-color: rgba(226, 232, 240, 0.96);
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.fleet-operations-luxury .wizard-footer .ghost-button,
+.fleet-operations-luxury .wizard-close-button {
+  border-color: rgba(226, 232, 240, 0.96);
+  background: rgba(255, 255, 255, 0.96);
+  color: #24446f;
+}
+
+.fleet-operations-luxury .wizard-footer .primary-action {
+  border-color: rgba(15, 39, 71, 0.2);
+  background: linear-gradient(135deg, #0f2747, #24446f);
+  color: #ffffff;
+  box-shadow: none;
+}
+
+.fleet-operations-luxury .form-feedback-error {
+  border-color: rgba(254, 226, 226, 0.9);
+  background: rgba(254, 242, 242, 0.98);
+  color: #b45353;
+}
+
+.fleet-operations-luxury .form-feedback-success {
+  border-color: rgba(220, 252, 231, 0.96);
+  background: rgba(244, 251, 246, 0.98);
+  color: #2f855a;
+}
+
+/* Final safety pass for the aircraft wizard overlay inside fleet operations. */
+.fleet-operations-luxury .wizard-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
+  display: grid;
+  place-items: center;
+  align-items: center;
+  justify-items: center;
+  padding: clamp(1rem, 2.5vw, 2rem);
+  overflow-y: auto;
+  background:
+    radial-gradient(circle at 18% 0%, rgba(191, 219, 254, 0.24), transparent 30%),
+    rgba(15, 23, 42, 0.28);
+  backdrop-filter: blur(18px);
+}
+
+.fleet-operations-luxury .wizard-modal {
+  position: relative;
+  width: min(1380px, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
+  margin: auto;
+  overflow: auto;
+  border: 1px solid rgba(226, 232, 240, 0.96);
+  border-radius: 32px;
+  background:
+    radial-gradient(circle at 16% 0%, rgba(191, 219, 254, 0.14), transparent 30%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(247, 250, 255, 0.985));
+  color: #10233d;
+  box-shadow:
+    0 32px 80px rgba(15, 23, 42, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.fleet-operations-luxury .wizard-modal::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.4)),
+    url('https://images.unsplash.com/photo-1540962351504-03099e0a754b?auto=format&fit=crop&w=1600&q=80');
+  background-position: center top;
+  background-size: cover;
+  opacity: 0.06;
+}
+
+.fleet-operations-luxury .wizard-modal > * {
+  position: relative;
+  z-index: 1;
+}
+
+.fleet-operations-luxury .wizard-sticky-head {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  margin: 0;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.96);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.985), rgba(247, 250, 255, 0.97)),
+    rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(18px);
+}
+
+.fleet-operations-luxury .wizard-shell,
+.fleet-operations-luxury .wizard-body,
+.fleet-operations-luxury .wizard-panel,
+.fleet-operations-luxury .wizard-sidebar,
+.fleet-operations-luxury .wizard-stage-header,
+.fleet-operations-luxury .wizard-footer {
+  color: #10233d;
+}
+
+.fleet-operations-luxury .wizard-hero-copy h2,
+.fleet-operations-luxury .wizard-hero-copy h2 span,
+.fleet-operations-luxury .wizard-hero-copy h3,
+.fleet-operations-luxury .wizard-stage-header h3,
+.fleet-operations-luxury .wizard-panel h3,
+.fleet-operations-luxury .wizard-panel strong,
+.fleet-operations-luxury .wizard-sidebar strong,
+.fleet-operations-luxury .wizard-sidebar-card strong,
+.fleet-operations-luxury .wizard-step strong,
+.fleet-operations-luxury .wizard-progress-copy strong {
+  color: #10233d;
+}
+
+.fleet-operations-luxury .wizard-hero-copy small,
+.fleet-operations-luxury .wizard-hero-copy .muted,
+.fleet-operations-luxury .wizard-stage-detail,
+.fleet-operations-luxury .wizard-stage-header .muted,
+.fleet-operations-luxury .wizard-step small,
+.fleet-operations-luxury .wizard-step span,
+.fleet-operations-luxury .wizard-hero-step,
+.fleet-operations-luxury .wizard-progress-copy span,
+.fleet-operations-luxury .wizard-sidebar p,
+.fleet-operations-luxury .wizard-sidebar small,
+.fleet-operations-luxury .wizard-panel p,
+.fleet-operations-luxury .wizard-panel .muted {
+  color: #60748f;
+}
+
+.fleet-operations-luxury .wizard-panel label span,
+.fleet-operations-luxury .wizard-panel legend,
+.fleet-operations-luxury .wizard-panel .eyebrow,
+.fleet-operations-luxury .wizard-panel .mini-label,
+.fleet-operations-luxury .wizard-sidebar .mini-label {
+  color: #526a86;
+}
+
+.fleet-operations-luxury .wizard-panel input,
+.fleet-operations-luxury .wizard-panel select,
+.fleet-operations-luxury .wizard-panel textarea {
+  color: #111111 !important;
+  -webkit-text-fill-color: #111111 !important;
+  caret-color: #111111;
+  background: rgba(255, 255, 255, 0.98) !important;
+  opacity: 1;
+}
+
+.fleet-operations-luxury .wizard-panel input::placeholder,
+.fleet-operations-luxury .wizard-panel textarea::placeholder {
+  color: #8ca0b8 !important;
+  -webkit-text-fill-color: #8ca0b8;
+}
+
+.fleet-operations-luxury .wizard-panel option {
+  color: #111111 !important;
+  background: #ffffff !important;
+}
+
+.fleet-operations-luxury .wizard-panel input:disabled,
+.fleet-operations-luxury .wizard-panel select:disabled,
+.fleet-operations-luxury .wizard-panel textarea:disabled,
+.fleet-operations-luxury .wizard-panel input[readonly],
+.fleet-operations-luxury .wizard-panel textarea[readonly] {
+  color: #111111 !important;
+  -webkit-text-fill-color: #111111 !important;
+  background: rgba(248, 250, 252, 0.98) !important;
+  opacity: 1;
+}
+
+.fleet-operations-luxury .wizard-panel input:-webkit-autofill,
+.fleet-operations-luxury .wizard-panel input:-webkit-autofill:hover,
+.fleet-operations-luxury .wizard-panel input:-webkit-autofill:focus,
+.fleet-operations-luxury .wizard-panel textarea:-webkit-autofill,
+.fleet-operations-luxury .wizard-panel select:-webkit-autofill {
+  -webkit-text-fill-color: #111111 !important;
+  box-shadow: 0 0 0 1000px rgba(255, 255, 255, 0.98) inset !important;
+}
+
+.fleet-operations-luxury .wizard-close-button,
+.fleet-operations-luxury .wizard-footer .ghost-button {
+  color: #24446f;
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.fleet-operations-luxury .wizard-sidebar-card:not(.wizard-sidebar-card--hero) {
+  background: #ffffff !important;
+  color: #10233d !important;
+  box-shadow:
+    0 14px 30px rgba(15, 23, 42, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92) !important;
+}
+
+.fleet-operations-luxury .wizard-sidebar-card:not(.wizard-sidebar-card--hero) .card-top,
+.fleet-operations-luxury .wizard-sidebar-card:not(.wizard-sidebar-card--hero) .wizard-sidebar-stats,
+.fleet-operations-luxury .wizard-sidebar-card:not(.wizard-sidebar-card--hero) .wizard-sidebar-stat {
+  background: transparent !important;
+}
+
+.fleet-operations-luxury .wizard-sidebar-card:not(.wizard-sidebar-card--hero) .wizard-sidebar-stat {
+  border-bottom-color: rgba(226, 232, 240, 0.92) !important;
+}
+
+.fleet-operations-luxury .wizard-sidebar-card:not(.wizard-sidebar-card--hero) strong,
+.fleet-operations-luxury .wizard-sidebar-card:not(.wizard-sidebar-card--hero) .badge {
+  color: #10233d !important;
+}
+
+.fleet-operations-luxury .wizard-sidebar-card:not(.wizard-sidebar-card--hero) span,
+.fleet-operations-luxury .wizard-sidebar-card:not(.wizard-sidebar-card--hero) p,
+.fleet-operations-luxury .wizard-sidebar-card:not(.wizard-sidebar-card--hero) .muted {
+  color: #60748f !important;
+}
+
+.fleet-operations-luxury .wizard-review-card {
+  background: #ffffff !important;
+}
+
+.fleet-operations-luxury .wizard-executive-table {
+  border: 1px solid rgba(226, 232, 240, 0.96) !important;
+  background: #ffffff !important;
+  box-shadow:
+    0 14px 30px rgba(15, 23, 42, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92) !important;
+}
+
+.fleet-operations-luxury .wizard-executive-table div {
+  background: transparent !important;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.92) !important;
+}
+
+.fleet-operations-luxury .wizard-executive-table div:nth-child(odd) {
+  border-right: 1px solid rgba(226, 232, 240, 0.92) !important;
+}
+
+.fleet-operations-luxury .wizard-executive-table div:nth-last-child(-n + 2) {
+  border-bottom: 0 !important;
+}
+
+.fleet-operations-luxury .wizard-executive-table span {
+  color: #60748f !important;
+}
+
+.fleet-operations-luxury .wizard-executive-table strong {
+  color: #10233d !important;
+}
+
+@media (max-width: 900px) {
+  .fleet-operations-luxury .wizard-overlay {
+    padding: 0.75rem;
+    align-items: start;
+  }
+
+  .fleet-operations-luxury .wizard-modal {
+    width: min(100vw - 1rem, 100%);
+    max-height: calc(100vh - 1rem);
+    border-radius: 24px;
+  }
+
+  .fleet-operations-luxury .wizard-sticky-head {
+    top: 0;
+  }
+  
+}
+
+/* Final light executive pass for payments cockpit. */
+.operator-portal-page:has(.payments-cockpit-page) {
+  background:
+    radial-gradient(circle at 14% 8%, rgba(191, 219, 254, 0.24), transparent 30%),
+    radial-gradient(circle at 86% 12%, rgba(254, 240, 214, 0.24), transparent 24%),
+    linear-gradient(180deg, #f7fbff 0%, #eef4fb 100%);
+  color: #10233d;
+}
+
+.payments-cockpit-page,
+.payments-cockpit-page .payments-cockpit-shell {
+  color: #10233d !important;
+}
+
+.payments-cockpit-page .payments-cockpit-shell {
+  border-color: rgba(226, 232, 240, 0.96) !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(246, 249, 255, 0.985)),
+    rgba(255, 255, 255, 0.98) !important;
+  box-shadow:
+    0 22px 54px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92) !important;
+}
+
+.payments-cockpit-page .payments-premium-hero {
+  grid-template-columns: minmax(0, 1.3fr) minmax(19rem, 0.95fr);
+  gap: 1.4rem;
+  padding: 1.2rem 1.25rem;
+  border-color: rgba(226, 232, 240, 0.94) !important;
+  border-radius: 24px !important;
+  background:
+    radial-gradient(circle at 18% 24%, rgba(254, 240, 214, 0.38), transparent 30%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(247, 250, 255, 0.985)),
+    rgba(255, 255, 255, 0.98) !important;
+  box-shadow:
+    0 18px 40px rgba(15, 23, 42, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+}
+
+.payments-cockpit-page .payments-premium-hero h2,
+.payments-cockpit-page .payments-workspace-head h3 {
+  color: #10233d !important;
+}

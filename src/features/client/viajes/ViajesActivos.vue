@@ -82,21 +82,6 @@ function progressSteps(status = '') {
   })
 }
 
-function formatTripDate(value = '') {
-  if (!value) return ''
-
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return String(value)
-
-  return new Intl.DateTimeFormat('es-MX', {
-    day: '2-digit',
-    month: 'long',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(parsed)
-}
-
 function shortTripDate(value = '') {
   if (!value) return ''
 
@@ -242,22 +227,31 @@ function routeDisplay(reservation = {}) {
   return [origin, destination].filter(Boolean).join(' -> ')
 }
 
-function routeSegmentsLabel(reservation = {}) {
-  const segments = itinerarySegments(reservation)
-  if (segments.length <= 1) return ''
+function departureDateLabel(reservation = {}) {
+  const value = reservation.date || reservation.departure_datetime || ''
+  if (!value) return ''
 
-  return segments.map((segment) => `${segment.origin} -> ${segment.destination}`).join(' | ')
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return String(value)
+
+  return new Intl.DateTimeFormat('es-MX', {
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+  }).format(parsed)
 }
 
+function departureTimeLabel(reservation = {}) {
+  const value = reservation.date || reservation.departure_datetime || ''
+  if (!value) return ''
 
-function overnightLabel(reservation = {}) {
-  const nights = Number(reservation.overnight_nights || 0)
-  if (!nights) return ''
-  return `${nights} ${nights === 1 ? 'pernocta' : 'pernoctas'}`
-}
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return ''
 
-function departureLine(reservation = {}) {
-  return reservation.date ? formatTripDate(reservation.date) : 'Horario por confirmar'
+  return new Intl.DateTimeFormat('es-MX', {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(parsed)
 }
 
 function countdownLabel(reservation = {}) {
@@ -603,6 +597,12 @@ function flightActionLabel(reservation = {}) {
   return '🛫 Vuelo por confirmar'
 }
 
+function stepStateLabel(step = {}) {
+  if (step.state === 'done') return 'Completado'
+  if (step.state === 'active') return 'En curso'
+  return 'Pendiente'
+}
+
 function hasWorkflowIn(status = '', states = []) {
   return states.includes(resolveWorkflowState(status).id)
 }
@@ -655,26 +655,31 @@ function contractEnabled(reservation = {}) {
 }
 
 function paymentEnabled(reservation = {}) {
+  const stateId = workflowId(reservationWorkflowValue(reservation))
   const paymentStatus = String(
     reservation?.payment_status || reservation?.payment_order?.status || '',
   )
     .trim()
     .toLowerCase()
+  const frontendReady = reservation?.frontend_state?.ready_for_payment === true
   const contractStatus = String(
     reservation?.contract_status || reservation?.contract?.status || '',
   )
     .trim()
     .toLowerCase()
 
+  if (
+    ['payment_confirmed', 'flight_confirmed', 'tracking_live', 'completed'].includes(stateId) ||
+    ['paid', 'pagado', 'payment_confirmed', 'confirmed', 'succeeded', 'completed'].includes(
+      paymentStatus,
+    )
+  ) {
+    return false
+  }
+
   return (
-    hasWorkflowIn(reservationWorkflowValue(reservation), [
-      'contract_signed',
-      'payment_pending',
-      'payment_confirmed',
-      'flight_confirmed',
-      'tracking_live',
-      'completed',
-    ]) ||
+    frontendReady ||
+    hasWorkflowIn(reservationWorkflowValue(reservation), ['contract_signed', 'payment_pending']) ||
     contractStatus === 'signed' ||
     ['pending', 'pendiente de pago', 'pending_manual_payment', 'pending_manual_validation'].includes(
       paymentStatus,
@@ -827,14 +832,11 @@ watch(
           <span class="hero-kicker">{{ reservationCode(reservation) }}</span>
           <h3>{{ routeDisplay(reservation) }}</h3>
           <div class="hero-meta">
-            <span v-if="reservation.date">📅 {{ departureLine(reservation) }}</span>
+            <span v-if="departureDateLabel(reservation)">📅 {{ departureDateLabel(reservation) }}</span>
+            <span v-if="departureTimeLabel(reservation)">🕘 {{ departureTimeLabel(reservation) }}</span>
             <span v-if="reservation.passengers">👥 {{ reservation.passengers }} pasajeros</span>
             <span v-if="reservationAircraftName(reservation)">🛩 {{ reservationAircraftName(reservation) }}</span>
-            <span v-if="itinerarySegments(reservation).length"
-              >✈ {{ itinerarySegments(reservation).length }} tramos</span
-            >
-            <span v-if="routeSegmentsLabel(reservation)">🗺 {{ routeSegmentsLabel(reservation) }}</span>
-            <span v-if="overnightLabel(reservation)">🌙 {{ overnightLabel(reservation) }}</span>
+            <span v-if="itinerarySegments(reservation).length">✈ {{ itinerarySegments(reservation).length }} tramos</span>
             <span v-if="countdownLabel(reservation)">⏳ {{ countdownLabel(reservation) }}</span>
           </div>
         </div>
@@ -847,30 +849,34 @@ watch(
         </span>
       </div>
 
-      <div class="progress-shell">
-        <div class="progress-track">
-          <span
-            class="progress-bar"
-            :style="{
-              width: `${statusMeta(reservationWorkflowValue(reservation)).progress}%`,
-            }"
-          ></span>
-        </div>
-        <strong>{{ statusMeta(reservationWorkflowValue(reservation)).progress }}%</strong>
-      </div>
-
-      <div class="progress-steps">
-        <span
+      <div class="workflow-panel">
+        <div class="progress-steps progress-steps--cards">
+          <article
           v-for="step in progressSteps(reservationWorkflowValue(reservation))"
           :key="step.key"
-          class="step-pill"
-          :class="`step-pill--${step.state}`"
-        >
-          <span class="step-pill__icon">
-            {{ step.state === 'done' ? '✓' : step.state === 'active' ? '●' : '○' }}
-          </span>
-          <span>{{ step.label }}</span>
-        </span>
+            class="step-card"
+            :class="`step-card--${step.state}`"
+          >
+            <span class="step-card__icon">
+              {{ step.state === 'done' ? '✓' : step.state === 'active' ? '○' : '○' }}
+            </span>
+            <span class="step-card__copy">
+              <strong>{{ step.label }}</strong>
+              <small>{{ stepStateLabel(step) }}</small>
+            </span>
+          </article>
+        </div>
+
+        <div class="progress-shell progress-shell--panel">
+          <div class="progress-track">
+            <span
+              class="progress-bar"
+              :style="{
+                width: `${statusMeta(reservationWorkflowValue(reservation)).progress}%`,
+              }"
+            ></span>
+          </div>
+        </div>
       </div>
 
       <div class="executive-grid">
@@ -1068,8 +1074,8 @@ button:disabled {
 
 .hero-card {
   display: grid;
-  gap: 1rem;
-  padding: 1.35rem;
+  gap: 1.15rem;
+  padding: 1.45rem;
 }
 
 .executive-grid {
@@ -1120,7 +1126,7 @@ button:disabled {
 .hero-card__head {
   display: flex;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 1.25rem;
   align-items: start;
 }
 
@@ -1132,26 +1138,36 @@ button:disabled {
 
 .hero-kicker {
   color: #8b6a24;
-  font-size: 0.82rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  font-size: 0.88rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
 .hero-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem 1rem;
+  gap: 0.9rem 1.35rem;
+  font-size: 0.95rem;
+}
+
+.hero-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: #4f4a42;
+  font-weight: 700;
 }
 
 .status-badge {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
-  min-height: 2.2rem;
+  min-height: 3.15rem;
   border-radius: 999px;
-  padding: 0.35rem 0.85rem;
-  font-weight: 800;
+  padding: 0.55rem 1.2rem;
+  font-size: 0.96rem;
+  font-weight: 900;
   white-space: nowrap;
 }
 
@@ -1191,18 +1207,32 @@ button:disabled {
   color: #5d5448;
 }
 
+.workflow-panel {
+  display: grid;
+  gap: 1rem;
+  padding: 1.2rem 1.25rem 1rem;
+  border: 1px solid rgba(229, 225, 216, 0.92);
+  border-radius: 26px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(250,247,241,0.98));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.8);
+}
+
 .progress-shell {
   display: flex;
   align-items: center;
   gap: 0.85rem;
 }
 
+.progress-shell--panel {
+  padding: 0 0.2rem;
+}
+
 .progress-track {
   position: relative;
   flex: 1;
-  height: 0.75rem;
+  height: 0.22rem;
   border-radius: 999px;
-  background: #ebe3d4;
+  background: #ebe7df;
   overflow: hidden;
 }
 
@@ -1210,64 +1240,87 @@ button:disabled {
   position: absolute;
   inset: 0 auto 0 0;
   border-radius: inherit;
-  background: linear-gradient(90deg, #111111, #8b6a24);
+  background: linear-gradient(90deg, #c08a15, #c08a15);
 }
 
 .progress-steps {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.55rem;
+  gap: 0.6rem;
 }
 
-.step-pill {
-  display: inline-flex;
+.progress-steps--cards {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.step-card {
+  display: flex;
   align-items: center;
-  gap: 0.35rem;
-  min-height: 2rem;
-  border-radius: 999px;
-  padding: 0.25rem 0.75rem;
-  font-size: 0.92rem;
-  font-weight: 700;
+  gap: 0.5rem;
+  min-width: 0;
 }
 
-.step-pill__icon {
+.step-card__icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.4rem;
-  height: 1.4rem;
+  width: 2.65rem;
+  height: 2.65rem;
   border-radius: 999px;
-  font-size: 0.9rem;
+  font-size: 1.1rem;
+  font-weight: 900;
   line-height: 1;
-  flex-shrink: 0;
+  flex: 0 0 auto;
+  border: 2px solid currentColor;
+  background: #ffffff;
 }
 
-.step-pill--done {
-  background: #e5f7ea;
+.step-card__copy {
+  display: grid;
+  gap: 0.08rem;
+  min-width: 0;
+}
+
+.step-card__copy strong {
+  color: #1f1d19;
+  font-size: 0.8rem;
+  line-height: 1.15;
+}
+
+.step-card__copy small {
+  color: #6f675d;
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.step-card--done {
   color: #14673a;
 }
 
-.step-pill--done .step-pill__icon {
+.step-card--done .step-card__icon {
   background: #1b7a45;
   color: #ffffff;
+  border-color: #d9f0df;
 }
 
-.step-pill--active {
-  background: #fff2d8;
+.step-card--active {
   color: #9a6500;
 }
 
-.step-pill--active .step-pill__icon {
-  background: #b57a00;
-  color: #ffffff;
+.step-card--active .step-card__icon {
+  background: #ffffff;
+  color: #b57a00;
+  border-color: #c7931a;
 }
 
-.step-pill--todo {
-  background: #f1ede7;
+.step-card--todo {
   color: #7a7266;
 }
 
-.step-pill--todo .step-pill__icon {
+.step-card--todo .step-card__icon {
   background: #ffffff;
   color: #8c8376;
   border: 1px solid #d7cfbf;
@@ -1309,6 +1362,10 @@ button:disabled {
     grid-template-columns: 1fr;
     display: grid;
   }
+
+  .progress-steps--cards {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 760px) {
@@ -1344,9 +1401,17 @@ button:disabled {
     border-radius: 20px;
   }
 
+  .workflow-panel {
+    padding: 1rem;
+  }
+
   .progress-shell {
     align-items: start;
     flex-direction: column;
+  }
+
+  .progress-steps--cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 </style>

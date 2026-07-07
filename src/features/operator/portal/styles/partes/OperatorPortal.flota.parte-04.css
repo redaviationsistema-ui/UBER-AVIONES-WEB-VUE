@@ -1,0 +1,425 @@
+.availability-control-luxury .availability-calendar-cell[data-tone='success'] {
+  border-color: rgba(46, 139, 87, 0.32);
+  background: linear-gradient(135deg, rgba(20, 55, 45, 0.88), rgba(8, 25, 18, 0.96));
+}
+
+.availability-control-luxury .availability-calendar-cell[data-tone='success']::before {
+  background: #2e8b57;
+  box-shadow: 0 0 16px rgba(46, 139, 87, 0.62);
+}
+
+.availability-control-luxury .availability-calendar-cell[data-tone='warning'] {
+  border-color: rgba(201, 160, 99, 0.32);
+  background: linear-gradient(135deg, rgba(50, 35, 15, 0.9), rgba(20, 12, 4, 0.96));
+}
+
+.availability-control-luxury .availability-calendar-cell[data-tone='warning']::before {
+  background: #c9a063;
+  box-shadow: 0 0 16px rgba(201, 160, 99, 0.6);
+}
+
+.availability-control-luxury .availability-calendar-cell[data-tone='danger'] {
+  border-color: rgba(160, 64, 64, 0.34);
+  background: linear-gradient(135deg, rgba(72, 24, 24, 0.9), rgba(22, 8, 8, 0.96));
+}
+
+.availability-control-luxury .availability-calendar-cell[data-tone='danger']::before {
+  background: #a34a43;
+  box-shadow: 0 0 16px rgba(163, 74, 67, 0.56);
+}
+
+.availability-control-luxury .availability-calendar-cell[data-tone='info'] {
+  border-color: rgba(70, 120, 180, 0.34);
+  background: linear-gradient(135deg, rgba(10, 35, 66, 0.92), rgba(5, 10, 20, 0.96));
+}
+
+.availability-control-luxury .availability-calendar-cell[data-tone='info']::before {
+  background: #4678b4;
+  box-shadow: 0 0 16px rgba(70, 120, 180, 0.58);
+}
+
+.availability-control-luxury .availability-calendar-cell[data-tone='dark'] {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: linear-gradient(135deg, rgba(20, 26, 38, 0.92), rgba(5, 10, 20, 0.96));
+}
+
+.availability-control-luxury .availability-calendar-cell.is-available strong {
+  color: #b9f2d0;
+}
+
+.availability-control-luxury .availability-records {
+  gap: 1rem;
+}
+
+.availability-control-luxury .availability-record-card {
+  position: relative;
+  overflow: hidden;
+  padding: 1.1rem;
+  border-radius: 20px;
+  transition:
+    transform 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.availability-control-luxury .availability-record-card:hover {
+  border-color: rgba(201, 160, 99, 0.34);
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.45),
+    0 0 24px rgba(201, 160, 99, 0.12);
+  transform: translateY(-5px);
+}
+
+.availability-control-luxury .availability-record-icon {
+  display: inline-grid;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 0.6rem;
+  place-items: center;
+  border: 1px solid rgba(201, 160, 99, 0.18);
+  border-radius: 15px;
+  background: rgba(201, 160, 99, 0.08);
+}
+
+.availability-control-luxury .availability-record-icon::before {
+  content: '';
+  width: 22px;
+  height: 14px;
+  border: 1.5px solid #c9a063;
+  border-radius: 999px 60% 60% 999px;
+  transform: rotate(-10deg);
+}
+
+.availability-control-luxury .availability-record-card strong {
+  color: #f6f3ef;
+}
+
+.availability-control-luxury .fleet-inline-metrics {
+  gap: 0.55rem;
+}
+
+.availability-control-luxury .fleet-inline-metrics span {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(246, 243, 239, 0.76);
+}
+
+.availability-control-luxury .availability-action {
+  border-color: rgba(201, 160, 99, 0.26);
+  color: #e8c98f;
+}
+
+.availability-control-luxury .form-feedback-error {
+  border-color: rgba(160, 64, 64, 0.34);
+  background: rgba(110, 24, 24, 0.18);
+  color: #f5b6ad;
+}
+
+.availability-control-luxury .form-feedback-success {
+  border-color: rgba(46, 139, 87, 0.34);
+  background: rgba(46, 139, 87, 0.14);
+  color: #b9f2d0;
+}
+
+.availability-control-luxury .empty-state {
+  color: rgba(255, 255, 255, 0.62);
+}
+
+/* Final light executive pass for operator availability. */
+.availability-control-luxury {
+  color: #10233d;
+}
+
+.availability-control-luxury .surface,
+.availability-control-luxury .fleet-section-card,
+.availability-control-luxury .availability-calendar-aircraft-head,
+.availability-control-luxury .availability-calendar-day-head,
+.availability-control-luxury .availability-calendar-aircraft,
+.availability-control-luxury .availability-calendar-cell,
+.availability-control-luxury .availability-record-card {
+  border-color: rgba(226, 232, 240, 0.96);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(247, 250, 255, 0.98)),
+    rgba(255, 255, 255, 0.96);
+  color: #10233d;
+  box-shadow:
+    0 16px 36px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.availability-control-luxury .availability-hero {
+  min-height: 18rem;
+  align-items: end;
+  border-color: rgba(226, 232, 240, 0.96);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.995), rgba(243, 248, 255, 0.975)),
+    rgba(255, 255, 255, 0.97);
+}
+
+.availability-control-luxury .availability-hero::before {
+  background:
+    radial-gradient(circle at 18% 30%, rgba(191, 219, 254, 0.3), transparent 28%),
+    radial-gradient(circle at 86% 42%, rgba(254, 240, 214, 0.45), transparent 24%);
+  opacity: 1;
+}
+
+.availability-control-luxury .availability-hero h2,
+.availability-control-luxury .fleet-section-card h2 {
+  color: #10233d;
+}
+
+.availability-control-luxury .availability-hero h2 {
+  max-width: 10ch;
+  font-size: clamp(3.4rem, 8vw, 6.2rem);
+  line-height: 0.92;
+}
+
+.availability-control-luxury .eyebrow,
+.availability-control-luxury .mini-label,
+.availability-control-luxury .availability-calendar-filter span,
+.availability-control-luxury .form-grid label > span {
+  color: #6b7f99;
+}
+
+.availability-control-luxury .muted,
+.availability-control-luxury .fleet-kpi-card p,
+.availability-control-luxury .availability-record-card p,
+.availability-control-luxury .availability-calendar-cell span,
+.availability-control-luxury .availability-calendar-day-head span,
+.availability-control-luxury .empty-state {
+  color: #60748f;
+}
+
+.availability-control-luxury .fleet-kpi-card {
+  border-color: rgba(226, 232, 240, 0.96);
+  background:
+    linear-gradient(145deg, rgba(15, 39, 71, 0.98), rgba(9, 22, 44, 0.98)),
+    #10233d;
+  color: #f8fbff;
+  box-shadow:
+    0 20px 44px rgba(15, 23, 42, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.availability-control-luxury .fleet-kpi-card span,
+.availability-control-luxury .fleet-kpi-card p {
+  color: rgba(226, 235, 247, 0.78);
+}
+
+.availability-control-luxury .fleet-kpi-card strong {
+  color: #ffffff;
+}
+
+.availability-control-luxury .availability-stepper::before {
+  background: linear-gradient(90deg, rgba(191, 219, 254, 0.9), rgba(203, 213, 225, 0.9));
+}
+
+.availability-control-luxury .availability-stepper .progress-chip {
+  border-color: rgba(226, 232, 240, 0.96);
+  background: rgba(248, 250, 252, 0.98);
+  color: #60748f;
+  box-shadow:
+    0 10px 24px rgba(15, 23, 42, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.availability-control-luxury .availability-stepper .progress-chip::before {
+  color: #8ca0b8;
+  border-color: rgba(203, 213, 225, 0.96);
+  background: rgba(255, 255, 255, 0.98);
+}
+
+.availability-control-luxury .availability-stepper .progress-chip[data-tone='success'] {
+  border-color: rgba(187, 247, 208, 0.96);
+  background: linear-gradient(135deg, rgba(244, 251, 246, 0.98), rgba(236, 248, 241, 0.96));
+  color: #2f6f4f;
+}
+
+.availability-control-luxury .availability-stepper .progress-chip[data-tone='success']::before {
+  color: #2f855a;
+  border-color: rgba(187, 247, 208, 0.92);
+  background: rgba(244, 251, 246, 0.98);
+}
+
+.availability-control-luxury .availability-stepper .progress-chip:not([data-tone='success']):first-of-type::before {
+  color: #24446f;
+  border-color: rgba(191, 219, 254, 0.92);
+  background: rgba(239, 246, 255, 0.98);
+}
+
+.availability-control-luxury input,
+.availability-control-luxury select,
+.availability-control-luxury .availability-calendar-filter select {
+  border-color: rgba(203, 213, 225, 0.9);
+  background: rgba(255, 255, 255, 0.98);
+  color: #111111;
+  -webkit-text-fill-color: #111111;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.availability-control-luxury input::placeholder {
+  color: #8ca0b8;
+}
+
+.availability-control-luxury select option {
+  background: #ffffff;
+  color: #111111;
+}
+
+.availability-control-luxury .primary-action,
+.availability-control-luxury .ghost-button {
+  border-color: rgba(203, 213, 225, 0.96);
+  box-shadow: none;
+}
+
+.availability-control-luxury .primary-action {
+  background: linear-gradient(135deg, #24446f, #3f6aa1);
+  color: #ffffff;
+}
+
+.availability-control-luxury .ghost-button {
+  background: rgba(255, 255, 255, 0.98);
+  color: #24446f;
+}
+
+.availability-control-luxury .availability-calendar-toolbar {
+  border-color: rgba(226, 232, 240, 0.96);
+  background: rgba(255, 255, 255, 0.98);
+}
+
+.availability-control-luxury .availability-calendar-toolbar strong,
+.availability-control-luxury .availability-calendar-aircraft strong,
+.availability-control-luxury .availability-calendar-aircraft-head,
+.availability-control-luxury .availability-calendar-day-head strong,
+.availability-control-luxury .availability-calendar-cell strong,
+.availability-control-luxury .availability-record-card strong {
+  color: #10233d;
+}
+
+.availability-control-luxury .availability-calendar-day-head,
+.availability-control-luxury .availability-calendar-aircraft-head {
+  background: rgba(248, 250, 252, 0.98);
+}
+
+.availability-control-luxury .availability-calendar-day-head.is-today {
+  border-color: rgba(191, 219, 254, 0.96);
+  background: rgba(239, 246, 255, 0.98);
+  box-shadow: none;
+}
+
+.availability-control-luxury .availability-calendar-cell::before {
+  background: #cbd5e1;
+  box-shadow: 0 0 12px rgba(148, 163, 184, 0.32);
+}
+
+.availability-control-luxury .availability-calendar-cell:hover,
+.availability-control-luxury .availability-calendar-cell:focus-visible,
+.availability-control-luxury .availability-record-card:hover {
+  border-color: rgba(191, 219, 254, 0.92);
+  box-shadow:
+    0 18px 38px rgba(15, 23, 42, 0.1),
+    0 0 0 1px rgba(255, 255, 255, 0.46);
+  transform: translateY(-3px);
+}
+
+.availability-control-luxury .availability-calendar-cell[data-tone='success'] {
+  border-color: rgba(187, 247, 208, 0.96);
+  background: rgba(244, 251, 246, 0.98);
+}
+
+.availability-control-luxury .availability-calendar-cell[data-tone='success']::before {
+  background: #2f855a;
+  box-shadow: 0 0 16px rgba(47, 133, 90, 0.3);
+}
+
+.availability-control-luxury .availability-calendar-cell[data-tone='warning'] {
+  border-color: rgba(254, 240, 214, 0.96);
+  background: rgba(255, 251, 235, 0.98);
+}
+
+.availability-control-luxury .availability-calendar-cell[data-tone='warning']::before {
+  background: #d9a441;
+  box-shadow: 0 0 16px rgba(217, 164, 65, 0.3);
+}
+
+.availability-control-luxury .availability-calendar-cell[data-tone='danger'] {
+  border-color: rgba(254, 226, 226, 0.96);
+  background: rgba(254, 242, 242, 0.98);
+}
+
+.availability-control-luxury .availability-calendar-cell[data-tone='danger']::before {
+  background: #c65b5b;
+  box-shadow: 0 0 16px rgba(198, 91, 91, 0.28);
+}
+
+.availability-control-luxury .availability-calendar-cell[data-tone='info'],
+.availability-control-luxury .availability-calendar-cell[data-tone='dark'] {
+  border-color: rgba(191, 219, 254, 0.96);
+  background: rgba(239, 246, 255, 0.98);
+}
+
+.availability-control-luxury .availability-calendar-cell[data-tone='info']::before,
+.availability-control-luxury .availability-calendar-cell[data-tone='dark']::before {
+  background: #4678b4;
+  box-shadow: 0 0 16px rgba(70, 120, 180, 0.28);
+}
+
+.availability-control-luxury .availability-calendar-cell.is-available strong {
+  color: #2f855a;
+}
+
+.availability-control-luxury .fleet-inline-metrics span {
+  border-color: rgba(226, 232, 240, 0.96);
+  background: rgba(248, 250, 252, 0.98);
+  color: #60748f;
+}
+
+.availability-control-luxury .availability-action {
+  border-color: rgba(191, 219, 254, 0.96);
+  color: #24446f;
+}
+
+.availability-control-luxury .form-feedback-error {
+  border-color: rgba(254, 226, 226, 0.9);
+  background: rgba(254, 242, 242, 0.98);
+  color: #b45353;
+}
+
+.availability-control-luxury .form-feedback-success {
+  border-color: rgba(220, 252, 231, 0.96);
+  background: rgba(244, 251, 246, 0.98);
+  color: #2f855a;
+}
+
+@media (max-width: 1180px) {
+  .availability-control-luxury .fleet-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .availability-control-luxury .fleet-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .availability-control-luxury .availability-hero {
+    grid-template-columns: 1fr;
+    min-height: 18rem;
+  }
+
+  .availability-control-luxury .availability-hero h2 {
+    font-size: 3.2rem;
+  }
+
+  .availability-control-luxury .fleet-kpi-grid,
+  .availability-control-luxury .availability-stepper {
+    grid-template-columns: 1fr;
+  }
+
+  .availability-control-luxury .availability-calendar-toolbar,
+  .availability-control-luxury .availability-calendar-actions {
+    align-items: stretch;
+  }
+}
+

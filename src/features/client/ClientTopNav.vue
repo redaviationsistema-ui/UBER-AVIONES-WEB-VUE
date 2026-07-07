@@ -5,8 +5,10 @@ defineProps({
   activePlan: { type: String, required: true },
   activeSection: { type: String, required: true },
   items: { type: Array, required: true },
+  notificationCount: { type: Number, default: 0 },
   profileOpen: { type: Boolean, default: false },
   userFirstName: { type: String, required: true },
+  userFullName: { type: String, default: '' },
 })
 
 const emit = defineEmits(['logout', 'navigate', 'toggle-profile'])

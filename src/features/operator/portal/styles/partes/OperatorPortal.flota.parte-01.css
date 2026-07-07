@@ -1,0 +1,973 @@
+.operator-portal-page:has(.fleet-operations-luxury) {
+  background:
+    radial-gradient(circle at 18% 0%, rgba(201, 160, 99, 0.12), transparent 30%),
+    radial-gradient(circle at 86% 10%, rgba(10, 35, 66, 0.42), transparent 38%),
+    #050a14;
+  color: #f6f3ef;
+}
+
+.fleet-operations-luxury .surface,
+.fleet-operations-luxury .fleet-kpi-card,
+.fleet-operations-luxury .fleet-filter-shell,
+.fleet-operations-luxury .fleet-compact-card,
+.fleet-operations-luxury .fleet-compact-info-card,
+.fleet-operations-luxury .fleet-table-shell,
+.fleet-operations-luxury .fleet-table-row,
+.fleet-operations-luxury .fleet-card-menu {
+  border: 1px solid rgba(201, 160, 99, 0.1);
+  background: linear-gradient(135deg, rgba(7, 27, 54, 0.95), rgba(5, 10, 20, 0.98));
+  color: #f6f3ef;
+  box-shadow: 0 25px 80px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(20px);
+}
+
+.fleet-operations-luxury .fleet-hero {
+  position: relative;
+  display: grid;
+  gap: 1.4rem;
+  overflow: hidden;
+  padding: clamp(1.35rem, 4vw, 2.35rem);
+  border-radius: 28px;
+  border-color: rgba(201, 160, 99, 0.18);
+  background:
+    linear-gradient(135deg, rgba(5, 10, 20, 0.78), rgba(7, 27, 54, 0.86)),
+    radial-gradient(circle at 78% 16%, rgba(201, 160, 99, 0.16), transparent 32%),
+    radial-gradient(circle at 16% 0%, rgba(70, 120, 180, 0.18), transparent 34%);
+}
+
+.fleet-operations-luxury .fleet-hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(5, 10, 20, 0.1), rgba(5, 10, 20, 0.72)),
+    url('https://images.unsplash.com/photo-1540962351504-03099e0a754b?auto=format&fit=crop&w=1600&q=80');
+  background-position: center;
+  background-size: cover;
+  filter: blur(10px) saturate(0.9);
+  opacity: 0.26;
+  transform: scale(1.06);
+}
+
+.fleet-operations-luxury .fleet-hero::after {
+  content: '';
+  position: absolute;
+  right: -8%;
+  bottom: -34%;
+  width: 42%;
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(201, 160, 99, 0.18), transparent 62%);
+  pointer-events: none;
+}
+
+.fleet-operations-luxury .fleet-hero > * {
+  position: relative;
+  z-index: 1;
+}
+
+.fleet-hero-content {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.2rem;
+}
+
+.fleet-operations-luxury .fleet-hero h1 {
+  max-width: 11ch;
+  margin: 0;
+  color: #f6f3ef;
+  font-family: 'Playfair Display', 'Cormorant Garamond', Georgia, serif;
+  font-size: clamp(3.4rem, 8vw, 7rem);
+  font-weight: 600;
+  line-height: 0.9;
+  letter-spacing: 0;
+}
+
+.fleet-operations-luxury .eyebrow,
+.fleet-operations-luxury .fleet-kpi-card span,
+.fleet-operations-luxury .fleet-search-field span,
+.fleet-operations-luxury .fleet-filter-row label span,
+.fleet-operations-luxury .fleet-compact-stats span,
+.fleet-operations-luxury .fleet-compact-info-card span {
+  color: #c9a063;
+  letter-spacing: 0.14em;
+}
+
+.fleet-operations-luxury .muted,
+.fleet-operations-luxury .fleet-kpi-card p,
+.fleet-operations-luxury .fleet-compact-title p,
+.fleet-operations-luxury .fleet-compact-info-card small,
+.fleet-operations-luxury .fleet-compact-missing,
+.fleet-operations-luxury .fleet-table-aircraft small {
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.fleet-operations-luxury .fleet-kpi-grid--secondary {
+  display: none;
+}
+
+.fleet-operations-luxury .fleet-hero-kpis,
+.fleet-operations-luxury .fleet-kpi-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.fleet-operations-luxury .fleet-kpi-card {
+  min-height: 8.2rem;
+  border-radius: 22px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.025)),
+    rgba(8, 18, 35, 0.85);
+}
+
+.fleet-operations-luxury .fleet-kpi-card strong {
+  color: #f6f3ef;
+  font-size: clamp(2rem, 4vw, 3rem);
+}
+
+.fleet-operations-luxury .fleet-kpi-card[data-tone='success'] {
+  border-color: rgba(46, 139, 87, 0.3);
+  background: linear-gradient(135deg, rgba(20, 55, 45, 0.82), rgba(8, 25, 18, 0.94));
+}
+
+.fleet-operations-luxury .fleet-kpi-card[data-tone='warning'] {
+  border-color: rgba(201, 160, 99, 0.28);
+  background: linear-gradient(135deg, rgba(40, 30, 15, 0.86), rgba(15, 10, 5, 0.95));
+}
+
+.fleet-operations-luxury .fleet-kpi-card[data-tone='info'],
+.fleet-operations-luxury .fleet-kpi-card[data-tone='neutral'] {
+  border-color: rgba(70, 120, 180, 0.24);
+  background: linear-gradient(135deg, rgba(10, 25, 55, 0.9), rgba(5, 10, 20, 0.95));
+}
+
+.fleet-operations-luxury .fleet-section-card--catalog {
+  gap: 1.2rem;
+  padding: clamp(1rem, 2.4vw, 1.4rem);
+  border-radius: 28px;
+}
+
+.fleet-operations-luxury .fleet-toolbar {
+  padding: 0.25rem;
+}
+
+.fleet-operations-luxury .fleet-toolbar h2 {
+  margin: 0;
+  color: #f6f3ef;
+  font-family: 'Playfair Display', 'Cormorant Garamond', Georgia, serif;
+  font-size: clamp(2rem, 4vw, 3.2rem);
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.fleet-operations-luxury .fleet-filter-shell {
+  position: relative;
+  gap: 1rem;
+  padding: 1.05rem;
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 8% 18%, rgba(201, 160, 99, 0.1), transparent 26%),
+    rgba(8, 18, 35, 0.85);
+}
+
+.fleet-operations-luxury .fleet-search-field {
+  position: relative;
+}
+
+.fleet-operations-luxury .fleet-search-field::before {
+  content: '';
+  position: absolute;
+  left: 1rem;
+  bottom: 0.96rem;
+  width: 1.05rem;
+  height: 1.05rem;
+  border: 1.35px solid #c9a063;
+  border-radius: 50%;
+  box-shadow: 0 0 14px rgba(201, 160, 99, 0.22);
+}
+
+.fleet-operations-luxury .fleet-search-field::after {
+  content: '';
+  position: absolute;
+  left: 1.54rem;
+  bottom: 1.49rem;
+  width: 0.7rem;
+  height: 1.35px;
+  background: #c9a063;
+  transform-origin: left center;
+  transform: rotate(-34deg);
+}
+
+.fleet-operations-luxury .fleet-search-field input,
+.fleet-operations-luxury .fleet-filter-row select {
+  min-height: 3.2rem;
+  border: 1px solid rgba(201, 160, 99, 0.14);
+  border-radius: 18px;
+  background: rgba(5, 10, 20, 0.52);
+  color: #f6f3ef;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.fleet-operations-luxury .fleet-search-field input {
+  padding-left: 2.75rem;
+}
+
+.fleet-operations-luxury .fleet-filter-row select option {
+  color: #f6f3ef;
+  background: #071b36;
+}
+
+.fleet-operations-luxury .fleet-view-switch,
+.fleet-operations-luxury .fleet-status-tabs button {
+  border: 1px solid rgba(201, 160, 99, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(18px);
+}
+
+.fleet-operations-luxury .fleet-view-switch button,
+.fleet-operations-luxury .fleet-status-tabs button {
+  color: rgba(255, 255, 255, 0.7);
+  transition:
+    color 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+    background 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.fleet-operations-luxury .fleet-view-switch button.active,
+.fleet-operations-luxury .fleet-status-tabs button.active,
+.fleet-operations-luxury .fleet-view-switch button:hover,
+.fleet-operations-luxury .fleet-status-tabs button:hover {
+  color: #f6f3ef;
+  background: rgba(201, 160, 99, 0.14);
+  box-shadow: 0 0 22px rgba(201, 160, 99, 0.16);
+  transform: translateY(-1px);
+}
+
+.fleet-operations-luxury .fleet-status-tabs button span {
+  background: rgba(201, 160, 99, 0.14);
+  color: #c9a063;
+}
+
+.fleet-operations-luxury .fleet-compact-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.fleet-operations-luxury .fleet-compact-card {
+  display: grid;
+  overflow: hidden;
+  min-height: 36rem;
+  border-radius: 24px;
+  background: linear-gradient(135deg, rgba(7, 27, 54, 0.95), rgba(5, 10, 20, 0.98));
+  transition:
+    transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: fleet-card-enter 0.3s ease both;
+}
+
+.fleet-operations-luxury .fleet-compact-card:hover {
+  border-color: rgba(201, 160, 99, 0.3);
+  box-shadow:
+    0 30px 90px rgba(0, 0, 0, 0.52),
+    0 0 30px rgba(201, 160, 99, 0.12);
+  transform: translateY(-8px) scale(1.02);
+}
+
+.fleet-operations-luxury .fleet-compact-visual {
+  min-height: 15rem;
+  height: 40%;
+  padding: 1rem;
+  background:
+    linear-gradient(180deg, rgba(5, 10, 20, 0.08) 0%, rgba(5, 10, 20, 0.78) 100%),
+    linear-gradient(135deg, #071b36 0%, #050a14 100%);
+}
+
+.fleet-operations-luxury .fleet-compact-visual::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0;
+  height: 58%;
+  background: linear-gradient(180deg, transparent, rgba(5, 10, 20, 0.88));
+  pointer-events: none;
+}
+
+.fleet-operations-luxury .fleet-visual-image {
+  filter: saturate(0.9) contrast(1.04);
+}
+
+.fleet-operations-luxury .fleet-visual-top {
+  position: relative;
+  z-index: 2;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.fleet-operations-luxury .status-pill {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(8, 18, 35, 0.62);
+  color: #f6f3ef;
+  backdrop-filter: blur(16px);
+}
+
+.fleet-operations-luxury .status-pill[data-tone='success'] {
+  border-color: rgba(46, 139, 87, 0.34);
+  background: rgba(46, 139, 87, 0.16);
+  color: #a6e8bf;
+  box-shadow: 0 0 20px rgba(46, 139, 87, 0.22);
+}
+
+.fleet-operations-luxury .status-pill[data-tone='warning'],
+.fleet-operations-luxury .status-pill[data-tone='info'],
+.fleet-operations-luxury .status-pill--ghost {
+  border-color: rgba(201, 160, 99, 0.28);
+  background: rgba(201, 160, 99, 0.12);
+  color: #e3c082;
+}
+
+.fleet-operations-luxury .status-pill[data-tone='danger'] {
+  border-color: rgba(201, 160, 99, 0.24);
+  background: rgba(80, 26, 26, 0.26);
+  color: #f6b8a8;
+}
+
+.fleet-operations-luxury .fleet-compact-body {
+  gap: 0.9rem;
+  padding: 1.05rem;
+}
+
+.fleet-operations-luxury .fleet-compact-title p:not(.fleet-category-line),
+.fleet-operations-luxury .fleet-compact-stats > div:nth-child(4) {
+  display: none;
+}
+
+.fleet-operations-luxury .fleet-compact-title strong {
+  color: #f6f3ef;
+  font-size: 1.15rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.fleet-operations-luxury .fleet-compact-stats {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.fleet-operations-luxury .fleet-compact-stats div,
+.fleet-operations-luxury .fleet-compact-info-card {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(10, 35, 66, 0.48);
+  color: #f6f3ef;
+}
+
+.fleet-operations-luxury .fleet-compact-stats strong,
+.fleet-operations-luxury .fleet-compact-info-card strong,
+.fleet-operations-luxury .fleet-table-aircraft strong {
+  color: #f6f3ef;
+}
+
+.fleet-compact-details {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.fleet-operations-luxury .fleet-compact-details summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 2.65rem;
+  padding: 0 0.9rem;
+  border: 1px solid rgba(201, 160, 99, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #c9a063;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.fleet-operations-luxury .fleet-compact-details summary::after {
+  content: '+';
+  color: #f6f3ef;
+  font-size: 1rem;
+}
+
+.fleet-operations-luxury .fleet-compact-details[open] summary::after {
+  content: '-';
+}
+
+.fleet-operations-luxury .fleet-compact-info-grid {
+  margin-top: 0.7rem;
+}
+
+.fleet-operations-luxury .fleet-card-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 0.55rem;
+}
+
+.fleet-operations-luxury .ghost-button,
+.fleet-operations-luxury .primary-action,
+.fleet-operations-luxury .card-menu-button {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: #f6f3ef;
+  box-shadow: none;
+  transition:
+    transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+    background 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.fleet-operations-luxury .primary-action,
+.fleet-operations-luxury .fleet-card-actions .ghost-button:nth-child(2) {
+  border-color: rgba(201, 160, 99, 0.3);
+  background: rgba(201, 160, 99, 0.13);
+  color: #f6f3ef;
+}
+
+.fleet-operations-luxury .ghost-button:hover,
+.fleet-operations-luxury .primary-action:hover,
+.fleet-operations-luxury .card-menu-button:hover {
+  border-color: rgba(201, 160, 99, 0.35);
+  box-shadow: 0 10px 30px rgba(201, 160, 99, 0.2);
+  transform: translateY(-3px);
+}
+
+.fleet-operations-luxury .card-menu-button {
+  display: inline-grid;
+  place-items: center;
+  min-width: 2.8rem;
+  border-radius: 999px;
+  color: #c9a063;
+}
+
+.fleet-operations-luxury .fleet-card-menu {
+  border-radius: 18px;
+  background: rgba(8, 18, 35, 0.96);
+}
+
+.fleet-operations-luxury .fleet-card-menu button {
+  color: #f6f3ef;
+  background: transparent;
+}
+
+.fleet-operations-luxury .fleet-card-menu button:hover {
+  background: rgba(201, 160, 99, 0.1);
+}
+
+.fleet-operations-luxury .fleet-table-shell {
+  border-radius: 24px;
+  background: rgba(8, 18, 35, 0.85);
+}
+
+.fleet-operations-luxury .fleet-table-head {
+  border-bottom-color: rgba(201, 160, 99, 0.12);
+  background: rgba(10, 35, 66, 0.6);
+  color: #c9a063;
+}
+
+.fleet-operations-luxury .fleet-table-row {
+  border: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: none;
+}
+
+.fleet-operations-luxury .empty-state {
+  border-color: rgba(201, 160, 99, 0.16);
+  background: rgba(8, 18, 35, 0.85);
+  color: rgba(255, 255, 255, 0.65);
+}
+
+@keyframes fleet-card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (max-width: 1080px) {
+  .fleet-operations-luxury .fleet-hero-kpis,
+  .fleet-operations-luxury .fleet-kpi-grid,
+  .fleet-operations-luxury .fleet-compact-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .fleet-hero-content {
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 720px) {
+  .fleet-operations-luxury {
+    padding: 0;
+  }
+
+  .fleet-operations-luxury .fleet-hero-kpis,
+  .fleet-operations-luxury .fleet-kpi-grid,
+  .fleet-operations-luxury .fleet-compact-grid,
+  .fleet-operations-luxury .fleet-compact-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .fleet-operations-luxury .fleet-hero h1 {
+    font-size: clamp(2.8rem, 15vw, 4.6rem);
+  }
+}
+
+.fleet-operations-luxury .wizard-overlay {
+  background:
+    radial-gradient(circle at 18% 0%, rgba(201, 160, 99, 0.14), transparent 30%),
+    radial-gradient(circle at 86% 8%, rgba(10, 35, 66, 0.62), transparent 40%),
+    rgba(5, 10, 20, 0.74);
+  backdrop-filter: blur(24px);
+}
+
+.fleet-operations-luxury .wizard-modal {
+  width: min(1440px, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid rgba(201, 160, 99, 0.16);
+  border-radius: 32px;
+  background:
+    radial-gradient(circle at 16% 0%, rgba(201, 160, 99, 0.1), transparent 32%),
+    radial-gradient(circle at 86% 12%, rgba(70, 120, 180, 0.16), transparent 36%),
+    linear-gradient(135deg, rgba(7, 27, 54, 0.96), rgba(5, 10, 20, 0.99));
+  color: #f6f3ef;
+  box-shadow:
+    0 40px 120px rgba(0, 0, 0, 0.62),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(22px);
+  animation: aircraft-wizard-enter 0.3s ease both;
+}
+
+.fleet-operations-luxury .wizard-modal::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(5, 10, 20, 0.18), rgba(5, 10, 20, 0.78)),
+    url('https://images.unsplash.com/photo-1540962351504-03099e0a754b?auto=format&fit=crop&w=1600&q=80');
+  background-position: center top;
+  background-size: cover;
+  filter: blur(12px) saturate(0.75);
+  opacity: 0.12;
+  transform: scale(1.04);
+  pointer-events: none;
+}
+
+.fleet-operations-luxury .wizard-modal > * {
+  position: relative;
+  z-index: 1;
+}
+
+.fleet-operations-luxury .wizard-sticky-head {
+  position: sticky;
+  top: 0;
+  margin: 0;
+  padding: clamp(1.15rem, 2.4vw, 1.7rem);
+  border-bottom: 1px solid rgba(201, 160, 99, 0.14);
+  background:
+    linear-gradient(135deg, rgba(7, 27, 54, 0.9), rgba(5, 10, 20, 0.96)),
+    rgba(10, 20, 40, 0.85);
+  backdrop-filter: blur(22px);
+}
+
+.fleet-operations-luxury .wizard-header {
+  align-items: flex-start;
+}
+
+.fleet-operations-luxury .wizard-hero-copy h2 {
+  margin: 0;
+  max-width: 12ch;
+  color: #f6f3ef;
+  font-family: 'Playfair Display', 'Cormorant Garamond', Georgia, serif;
+  font-size: clamp(2.8rem, 5vw, 5.3rem);
+  font-weight: 600;
+  line-height: 0.92;
+  letter-spacing: 0;
+}
+
+.fleet-operations-luxury .wizard-hero-copy .muted {
+  max-width: 42rem;
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 1rem;
+  line-height: 1.65;
+}
+
+.fleet-operations-luxury .wizard-hero-step,
+.fleet-operations-luxury .wizard-stage-detail {
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.fleet-operations-luxury .wizard-progress-shell {
+  min-width: 260px;
+  border: 1px solid rgba(201, 160, 99, 0.18);
+  border-radius: 22px;
+  background: rgba(10, 20, 40, 0.72);
+  box-shadow:
+    0 18px 42px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(18px);
+}
+
+.fleet-operations-luxury .wizard-progress-copy span,
+.fleet-operations-luxury .wizard-progress-copy strong {
+  color: #c9a063;
+}
+
+.fleet-operations-luxury .wizard-progress-bar {
+  height: 0.7rem;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.fleet-operations-luxury .wizard-progress-bar .progress-bar-fill {
+  background: var(--surface-premium);
+  box-shadow: 0 0 24px rgba(201, 160, 99, 0.42);
+  transition: width 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.fleet-operations-luxury .wizard-stepper {
+  display: flex;
+  gap: 0.9rem;
+  overflow-x: auto;
+  padding: 0.2rem 0 0.45rem;
+  scrollbar-width: thin;
+}
+
+.fleet-operations-luxury .wizard-step {
+  flex: 0 0 220px;
+  width: 220px;
+  height: 110px;
+  padding: 1rem;
+  border: 1px solid rgba(201, 160, 99, 0.15);
+  border-radius: 24px;
+  background: linear-gradient(135deg, rgba(7, 27, 54, 0.95), rgba(5, 10, 20, 0.98));
+  color: #f6f3ef;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
+  transition:
+    transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.fleet-operations-luxury .wizard-step:hover,
+.fleet-operations-luxury .wizard-step.active {
+  border-color: rgba(201, 160, 99, 0.48);
+  box-shadow:
+    0 20px 56px rgba(0, 0, 0, 0.38),
+    0 0 28px rgba(201, 160, 99, 0.2);
+  transform: translateY(-4px) scale(1.03);
+}
+
+.fleet-operations-luxury .wizard-step.complete {
+  border-color: rgba(46, 139, 87, 0.38);
+  background: linear-gradient(135deg, rgba(20, 55, 45, 0.8), rgba(8, 25, 18, 0.94));
+}
+
+.fleet-operations-luxury .wizard-step.complete span::after {
+  content: ' / OK';
+  color: #8bd5aa;
+}
+
+.fleet-operations-luxury .wizard-step span {
+  color: #c9a063;
+}
+
+.fleet-operations-luxury .wizard-step strong {
+  color: #f6f3ef;
+}
+
+.fleet-operations-luxury .wizard-step small {
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.fleet-operations-luxury .wizard-shell {
+  grid-template-columns: minmax(0, 1.7fr) minmax(310px, 0.75fr);
+  gap: 1.15rem;
+  margin: 0;
+  padding: 1.2rem;
+  max-height: calc(100vh - 19rem);
+  overflow: auto;
+}
+
+.fleet-operations-luxury .wizard-stage-header,
+.fleet-operations-luxury .wizard-panel,
+.fleet-operations-luxury .wizard-review-card,
+.fleet-operations-luxury .wizard-sidebar-card {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(10, 20, 40, 0.85);
+  color: #f6f3ef;
+  box-shadow: 0 20px 54px rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(18px);
+}
+
+.fleet-operations-luxury .wizard-stage-header {
+  border-radius: 24px;
+}
+
+.fleet-operations-luxury .wizard-stage-header h3,
+.fleet-operations-luxury .wizard-panel h3,
+.fleet-operations-luxury .wizard-review-card strong,
+.fleet-operations-luxury .wizard-sidebar-card strong,
+.fleet-operations-luxury .wizard-sidebar-stat strong {
+  color: #f6f3ef;
+}
+
+.fleet-operations-luxury .wizard-panel {
+  border-radius: 28px;
+}
+
+.fleet-operations-luxury .wizard-panel .form-grid label,
+.fleet-operations-luxury .document-upload-grid .field {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.fleet-operations-luxury .wizard-panel label > span,
+.fleet-operations-luxury .document-upload-grid .field > span,
+.fleet-operations-luxury .mini-label {
+  color: #c9a063;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.fleet-operations-luxury .wizard-panel input,
+.fleet-operations-luxury .wizard-panel select,
+.fleet-operations-luxury .document-upload-grid select {
+  min-height: 60px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  color: #f6f3ef;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  transition:
+    border-color 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+    background 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.fleet-operations-luxury .wizard-panel input:focus,
+.fleet-operations-luxury .wizard-panel select:focus,
+.fleet-operations-luxury .document-upload-grid select:focus {
+  border-color: #c9a063;
+  box-shadow: 0 0 20px rgba(201, 160, 99, 0.2);
+  outline: none;
+}
+
+.fleet-operations-luxury .wizard-panel input:disabled,
+.fleet-operations-luxury .wizard-panel select:disabled {
+  color: rgba(255, 255, 255, 0.48);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.fleet-operations-luxury .wizard-panel select option {
+  color: #f6f3ef;
+  background: #071b36;
+}
+
+.fleet-operations-luxury .wizard-panel input[type='file'] {
+  min-height: 9.5rem;
+  padding: 3.8rem 1rem 1rem;
+  border-style: dashed;
+  border-color: rgba(201, 160, 99, 0.34);
+  background:
+    radial-gradient(circle at 50% 28%, rgba(201, 160, 99, 0.12), transparent 24%),
+    rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+}
+
+.fleet-operations-luxury .wizard-panel input[type='file']:hover,
+.fleet-operations-luxury .document-dropzone:hover {
+  border-color: rgba(201, 160, 99, 0.55);
+  box-shadow: 0 0 30px rgba(201, 160, 99, 0.14);
+}
+
+.fleet-operations-luxury .document-type-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.fleet-operations-luxury .document-type-card,
+.fleet-operations-luxury .document-preview-card,
+.fleet-operations-luxury .stored-document-card,
+.fleet-operations-luxury .stored-image-card {
+  border: 1px solid rgba(201, 160, 99, 0.12);
+  border-radius: 22px;
+  background: linear-gradient(135deg, rgba(7, 27, 54, 0.86), rgba(5, 10, 20, 0.96));
+  color: #f6f3ef;
+}
+
+.fleet-operations-luxury .document-type-card.active,
+.fleet-operations-luxury .document-type-card:hover,
+.fleet-operations-luxury .document-preview-card:hover {
+  border-color: rgba(201, 160, 99, 0.42);
+  box-shadow: 0 16px 42px rgba(201, 160, 99, 0.12);
+  transform: translateY(-2px);
+}
+
+.fleet-operations-luxury .document-type-card span,
+.fleet-operations-luxury .document-type-card small,
+.fleet-operations-luxury .document-preview-card span,
+.fleet-operations-luxury .stored-document-card .muted {
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.fleet-operations-luxury .document-dropzone {
+  min-height: 12rem;
+  border: 1.5px dashed rgba(201, 160, 99, 0.4);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 50% 32%, rgba(201, 160, 99, 0.12), transparent 24%),
+    rgba(255, 255, 255, 0.03);
+  color: #f6f3ef;
+}
+
+.fleet-operations-luxury .document-dropzone strong {
+  color: #f6f3ef;
+}
+
+.fleet-operations-luxury .document-dropzone span,
+.fleet-operations-luxury .document-dropzone small {
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.fleet-operations-luxury .stored-image-preview,
+.fleet-operations-luxury .document-preview-card img,
+.fleet-operations-luxury .pdf-preview {
+  background: #071b36;
+}
+
+.fleet-operations-luxury .wizard-review-grid {
+  gap: 1rem;
+}
+
+.fleet-operations-luxury .wizard-review-card {
+  border-radius: 22px;
+}
+
+.fleet-operations-luxury .wizard-review-card p,
+.fleet-operations-luxury .wizard-sidebar-card .muted,
+.fleet-operations-luxury .wizard-sidebar-stat span {
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.fleet-operations-luxury .wizard-sidebar {
+  position: sticky;
+  top: 1rem;
+}
+
+.fleet-operations-luxury .wizard-sidebar-card {
+  border-radius: 24px;
+}
+
+.fleet-operations-luxury .wizard-sidebar-card--hero {
+  position: relative;
+  overflow: hidden;
+  min-height: 16rem;
+  background:
+    radial-gradient(circle at 70% 18%, rgba(201, 160, 99, 0.16), transparent 28%),
+    linear-gradient(135deg, rgba(7, 27, 54, 0.94), rgba(5, 10, 20, 0.98));
+}
+
+.fleet-operations-luxury .wizard-sidebar-card--hero::after {
+  content: '';
+  position: absolute;
+  right: 1.1rem;
+  bottom: 1.1rem;
+  width: 9rem;
+  height: 2.6rem;
+  border: 1.5px solid rgba(201, 160, 99, 0.52);
+  border-radius: 999px 70% 70% 999px;
+  transform: rotate(-12deg);
+  filter: drop-shadow(0 0 18px rgba(201, 160, 99, 0.2));
+  opacity: 0.68;
+}
+
+.fleet-operations-luxury .wizard-sidebar-highlight span {
+  border: 1px solid rgba(201, 160, 99, 0.18);
+  background: rgba(201, 160, 99, 0.1);
+  color: #c9a063;
+}
+
+.fleet-operations-luxury .wizard-sidebar-stat {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.fleet-operations-luxury .wizard-footer {
+  margin: 0;
+  padding: 1rem 1.2rem 1.2rem;
+  border-top: 1px solid rgba(201, 160, 99, 0.14);
+  background: rgba(5, 10, 20, 0.72);
+  backdrop-filter: blur(18px);
+}
+
+.fleet-operations-luxury .wizard-footer .ghost-button,
+.fleet-operations-luxury .wizard-close-button {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: #f6f3ef;
+}
+
+.fleet-operations-luxury .wizard-footer .primary-action {
+  border: 1px solid rgba(201, 160, 99, 0.34);
+  background: linear-gradient(135deg, #a9844f, #c9a063);
+  color: #050a14;
+  box-shadow: 0 12px 32px rgba(201, 160, 99, 0.2);
+}
+
+.fleet-operations-luxury .wizard-footer .ghost-button:hover,
+.fleet-operations-luxury .wizard-close-button:hover,
+.fleet-operations-luxury .wizard-footer .primary-action:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 14px 34px rgba(201, 160, 99, 0.22);
+}
+
+.fleet-operations-luxury .form-feedback-error {
+  border-color: rgba(201, 160, 99, 0.24);
+  background: rgba(80, 26, 26, 0.28);
+  color: #f6b8a8;
+}
+
+.fleet-operations-luxury .form-feedback-success {
+  border-color: rgba(46, 139, 87, 0.3);
+  background: rgba(46, 139, 87, 0.12);
+  color: #a6e8bf;
+}
+
+@keyframes aircraft-wizard-enter {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (max-width: 1080px) {
+  .fleet-operations-luxury .wizard-shell {
+    grid-template-columns: 1fr;
+    max-height: calc(100vh - 18rem);
+  }
+
+  .fleet-operations-luxury .wizard-sidebar {
+    position: static;
+  }
+
+  .fleet-operations-luxury .document-type-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+

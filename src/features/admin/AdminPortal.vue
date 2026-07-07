@@ -4,7 +4,7 @@ import { api } from '../../lib/api'
 import { pickCollection, requestWithCandidates } from '../../lib/backendCrud'
 import { fallbackAdminFlags, fallbackAdminKpis } from '../../data/platform'
 import { useUiStore } from '../../stores/ui'
-import { normalizeWorkflowLabel, resolveWorkflowState, SHARED_WORKFLOW_STEPS } from '../../utils/flightWorkflow'
+import { normalizeWorkflowLabel, resolveWorkflowState } from '../../utils/flightWorkflow'
 import { emitWorkflowSync, subscribeWorkflowSync } from '../../lib/workflowSync'
 import { resolveProviderRepresentativeName } from '../../lib/providerReview'
 
@@ -174,72 +174,6 @@ function extractOperationRange(operation = {}) {
     to: to && to >= from ? to : from,
   }
 }
-
-const quickActions = [
-  'Crear reserva',
-  'Crear cotizacion',
-  'Agregar aeronave',
-  'Asignar operador',
-  'Ver incidencias',
-]
-
-const controlAreas = [
-  {
-    title: 'Usuarios y roles',
-    description: 'Administra altas, permisos, estados y accesos de toda la plataforma.',
-    meta: 'Clientes, operadores, proveedores, sobrecargos y admins',
-  },
-  {
-    title: 'Reservas y pricing',
-    description: 'Controla solicitudes, cotizaciones, margen, fee de plataforma y vigencias.',
-    meta: 'Desde solicitud hasta confirmacion',
-  },
-  {
-    title: 'Flota y proveedores',
-    description: 'Supervisa aeronaves, disponibilidad, documentos, SLA y cumplimiento operativo.',
-    meta: 'Aeronaves, bases, costos y proveedores',
-  },
-  {
-    title: 'Contratos y documentos',
-    description: 'Centraliza plantillas, firmas digitales, seguros, licencias y certificados.',
-    meta: 'Cumplimiento legal y documental',
-  },
-  {
-    title: 'Pagos y finanzas',
-    description: 'Da seguimiento a cobros, comisiones, reembolsos, penalizaciones y facturas.',
-    meta: 'Margen, comision y conciliacion',
-  },
-  {
-    title: 'Incidencias y soporte',
-    description: 'Escala eventos criticos, evidencia, responsables y cierre operativo.',
-    meta: 'Historial, impacto y resolucion',
-  },
-]
-
-const flowSteps = SHARED_WORKFLOW_STEPS.map((step) => step.title)
-
-const policies = [
-  {
-    title: 'Admin ve todo',
-    description: 'Tiene visibilidad completa del negocio, el flujo y los controles de riesgo.',
-  },
-  {
-    title: 'Operador coordina',
-    description: 'Solo administra la operacion sin tocar pricing ejecutivo ni control comercial.',
-  },
-  {
-    title: 'Proveedor ciego',
-    description: 'No ve al cliente final ni las capas internas de relacion comercial.',
-  },
-  {
-    title: 'Sobrecargo acotado',
-    description: 'Solo accede a la operacion asignada, checklist, incidencias y pagos propios.',
-  },
-  {
-    title: 'Cliente ',
-    description: 'Toda la experiencia se concentra bajo la marca y el frente comercial oficial.',
-  },
-]
 
 const reservationStates = [
   'Pendiente',

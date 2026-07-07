@@ -1,0 +1,358 @@
+.payments-cockpit-page .payments-premium-hero h2 {
+  font-size: clamp(2.3rem, 5vw, 3.4rem);
+  line-height: 0.98;
+  letter-spacing: -0.04em;
+}
+
+.payments-cockpit-page .payments-premium-nav {
+  grid-template-columns: repeat(3, max-content);
+  gap: 0.8rem;
+}
+
+.payments-cockpit-page .payments-premium-nav span {
+  padding: 0.55rem 0.9rem;
+  border: 1px solid rgba(191, 219, 254, 0.82);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #5f7695 !important;
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.payments-cockpit-page .payments-premium-nav span::after {
+  display: none;
+}
+
+.payments-cockpit-page .payments-provider-card,
+.payments-cockpit-page .payments-provider-card__meta > div,
+.payments-cockpit-page .payments-executive-card,
+.payments-cockpit-page .payments-financial-sidebar,
+.payments-cockpit-page .payments-revenue-panel,
+.payments-cockpit-page .payments-renewal-center,
+.payments-cockpit-page .payments-timeline-card,
+.payments-cockpit-page .payments-pending-card,
+.payments-cockpit-page .payments-history-card,
+.payments-cockpit-page .payments-operation-card,
+.payments-cockpit-page .payments-aircraft-card {
+  border-color: rgba(226, 232, 240, 0.94) !important;
+  border-radius: 24px !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(247, 250, 255, 0.98)),
+    rgba(255, 255, 255, 0.97) !important;
+  box-shadow:
+    0 16px 32px rgba(15, 23, 42, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88) !important;
+}
+
+.payments-cockpit-page .payments-provider-card__meta > div:hover,
+.payments-cockpit-page .payments-executive-card:hover,
+.payments-cockpit-page .payments-timeline-card:hover,
+.payments-cockpit-page .payments-pending-card:hover,
+.payments-cockpit-page .payments-history-card:hover,
+.payments-cockpit-page .payments-operation-card:hover,
+.payments-cockpit-page .payments-aircraft-card:hover,
+.payments-cockpit-page .payments-revenue-panel:hover,
+.payments-cockpit-page .payments-renewal-center:hover,
+.payments-cockpit-page .payments-financial-sidebar:hover {
+  border-color: rgba(148, 163, 184, 0.34) !important;
+  box-shadow:
+    0 18px 36px rgba(15, 23, 42, 0.08),
+    0 0 0 1px rgba(255, 255, 255, 0.48) !important;
+}
+
+.payments-cockpit-page .payments-provider-card__top strong,
+.payments-cockpit-page .payments-executive-card strong,
+.payments-cockpit-page .payments-group-head strong,
+.payments-cockpit-page .payments-renewal-row strong,
+.payments-cockpit-page .payments-table-aircraft strong,
+.payments-cockpit-page .payments-cockpit-shell .list-card strong,
+.payments-cockpit-page .payments-cockpit-shell .card-top strong,
+.payments-cockpit-page .payments-cockpit-shell .payments-aircraft-grid strong,
+.payments-cockpit-page .payments-cockpit-shell .billing-status-card strong,
+.payments-cockpit-page .payments-cockpit-shell .billing-renewal-alert strong,
+.payments-cockpit-page .payments-cockpit-shell .payments-timeline-item strong {
+  color: #10233d !important;
+}
+
+.payments-cockpit-page .payments-provider-card__top small,
+.payments-cockpit-page .payments-premium-hero .muted,
+.payments-cockpit-page .payments-provider-card__meta span,
+.payments-cockpit-page .payments-executive-card p,
+.payments-cockpit-page .payments-executive-card small,
+.payments-cockpit-page .payments-revenue-row span,
+.payments-cockpit-page .payments-renewal-row span:not(.payments-status-badge),
+.payments-cockpit-page .payments-cockpit-shell .muted,
+.payments-cockpit-page .payments-cockpit-shell .compact-copy,
+.payments-cockpit-page .payments-cockpit-shell .fleet-inline-metrics span,
+.payments-cockpit-page .payments-cockpit-shell .mini-label,
+.payments-cockpit-page .payments-cockpit-shell .payments-timeline-item small {
+  color: #60748f !important;
+}
+
+.payments-cockpit-page .payments-provider-card__avatar {
+  border-radius: 18px;
+  box-shadow: 0 14px 28px rgba(37, 99, 235, 0.12);
+}
+
+.payments-cockpit-page .payments-executive-grid {
+  gap: 1.1rem;
+  margin-top: 0.25rem;
+}
+
+.payments-cockpit-page .payments-executive-card {
+  min-height: 11rem;
+  padding: 1.15rem;
+}
+
+.payments-cockpit-page .payments-executive-card__icon {
+  border-color: rgba(191, 219, 254, 0.8) !important;
+  border-radius: 16px !important;
+  background: linear-gradient(135deg, rgba(239, 246, 255, 0.96), rgba(219, 234, 254, 0.9)) !important;
+  color: #4f6b91 !important;
+}
+
+.payments-cockpit-page .payments-executive-card strong {
+  font-size: clamp(2rem, 3.4vw, 2.5rem);
+}
+
+.payments-cockpit-page .payments-cockpit-grid {
+  gap: 1rem;
+  align-items: start;
+}
+
+.payments-cockpit-page .payments-financial-sidebar {
+  gap: 0.95rem;
+  padding: 1.1rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(247, 250, 255, 0.99)),
+    rgba(255, 255, 255, 0.98) !important;
+}
+
+.payments-cockpit-page .payments-sidebar-head {
+  padding-bottom: 0.9rem;
+  border-bottom-color: rgba(226, 232, 240, 0.92) !important;
+}
+
+.payments-cockpit-page .payments-sidebar-head strong {
+  color: #24446f !important;
+}
+
+.payments-cockpit-page .payments-sidebar-link {
+  min-height: 4rem;
+  padding: 0.85rem 1rem;
+  border-color: rgba(226, 232, 240, 0.92) !important;
+  border-radius: 18px !important;
+  background: rgba(248, 250, 252, 0.98) !important;
+  color: #445c7b !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86);
+}
+
+.payments-cockpit-page .payments-sidebar-link strong {
+  color: #10233d !important;
+}
+
+.payments-cockpit-page .payments-sidebar-link.active,
+.payments-cockpit-page .payments-sidebar-link:hover {
+  transform: translateY(-2px);
+  border-color: rgba(96, 165, 250, 0.34) !important;
+  background:
+    linear-gradient(135deg, rgba(239, 246, 255, 0.98), rgba(248, 250, 252, 0.98)),
+    rgba(255, 255, 255, 0.98) !important;
+  box-shadow:
+    0 14px 28px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92) !important;
+}
+
+.payments-cockpit-page .payments-sidebar-summary {
+  padding: 0.2rem 0.1rem 0;
+  color: #6b7f99 !important;
+}
+
+.payments-cockpit-page .payments-transaction-workspace {
+  min-width: 0;
+}
+
+.payments-cockpit-page .payments-workspace-head {
+  align-items: center;
+  padding: 0.2rem 0 0.15rem;
+}
+
+.payments-cockpit-page .payments-tabs {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.payments-cockpit-page .tab-button {
+  min-height: 4.25rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid rgba(226, 232, 240, 0.92) !important;
+  border-radius: 18px !important;
+  background: rgba(255, 255, 255, 0.98) !important;
+  color: #60748f !important;
+}
+
+.payments-cockpit-page .tab-button strong {
+  color: #10233d !important;
+}
+
+.payments-cockpit-page .tab-button.active {
+  border-color: rgba(96, 165, 250, 0.4) !important;
+  background: linear-gradient(135deg, rgba(239, 246, 255, 0.98), rgba(255, 255, 255, 0.98)) !important;
+  color: #24446f !important;
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08) !important;
+}
+
+.payments-cockpit-page .tab-button.active::after {
+  left: 1rem;
+  right: 1rem;
+  bottom: 0.55rem;
+  height: 2px;
+  background: linear-gradient(90deg, #60a5fa, #d4a95d);
+}
+
+.payments-cockpit-page .payments-revenue-panel,
+.payments-cockpit-page .payments-renewal-center,
+.payments-cockpit-page .payments-timeline-card,
+.payments-cockpit-page .payments-pending-card,
+.payments-cockpit-page .payments-history-card,
+.payments-cockpit-page .payments-operation-card,
+.payments-cockpit-page .payments-aircraft-card {
+  padding: 1.15rem;
+}
+
+.payments-cockpit-page .payments-revenue-track {
+  background: rgba(226, 232, 240, 0.9) !important;
+}
+
+.payments-cockpit-page .payments-revenue-track span {
+  background: linear-gradient(90deg, #60a5fa, #d4a95d) !important;
+}
+
+.payments-cockpit-page .payments-renewal-row,
+.payments-cockpit-page .payments-aircraft-grid > div {
+  border-color: rgba(226, 232, 240, 0.92) !important;
+  border-radius: 18px !important;
+  background: rgba(248, 250, 252, 0.98) !important;
+}
+
+.payments-cockpit-page .payments-group-head {
+  padding: 0.2rem 0 0.45rem;
+}
+
+.payments-cockpit-page .payments-table-head {
+  border-bottom-color: rgba(226, 232, 240, 0.96) !important;
+  background: rgba(248, 250, 252, 0.98) !important;
+  color: #6b7f99 !important;
+}
+
+.payments-cockpit-page .payments-status-badge[data-tone='success'] {
+  background: rgba(34, 197, 94, 0.12) !important;
+  color: #1f7a43 !important;
+}
+
+.payments-cockpit-page .payments-status-badge[data-tone='warning'] {
+  background: rgba(245, 158, 11, 0.14) !important;
+  color: #946200 !important;
+}
+
+.payments-cockpit-page .payments-status-badge[data-tone='danger'] {
+  background: rgba(239, 68, 68, 0.12) !important;
+  color: #b42318 !important;
+}
+
+.payments-cockpit-page .payments-status-badge[data-tone='info'] {
+  background: rgba(96, 165, 250, 0.12) !important;
+  color: #24446f !important;
+}
+
+@media (max-width: 1100px) {
+  .payments-cockpit-page .payments-premium-hero,
+  .payments-cockpit-page .payments-cockpit-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .payments-cockpit-page .payments-executive-grid,
+  .payments-cockpit-page .payments-tabs,
+  .payments-cockpit-page .payments-provider-card__meta,
+  .payments-cockpit-page .payments-aircraft-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .payments-cockpit-page .payments-premium-nav {
+    grid-template-columns: 1fr;
+  }
+
+  .progress-list-item {
+    grid-template-columns: 2.35rem minmax(0, 1fr);
+  }
+
+  .progress-list-status {
+    grid-column: 2;
+    width: fit-content;
+    min-width: 0;
+  }
+}
+
+/* =========================================================
+   AJUSTE FINAL - LISTA CORPORATIVA DE ONBOARDING
+   ESTE BLOQUE DEBE IR FUERA DEL @media 
+========================================================= */
+
+.operator-certification-luxury .company-progress-list {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 1rem;
+}
+
+.operator-certification-luxury .progress-list-item {
+  min-height: 3.6rem;
+  padding: 0.68rem 0.8rem;
+  border-radius: 0.9rem;
+  background: #ffffff;
+  border: 1px solid rgba(203, 213, 225, 0.95);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.045);
+}
+
+.operator-certification-luxury .progress-list-icon {
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 0.75rem;
+  font-size: 0.82rem;
+}
+
+.operator-certification-luxury .progress-list-copy strong {
+  font-size: 0.9rem;
+  color: #111111;
+}
+
+.operator-certification-luxury .progress-list-copy small {
+  font-size: 0.74rem;
+  color: #4b5563;
+}
+
+.operator-certification-luxury .progress-list-status {
+  min-width: 5.2rem;
+  padding: 0.3rem 0.58rem;
+  font-size: 0.64rem;
+}
+
+/* Responsive solo para la lista */
+@media (max-width: 760px) {
+  .operator-certification-luxury .progress-list-item {
+    grid-template-columns: 2.1rem minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .operator-certification-luxury .progress-list-status {
+    grid-column: 2;
+    width: fit-content;
+    min-width: 0;
+    margin-top: 0.15rem;
+  }
+
+  
+}

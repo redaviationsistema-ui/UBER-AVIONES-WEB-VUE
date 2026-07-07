@@ -1,0 +1,965 @@
+/* Operator dashboard refresh: executive SaaS light theme */
+.operator-portal-page:has(.operator-dashboard-luxury) {
+  background:
+    radial-gradient(circle at top left, rgba(191, 219, 254, 0.38), transparent 24%),
+    radial-gradient(circle at top right, rgba(226, 232, 240, 0.7), transparent 26%),
+    linear-gradient(180deg, #f7fbff 0%, #eef4fb 48%, #f8fbff 100%);
+  color: #10233d;
+}
+
+.operator-dashboard-luxury {
+  gap: clamp(1.25rem, 2vw, 1.85rem);
+  min-height: calc(100vh - 7rem);
+  padding: clamp(0.35rem, 1vw, 0.85rem);
+  color: #10233d;
+}
+
+.operator-dashboard-luxury::before {
+  inset: -6rem -1rem auto;
+  height: 24rem;
+  background:
+    radial-gradient(circle at 16% 18%, rgba(96, 165, 250, 0.2), transparent 26%),
+    radial-gradient(circle at 78% 4%, rgba(15, 23, 42, 0.08), transparent 22%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0));
+}
+
+.operator-dashboard-luxury .surface,
+.operator-dashboard-luxury .company-progress-card,
+.operator-dashboard-luxury .company-alert,
+.operator-dashboard-luxury .quick-action-card,
+.operator-dashboard-luxury .metric-card,
+.operator-dashboard-luxury .checklist-card,
+.operator-dashboard-luxury .priority-item,
+.operator-dashboard-luxury .ops-timeline-item,
+.operator-dashboard-luxury .dashboard-hero-facts article {
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 28px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 251, 255, 0.9)),
+    rgba(255, 255, 255, 0.78);
+  box-shadow:
+    0 18px 38px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.75);
+  color: #10233d;
+  backdrop-filter: blur(16px);
+}
+
+.operator-dashboard-luxury .surface:hover,
+.operator-dashboard-luxury .company-alert:hover,
+.operator-dashboard-luxury .quick-action-card:hover,
+.operator-dashboard-luxury .metric-card:hover,
+.operator-dashboard-luxury .checklist-card:hover,
+.operator-dashboard-luxury .priority-item:hover,
+.operator-dashboard-luxury .ops-timeline-item:hover {
+  border-color: rgba(96, 165, 250, 0.24);
+  box-shadow:
+    0 20px 42px rgba(15, 23, 42, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  transform: translateY(-2px);
+}
+
+.operator-dashboard-luxury .eyebrow,
+.operator-dashboard-luxury .mini-label,
+.operator-dashboard-luxury .dashboard-hero-facts span,
+.operator-dashboard-luxury .dashboard-metric-card span,
+.operator-dashboard-luxury .checklist-progress span {
+  color: #6b7f99;
+  letter-spacing: 0.12em;
+}
+
+.operator-dashboard-luxury .muted,
+.operator-dashboard-luxury .helper-copy,
+.operator-dashboard-luxury .quick-action-card small,
+.operator-dashboard-luxury .checklist-card p,
+.operator-dashboard-luxury .dashboard-metric-card small,
+.operator-dashboard-luxury .priority-item span,
+.operator-dashboard-luxury .ops-timeline-item .muted,
+.operator-dashboard-luxury .metric-status,
+.operator-dashboard-luxury .ops-timeline-time {
+  color: #60748f;
+}
+
+.operator-dashboard-luxury .section-head h2,
+.operator-dashboard-luxury .dashboard-hero-premium h1,
+.operator-dashboard-luxury .dashboard-hero-facts strong,
+.operator-dashboard-luxury .company-progress-head strong,
+.operator-dashboard-luxury .dashboard-metric-card strong,
+.operator-dashboard-luxury .company-alert strong,
+.operator-dashboard-luxury .quick-action-card strong,
+.operator-dashboard-luxury .checklist-card strong,
+.operator-dashboard-luxury .priority-item strong,
+.operator-dashboard-luxury .ops-timeline-item strong,
+.operator-dashboard-luxury .realtime-flight-request-banner h2,
+.operator-dashboard-luxury .realtime-flight-request-banner__meta strong {
+  color: #11253f;
+}
+
+.operator-dashboard-luxury .dashboard-hero-premium {
+  grid-template-columns: minmax(0, 1.35fr) minmax(16rem, 0.65fr);
+  gap: clamp(1.1rem, 2.2vw, 1.7rem);
+  padding: clamp(1.4rem, 2.8vw, 2rem);
+  border-color: rgba(148, 163, 184, 0.22);
+  background:
+    radial-gradient(circle at top right, rgba(191, 219, 254, 0.14), transparent 24%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(247, 250, 255, 0.96));
+}
+
+.operator-dashboard-luxury .dashboard-hero-premium::after {
+  right: -6%;
+  bottom: -28%;
+  width: 38%;
+  background: radial-gradient(circle, rgba(191, 219, 254, 0.4), transparent 62%);
+}
+
+.operator-dashboard-luxury .dashboard-hero-premium > .section-head {
+  order: 1;
+}
+
+.operator-dashboard-luxury .dashboard-hero-premium > .helper-copy {
+  order: 2;
+}
+
+.operator-dashboard-luxury .dashboard-hero-premium > .dashboard-hero-facts {
+  order: 3;
+}
+
+.operator-dashboard-luxury .dashboard-hero-premium > .company-progress-card {
+  order: 4;
+}
+
+.operator-dashboard-luxury .dashboard-hero-premium > .dashboard-quick-actions {
+  order: 5;
+}
+
+.operator-dashboard-luxury .dashboard-hero-premium > .dashboard-alert-strip {
+  order: 6;
+}
+
+.operator-dashboard-luxury .dashboard-hero-head {
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.operator-dashboard-luxury .dashboard-hero-premium h1 {
+  max-width: 10ch;
+  font-size: clamp(3rem, 4.6vw, 4rem);
+  line-height: 0.94;
+}
+
+.operator-dashboard-luxury .dashboard-hero-head .muted,
+.operator-dashboard-luxury .dashboard-hero-premium .helper-copy {
+  color: #60748f;
+}
+
+.operator-dashboard-luxury .status-pill {
+  justify-self: end;
+  min-height: 2.5rem;
+  padding: 0 0.95rem;
+  border-color: rgba(148, 163, 184, 0.2);
+  background: rgba(255, 255, 255, 0.98);
+  color: #11253f;
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.06);
+}
+
+.operator-dashboard-luxury .status-pill[data-tone='success'] {
+  border-color: rgba(187, 247, 208, 0.5);
+  background: rgba(34, 197, 94, 0.18);
+  color: #dcfce7;
+}
+
+.operator-dashboard-luxury .status-pill[data-tone='warning'] {
+  border-color: rgba(245, 158, 11, 0.28);
+  background: rgba(254, 243, 199, 0.72);
+  color: #8a5a12;
+  box-shadow: 0 8px 18px rgba(245, 158, 11, 0.08);
+}
+
+.operator-dashboard-luxury .dashboard-hero-facts {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.95rem;
+}
+
+.operator-dashboard-luxury .dashboard-hero-facts article {
+  min-height: 6.6rem;
+  padding: 1.15rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 249, 255, 0.94)),
+    rgba(255, 255, 255, 0.92);
+  color: #11253f;
+  border-color: rgba(148, 163, 184, 0.18);
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.06);
+}
+
+.operator-dashboard-luxury .dashboard-hero-facts span,
+.operator-dashboard-luxury .dashboard-hero-facts strong {
+  color: #11253f;
+}
+
+.operator-dashboard-luxury .company-progress-card {
+  padding: 1.2rem 1.3rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(244, 248, 255, 0.92)),
+    rgba(255, 255, 255, 0.82);
+}
+
+.operator-dashboard-luxury .progress-bar {
+  height: 0.62rem;
+  background: rgba(203, 213, 225, 0.75);
+}
+
+.operator-dashboard-luxury .progress-bar-fill {
+  background: linear-gradient(90deg, #0f2747, #2f5c9a 55%, #7fb3ff);
+  box-shadow: 0 8px 20px rgba(47, 92, 154, 0.18);
+}
+
+.operator-dashboard-luxury .dashboard-alert-strip {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.operator-dashboard-luxury .company-alert {
+  min-height: 5rem;
+  padding: 1rem 1.05rem;
+  border-radius: 24px;
+}
+
+.operator-dashboard-luxury .company-alert[data-tone='success'],
+.operator-dashboard-luxury .company-alert[data-tone='warning'],
+.operator-dashboard-luxury .company-alert[data-tone='info'],
+.operator-dashboard-luxury .company-alert[data-tone='danger'] {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 251, 255, 0.94)),
+    rgba(255, 255, 255, 0.86);
+}
+
+.operator-dashboard-luxury .company-alert-icon,
+.operator-dashboard-luxury .quick-action-icon,
+.operator-dashboard-luxury .checklist-icon {
+  border-color: rgba(191, 219, 254, 0.42);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(239, 246, 255, 0.96)),
+    rgba(255, 255, 255, 0.96);
+  color: #24446f;
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.08);
+}
+
+.operator-dashboard-luxury .dashboard-quick-actions {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.95rem;
+}
+
+.operator-dashboard-luxury .quick-action-card {
+  min-height: 8.8rem;
+  padding: 1.1rem;
+  gap: 0.6rem;
+}
+
+.operator-dashboard-luxury .quick-action-card[data-action='fleet'],
+.operator-dashboard-luxury .quick-action-card[data-action='requests'],
+.operator-dashboard-luxury .quick-action-card[data-action='availability'],
+.operator-dashboard-luxury .quick-action-card[data-action='docs'] {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 250, 255, 0.94)),
+    rgba(255, 255, 255, 0.88);
+  border-color: rgba(148, 163, 184, 0.2);
+}
+
+.operator-dashboard-luxury .dashboard-layout {
+  grid-template-columns: minmax(0, 1.45fr) minmax(20rem, 0.82fr);
+  gap: 1.3rem;
+  align-items: start;
+}
+
+.operator-dashboard-luxury .dashboard-main-column,
+.operator-dashboard-luxury .dashboard-side-column {
+  gap: 1.3rem;
+}
+
+.operator-dashboard-luxury .dashboard-kpi-panel,
+.operator-dashboard-luxury .dashboard-workflow-panel,
+.operator-dashboard-luxury .dashboard-executive-feed,
+.operator-dashboard-luxury .dashboard-executive-panel {
+  padding: clamp(1.2rem, 2.1vw, 1.6rem);
+}
+
+.operator-dashboard-luxury .dashboard-metric-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.operator-dashboard-luxury .dashboard-metric-card {
+  min-height: 11.6rem;
+  padding: 1.15rem;
+  gap: 0.65rem;
+}
+
+.operator-dashboard-luxury .dashboard-metric-card strong {
+  font-size: clamp(2.1rem, 4vw, 3rem);
+  letter-spacing: -0.04em;
+}
+
+.operator-dashboard-luxury .dashboard-metric-card::before {
+  width: 0.62rem;
+  height: 0.62rem;
+  background: #24446f;
+  box-shadow: 0 0 0 0.35rem rgba(191, 219, 254, 0.28);
+}
+
+.operator-dashboard-luxury .dashboard-metric-card[data-tone='success'],
+.operator-dashboard-luxury .dashboard-metric-card[data-tone='warning'],
+.operator-dashboard-luxury .dashboard-metric-card[data-tone='info'],
+.operator-dashboard-luxury .dashboard-metric-card[data-tone='neutral'],
+.operator-dashboard-luxury .dashboard-metric-card[data-tone='danger'] {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 250, 255, 0.95)),
+    rgba(255, 255, 255, 0.9);
+}
+
+.operator-dashboard-luxury .dashboard-metric-card[data-tone='success']::before {
+  background: #1f7a47;
+  box-shadow: 0 0 0 0.35rem rgba(220, 252, 231, 0.9);
+}
+
+.operator-dashboard-luxury .dashboard-metric-card[data-tone='danger']::before {
+  background: #c24141;
+  box-shadow: 0 0 0 0.35rem rgba(254, 226, 226, 0.95);
+}
+
+.operator-dashboard-luxury .dashboard-checklist {
+  gap: 0.95rem;
+}
+
+.operator-dashboard-luxury .checklist-card {
+  gap: 1rem;
+  min-height: 6.9rem;
+  padding: 1rem 1.05rem;
+}
+
+.operator-dashboard-luxury .checklist-card[data-tone='complete'],
+.operator-dashboard-luxury .checklist-card[data-tone='warning'],
+.operator-dashboard-luxury .checklist-card[data-tone='pending'],
+.operator-dashboard-luxury .checklist-card[data-tone='neutral'],
+.operator-dashboard-luxury .checklist-card[data-section='empresa'],
+.operator-dashboard-luxury .checklist-card[data-section='aeronaves'],
+.operator-dashboard-luxury .checklist-card[data-section='costos'],
+.operator-dashboard-luxury .checklist-card[data-section='disponibilidad'],
+.operator-dashboard-luxury .checklist-card[data-section='solicitudes'] {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 250, 255, 0.95)),
+    rgba(255, 255, 255, 0.9);
+  border-color: rgba(148, 163, 184, 0.2);
+  color: #10233d;
+}
+
+.operator-dashboard-luxury .dashboard-workflow-panel {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.985), rgba(249, 250, 252, 0.97)),
+    rgba(255, 255, 255, 0.94);
+}
+
+.operator-dashboard-luxury .checklist-card {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(249, 250, 252, 0.96)),
+    rgba(255, 255, 255, 0.94);
+  border-color: rgba(226, 232, 240, 0.95);
+  box-shadow:
+    0 12px 24px rgba(15, 23, 42, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.operator-dashboard-luxury .checklist-card[data-tone='complete'],
+.operator-dashboard-luxury .checklist-card[data-tone='warning'],
+.operator-dashboard-luxury .checklist-card[data-tone='pending'],
+.operator-dashboard-luxury .checklist-card[data-tone='neutral'],
+.operator-dashboard-luxury .checklist-card[data-section='empresa'],
+.operator-dashboard-luxury .checklist-card[data-section='aeronaves'],
+.operator-dashboard-luxury .checklist-card[data-section='costos'],
+.operator-dashboard-luxury .checklist-card[data-section='disponibilidad'],
+.operator-dashboard-luxury .checklist-card[data-section='solicitudes'] {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(249, 250, 252, 0.96)),
+    rgba(255, 255, 255, 0.94);
+  border-color: rgba(226, 232, 240, 0.95);
+}
+
+.operator-dashboard-luxury .checklist-icon {
+  width: 4.5rem;
+  height: 4.5rem;
+  border-radius: 1.45rem;
+  border-color: rgba(226, 232, 240, 0.98);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(248, 250, 252, 0.98)),
+    rgba(255, 255, 255, 0.98);
+  color: #64748b;
+  box-shadow:
+    0 8px 18px rgba(15, 23, 42, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+.operator-dashboard-luxury .checklist-icon::after {
+  background: radial-gradient(circle at 50% 40%, rgba(226, 232, 240, 0.3), transparent 70%);
+}
+
+.operator-dashboard-luxury .checklist-icon svg {
+  width: 2.5rem;
+  height: 2.5rem;
+  filter: none;
+}
+
+.operator-dashboard-luxury .checklist-card[data-section='empresa'] .checklist-icon {
+  color: #2f855a;
+}
+
+.operator-dashboard-luxury .checklist-card[data-section='aeronaves'] .checklist-icon,
+.operator-dashboard-luxury .checklist-card[data-section='costos'] .checklist-icon,
+.operator-dashboard-luxury .checklist-card[data-section='disponibilidad'] .checklist-icon,
+.operator-dashboard-luxury .checklist-card[data-section='solicitudes'] .checklist-icon {
+  color: #64748b;
+}
+
+.operator-dashboard-luxury .checklist-progress strong {
+  font-size: 1.15rem;
+  color: #11253f;
+}
+
+.operator-dashboard-luxury .executive-jet-visual {
+  height: 11rem;
+  border-color: rgba(191, 219, 254, 0.36);
+  background:
+    radial-gradient(circle at 20% 18%, rgba(191, 219, 254, 0.24), transparent 28%),
+    linear-gradient(180deg, rgba(245, 249, 255, 0.98), rgba(235, 242, 250, 0.94));
+}
+
+.operator-dashboard-luxury .jet-body,
+.operator-dashboard-luxury .jet-wing,
+.operator-dashboard-luxury .jet-tail {
+  background: linear-gradient(135deg, #dbeafe, #93c5fd 55%, #1e3a5f);
+  box-shadow: 0 16px 30px rgba(37, 99, 235, 0.12);
+}
+
+.operator-dashboard-luxury .jet-body::after {
+  border-left-color: #f8fbff;
+}
+
+.operator-dashboard-luxury .jet-window {
+  background: #173055;
+}
+
+.operator-dashboard-luxury .priority-list {
+  gap: 0.8rem;
+}
+
+.operator-dashboard-luxury .priority-item,
+.operator-dashboard-luxury .ops-timeline-item {
+  padding: 1rem 1.05rem;
+  border-radius: 22px;
+}
+
+.operator-dashboard-luxury .realtime-flight-request-banner {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 1rem 1.1rem;
+  border-color: rgba(148, 163, 184, 0.22);
+  background:
+    radial-gradient(circle at top left, rgba(191, 219, 254, 0.18), transparent 25%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 251, 255, 0.95));
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.08);
+}
+
+.operator-dashboard-luxury .realtime-flight-request-banner__signal {
+  width: 2.85rem;
+  height: 2.85rem;
+}
+
+.operator-dashboard-luxury .realtime-flight-request-banner__signal span {
+  background: #1d4ed8;
+  box-shadow: 0 0 0 0.45rem rgba(191, 219, 254, 0.36);
+}
+
+.operator-dashboard-luxury .realtime-flight-request-banner__meta span,
+.operator-dashboard-luxury .realtime-flight-request-banner__count {
+  background: #f8fbff;
+  color: #4a607e;
+}
+
+.operator-dashboard-luxury .realtime-flight-request-banner .primary-action {
+  background: linear-gradient(135deg, #0f2747, #24446f);
+  border-color: rgba(15, 39, 71, 0.2);
+}
+
+@media (max-width: 1080px) {
+  .operator-dashboard-luxury .dashboard-hero-premium,
+  .operator-dashboard-luxury .dashboard-layout,
+  .operator-dashboard-luxury .dashboard-alert-strip,
+  .operator-dashboard-luxury .dashboard-quick-actions,
+  .operator-dashboard-luxury .dashboard-metric-grid,
+  .operator-dashboard-luxury .dashboard-hero-facts {
+    grid-template-columns: 1fr;
+  }
+
+  .operator-dashboard-luxury .status-pill {
+    justify-self: start;
+  }
+
+  .operator-dashboard-luxury .dashboard-hero-premium {
+    background:
+      radial-gradient(circle at top right, rgba(191, 219, 254, 0.22), transparent 26%),
+      linear-gradient(180deg, rgba(20, 37, 66, 0.96), rgba(43, 72, 116, 0.9) 43%, rgba(255, 255, 255, 0.97) 43.2%, rgba(255, 255, 255, 0.97) 100%);
+  }
+}
+
+@media (max-width: 720px) {
+  .operator-dashboard-luxury {
+    gap: 1rem;
+    padding: 0;
+  }
+
+  .operator-dashboard-luxury .dashboard-hero-premium {
+    padding: 1.15rem;
+    border-radius: 24px;
+  }
+
+  .operator-dashboard-luxury .dashboard-hero-premium h1 {
+    font-size: clamp(2.35rem, 11vw, 3.2rem);
+    max-width: none;
+  }
+
+  .operator-dashboard-luxury .checklist-card,
+  .operator-dashboard-luxury .company-alert,
+  .operator-dashboard-luxury .realtime-flight-request-banner {
+    grid-template-columns: 1fr;
+  }
+
+  .operator-dashboard-luxury .realtime-flight-request-banner__actions,
+  .operator-dashboard-luxury .checklist-progress {
+    justify-items: start;
+    justify-content: flex-start;
+  }
+
+  .operator-dashboard-luxury .quick-action-card,
+  .operator-dashboard-luxury .dashboard-metric-card {
+    min-height: auto;
+  }
+}
+
+/* Final neutral override for workflow icons */
+.operator-dashboard-luxury .dashboard-workflow-panel .checklist-card .checklist-icon {
+  border-color: rgba(226, 232, 240, 0.98) !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(248, 250, 252, 0.98)),
+    rgba(255, 255, 255, 0.98) !important;
+  color: #64748b !important;
+  box-shadow:
+    0 8px 18px rgba(15, 23, 42, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92) !important;
+}
+
+.operator-dashboard-luxury .dashboard-workflow-panel .checklist-card .checklist-icon::after {
+  background: radial-gradient(circle at 50% 40%, rgba(226, 232, 240, 0.3), transparent 70%) !important;
+}
+
+.operator-dashboard-luxury .dashboard-workflow-panel .checklist-card .checklist-icon svg {
+  filter: none !important;
+}
+
+.operator-dashboard-luxury .dashboard-workflow-panel .checklist-card[data-section='empresa'] .checklist-icon {
+  color: #2f855a !important;
+}
+
+.operator-dashboard-luxury .dashboard-workflow-panel .checklist-card[data-section='aeronaves'] .checklist-icon,
+.operator-dashboard-luxury .dashboard-workflow-panel .checklist-card[data-section='costos'] .checklist-icon,
+.operator-dashboard-luxury .dashboard-workflow-panel .checklist-card[data-section='disponibilidad'] .checklist-icon,
+.operator-dashboard-luxury .dashboard-workflow-panel .checklist-card[data-section='solicitudes'] .checklist-icon {
+  color: #64748b !important;
+}
+
+/* Shared premium-light style for operator sections opened from the menu */
+.operator-portal-page:has(
+    .operator-certification-luxury,
+    .fleet-operations-luxury,
+    .operator-costs-luxury,
+    .availability-control-luxury,
+    .flight-ops-command-luxury,
+    .flight-release-luxury,
+    .flight-tracking-luxury,
+    .operator-crew-luxury,
+    .operator-incidents-dashboard,
+    .payments-cockpit-page,
+    .operator-history-luxury,
+    .operator-settings-luxury
+  ) {
+  background:
+    radial-gradient(circle at 12% 8%, rgba(191, 219, 254, 0.3), transparent 18%),
+    radial-gradient(circle at 88% 8%, rgba(147, 197, 253, 0.16), transparent 18%),
+    linear-gradient(180deg, #f7fbff 0%, #eef4fb 52%, #f8fbff 100%);
+  color: #10233d;
+}
+
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) {
+  position: relative;
+  gap: 1.25rem;
+  min-height: calc(100vh - 7rem);
+  padding: clamp(0.35rem, 1vw, 0.85rem);
+  color: #10233d;
+}
+
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+)::before {
+  content: '';
+  position: absolute;
+  inset: -6rem -1rem auto;
+  height: 22rem;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 16% 18%, rgba(96, 165, 250, 0.16), transparent 24%),
+    radial-gradient(circle at 82% 2%, rgba(148, 163, 184, 0.1), transparent 22%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0));
+}
+
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) > * {
+  position: relative;
+  z-index: 1;
+}
+
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .surface,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .list-card,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .timeline-item,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .metric-card,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .operator-side-card,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .company-form-section {
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: 26px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(247, 250, 255, 0.96)),
+    rgba(255, 255, 255, 0.94);
+  box-shadow:
+    0 16px 32px rgba(15, 23, 42, 0.07),
+    inset 0 1px 0 rgba(255, 255, 255, 0.86);
+  color: #10233d;
+}
+
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .surface:hover,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .list-card:hover,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .timeline-item:hover,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .metric-card:hover {
+  border-color: rgba(148, 163, 184, 0.28);
+  box-shadow:
+    0 18px 36px rgba(15, 23, 42, 0.09),
+    0 0 0 1px rgba(255, 255, 255, 0.42);
+}
+
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .section-head h2,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) h3,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) strong {
+  color: #11253f;
+}
+
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .eyebrow,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .mini-label,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .badge {
+  color: #6b7f99;
+}
+
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) .muted,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) p,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) small,
+:is(
+  .operator-certification-luxury,
+  .fleet-operations-luxury,
+  .operator-costs-luxury,
+  .availability-control-luxury,
+  .flight-ops-command-luxury,
+  .flight-release-luxury,
+  .flight-tracking-luxury,
+  .operator-crew-luxury,
+  .operator-incidents-dashboard,
+  .payments-cockpit-page,
+  .operator-history-luxury,
+  .operator-settings-luxury
+) span {
+  color: #60748f;
+}

@@ -1,0 +1,993 @@
+/* Flight Operational Release Center */
+.operator-portal-page:has(.flight-release-luxury) {
+  background:
+    radial-gradient(circle at 18% 8%, rgba(201, 160, 99, 0.12), transparent 32%),
+    radial-gradient(circle at 78% 12%, rgba(10, 35, 66, 0.5), transparent 40%),
+    #050a14;
+  color: #f6f3ef;
+}
+
+.flight-release-luxury {
+  position: relative;
+  color: #f6f3ef;
+  font-family: 'Inter', 'Manrope', 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+}
+
+.flight-release-luxury::before {
+  content: '';
+  position: absolute;
+  inset: -6rem -2rem auto;
+  height: 28rem;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 30% 16%, rgba(201, 160, 99, 0.14), transparent 34%),
+    radial-gradient(circle at 82% 28%, rgba(70, 120, 180, 0.2), transparent 36%);
+  filter: blur(4px);
+}
+
+.flight-release-luxury > * {
+  position: relative;
+  z-index: 1;
+}
+
+.flight-release-luxury .surface,
+.flight-release-luxury .request-summary-card,
+.flight-release-luxury .provider-release-panel,
+.flight-release-luxury .provider-release-card,
+.flight-release-luxury .provider-release-summary-shell,
+.flight-release-luxury .provider-release-step,
+.flight-release-luxury .provider-release-list span,
+.flight-release-luxury .provider-list-check,
+.flight-release-luxury .provider-release-summary__item,
+.flight-release-luxury .provider-release-alert,
+.flight-release-luxury .provider-release-lock {
+  border: 1px solid rgba(201, 160, 99, 0.12);
+  background:
+    linear-gradient(135deg, rgba(7, 27, 54, 0.95), rgba(5, 10, 20, 0.98));
+  box-shadow:
+    0 20px 50px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(20px);
+}
+
+.flight-release-luxury .surface {
+  border-radius: 28px;
+}
+
+.flight-release-luxury .flight-release-hero {
+  position: relative;
+  overflow: hidden;
+  padding: clamp(1.4rem, 3vw, 2.3rem);
+  background:
+    linear-gradient(135deg, rgba(5, 10, 20, 0.96), rgba(7, 27, 54, 0.88)),
+    radial-gradient(circle at 82% 20%, rgba(201, 160, 99, 0.16), transparent 32%);
+}
+
+.flight-release-luxury .flight-release-hero::before {
+  content: '';
+  position: absolute;
+  right: 8%;
+  bottom: 12%;
+  width: min(38rem, 42vw);
+  height: 8rem;
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, rgba(246, 243, 239, 0.04), rgba(246, 243, 239, 0.18), rgba(201, 160, 99, 0.08));
+  clip-path: polygon(0 52%, 56% 33%, 100% 43%, 100% 57%, 56% 62%, 0 68%);
+  opacity: 0.72;
+  filter: drop-shadow(0 0 28px rgba(201, 160, 99, 0.12));
+}
+
+.flight-release-luxury .section-head {
+  position: relative;
+  z-index: 1;
+}
+
+.flight-release-luxury .flight-release-hero .section-head {
+  align-items: flex-start;
+}
+
+.flight-release-luxury .eyebrow,
+.flight-release-luxury .mini-label {
+  color: #c9a063;
+  letter-spacing: 0.16em;
+}
+
+.flight-release-luxury .flight-release-hero h2,
+.flight-release-luxury .provider-release-panel__head h4,
+.flight-release-luxury .provider-release-card__head strong {
+  color: #f6f3ef;
+  font-family: 'Playfair Display', 'Cormorant Garamond', Georgia, serif;
+  letter-spacing: 0;
+}
+
+.flight-release-luxury .flight-release-hero h2 {
+  max-width: 12ch;
+  margin: 0;
+  font-size: clamp(3.1rem, 8vw, 6.4rem);
+  font-weight: 700;
+  line-height: 0.88;
+}
+
+.flight-release-luxury .flight-release-hero-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+  align-items: center;
+  margin-top: 0.95rem;
+  color: rgba(246, 243, 239, 0.82);
+  font-weight: 800;
+}
+
+.flight-release-luxury .flight-release-hero-meta strong {
+  color: #c9a063;
+  font-size: clamp(1.25rem, 2vw, 1.75rem);
+}
+
+.flight-release-luxury .flight-release-hero-meta span {
+  padding-left: 0.7rem;
+  border-left: 1px solid rgba(201, 160, 99, 0.24);
+}
+
+.flight-release-luxury .flight-release-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-top: 1.1rem;
+}
+
+.flight-release-luxury .flight-release-badges span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 2.1rem;
+  padding: 0 0.78rem;
+  border: 1px solid rgba(46, 139, 87, 0.34);
+  border-radius: 999px;
+  background: rgba(46, 139, 87, 0.12);
+  color: #b9f2d0;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.flight-release-luxury .flight-release-badges span::before {
+  content: '✓';
+}
+
+.flight-release-luxury .muted,
+.flight-release-luxury .helper-copy,
+.flight-release-luxury .provider-release-note,
+.flight-release-luxury .provider-release-step__main small,
+.flight-release-luxury .provider-release-summary__item small,
+.flight-release-luxury .provider-release-alert p {
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.flight-release-luxury .requests-head-actions {
+  position: relative;
+  z-index: 1;
+}
+
+.flight-release-luxury .status-pill,
+.flight-release-luxury .package-chip {
+  border: 1px solid rgba(201, 160, 99, 0.22);
+  background: rgba(255, 255, 255, 0.06);
+  color: #f6f3ef;
+}
+
+.flight-release-luxury .status-pill[data-tone='success'],
+.flight-release-luxury .package-chip[data-tone='success'] {
+  border-color: rgba(46, 139, 87, 0.38);
+  background: rgba(46, 139, 87, 0.14);
+  color: #b9f2d0;
+}
+
+.flight-release-luxury .status-pill[data-tone='warning'],
+.flight-release-luxury .package-chip[data-tone='warning'] {
+  border-color: rgba(201, 160, 99, 0.38);
+  background: rgba(201, 160, 99, 0.12);
+  color: #e8c98f;
+}
+
+.flight-release-luxury .status-pill[data-tone='danger'],
+.flight-release-luxury .package-chip[data-tone='danger'] {
+  border-color: rgba(160, 64, 64, 0.4);
+  background: rgba(110, 24, 24, 0.22);
+  color: #f5b6ad;
+}
+
+.flight-release-luxury .request-summary-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+
+.flight-release-luxury .request-summary-card {
+  position: relative;
+  min-height: 110px;
+  overflow: hidden;
+  border-radius: 22px;
+  padding: 1.15rem;
+  transition:
+    transform 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.flight-release-luxury .request-summary-card::before {
+  content: '';
+  display: block;
+  width: 36px;
+  height: 36px;
+  margin-bottom: 0.65rem;
+  border: 1px solid rgba(201, 160, 99, 0.2);
+  border-radius: 15px;
+  background:
+    linear-gradient(135deg, rgba(201, 160, 99, 0.2), rgba(201, 160, 99, 0.04)),
+    radial-gradient(circle at 65% 35%, rgba(246, 243, 239, 0.34), transparent 4px);
+  box-shadow: 0 0 18px rgba(201, 160, 99, 0.1);
+}
+
+.flight-release-luxury .request-summary-card:hover,
+.flight-release-luxury .provider-release-step:hover,
+.flight-release-luxury .provider-release-card:hover {
+  border-color: rgba(201, 160, 99, 0.35);
+  box-shadow:
+    0 26px 70px rgba(0, 0, 0, 0.44),
+    0 0 28px rgba(201, 160, 99, 0.12);
+  transform: translateY(-4px) scale(1.02);
+}
+
+.flight-release-luxury .request-summary-card strong,
+.flight-release-luxury .provider-release-summary__item strong {
+  color: #f6f3ef;
+}
+
+.flight-release-luxury .provider-release-panel {
+  margin-top: 1.25rem;
+  gap: 1.25rem;
+  padding: 1.35rem;
+  border-radius: 26px;
+}
+
+.flight-release-luxury .provider-release-panel__head h4 {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 3.4rem);
+  font-weight: 700;
+}
+
+.flight-release-luxury .provider-release-alert {
+  padding: 1rem 1.1rem;
+  border-radius: 20px;
+  border-color: rgba(201, 160, 99, 0.22);
+  background:
+    linear-gradient(135deg, rgba(50, 35, 15, 0.56), rgba(20, 12, 4, 0.82));
+}
+
+.flight-release-luxury .provider-release-alert strong {
+  color: #c9a063;
+}
+
+.flight-release-luxury .provider-release-summary-shell {
+  grid-template-columns: minmax(13rem, 0.35fr) minmax(0, 0.65fr);
+  align-items: center;
+  padding: 1.1rem;
+  border-radius: 22px;
+}
+
+.flight-release-luxury .provider-release-progress {
+  justify-content: flex-start;
+  gap: 1rem;
+}
+
+.flight-release-luxury .provider-release-progress .mini-label::before {
+  content: 'Flight Readiness';
+  display: block;
+}
+
+.flight-release-luxury .provider-release-progress .mini-label {
+  font-size: 0;
+}
+
+.flight-release-luxury .provider-release-progress strong {
+  color: #f6f3ef;
+  font-size: 3rem;
+  line-height: 1;
+}
+
+.flight-release-luxury .provider-release-progress > span {
+  display: none;
+}
+
+.flight-release-luxury .provider-release-status-strip {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.flight-release-luxury .provider-release-status-strip .progress-chip {
+  min-height: 64px;
+  justify-content: flex-start;
+  gap: 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  background: rgba(10, 20, 40, 0.85);
+  color: rgba(255, 255, 255, 0.74);
+  font-weight: 800;
+}
+
+.flight-release-luxury .provider-release-status-strip .progress-chip i,
+.flight-release-luxury .flight-release-step-icon {
+  display: inline-grid;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.flight-release-luxury .provider-release-status-strip .progress-chip i::before,
+.flight-release-luxury .flight-release-step-icon::before {
+  content: '○';
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.9rem;
+}
+
+.flight-release-luxury .provider-release-status-strip .progress-chip[data-tone='success'] i::before,
+.flight-release-luxury .provider-release-step:has(.package-chip[data-tone='success']) .flight-release-step-icon::before {
+  content: '✓';
+  color: #b9f2d0;
+}
+
+.flight-release-luxury .provider-release-status-strip .progress-chip[data-tone='warning'] i::before,
+.flight-release-luxury .provider-release-step:has(.package-chip[data-tone='warning']) .flight-release-step-icon::before {
+  content: '◐';
+  color: #c9a063;
+}
+
+.flight-release-luxury .provider-release-layout {
+  grid-template-columns: minmax(0, 0.65fr) minmax(22rem, 0.35fr);
+  gap: 1.25rem;
+}
+
+.flight-release-luxury .provider-release-sidebar {
+  position: relative;
+  gap: 0.8rem;
+}
+
+.flight-release-luxury .provider-release-sidebar::before {
+  content: '';
+  position: absolute;
+  top: 4.5rem;
+  bottom: 1rem;
+  left: 2rem;
+  width: 1px;
+  background: linear-gradient(180deg, rgba(46, 139, 87, 0.42), rgba(201, 160, 99, 0.32), rgba(255, 255, 255, 0.08));
+}
+
+.flight-release-luxury .provider-release-sidebar__head strong {
+  color: #f6f3ef;
+  font-size: 1.1rem;
+}
+
+.flight-release-luxury .provider-release-step {
+  position: relative;
+  z-index: 1;
+  min-height: 72px;
+  padding: 0.9rem 1rem;
+  border-radius: 20px;
+  transition:
+    transform 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.flight-release-luxury .provider-release-step--active {
+  border-color: rgba(201, 160, 99, 0.48);
+  box-shadow:
+    0 22px 50px rgba(0, 0, 0, 0.38),
+    0 0 24px rgba(201, 160, 99, 0.16);
+}
+
+.flight-release-luxury .provider-release-step--locked {
+  opacity: 0.72;
+}
+
+.flight-release-luxury .provider-release-step__main {
+  align-items: center;
+}
+
+.flight-release-luxury .provider-release-step__index {
+  display: none;
+}
+
+.flight-release-luxury .provider-release-step__main strong {
+  color: #f6f3ef;
+}
+
+.flight-release-luxury .provider-release-detail {
+  min-width: 0;
+}
+
+.flight-release-luxury .provider-release-card {
+  border-radius: 24px;
+  padding: 1.25rem;
+  transition:
+    transform 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.flight-release-luxury .provider-release-card__head {
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.flight-release-luxury .provider-release-card__head strong {
+  font-size: 1.45rem;
+  font-weight: 700;
+}
+
+.flight-release-luxury .provider-release-inline-grid {
+  gap: 1rem;
+}
+
+.flight-release-luxury .provider-release-card label,
+.flight-release-luxury .provider-release-notes {
+  color: #f6f3ef;
+}
+
+.flight-release-luxury .provider-release-card label > span,
+.flight-release-luxury .provider-release-notes > span {
+  color: rgba(201, 160, 99, 0.9);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.flight-release-luxury input,
+.flight-release-luxury select,
+.flight-release-luxury textarea {
+  min-height: 56px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  color: #f6f3ef;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.flight-release-luxury input:focus,
+.flight-release-luxury select:focus,
+.flight-release-luxury textarea:focus {
+  border-color: rgba(201, 160, 99, 0.44);
+  box-shadow:
+    0 0 0 3px rgba(201, 160, 99, 0.12),
+    0 0 28px rgba(201, 160, 99, 0.1);
+  outline: none;
+}
+
+.flight-release-luxury select option {
+  background: #071b36;
+  color: #f6f3ef;
+}
+
+.flight-release-luxury .provider-release-list {
+  gap: 0.75rem;
+}
+
+.flight-release-luxury .provider-release-list span,
+.flight-release-luxury .provider-list-check {
+  min-height: 3.2rem;
+  border-radius: 16px;
+  color: rgba(246, 243, 239, 0.78);
+}
+
+.flight-release-luxury .provider-release-list span::before {
+  content: '○';
+  color: rgba(255, 255, 255, 0.48);
+}
+
+.flight-release-luxury .provider-release-list span.is-done,
+.flight-release-luxury .provider-list-check:has(input:checked) {
+  border-color: rgba(46, 139, 87, 0.34);
+  background: rgba(46, 139, 87, 0.12);
+  color: #b9f2d0;
+  font-weight: 800;
+}
+
+.flight-release-luxury .provider-release-list span.is-done::before {
+  content: '✓';
+  color: #b9f2d0;
+}
+
+.flight-release-luxury .provider-list-check input {
+  accent-color: #c9a063;
+}
+
+.flight-release-luxury .provider-release-summary__item {
+  border-radius: 18px;
+}
+
+.flight-release-luxury .provider-release-summary__item span {
+  color: #c9a063;
+}
+
+.flight-release-luxury .provider-release-notes {
+  gap: 0.6rem;
+}
+
+.flight-release-luxury .provider-release-notes textarea {
+  min-height: 140px;
+  border-radius: 20px;
+  padding: 1rem;
+  resize: vertical;
+}
+
+.flight-release-luxury .provider-release-feedback {
+  margin: 0;
+  padding: 0.9rem 1rem;
+  border: 1px solid rgba(201, 160, 99, 0.2);
+  border-radius: 18px;
+  background: rgba(201, 160, 99, 0.1);
+  color: #e8c98f;
+}
+
+.flight-release-luxury .ghost-button,
+.flight-release-luxury .primary-action {
+  border-radius: 18px;
+  transition:
+    transform 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.flight-release-luxury .primary-action {
+  min-height: 60px;
+  padding: 0 1.5rem;
+  border: 1px solid rgba(201, 160, 99, 0.42);
+  background: linear-gradient(135deg, #c9a063, #a9844f);
+  color: #050a14;
+  font-weight: 900;
+  box-shadow: 0 15px 40px rgba(201, 160, 99, 0.18);
+}
+
+.flight-release-luxury .primary-action:hover:not(:disabled),
+.flight-release-luxury .ghost-button:hover:not(:disabled) {
+  transform: translateY(-3px);
+  box-shadow: 0 15px 40px rgba(201, 160, 99, 0.25);
+}
+
+.flight-release-luxury .primary-action:disabled {
+  opacity: 0.55;
+}
+
+.flight-release-luxury .empty-state {
+  color: rgba(255, 255, 255, 0.62);
+}
+
+@media (max-width: 1180px) {
+  .flight-release-luxury .request-summary-grid,
+  .flight-release-luxury .provider-release-summary-shell,
+  .flight-release-luxury .provider-release-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .flight-release-luxury .provider-release-status-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .flight-release-luxury .flight-release-hero h2 {
+    font-size: 3.2rem;
+  }
+
+  .flight-release-luxury .provider-release-status-strip,
+  .flight-release-luxury .provider-release-inline-grid,
+  .flight-release-luxury .provider-release-list--two-columns,
+  .flight-release-luxury .provider-release-summary--compact {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Operator Certification & Validation Center */
+.operator-portal-page:has(.operator-certification-luxury) {
+  background:
+    radial-gradient(circle at 16% 8%, rgba(201, 160, 99, 0.12), transparent 32%),
+    radial-gradient(circle at 82% 16%, rgba(10, 35, 66, 0.5), transparent 40%),
+    #050a14;
+  color: #f6f3ef;
+}
+
+.operator-certification-luxury {
+  grid-template-columns: minmax(0, 0.65fr) minmax(22rem, 0.35fr);
+  gap: 1.35rem;
+  align-items: start;
+  color: #f6f3ef;
+  font-family: 'Inter', 'Manrope', 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+}
+
+.operator-certification-luxury::before {
+  content: '';
+  position: absolute;
+  inset: -6rem -2rem auto;
+  height: 28rem;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 26% 18%, rgba(201, 160, 99, 0.14), transparent 34%),
+    radial-gradient(circle at 80% 12%, rgba(70, 120, 180, 0.2), transparent 36%);
+  filter: blur(4px);
+}
+
+.operator-certification-luxury > * {
+  position: relative;
+  z-index: 1;
+}
+
+.operator-certification-luxury .surface,
+.operator-certification-luxury .company-progress-card,
+.operator-certification-luxury .company-form-section,
+.operator-certification-luxury .company-verification-card,
+.operator-certification-luxury .company-summary-row,
+.operator-certification-luxury .company-alert,
+.operator-certification-luxury .list-card,
+.operator-certification-luxury .status-row,
+.operator-certification-luxury .ops-timeline-item {
+  border: 1px solid rgba(201, 160, 99, 0.12);
+  background:
+    linear-gradient(135deg, rgba(7, 27, 54, 0.95), rgba(5, 10, 20, 0.98));
+  box-shadow:
+    0 20px 50px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(20px);
+}
+
+.operator-certification-luxury .surface {
+  border-radius: 28px;
+}
+
+.operator-certification-luxury .company-shell,
+.operator-certification-luxury .company-status-shell {
+  gap: 1.25rem;
+  padding: clamp(1.2rem, 2.5vw, 1.8rem);
+}
+
+.operator-certification-luxury .company-shell > .section-head {
+  position: relative;
+  min-height: 260px;
+  overflow: hidden;
+  align-items: flex-start;
+  padding: clamp(1.35rem, 3vw, 2.2rem);
+  border: 1px solid rgba(201, 160, 99, 0.16);
+  border-radius: 28px;
+  background:
+    linear-gradient(135deg, rgba(5, 10, 20, 0.96), rgba(7, 27, 54, 0.88)),
+    radial-gradient(circle at 82% 20%, rgba(201, 160, 99, 0.16), transparent 32%);
+}
+
+.operator-certification-luxury .company-shell > .section-head::before {
+  content: '';
+  position: absolute;
+  right: 8%;
+  bottom: 8%;
+  width: min(36rem, 42vw);
+  height: 8rem;
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, rgba(246, 243, 239, 0.04), rgba(246, 243, 239, 0.16), rgba(201, 160, 99, 0.08));
+  clip-path: polygon(0 52%, 58% 35%, 100% 44%, 100% 57%, 58% 62%, 0 68%);
+  opacity: 0.72;
+  filter: drop-shadow(0 0 28px rgba(201, 160, 99, 0.12));
+}
+
+.operator-certification-luxury .company-shell > .section-head > * {
+  position: relative;
+  z-index: 1;
+}
+
+.operator-certification-luxury .company-shell > .section-head h2,
+.operator-certification-luxury .company-status-shell > .section-head h2,
+.operator-certification-luxury .company-form-section h3,
+.operator-certification-luxury .company-verification-card h3 {
+  color: #f6f3ef;
+  font-family: 'Playfair Display', 'Cormorant Garamond', Georgia, serif;
+  letter-spacing: 0;
+}
+
+.operator-certification-luxury .company-shell > .section-head h2 {
+  max-width: 12ch;
+  margin: 0;
+  font-size: clamp(3rem, 7vw, 6rem);
+  font-weight: 700;
+  line-height: 0.88;
+}
+
+.operator-certification-name {
+  display: block;
+  margin-top: 0.9rem;
+  color: #c9a063;
+  font-size: clamp(1.1rem, 2vw, 1.45rem);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.operator-certification-luxury .eyebrow,
+.operator-certification-luxury .mini-label {
+  color: #c9a063;
+  letter-spacing: 0.16em;
+}
+
+.operator-certification-luxury .muted,
+.operator-certification-luxury .helper-copy,
+.operator-certification-luxury .company-summary-row span,
+.operator-certification-luxury .ops-timeline-item .muted,
+.operator-certification-luxury .list-card .muted {
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.operator-certification-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  max-width: 26rem;
+}
+
+.operator-certification-badges span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 2.1rem;
+  padding: 0 0.78rem;
+  border: 1px solid rgba(46, 139, 87, 0.34);
+  border-radius: 999px;
+  background: rgba(46, 139, 87, 0.12);
+  color: #b9f2d0;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.operator-certification-badges span::before {
+  content: '✓';
+}
+
+.operator-certification-luxury .status-pill,
+.operator-certification-luxury .progress-chip {
+  border: 1px solid rgba(201, 160, 99, 0.22);
+  background: rgba(255, 255, 255, 0.06);
+  color: #f6f3ef;
+}
+
+.operator-certification-luxury .status-pill[data-tone='success'],
+.operator-certification-luxury .progress-chip[data-tone='success'] {
+  border-color: rgba(46, 139, 87, 0.38);
+  background: rgba(46, 139, 87, 0.14);
+  color: #b9f2d0;
+}
+
+.operator-certification-luxury .status-pill[data-tone='warning'],
+.operator-certification-luxury .progress-chip[data-tone='warning'] {
+  border-color: rgba(201, 160, 99, 0.38);
+  background: rgba(201, 160, 99, 0.12);
+  color: #e8c98f;
+}
+
+.operator-certification-luxury .status-pill[data-tone='info'],
+.operator-certification-luxury .progress-chip[data-tone='info'] {
+  border-color: rgba(70, 120, 180, 0.34);
+  background: rgba(70, 120, 180, 0.14);
+  color: #c8ddff;
+}
+
+.operator-certification-luxury .company-progress-card {
+  padding: 1.15rem;
+  border-radius: 24px;
+}
+
+.operator-certification-luxury .company-progress-head strong {
+  color: #f6f3ef;
+}
+
+.operator-certification-luxury .progress-bar {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.operator-certification-luxury .progress-bar-fill {
+  background: var(--surface-premium);
+  box-shadow: 0 0 24px rgba(201, 160, 99, 0.32);
+}
+
+
+
+.operator-certification-luxury .company-progress-steps .progress-chip {
+  min-height: 70px;
+  justify-content: flex-start;
+  border-radius: 18px;
+  font-weight: 800;
+  transition:
+    transform 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.operator-certification-luxury .company-progress-steps .progress-chip::before {
+  content: '○';
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  margin-right: 0.5rem;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 50%;
+}
+
+.operator-certification-luxury .company-progress-steps .progress-chip[data-tone='success']::before {
+  content: '✓';
+  color: #b9f2d0;
+}
+
+.operator-certification-luxury .company-progress-steps .progress-chip[data-tone='warning']::before {
+  content: '!';
+  color: #c9a063;
+}
+
+.operator-certification-luxury .company-progress-steps .progress-chip:hover,
+.operator-certification-luxury .company-form-section:hover,
+.operator-certification-luxury .company-summary-row:hover,
+.operator-certification-luxury .company-alert:hover,
+.operator-certification-luxury .list-card:hover,
+.operator-certification-luxury .ops-timeline-item:hover {
+  border-color: rgba(201, 160, 99, 0.34);
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.44),
+    0 0 24px rgba(201, 160, 99, 0.12);
+  transform: translateY(-3px);
+}
+
+.operator-certification-luxury .company-form-sections {
+  gap: 1rem;
+}
+
+.operator-certification-luxury .company-form-section {
+  padding: 1.2rem;
+  border-radius: 24px;
+  transition:
+    transform 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.operator-certification-luxury [data-company-section] {
+  scroll-margin-top: 1.25rem;
+}
+
+.operator-certification-luxury .company-form-section h3 {
+  margin: 0.18rem 0 0;
+  font-size: clamp(1.45rem, 3vw, 2rem);
+}
+
+.operator-certification-luxury .form-grid label {
+  min-height: 6.6rem;
+  padding: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.operator-certification-luxury .form-grid label > span {
+  color: rgba(201, 160, 99, 0.9);
+  letter-spacing: 0.12em;
+}
+
+.operator-certification-luxury .company-doc-grid,
+.operator-certification-luxury .company-fleet-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.operator-certification-luxury .company-doc-card,
+.operator-certification-luxury .company-fleet-card,
+.operator-certification-luxury .company-empty-inline {
+  border: 1px solid rgba(226, 232, 240, 0.96);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.06);
+  padding: 0.9rem;
+}
+
+.operator-certification-luxury .company-doc-card--sat {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.operator-certification-luxury .company-doc-card__main,
+.operator-certification-luxury .company-fleet-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.operator-certification-luxury .company-doc-card__main strong,
+.operator-certification-luxury .company-fleet-card__head strong,
+.operator-certification-luxury .company-empty-inline strong {
+  color: #10233d;
+}
+
+.operator-certification-luxury .company-doc-card__meta,
+.operator-certification-luxury .company-fleet-card__grid {
+  display: grid;
+  gap: 0.35rem;
+  color: #60748f;
+  font-size: 0.82rem;
+}
+
+.operator-certification-luxury .company-doc-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.operator-certification-luxury .company-doc-upload-button {
+  position: relative;
+  overflow: hidden;
+}
+
+.operator-certification-luxury .company-doc-upload-button input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.operator-certification-luxury .company-fleet-card__grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.operator-certification-luxury .company-fleet-card__grid span strong {
+  color: #24446f;
+}
+
+.operator-certification-luxury .company-empty-inline {
+  display: grid;
+  gap: 0.45rem;
+  justify-items: start;
+}
+
+.operator-certification-luxury .company-alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.operator-certification-luxury .company-alert-action {
+  min-height: auto;
+  padding: 0.5rem 0.78rem;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.operator-certification-luxury .company-document-list .list-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.operator-certification-luxury input,
+.operator-certification-luxury select,
+.operator-certification-luxury textarea {
+  min-height: 54px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  color: #f6f3ef;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}

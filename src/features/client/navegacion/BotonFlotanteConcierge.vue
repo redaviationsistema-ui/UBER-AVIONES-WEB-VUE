@@ -1,9 +1,9 @@
 <script setup>
-defineEmits(['open'])
+const emit = defineEmits(['open'])
 </script>
 
 <template>
-  <button class="floating-concierge" type="button" @click="$emit('open')">
+  <button class="floating-concierge" type="button" @click="emit('open')">
     Concierge 24/7
   </button>
 </template>

@@ -1,0 +1,970 @@
+.fleet-operations-luxury .wizard-sidebar-jet-image {
+  top: 28px;
+  left: 28px;
+  right: 28px;
+  height: 110px;
+  border-radius: 16px;
+}
+
+.fleet-operations-luxury .wizard-sidebar-facts {
+  gap: 12px;
+  margin: 8px 0;
+}
+
+.fleet-operations-luxury .wizard-readiness-score {
+  min-height: 80px;
+  margin-top: 20px;
+  padding: 18px;
+  align-items: center;
+}
+
+.fleet-operations-luxury .wizard-review-card {
+  padding: 28px;
+}
+
+.fleet-operations-luxury .wizard-executive-table {
+  gap: 0;
+  margin-top: 24px;
+}
+
+.fleet-operations-luxury .wizard-executive-table div {
+  min-height: 44px;
+  padding: 14px 18px;
+}
+
+.fleet-operations-luxury .wizard-sidebar-card:not(.wizard-sidebar-card--hero) {
+  padding: 28px;
+}
+
+.fleet-operations-luxury .wizard-sidebar-card p {
+  line-height: 1.7;
+}
+
+.fleet-operations-luxury .wizard-sidebar-stats {
+  gap: 16px;
+}
+
+.fleet-operations-luxury .wizard-sidebar-stat {
+  padding-bottom: 16px;
+}
+
+.fleet-operations-luxury .wizard-footer {
+  padding: 30px 40px;
+}
+
+@media (max-width: 1320px) {
+  .fleet-operations-luxury .wizard-header {
+    padding-right: 390px;
+  }
+
+  .fleet-operations-luxury .wizard-hero-copy h2 {
+    font-size: 46px;
+  }
+
+  .fleet-operations-luxury .wizard-shell {
+    grid-template-columns: minmax(0, 1fr) 340px;
+    gap: 28px;
+  }
+
+  .fleet-operations-luxury .wizard-sidebar {
+    width: 340px;
+    min-width: 340px;
+  }
+}
+
+@media (max-width: 1080px) {
+  .fleet-operations-luxury .wizard-sticky-head,
+  .fleet-operations-luxury .wizard-shell,
+  .fleet-operations-luxury .wizard-footer {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+
+  .fleet-operations-luxury .wizard-header {
+    padding-right: 0;
+  }
+
+  .fleet-operations-luxury .wizard-stepper {
+    margin-bottom: 24px;
+  }
+
+  .fleet-operations-luxury .wizard-shell {
+    grid-template-columns: 1fr;
+    gap: 28px;
+  }
+
+  .fleet-operations-luxury .wizard-sidebar {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+@media (max-width: 760px) {
+  .fleet-operations-luxury .wizard-hero-copy h2 {
+    font-size: 34px;
+  }
+
+  .fleet-operations-luxury .wizard-stepper {
+    gap: 16px;
+    margin-top: 24px;
+    padding: 18px 0;
+  }
+
+  .fleet-operations-luxury .wizard-panel:has(.document-type-grid),
+  .fleet-operations-luxury .wizard-panel,
+  .fleet-operations-luxury .wizard-stage-header {
+    padding: 24px;
+  }
+
+  .fleet-operations-luxury .document-upload-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Executive Aircraft Workspace: single-viewport cockpit density */
+.fleet-operations-luxury .wizard-overlay {
+  padding: 20px;
+  align-items: center;
+}
+
+.fleet-operations-luxury .wizard-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(1760px, calc(100vw - 40px));
+  max-height: calc(100vh - 40px);
+  overflow: hidden;
+}
+
+.fleet-operations-luxury .wizard-sticky-head {
+  flex: 0 0 auto;
+  padding: 16px 16px 0;
+}
+
+.fleet-operations-luxury .wizard-header {
+  min-height: 120px;
+  padding-right: 360px;
+}
+
+.fleet-operations-luxury .wizard-hero-copy {
+  max-width: 700px;
+  margin-bottom: 0;
+  gap: 0.28rem;
+}
+
+.fleet-operations-luxury .wizard-hero-copy h2 {
+  max-width: 700px;
+  font-size: clamp(38px, 3.2vw, 56px);
+  line-height: 0.95;
+}
+
+.fleet-operations-luxury .wizard-hero-copy h2 small {
+  font-size: 0.42em;
+}
+
+.fleet-operations-luxury .wizard-hero-copy .muted {
+  max-width: 44rem;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  -webkit-line-clamp: 1;
+}
+
+.fleet-operations-luxury .wizard-hero-meta {
+  margin-top: 0.25rem;
+}
+
+.fleet-operations-luxury .wizard-progress-shell {
+  top: 16px;
+  right: 96px;
+  height: 54px;
+  min-height: 54px;
+}
+
+.fleet-operations-luxury .wizard-close-button {
+  top: 19px;
+  right: 16px;
+}
+
+.fleet-operations-luxury .wizard-stepper {
+  gap: 12px;
+  height: 70px;
+  margin-top: 12px;
+  margin-bottom: 0;
+  padding: 12px 0;
+}
+
+.fleet-operations-luxury .wizard-stepper::before {
+  top: 47px;
+}
+
+.fleet-operations-luxury .wizard-step {
+  flex: 0 0 160px;
+  width: 160px;
+  height: 70px;
+  min-height: 70px;
+  padding: 0.72rem 0.82rem;
+  gap: 0.22rem;
+  border-radius: 16px;
+}
+
+.fleet-operations-luxury .wizard-step span {
+  width: 26px;
+  height: 26px;
+}
+
+.fleet-operations-luxury .wizard-step strong {
+  font-size: 0.86rem;
+}
+
+.fleet-operations-luxury .wizard-shell {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 24px;
+  align-items: start;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+}
+
+.fleet-operations-luxury .wizard-body {
+  gap: 20px;
+  min-width: 0;
+}
+
+.fleet-operations-luxury .wizard-stage-header {
+  min-height: 70px;
+  padding: 14px 20px;
+  gap: 6px;
+}
+
+.fleet-operations-luxury .wizard-stage-header > div {
+  gap: 4px;
+}
+
+.fleet-operations-luxury .wizard-stage-header h3 {
+  font-size: 1.08rem;
+}
+
+.fleet-operations-luxury .wizard-stage-header p {
+  font-size: 0.82rem;
+  line-height: 1.28;
+}
+
+.fleet-operations-luxury .wizard-stage-detail {
+  display: none;
+}
+
+.fleet-operations-luxury .wizard-panel {
+  gap: 20px;
+  padding: 20px;
+}
+
+.fleet-operations-luxury .wizard-panel .section-head {
+  margin-bottom: 0;
+}
+
+.fleet-operations-luxury .wizard-panel .section-head h3 {
+  margin: 0.2rem 0 0;
+  line-height: 1.1;
+}
+
+.fleet-operations-luxury .wizard-panel .form-grid,
+.fleet-operations-luxury .document-upload-grid,
+.fleet-operations-luxury .document-type-grid,
+.fleet-operations-luxury .document-preview-grid,
+.fleet-operations-luxury .stored-documents-list,
+.fleet-operations-luxury .stored-images-grid,
+.fleet-operations-luxury .wizard-review-grid {
+  gap: 20px;
+}
+
+.fleet-operations-luxury .wizard-panel:has(input[type='file']) .form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.fleet-operations-luxury .wizard-panel input[type='file'] {
+  min-height: 110px;
+  height: 110px;
+  padding: 54px 14px 12px;
+}
+
+.fleet-operations-luxury .stored-images-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.fleet-operations-luxury .stored-image-card,
+.fleet-operations-luxury .stored-document-card,
+.fleet-operations-luxury .document-preview-card {
+  padding: 20px;
+}
+
+.fleet-operations-luxury .stored-image-preview,
+.fleet-operations-luxury .document-preview-card img,
+.fleet-operations-luxury .pdf-preview {
+  max-height: 120px;
+}
+
+.fleet-operations-luxury .wizard-panel:has(.document-type-grid) {
+  gap: 20px;
+  padding: 20px;
+}
+
+.fleet-operations-luxury .wizard-panel:has(.document-type-grid) .section-head,
+.fleet-operations-luxury .wizard-panel:has(.document-type-grid) .document-type-grid,
+.fleet-operations-luxury .wizard-panel:has(.document-type-grid) .document-upload-grid,
+.fleet-operations-luxury .wizard-panel:has(.document-type-grid) .document-library-header,
+.fleet-operations-luxury .wizard-panel:has(.document-type-grid) .stored-documents-list,
+.fleet-operations-luxury .wizard-panel:has(.document-type-grid) .empty-state {
+  margin-bottom: 0;
+}
+
+.fleet-operations-luxury .wizard-panel:has(.document-type-grid) .section-head {
+  padding-bottom: 14px;
+}
+
+.fleet-operations-luxury .document-type-grid {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.fleet-operations-luxury .document-type-card {
+  width: auto;
+  min-height: 104px;
+  padding: 16px;
+  gap: 8px;
+}
+
+.fleet-operations-luxury .document-type-card::before {
+  width: 28px;
+  height: 28px;
+  margin-bottom: 2px;
+}
+
+.fleet-operations-luxury .document-type-card small {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+}
+
+.fleet-operations-luxury .document-upload-grid {
+  grid-template-columns: minmax(180px, 0.32fr) minmax(0, 1fr);
+  gap: 20px;
+}
+
+.fleet-operations-luxury .document-dropzone {
+  min-height: 120px;
+  max-height: 120px;
+  padding: 20px;
+  overflow: hidden;
+}
+
+.fleet-operations-luxury .document-dropzone::before {
+  width: 38px;
+  height: 38px;
+  margin-bottom: 8px;
+}
+
+.fleet-operations-luxury .document-dropzone strong {
+  font-size: 0.94rem;
+}
+
+.fleet-operations-luxury .document-dropzone span,
+.fleet-operations-luxury .document-dropzone small {
+  font-size: 0.78rem;
+  line-height: 1.25;
+}
+
+.fleet-operations-luxury .wizard-sidebar {
+  position: sticky;
+  top: 20px;
+  width: 320px;
+  min-width: 320px;
+  max-height: calc(100vh - 180px);
+  gap: 16px;
+  overflow: auto;
+}
+
+.fleet-operations-luxury .wizard-sidebar-card {
+  padding: 20px;
+}
+
+.fleet-operations-luxury .wizard-sidebar-card--hero {
+  min-height: auto;
+  padding: 116px 20px 20px;
+  gap: 12px;
+}
+
+.fleet-operations-luxury .wizard-sidebar-jet-image {
+  top: 20px;
+  left: 20px;
+  right: 20px;
+  height: 84px;
+  border-radius: 14px;
+}
+
+.fleet-operations-luxury .wizard-sidebar-facts {
+  gap: 8px;
+  margin: 4px 0;
+}
+
+.fleet-operations-luxury .wizard-sidebar-facts span {
+  padding: 7px 9px;
+  font-size: 0.74rem;
+}
+
+.fleet-operations-luxury .wizard-sidebar-highlight {
+  gap: 8px;
+}
+
+.fleet-operations-luxury .wizard-readiness-score {
+  min-height: 62px;
+  margin-top: 8px;
+  padding: 12px;
+}
+
+.fleet-operations-luxury .wizard-sidebar-card:not(.wizard-sidebar-card--hero) {
+  padding: 20px;
+}
+
+.fleet-operations-luxury .wizard-sidebar-card p {
+  line-height: 1.45;
+}
+
+.fleet-operations-luxury .wizard-sidebar-stats {
+  gap: 10px;
+}
+
+.fleet-operations-luxury .wizard-sidebar-stat {
+  padding-bottom: 10px;
+}
+
+.fleet-operations-luxury .wizard-review-card {
+  min-height: 108px;
+  padding: 20px;
+}
+
+.fleet-operations-luxury .wizard-review-card::before {
+  width: 28px;
+  height: 28px;
+  margin-bottom: 8px;
+}
+
+.fleet-operations-luxury .wizard-executive-table {
+  margin-top: 14px;
+}
+
+.fleet-operations-luxury .wizard-executive-table div {
+  min-height: 40px;
+  padding: 10px 14px;
+}
+
+.fleet-operations-luxury .wizard-footer {
+  position: sticky;
+  bottom: 0;
+  flex: 0 0 70px;
+  height: 70px;
+  min-height: 70px;
+  padding: 8px 16px;
+}
+
+.fleet-operations-luxury .wizard-footer .ghost-button,
+.fleet-operations-luxury .wizard-footer .primary-action {
+  min-height: 48px;
+}
+
+@media (max-width: 1440px) {
+  .fleet-operations-luxury .wizard-modal {
+    width: calc(100vw - 28px);
+    max-height: calc(100vh - 28px);
+  }
+
+  .fleet-operations-luxury .wizard-overlay {
+    padding: 14px;
+  }
+
+  .fleet-operations-luxury .wizard-header {
+    min-height: 104px;
+    padding-right: 330px;
+  }
+
+  .fleet-operations-luxury .wizard-hero-copy h2 {
+    font-size: 38px;
+  }
+
+  .fleet-operations-luxury .wizard-hero-copy .muted {
+    display: none;
+  }
+
+  .fleet-operations-luxury .wizard-progress-shell {
+    right: 88px;
+    width: 200px;
+    min-width: 200px;
+  }
+
+  .fleet-operations-luxury .wizard-stepper {
+    height: 66px;
+  }
+
+  .fleet-operations-luxury .wizard-step {
+    flex-basis: 148px;
+    width: 148px;
+    height: 66px;
+    min-height: 66px;
+  }
+
+  .fleet-operations-luxury .wizard-shell {
+    grid-template-columns: minmax(0, 1fr) 300px;
+    gap: 18px;
+  }
+
+  .fleet-operations-luxury .wizard-sidebar {
+    width: 300px;
+    min-width: 300px;
+  }
+}
+
+@media (max-width: 1080px) {
+  .fleet-operations-luxury .wizard-header {
+    min-height: auto;
+    padding-right: 0;
+  }
+
+  .fleet-operations-luxury .wizard-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .fleet-operations-luxury .wizard-sidebar {
+    position: static;
+    width: 100%;
+    min-width: 0;
+    max-height: none;
+  }
+}
+
+/* Executive Fleet Availability Control Center */
+.operator-portal-page:has(.availability-control-luxury) {
+  background:
+    radial-gradient(circle at 18% 8%, rgba(201, 160, 99, 0.12), transparent 32%),
+    radial-gradient(circle at 82% 18%, rgba(10, 35, 66, 0.52), transparent 38%),
+    #050a14;
+  color: #f6f3ef;
+}
+
+.availability-control-luxury {
+  position: relative;
+  gap: 1.25rem;
+  color: #f6f3ef;
+  font-family: 'Inter', 'Manrope', 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+}
+
+.availability-control-luxury::before {
+  content: '';
+  position: absolute;
+  inset: -5rem -2rem auto;
+  height: 28rem;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 24% 25%, rgba(201, 160, 99, 0.14), transparent 34%),
+    radial-gradient(circle at 74% 12%, rgba(70, 120, 180, 0.2), transparent 36%);
+  filter: blur(4px);
+}
+
+.availability-control-luxury > * {
+  position: relative;
+  z-index: 1;
+}
+
+.availability-control-luxury .surface,
+.availability-control-luxury .fleet-kpi-card,
+.availability-control-luxury .availability-calendar-aircraft-head,
+.availability-control-luxury .availability-calendar-day-head,
+.availability-control-luxury .availability-calendar-aircraft,
+.availability-control-luxury .availability-calendar-cell,
+.availability-control-luxury .availability-record-card {
+  border: 1px solid rgba(201, 160, 99, 0.1);
+  background:
+    linear-gradient(135deg, rgba(7, 27, 54, 0.95), rgba(5, 10, 20, 0.98));
+  box-shadow:
+    0 20px 50px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(20px);
+}
+
+.availability-control-luxury .surface {
+  border-radius: 28px;
+}
+
+.availability-control-luxury .availability-hero {
+  position: relative;
+  min-height: 220px;
+  overflow: hidden;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  padding: clamp(1.5rem, 3vw, 2.4rem);
+  border-color: rgba(201, 160, 99, 0.16);
+  background:
+    linear-gradient(135deg, rgba(5, 10, 20, 0.96), rgba(7, 27, 54, 0.86)),
+    radial-gradient(circle at 82% 24%, rgba(201, 160, 99, 0.16), transparent 32%);
+}
+
+.availability-control-luxury .availability-hero::before {
+  content: '';
+  position: absolute;
+  right: 7%;
+  bottom: 8%;
+  width: min(36rem, 42vw);
+  height: 8rem;
+  border-radius: 999px 60% 60% 999px;
+  background:
+    linear-gradient(90deg, rgba(246, 243, 239, 0.04), rgba(246, 243, 239, 0.18), rgba(201, 160, 99, 0.08));
+  clip-path: polygon(0 50%, 62% 34%, 100% 43%, 100% 56%, 62% 61%, 0 66%);
+  opacity: 0.72;
+  filter: drop-shadow(0 0 28px rgba(201, 160, 99, 0.12));
+}
+
+.availability-control-luxury .availability-hero > * {
+  position: relative;
+  z-index: 1;
+}
+
+.availability-control-luxury .availability-hero h2,
+.availability-control-luxury .fleet-section-card h2 {
+  margin: 0;
+  color: #f6f3ef;
+  font-family: 'Playfair Display', 'Cormorant Garamond', Georgia, serif;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.availability-control-luxury .availability-hero h2 {
+  max-width: 12ch;
+  font-size: clamp(3.2rem, 8vw, 6.6rem);
+  line-height: 0.88;
+}
+
+.availability-control-luxury .fleet-section-card h2 {
+  font-size: clamp(1.8rem, 3vw, 2.55rem);
+}
+
+.availability-control-luxury .eyebrow,
+.availability-control-luxury .mini-label,
+.availability-control-luxury .availability-calendar-filter span {
+  color: #c9a063;
+  letter-spacing: 0.16em;
+}
+
+.availability-control-luxury .muted,
+.availability-control-luxury .availability-calendar-cell span,
+.availability-control-luxury .availability-calendar-day-head span,
+.availability-control-luxury .fleet-kpi-card p,
+.availability-control-luxury .availability-record-card p {
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.availability-control-luxury .status-pill {
+  border: 1px solid rgba(201, 160, 99, 0.22);
+  background: rgba(255, 255, 255, 0.06);
+  color: #f6f3ef;
+}
+
+.availability-control-luxury .status-pill[data-tone='success'] {
+  border-color: rgba(46, 139, 87, 0.38);
+  background: rgba(46, 139, 87, 0.14);
+  color: #b9f2d0;
+  box-shadow: 0 0 18px rgba(46, 139, 87, 0.18);
+}
+
+.availability-control-luxury .status-pill[data-tone='warning'] {
+  border-color: rgba(201, 160, 99, 0.38);
+  background: rgba(201, 160, 99, 0.12);
+  color: #e8c98f;
+}
+
+.availability-control-luxury .status-pill[data-tone='danger'] {
+  border-color: rgba(160, 64, 64, 0.4);
+  background: rgba(110, 24, 24, 0.22);
+  color: #f5b6ad;
+}
+
+.availability-control-luxury .status-pill[data-tone='info'] {
+  border-color: rgba(70, 120, 180, 0.34);
+  background: rgba(70, 120, 180, 0.14);
+  color: #c8ddff;
+}
+
+.availability-control-luxury .fleet-kpi-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.availability-control-luxury .fleet-kpi-card {
+  position: relative;
+  min-height: 120px;
+  overflow: hidden;
+  padding: 1.15rem;
+  border-radius: 22px;
+  transition:
+    transform 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.availability-control-luxury .fleet-kpi-card:hover {
+  border-color: rgba(70, 120, 180, 0.34);
+  box-shadow:
+    0 26px 70px rgba(0, 0, 0, 0.44),
+    0 0 30px rgba(70, 120, 180, 0.16);
+  transform: translateY(-4px) scale(1.02);
+}
+
+.availability-control-luxury .availability-kpi-icon {
+  display: inline-grid;
+  width: 42px;
+  height: 42px;
+  margin-bottom: 0.4rem;
+  place-items: center;
+  border: 1px solid rgba(201, 160, 99, 0.2);
+  border-radius: 16px;
+  background: rgba(201, 160, 99, 0.08);
+  box-shadow: 0 0 18px rgba(201, 160, 99, 0.1);
+}
+
+.availability-control-luxury .availability-kpi-icon::before {
+  content: '';
+  width: 22px;
+  height: 22px;
+  border: 1.5px solid #c9a063;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, #c9a063 0 2px, transparent 3px),
+    conic-gradient(from 35deg, transparent, rgba(201, 160, 99, 0.55), transparent 42%);
+}
+
+.availability-control-luxury .fleet-kpi-card strong {
+  color: #fff;
+  font-size: clamp(2rem, 3.5vw, 3rem);
+  line-height: 1;
+}
+
+.availability-control-luxury .fleet-layout {
+  grid-template-columns: minmax(0, 1.55fr) minmax(22rem, 0.75fr);
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.availability-control-luxury .fleet-main-column,
+.availability-control-luxury .fleet-side-column {
+  gap: 1.25rem;
+}
+
+.availability-control-luxury .fleet-section-card {
+  padding: 1.35rem;
+}
+
+.availability-control-luxury .availability-stepper {
+  position: relative;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.85rem;
+  margin: 1rem 0 1.25rem;
+}
+
+.availability-control-luxury .availability-stepper::before {
+  content: '';
+  position: absolute;
+  top: 35px;
+  left: 2rem;
+  right: 2rem;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(46, 139, 87, 0.38), rgba(201, 160, 99, 0.32), rgba(255, 255, 255, 0.08));
+}
+
+.availability-control-luxury .availability-stepper .progress-chip {
+  position: relative;
+  z-index: 1;
+  min-height: 70px;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  background: rgba(10, 20, 40, 0.85);
+  color: rgba(255, 255, 255, 0.72);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition:
+    transform 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.availability-control-luxury .availability-stepper .progress-chip:hover {
+  border-color: rgba(201, 160, 99, 0.34);
+  box-shadow: 0 0 22px rgba(201, 160, 99, 0.12);
+  transform: translateY(-3px);
+}
+
+.availability-control-luxury .availability-stepper .progress-chip::before {
+  content: '○';
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  margin-right: 0.55rem;
+  place-items: center;
+  border-radius: 50%;
+  color: rgba(255, 255, 255, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.availability-control-luxury .availability-stepper .progress-chip[data-tone='success'] {
+  border-color: rgba(46, 139, 87, 0.34);
+  background: linear-gradient(135deg, rgba(20, 55, 45, 0.72), rgba(6, 20, 16, 0.94));
+  color: #dff6e8;
+}
+
+.availability-control-luxury .availability-stepper .progress-chip[data-tone='success']::before {
+  content: '✓';
+  color: #dff6e8;
+  border-color: rgba(46, 139, 87, 0.5);
+  background: rgba(46, 139, 87, 0.18);
+}
+
+.availability-control-luxury .availability-stepper .progress-chip:not([data-tone='success']):first-of-type::before {
+  content: '●';
+  color: #c9a063;
+  border-color: rgba(201, 160, 99, 0.46);
+  background: rgba(201, 160, 99, 0.1);
+}
+
+.availability-control-luxury .form-grid label,
+.availability-control-luxury .availability-calendar-filter {
+  color: #f6f3ef;
+}
+
+.availability-control-luxury .form-grid label > span {
+  color: rgba(201, 160, 99, 0.9);
+  letter-spacing: 0.12em;
+}
+
+.availability-control-luxury input,
+.availability-control-luxury select,
+.availability-control-luxury .availability-calendar-filter select {
+  min-height: 56px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  color: #f6f3ef;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.availability-control-luxury input:focus,
+.availability-control-luxury select:focus,
+.availability-control-luxury .availability-calendar-filter select:focus {
+  border-color: rgba(201, 160, 99, 0.44);
+  box-shadow:
+    0 0 0 3px rgba(201, 160, 99, 0.12),
+    0 0 28px rgba(201, 160, 99, 0.1);
+  outline: none;
+}
+
+.availability-control-luxury select option {
+  background: #071b36;
+  color: #f6f3ef;
+}
+
+.availability-control-luxury .primary-action,
+.availability-control-luxury .ghost-button {
+  border-radius: 999px;
+  transition:
+    transform 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.availability-control-luxury .primary-action:hover,
+.availability-control-luxury .ghost-button:hover {
+  transform: translateY(-2px);
+}
+
+.availability-control-luxury .availability-calendar-shell {
+  gap: 1.25rem;
+}
+
+.availability-control-luxury .availability-calendar-toolbar {
+  padding: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 22px;
+  background: rgba(10, 20, 40, 0.72);
+}
+
+.availability-control-luxury .availability-calendar-toolbar strong {
+  color: #f6f3ef;
+  font-size: 1.05rem;
+}
+
+.availability-control-luxury .availability-calendar-grid {
+  gap: 0.75rem;
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+}
+
+.availability-control-luxury .availability-calendar-row--head,
+.availability-control-luxury .availability-calendar-row--body {
+  grid-template-columns: minmax(13rem, 1fr) repeat(7, minmax(7.25rem, 1fr));
+  min-width: 72rem;
+}
+
+.availability-control-luxury .availability-calendar-aircraft-head,
+.availability-control-luxury .availability-calendar-day-head,
+.availability-control-luxury .availability-calendar-aircraft,
+.availability-control-luxury .availability-calendar-cell {
+  min-height: 5.6rem;
+  border-radius: 20px;
+  padding: 0.9rem;
+}
+
+.availability-control-luxury .availability-calendar-day-head,
+.availability-control-luxury .availability-calendar-aircraft-head {
+  border-color: rgba(201, 160, 99, 0.16);
+  background:
+    linear-gradient(135deg, rgba(10, 35, 66, 0.92), rgba(5, 10, 20, 0.94));
+}
+
+.availability-control-luxury .availability-calendar-day-head.is-today {
+  border-color: rgba(201, 160, 99, 0.46);
+  box-shadow:
+    0 0 24px rgba(201, 160, 99, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+.availability-control-luxury .availability-calendar-aircraft strong,
+.availability-control-luxury .availability-calendar-aircraft-head,
+.availability-control-luxury .availability-calendar-day-head strong,
+.availability-control-luxury .availability-calendar-cell strong {
+  color: #f6f3ef;
+}
+
+.availability-control-luxury .availability-calendar-cell {
+  position: relative;
+  overflow: hidden;
+}
+
+.availability-control-luxury .availability-calendar-cell::before {
+  content: '';
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  width: 0.58rem;
+  height: 0.58rem;
+  border-radius: 50%;
+  background: #8b9099;
+  box-shadow: 0 0 16px rgba(139, 144, 153, 0.44);
+}
+
+.availability-control-luxury .availability-calendar-cell:hover,
+.availability-control-luxury .availability-calendar-cell:focus-visible {
+  border-color: rgba(201, 160, 99, 0.38);
+  box-shadow:
+    0 20px 48px rgba(0, 0, 0, 0.38),
+    0 0 22px rgba(201, 160, 99, 0.12);
+  transform: translateY(-4px) scale(1.02);
+}
+

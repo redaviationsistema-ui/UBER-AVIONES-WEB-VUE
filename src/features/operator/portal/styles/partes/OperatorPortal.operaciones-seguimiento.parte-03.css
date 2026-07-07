@@ -1,0 +1,121 @@
+.flight-tracking-kpi {
+  background:
+    linear-gradient(145deg, rgba(15, 39, 71, 0.98), rgba(9, 22, 44, 0.98)),
+    #10233d;
+}
+
+.flight-tracking-kpi span,
+.flight-tracking-kpi p {
+  color: rgba(226, 235, 247, 0.8);
+}
+
+.flight-tracking-kpi strong {
+  color: #ffffff;
+}
+
+.flight-tracking-kpi:hover,
+.flight-tracking-queue-card:hover,
+.flight-tracking-queue-card.is-active {
+  border-color: rgba(191, 219, 254, 0.96);
+  box-shadow:
+    0 18px 40px rgba(15, 23, 42, 0.1),
+    0 0 0 1px rgba(255, 255, 255, 0.46);
+}
+
+.flight-tracking-queue::before {
+  border-bottom-color: rgba(226, 232, 240, 0.96);
+  background: rgba(255, 255, 255, 0.98);
+  color: #6b7f99;
+}
+
+.flight-tracking-queue-meta span {
+  border-color: rgba(226, 232, 240, 0.96);
+  background: rgba(248, 250, 252, 0.98);
+}
+
+.flight-command-head h3 {
+  font-size: clamp(2.3rem, 5vw, 4rem);
+}
+
+.flight-tracking-workflow article {
+  border-color: rgba(226, 232, 240, 0.96);
+  background: rgba(248, 250, 252, 0.98);
+}
+
+.flight-tracking-workflow article::after {
+  background: rgba(203, 213, 225, 0.96);
+}
+
+.flight-tracking-workflow span {
+  border-color: rgba(203, 213, 225, 0.96);
+  color: #8ca0b8;
+  background: rgba(255, 255, 255, 0.98);
+}
+
+.flight-tracking-workflow article[data-state='done'] {
+  border-color: rgba(220, 252, 231, 0.96);
+  background: rgba(244, 251, 246, 0.98);
+}
+
+.flight-tracking-workflow article[data-state='done'] span {
+  color: #2f855a;
+  border-color: rgba(220, 252, 231, 0.96);
+}
+
+.flight-tracking-workflow article[data-state='active'] {
+  border-color: rgba(191, 219, 254, 0.96);
+  background: rgba(239, 246, 255, 0.98);
+  box-shadow: none;
+}
+
+.flight-tracking-workflow article[data-state='active'] span {
+  color: #24446f;
+  border-color: rgba(191, 219, 254, 0.96);
+}
+
+.flight-live-map {
+  background:
+    radial-gradient(circle at 52% 46%, rgba(217, 164, 65, 0.16), transparent 6%),
+    radial-gradient(circle at 20% 24%, rgba(191, 219, 254, 0.32), transparent 28%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(241, 247, 255, 0.98));
+}
+
+.flight-live-map::before {
+  border-color: rgba(191, 219, 254, 0.42);
+  box-shadow:
+    0 0 0 44px rgba(191, 219, 254, 0.06),
+    0 0 0 88px rgba(191, 219, 254, 0.03);
+}
+
+.flight-live-map::after {
+  border-top-color: rgba(95, 154, 224, 0.46);
+}
+
+.flight-tracking-luxury .status-pill[data-tone='success'] {
+  border-color: rgba(220, 252, 231, 0.96);
+  background: rgba(244, 251, 246, 0.98);
+  color: #2f6f4f;
+}
+
+.flight-tracking-luxury .status-pill[data-tone='warning'] {
+  border-color: rgba(254, 240, 214, 0.96);
+  background: rgba(255, 251, 235, 0.98);
+  color: #b7791f;
+}
+
+.flight-tracking-luxury .status-pill[data-tone='info'] {
+  border-color: rgba(191, 219, 254, 0.96);
+  background: rgba(239, 246, 255, 0.98);
+  color: #24446f;
+}
+
+.flight-tracking-luxury .status-pill[data-tone='danger'] {
+  border-color: rgba(254, 226, 226, 0.96);
+  background: rgba(254, 242, 242, 0.98);
+  color: #b45353;
+}
+
+.flight-tracking-luxury .empty-state {
+  color: #60748f;
+}
+

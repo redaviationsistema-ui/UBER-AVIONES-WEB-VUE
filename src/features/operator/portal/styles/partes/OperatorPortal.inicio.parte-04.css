@@ -1,0 +1,715 @@
+.payments-provider-card__meta span,
+.payments-executive-card p {
+  color: #d8bd89;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.payments-provider-card__meta strong {
+  display: block;
+  margin-top: 0.35rem;
+}
+
+.payments-executive-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin-top: 1rem;
+}
+
+.payments-executive-card {
+  display: grid;
+  gap: 0.4rem;
+  min-height: 10.5rem;
+}
+
+.payments-executive-card__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.6rem;
+  height: 2.6rem;
+  border: 1px solid rgba(201, 160, 99, 0.28);
+  border-radius: 8px;
+  background: rgba(201, 160, 99, 0.12);
+  color: #f3d8a4;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.payments-executive-card strong {
+  font-size: 1.85rem;
+  line-height: 1;
+  color: #fff8ea;
+}
+
+.payments-executive-card small {
+  color: rgba(247, 241, 230, 0.68);
+  line-height: 1.4;
+}
+
+.payments-executive-card[data-tone='success'] {
+  border-color: rgba(46, 139, 87, 0.18);
+}
+
+.payments-executive-card[data-tone='warning'] {
+  border-color: rgba(200, 169, 107, 0.28);
+}
+
+.payments-executive-card[data-tone='info'] {
+  border-color: rgba(27, 57, 92, 0.18);
+}
+
+.payments-tabs {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: end;
+  margin: 0;
+}
+
+.payments-cockpit-grid {
+  grid-template-columns: minmax(14rem, 25%) minmax(0, 1fr);
+  align-items: start;
+  margin-top: 1.15rem;
+}
+
+.payments-financial-sidebar {
+  position: sticky;
+  top: 1rem;
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem;
+  border: 1px solid rgba(201, 160, 99, 0.24);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.035)),
+    rgba(4, 10, 18, 0.44);
+}
+
+.payments-sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid rgba(201, 160, 99, 0.18);
+}
+
+.payments-sidebar-head strong {
+  color: #f3d8a4;
+}
+
+.payments-sidebar-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  min-height: 3rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid rgba(201, 160, 99, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+  color: rgba(247, 241, 230, 0.78);
+  font-weight: 800;
+  text-align: left;
+}
+
+.payments-sidebar-link.active,
+.payments-sidebar-link:hover {
+  transform: translateY(-3px);
+  border-color: rgba(201, 160, 99, 0.48);
+  background: rgba(201, 160, 99, 0.14);
+  box-shadow: 0 20px 50px rgba(201, 160, 99, 0.15);
+}
+
+.payments-sidebar-link strong {
+  color: #fff8ea;
+}
+
+.payments-sidebar-summary {
+  display: grid;
+  gap: 0.55rem;
+  padding-top: 0.25rem;
+  color: rgba(247, 241, 230, 0.68);
+  font-size: 0.86rem;
+}
+
+.payments-sidebar-summary span::before {
+  content: '';
+  display: inline-block;
+  width: 0.45rem;
+  height: 0.45rem;
+  margin-right: 0.45rem;
+  border-radius: 999px;
+  background: #4fb477;
+  vertical-align: middle;
+}
+
+.payments-transaction-workspace {
+  min-width: 0;
+}
+
+.payments-workspace-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.payments-revenue-panel,
+.payments-renewal-center {
+  display: grid;
+  gap: 1rem;
+}
+
+.payments-revenue-row {
+  display: grid;
+  grid-template-columns: minmax(9rem, 0.34fr) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: center;
+}
+
+.payments-revenue-row span {
+  color: rgba(247, 241, 230, 0.68);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.payments-revenue-row strong {
+  display: block;
+  margin-top: 0.25rem;
+  color: #fff8ea;
+}
+
+.payments-revenue-track {
+  height: 0.62rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.payments-revenue-track span {
+  display: block;
+  width: var(--bar);
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #4ea3d8, #c9a063);
+}
+
+.payments-renewal-row {
+  display: grid;
+  grid-template-columns: 1.2fr 0.9fr 1fr 0.8fr;
+  gap: 0.85rem;
+  align-items: center;
+  padding: 0.85rem;
+  border: 1px solid rgba(201, 160, 99, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.payments-renewal-row strong {
+  color: #fff8ea;
+}
+
+.payments-renewal-row span:not(.payments-status-badge) {
+  color: rgba(247, 241, 230, 0.68);
+}
+
+.payments-transaction-group {
+  gap: 0.85rem;
+}
+
+.payments-group-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.2rem 0;
+}
+
+.payments-group-head strong {
+  color: #fff8ea;
+  font-size: 1.05rem;
+}
+
+.payments-cockpit-shell .muted,
+.payments-cockpit-shell .compact-copy {
+  color: rgba(247, 241, 230, 0.66);
+}
+
+.payments-cockpit-shell .list-card strong,
+.payments-cockpit-shell .card-top strong,
+.payments-cockpit-shell .payments-aircraft-grid strong,
+.payments-cockpit-shell .billing-status-card strong,
+.payments-cockpit-shell .billing-renewal-alert strong,
+.payments-cockpit-shell .payments-timeline-item strong {
+  color: #fff8ea;
+}
+
+.payments-cockpit-shell .fleet-inline-metrics span,
+.payments-cockpit-shell .mini-label,
+.payments-cockpit-shell .payments-timeline-item small {
+  color: rgba(247, 241, 230, 0.68);
+}
+
+.tab-button {
+  position: relative;
+  display: inline-grid;
+  gap: 0.2rem;
+  justify-items: start;
+  min-height: 3.6rem;
+  padding: 0.2rem 0 0.9rem;
+  border: 0;
+  border-bottom: 2px solid rgba(200, 169, 107, 0.2);
+  border-radius: 0;
+  background: transparent;
+  color: rgba(247, 241, 230, 0.7);
+  font-weight: 700;
+}
+
+.tab-button strong {
+  color: #fff8ea;
+  font-size: 1.15rem;
+}
+
+.tab-button.active {
+  color: #f3d8a4;
+  box-shadow: none;
+}
+
+.tab-button.active::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -2px;
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #c9a063, #4ea3d8);
+}
+
+.payments-status-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.3rem;
+  padding: 0.1rem 0.9rem;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.payments-status-badge[data-tone='success'] {
+  background: rgba(46, 139, 87, 0.14);
+  color: #1d6b42;
+}
+
+.payments-status-badge[data-tone='warning'] {
+  background: rgba(200, 169, 107, 0.22);
+  color: #8b6517;
+}
+
+.payments-status-badge[data-tone='danger'] {
+  background: rgba(184, 61, 54, 0.15);
+  color: #9f2f28;
+}
+
+.payments-status-badge[data-tone='info'] {
+  background: rgba(27, 57, 92, 0.12);
+  color: #1b395c;
+}
+
+.aircraft-payment-card[data-tone='success'] {
+  border-color: rgba(46, 139, 87, 0.18);
+}
+
+.aircraft-payment-card[data-tone='warning'] {
+  border-color: rgba(200, 169, 107, 0.28);
+}
+
+.aircraft-payment-card[data-tone='danger'] {
+  border-color: rgba(184, 61, 54, 0.18);
+}
+
+.payments-aircraft-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.payments-aircraft-layout {
+  align-items: start;
+}
+
+.payments-aircraft-grid > div {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.95rem 1rem;
+  border: 1px solid rgba(201, 160, 99, 0.18);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.payments-aircraft-hero {
+  background:
+    var(--surface-premium);
+}
+
+.payments-aircraft-hero__badges,
+.billing-renewal-alert__meta {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.billing-renewal-alert {
+  display: grid;
+  gap: 0.7rem;
+  padding: 1rem 1.05rem;
+  border-radius: 18px;
+  border: 1px solid var(--border-premium);
+  background: var(--surface-premium);
+}
+
+.billing-renewal-alert[data-tone='success'] {
+  border-color: rgba(46, 139, 87, 0.18);
+  background: var(--surface-premium);
+}
+
+.billing-renewal-alert[data-tone='warning'] {
+  border-color: rgba(200, 169, 107, 0.28);
+  background: var(--surface-premium);
+}
+
+.billing-renewal-alert[data-tone='danger'] {
+  border-color: rgba(184, 61, 54, 0.24);
+  background: var(--surface-premium);
+}
+
+.billing-renewal-alert[data-tone='info'] {
+  border-color: rgba(27, 57, 92, 0.16);
+  background: var(--surface-premium);
+}
+
+.payments-table-shell {
+  margin-top: 0;
+}
+
+.payments-table-head,
+.payments-table-row {
+  display: grid;
+  grid-template-columns: 1.5fr 0.85fr 0.9fr 0.9fr 0.9fr 0.75fr;
+  gap: 0.85rem;
+  align-items: center;
+  min-width: 64rem;
+  padding: 0.95rem 1rem;
+}
+
+.payments-table-head {
+  border-bottom: 1px solid var(--border-premium);
+  background: var(--surface-premium);
+  color: #7b6840;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.payments-table-row + .payments-table-row {
+  border-top: 1px solid var(--border-premium);
+}
+
+.payments-table-aircraft {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.payments-timeline-card {
+  gap: 1.15rem;
+}
+
+.payments-timeline {
+  gap: 0.85rem;
+}
+
+.payments-timeline-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1rem minmax(0, 1fr);
+  gap: 0.95rem;
+}
+
+.payments-timeline-item:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  top: 1rem;
+  left: 0.43rem;
+  width: 1px;
+  height: calc(100% + 0.7rem);
+  background: var(--border-premium);
+}
+
+.payments-timeline-item__dot {
+  position: relative;
+  z-index: 1;
+  width: 0.9rem;
+  height: 0.9rem;
+  margin-top: 0.2rem;
+  border: 2px solid var(--border-premium);
+  border-radius: 999px;
+  background: var(--surface-premium);
+}
+
+.payments-timeline-item[data-state='done'] .payments-timeline-item__dot {
+  border-color: #1d6b42;
+  background: #1d6b42;
+}
+
+.payments-timeline-item strong,
+.payments-timeline-item p,
+.payments-timeline-item small {
+  margin: 0;
+}
+
+.availability-hero,
+.availability-heatmap,
+.availability-records {
+  display: grid;
+  gap: 1rem;
+}
+
+.availability-calendar-shell {
+  display: grid;
+  gap: 1rem;
+}
+
+.availability-calendar-toolbar,
+.availability-calendar-actions,
+.availability-calendar-row,
+.availability-calendar-aircraft,
+.availability-calendar-day-head,
+.availability-calendar-cell,
+.availability-calendar-filter {
+  display: flex;
+}
+
+.availability-calendar-toolbar,
+.availability-calendar-actions {
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.availability-calendar-filter {
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 16rem;
+}
+
+.availability-calendar-filter span {
+  color: #6f6250;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.availability-calendar-grid {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.availability-calendar-row {
+  gap: 0.7rem;
+}
+
+.availability-calendar-row--head,
+.availability-calendar-row--body {
+  display: grid;
+  grid-template-columns: minmax(14rem, 1.1fr) repeat(7, minmax(7.5rem, 1fr));
+  align-items: stretch;
+}
+
+.availability-calendar-aircraft-head,
+.availability-calendar-day-head,
+.availability-calendar-aircraft,
+.availability-calendar-cell {
+  border: 1px solid var(--border-premium);
+  border-radius: 18px;
+  background: var(--surface-premium);
+  min-height: 6.2rem;
+  padding: 0.9rem;
+}
+
+.availability-calendar-aircraft-head,
+.availability-calendar-day-head {
+  background: var(--surface-premium);
+}
+
+.availability-calendar-aircraft-head {
+  display: flex;
+  align-items: center;
+  font-weight: 800;
+  color: #5e4d2e;
+}
+
+.availability-calendar-day-head,
+.availability-calendar-aircraft,
+.availability-calendar-cell {
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 0.35rem;
+}
+
+.availability-calendar-day-head strong,
+.availability-calendar-cell strong {
+  text-transform: capitalize;
+}
+
+.availability-calendar-day-head.is-today {
+  border-color: #111111;
+  box-shadow: inset 0 0 0 1px rgba(17, 17, 17, 0.08);
+}
+
+.availability-calendar-cell {
+  cursor: pointer;
+  text-align: left;
+  transition:
+    transform 0.16s ease,
+    border-color 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.availability-calendar-cell:hover,
+.availability-calendar-cell:focus-visible {
+  border-color: var(--border-premium);
+  box-shadow: 0 16px 30px rgba(28, 22, 12, 0.08);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.availability-calendar-cell span,
+.availability-calendar-day-head span {
+  color: #6d6151;
+  font-size: 0.82rem;
+  line-height: 1.3;
+}
+
+.availability-calendar-cell[data-tone='success'] {
+  background: var(--surface-premium);
+}
+
+.availability-calendar-cell[data-tone='warning'] {
+  background: var(--surface-premium);
+}
+
+.availability-calendar-cell[data-tone='danger'] {
+  background: var(--surface-premium);
+}
+
+.availability-calendar-cell[data-tone='info'] {
+  background: rgba(70, 120, 180, 0.14);
+}
+
+.availability-calendar-cell[data-tone='dark'] {
+  background: var(--state-neutral);
+}
+
+.availability-calendar-cell.is-available strong {
+  color: #17663a;
+}
+
+.availability-heatmap-row,
+.availability-record-card {
+  padding: 1rem;
+  border: 1px solid var(--border-premium);
+  border-radius: 20px;
+  background: var(--surface-premium);
+}
+
+.availability-record-card {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.stored-document-card {
+  display: grid;
+  gap: 0.7rem;
+  padding: 0.9rem;
+  border: 1px solid var(--border-premium);
+  border-radius: 16px;
+  background: var(--surface-premium);
+  cursor: pointer;
+  transition:
+    border-color 0.16s ease,
+    transform 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.stored-document-card:hover,
+.stored-document-card:focus-visible {
+  border-color: rgba(200, 169, 107, 0.7);
+  box-shadow: 0 16px 34px rgba(47, 39, 21, 0.1);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.hero-actions,
+.inline-actions,
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.fleet-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin: 1rem 0;
+}
+
+.page-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.two-columns {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.section-head,
+.card-top,
+.status-row,
+.toggle-row {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.surface,
+.metric-card,
+.list-card,
+.timeline-item {
+  padding: 1.2rem;
+}
+
+.metrics-grid,
+.list-grid,
+.document-list,
+.priority-list,
+.pricing-list,
+.timeline,
+.toggle-list,
+.status-list {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.metrics-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 1rem;
+}
+

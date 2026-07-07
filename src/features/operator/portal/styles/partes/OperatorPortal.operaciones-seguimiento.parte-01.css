@@ -1,0 +1,969 @@
+/* Executive Flight Operations Command Center */
+.operator-portal-page:has(.flight-ops-command-luxury) {
+  background:
+    radial-gradient(circle at 18% 8%, rgba(201, 160, 99, 0.12), transparent 32%),
+    radial-gradient(circle at 82% 18%, rgba(10, 35, 66, 0.52), transparent 38%),
+    #050a14;
+  color: #f6f3ef;
+}
+
+.flight-ops-command-luxury {
+  color: #f6f3ef;
+  font-family: 'Inter', 'Manrope', 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+}
+
+.flight-ops-command-luxury::before {
+  content: '';
+  position: absolute;
+  inset: -6rem -2rem auto;
+  height: 28rem;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 25% 16%, rgba(201, 160, 99, 0.14), transparent 34%),
+    radial-gradient(circle at 78% 20%, rgba(70, 120, 180, 0.22), transparent 36%);
+  filter: blur(4px);
+}
+
+.flight-ops-command-luxury > * {
+  position: relative;
+  z-index: 1;
+}
+
+.flight-ops-command-luxury .requests-dispatch-surface {
+  display: grid;
+  gap: 1.15rem;
+  min-height: calc(100vh - 8rem);
+  padding: clamp(1rem, 2vw, 1.35rem);
+  border: 1px solid rgba(201, 160, 99, 0.12);
+  border-radius: 28px;
+  background:
+    linear-gradient(135deg, rgba(7, 27, 54, 0.8), rgba(5, 10, 20, 0.96));
+  box-shadow:
+    0 28px 90px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(20px);
+}
+
+.flight-ops-command-luxury .requests-dispatch-surface > .section-head {
+  position: relative;
+  overflow: hidden;
+  min-height: 190px;
+  align-items: flex-start;
+  padding: clamp(1.25rem, 3vw, 2rem);
+  border: 1px solid rgba(201, 160, 99, 0.16);
+  border-radius: 26px;
+  background:
+    linear-gradient(135deg, rgba(5, 10, 20, 0.96), rgba(7, 27, 54, 0.86)),
+    radial-gradient(circle at 82% 20%, rgba(201, 160, 99, 0.16), transparent 32%);
+}
+
+.flight-ops-command-luxury .requests-dispatch-surface > .section-head::before {
+  content: '';
+  position: absolute;
+  right: 7%;
+  bottom: 10%;
+  width: min(38rem, 42vw);
+  height: 8rem;
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, rgba(246, 243, 239, 0.04), rgba(246, 243, 239, 0.16), rgba(201, 160, 99, 0.08));
+  clip-path: polygon(0 52%, 58% 35%, 100% 44%, 100% 57%, 58% 62%, 0 68%);
+  opacity: 0.72;
+  filter: drop-shadow(0 0 28px rgba(201, 160, 99, 0.12));
+}
+
+.flight-ops-command-luxury .requests-dispatch-surface > .section-head > * {
+  position: relative;
+  z-index: 1;
+}
+
+.flight-ops-command-luxury .eyebrow,
+.flight-ops-command-luxury .mini-label,
+.flight-ops-command-luxury .request-search span,
+.flight-ops-command-luxury .request-priority-filter span {
+  color: #c9a063;
+  letter-spacing: 0.16em;
+}
+
+.flight-ops-command-luxury .requests-dispatch-surface > .section-head h2,
+.flight-ops-command-luxury .request-detail-head h3 {
+  color: #f6f3ef;
+  font-family: 'Playfair Display', 'Cormorant Garamond', Georgia, serif;
+  letter-spacing: 0;
+}
+
+.flight-ops-command-luxury .requests-dispatch-surface > .section-head h2 {
+  max-width: 11ch;
+  margin: 0;
+  font-size: clamp(3.2rem, 8vw, 6.5rem);
+  font-weight: 700;
+  line-height: 0.88;
+}
+
+.flight-ops-command-luxury .muted,
+.flight-ops-command-luxury .helper-copy,
+.flight-ops-command-luxury .request-kpi-card small,
+.flight-ops-command-luxury .request-queue-meta,
+.flight-ops-command-luxury .request-summary-card .muted,
+.flight-ops-command-luxury .provider-release-cta .muted {
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.flight-ops-command-luxury .requests-head-actions {
+  align-items: flex-start;
+}
+
+.flight-ops-command-luxury .provider-notification-center {
+  position: relative;
+}
+
+.flight-ops-command-luxury .provider-notification-trigger,
+.flight-ops-command-luxury .provider-notification-permission {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: 1px solid rgba(212, 175, 55, 0.18);
+  border-radius: 999px;
+  background: linear-gradient(145deg, rgba(10, 22, 42, 0.96), rgba(4, 12, 26, 0.98));
+  color: #f8f5ef;
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.28);
+  cursor: pointer;
+  transition:
+    transform 240ms ease,
+    border-color 240ms ease,
+    box-shadow 240ms ease;
+}
+
+.flight-ops-command-luxury .provider-notification-trigger {
+  padding: 0.45rem 0.55rem 0.45rem 0.45rem;
+}
+
+.flight-ops-command-luxury .provider-notification-permission {
+  padding: 0.45rem 0.85rem;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.flight-ops-command-luxury .provider-notification-trigger:hover,
+.flight-ops-command-luxury .provider-notification-permission:hover {
+  border-color: rgba(212, 175, 55, 0.36);
+  box-shadow: 0 20px 50px rgba(201, 160, 99, 0.15);
+  transform: translateY(-3px);
+}
+
+.flight-ops-command-luxury .provider-notification-trigger__icon {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(212, 175, 55, 0.16);
+  color: #d4af37;
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+
+.flight-ops-command-luxury .provider-notification-trigger__label {
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.flight-ops-command-luxury .provider-notification-trigger strong {
+  display: grid;
+  min-width: 1.45rem;
+  height: 1.45rem;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(212, 175, 55, 0.2);
+  color: #d4af37;
+  font-size: 0.78rem;
+}
+
+.flight-ops-command-luxury .provider-notification-trigger.has-unread {
+  border-color: rgba(212, 175, 55, 0.42);
+  box-shadow:
+    0 20px 50px rgba(201, 160, 99, 0.15),
+    0 0 28px rgba(212, 175, 55, 0.1);
+}
+
+.flight-ops-command-luxury .provider-notification-dropdown {
+  position: absolute;
+  top: calc(100% + 0.8rem);
+  right: 0;
+  z-index: 40;
+  width: min(25rem, calc(100vw - 2rem));
+  padding: 1rem;
+  border: 1px solid rgba(212, 175, 55, 0.16);
+  border-radius: 20px;
+  background: linear-gradient(145deg, rgba(10, 22, 42, 0.98), rgba(4, 12, 26, 0.98));
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(20px);
+}
+
+.flight-ops-command-luxury .provider-notification-dropdown__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.85rem;
+}
+
+.flight-ops-command-luxury .provider-notification-dropdown__head h3 {
+  margin: 0;
+  color: #f8f5ef;
+  font-size: 1rem;
+}
+
+.flight-ops-command-luxury .provider-notification-link {
+  border: 0;
+  background: transparent;
+  color: #d4af37;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.flight-ops-command-luxury .provider-notification-list {
+  display: grid;
+  gap: 0.65rem;
+  max-height: 24rem;
+  overflow: auto;
+}
+
+.flight-ops-command-luxury .provider-notification-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0.7rem;
+  align-items: flex-start;
+  padding: 0.8rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #f8f5ef;
+  cursor: pointer;
+  transition:
+    transform 240ms ease,
+    border-color 240ms ease,
+    background 240ms ease;
+}
+
+.flight-ops-command-luxury .provider-notification-item:hover {
+  border-color: rgba(212, 175, 55, 0.24);
+  background: rgba(212, 175, 55, 0.08);
+  transform: translateY(-3px);
+}
+
+.flight-ops-command-luxury .provider-notification-item.is-unread {
+  border-color: rgba(212, 175, 55, 0.22);
+  background: rgba(212, 175, 55, 0.09);
+}
+
+.flight-ops-command-luxury .provider-notification-item__signal {
+  width: 0.62rem;
+  height: 0.62rem;
+  margin-top: 0.3rem;
+  border-radius: 999px;
+  background: #d4af37;
+  box-shadow: 0 0 18px rgba(212, 175, 55, 0.65);
+}
+
+.flight-ops-command-luxury .provider-notification-item strong {
+  display: block;
+  color: #f8f5ef;
+  font-size: 0.88rem;
+}
+
+.flight-ops-command-luxury .provider-notification-item p,
+.flight-ops-command-luxury .provider-notification-empty p {
+  margin: 0.18rem 0;
+  color: rgba(248, 245, 239, 0.68);
+  font-size: 0.8rem;
+}
+
+.flight-ops-command-luxury .provider-notification-item small {
+  color: rgba(248, 245, 239, 0.52);
+  font-size: 0.72rem;
+}
+
+.flight-ops-command-luxury .provider-notification-empty {
+  padding: 1rem;
+  border: 1px dashed rgba(212, 175, 55, 0.18);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #f8f5ef;
+}
+
+.flight-ops-command-luxury .badge,
+.flight-ops-command-luxury .status-pill,
+.flight-ops-command-luxury .package-chip {
+  border: 1px solid rgba(201, 160, 99, 0.22);
+  background: rgba(255, 255, 255, 0.06);
+  color: #f6f3ef;
+}
+
+.flight-ops-command-luxury .request-kpi-grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-top: 0;
+}
+
+.flight-ops-command-luxury .request-kpi-card {
+  position: relative;
+  min-height: 104px;
+  overflow: hidden;
+  padding: 1rem;
+  border: 1px solid rgba(201, 160, 99, 0.1);
+  border-radius: 20px;
+  background:
+    linear-gradient(135deg, rgba(7, 27, 54, 0.95), rgba(5, 10, 20, 0.98));
+  box-shadow:
+    0 20px 50px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition:
+    transform 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.flight-ops-command-luxury .request-kpi-card::before {
+  content: '';
+  display: block;
+  width: 0.55rem;
+  height: 0.55rem;
+  margin-bottom: 0.45rem;
+  border-radius: 999px;
+  background: #c9a063;
+  box-shadow: 0 0 18px rgba(201, 160, 99, 0.62);
+}
+
+.flight-ops-command-luxury .request-kpi-card:hover {
+  border-color: rgba(70, 120, 180, 0.34);
+  box-shadow:
+    0 26px 70px rgba(0, 0, 0, 0.44),
+    0 0 30px rgba(70, 120, 180, 0.16);
+  transform: translateY(-4px) scale(1.02);
+}
+
+.flight-ops-command-luxury .request-kpi-card span {
+  color: #ffffff;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.flight-ops-command-luxury .request-kpi-card strong {
+  color: #ffffff;
+  font-size: 1.45rem;
+}
+
+.flight-ops-command-luxury .requests-command-band {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(15rem, 0.7fr) minmax(0, 1fr);
+  gap: 0.85rem;
+}
+
+.flight-ops-command-luxury .request-brief-card {
+  position: relative;
+  display: grid;
+  gap: 0.45rem;
+  min-height: 132px;
+  padding: 1.15rem 1.2rem;
+  overflow: hidden;
+  border: 1px solid rgba(201, 160, 99, 0.12);
+  border-radius: 22px;
+  background:
+    linear-gradient(135deg, rgba(7, 27, 54, 0.86), rgba(5, 10, 20, 0.98)),
+    radial-gradient(circle at 85% 20%, rgba(201, 160, 99, 0.12), transparent 34%);
+  box-shadow:
+    0 18px 44px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.flight-ops-command-luxury .request-brief-card::after {
+  content: '';
+  position: absolute;
+  inset: auto -10% -32% auto;
+  width: 12rem;
+  height: 12rem;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(201, 160, 99, 0.16), transparent 64%);
+  pointer-events: none;
+}
+
+.flight-ops-command-luxury .request-brief-card strong {
+  position: relative;
+  z-index: 1;
+  color: #f6f3ef;
+  font-size: clamp(1.1rem, 2vw, 1.5rem);
+  line-height: 1.05;
+}
+
+.flight-ops-command-luxury .request-brief-card p,
+.flight-ops-command-luxury .request-brief-card small {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+}
+
+.flight-ops-command-luxury .request-brief-card p {
+  color: rgba(255, 255, 255, 0.76);
+}
+
+.flight-ops-command-luxury .request-brief-card small {
+  color: rgba(255, 255, 255, 0.58);
+}
+
+.flight-ops-command-luxury .request-brief-card--pipeline {
+  background:
+    linear-gradient(160deg, rgba(9, 19, 38, 0.98), rgba(9, 37, 72, 0.88)),
+    radial-gradient(circle at 80% 16%, rgba(86, 151, 255, 0.16), transparent 34%);
+}
+
+.flight-ops-command-luxury .request-brief-card--next {
+  background:
+    linear-gradient(145deg, rgba(7, 27, 54, 0.84), rgba(16, 18, 26, 0.98)),
+    radial-gradient(circle at 84% 14%, rgba(255, 255, 255, 0.08), transparent 30%);
+}
+
+.flight-ops-command-luxury .requests-toolbar {
+  display: grid;
+  grid-template-columns: minmax(18rem, 0.8fr) minmax(0, 1.7fr) minmax(12rem, 0.55fr);
+  gap: 0.9rem;
+  align-items: stretch;
+  margin-top: 0;
+  padding: 0.9rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 24px;
+  background: rgba(10, 20, 40, 0.78);
+  backdrop-filter: blur(20px);
+}
+
+.flight-ops-command-luxury .request-search,
+.flight-ops-command-luxury .request-priority-filter {
+  align-content: center;
+}
+
+.flight-ops-command-luxury .request-search input,
+.flight-ops-command-luxury .request-priority-filter select {
+  min-height: 54px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  color: #f6f3ef;
+}
+
+.flight-ops-command-luxury .request-search input:focus,
+.flight-ops-command-luxury .request-priority-filter select:focus {
+  border-color: rgba(201, 160, 99, 0.44);
+  box-shadow:
+    0 0 0 3px rgba(201, 160, 99, 0.12),
+    0 0 28px rgba(201, 160, 99, 0.1);
+  outline: none;
+}
+
+.flight-ops-command-luxury .request-priority-filter select option {
+  background: #071b36;
+  color: #f6f3ef;
+}
+
+.flight-ops-command-luxury .requests-tab-row {
+  display: flex;
+  gap: 0.55rem;
+  overflow-x: auto;
+  padding-bottom: 0.15rem;
+}
+
+.flight-ops-command-luxury .request-tab {
+  flex: 0 0 auto;
+  min-width: 9.2rem;
+  min-height: 54px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(246, 243, 239, 0.78);
+  padding: 0.55rem 0.9rem;
+}
+
+.flight-ops-command-luxury .request-tab.is-active,
+.flight-ops-command-luxury .request-tab:hover {
+  border-color: rgba(201, 160, 99, 0.38);
+  background: rgba(201, 160, 99, 0.12);
+  color: #f6f3ef;
+  box-shadow: 0 0 24px rgba(201, 160, 99, 0.12);
+  transform: translateY(-2px);
+}
+
+.flight-ops-command-luxury .request-tab strong {
+  color: #c9a063;
+}
+
+.flight-ops-command-luxury .requests-dispatch-layout {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 1rem;
+  min-height: 0;
+  height: clamp(36rem, calc(100vh - 27rem), 54rem);
+  margin-top: 0;
+  align-items: stretch;
+}
+
+.flight-ops-command-luxury .requests-queue {
+  position: sticky;
+  top: 1rem;
+  align-content: start;
+  gap: 0.75rem;
+  width: 320px;
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 0.8rem;
+  border: 1px solid rgba(201, 160, 99, 0.12);
+  border-radius: 24px;
+  background:
+    linear-gradient(135deg, rgba(7, 27, 54, 0.78), rgba(5, 10, 20, 0.94));
+  box-shadow:
+    0 20px 50px rgba(0, 0, 0, 0.36),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.flight-ops-command-luxury .requests-queue-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.15rem 0.2rem 0.25rem;
+}
+
+.flight-ops-command-luxury .requests-queue-head strong {
+  color: #f6f3ef;
+  font-size: 0.95rem;
+}
+
+.flight-ops-command-luxury .requests-queue::before {
+  content: 'Flight Queue';
+  position: sticky;
+  top: -0.8rem;
+  z-index: 2;
+  display: block;
+  margin: -0.8rem -0.8rem 0;
+  padding: 0.9rem 1rem;
+  border-bottom: 1px solid rgba(201, 160, 99, 0.12);
+  background: rgba(5, 10, 20, 0.92);
+  color: #c9a063;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  backdrop-filter: blur(20px);
+}
+
+.flight-ops-command-luxury .request-queue-card {
+  gap: 0.55rem;
+  padding: 0.95rem;
+  border: 1px solid rgba(201, 160, 99, 0.1);
+  border-radius: 20px;
+  background:
+    linear-gradient(135deg, rgba(7, 27, 54, 0.95), rgba(5, 10, 20, 0.98));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition:
+    transform 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.flight-ops-command-luxury .request-queue-card:hover,
+.flight-ops-command-luxury .request-queue-card.is-active {
+  border-color: rgba(201, 160, 99, 0.36);
+  box-shadow:
+    0 20px 48px rgba(0, 0, 0, 0.38),
+    0 0 22px rgba(201, 160, 99, 0.12);
+  transform: translateY(-4px);
+}
+
+.flight-ops-command-luxury .request-queue-card > strong {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 0.76rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.flight-ops-command-luxury .request-queue-route {
+  color: #f6f3ef;
+  font-size: 1.15rem;
+  line-height: 1.1;
+}
+
+.flight-ops-command-luxury .request-queue-client {
+  margin: -0.15rem 0 0;
+  color: rgba(255, 255, 255, 0.66);
+  font-size: 0.84rem;
+}
+
+.request-queue-aircraft {
+  margin: -0.25rem 0 0;
+  color: #c9a063;
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.flight-ops-command-luxury .request-queue-meta {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 0.45rem;
+  font-size: 0.82rem;
+}
+
+.flight-ops-command-luxury .request-queue-meta span {
+  display: inline-flex;
+  min-height: 1.8rem;
+  align-items: center;
+  padding: 0.24rem 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.flight-ops-command-luxury .request-detail-surface {
+  position: relative;
+  min-width: 0;
+  max-height: 100%;
+  overflow: auto;
+  padding: 1.15rem;
+  border: 1px solid rgba(201, 160, 99, 0.12);
+  border-radius: 24px;
+  background:
+    linear-gradient(135deg, rgba(7, 27, 54, 0.85), rgba(5, 10, 20, 0.98));
+  box-shadow:
+    0 20px 50px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.flight-ops-command-luxury .request-detail-surface::before {
+  content: '';
+  display: block;
+  margin-bottom: 0.8rem;
+  color: #c9a063;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.flight-ops-command-luxury .request-detail-head {
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.flight-ops-command-luxury .request-detail-head h3 {
+  margin: 0.1rem 0 0;
+  font-size: clamp(2.1rem, 4vw, 3.7rem);
+  font-weight: 700;
+  line-height: 0.95;
+}
+
+.flight-ops-command-luxury .request-detail-actions {
+  flex: 0 0 auto;
+}
+
+.flight-ops-command-luxury .request-flow-strip {
+  display: flex;
+  gap: 0.75rem;
+  overflow-x: auto;
+  padding: 0.15rem 0 0.55rem;
+}
+
+.flight-ops-command-luxury .request-flow-pill {
+  position: relative;
+  flex: 1 0 9.5rem;
+  min-height: 78px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.flight-ops-command-luxury .request-flow-pill::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: -0.75rem;
+  width: 0.75rem;
+  height: 1px;
+  background: rgba(201, 160, 99, 0.24);
+}
+
+.flight-ops-command-luxury .request-flow-pill:last-child::after {
+  display: none;
+}
+
+.flight-ops-command-luxury .request-flow-pill[data-state='done'] {
+  border-color: rgba(46, 139, 87, 0.34);
+  background: rgba(46, 139, 87, 0.12);
+}
+
+.flight-ops-command-luxury .request-flow-pill[data-state='active'] {
+  border-color: rgba(201, 160, 99, 0.42);
+  background: rgba(201, 160, 99, 0.12);
+  box-shadow: 0 0 24px rgba(201, 160, 99, 0.12);
+}
+
+.flight-ops-command-luxury .request-flow-pill__index {
+  color: rgba(201, 160, 99, 0.9);
+}
+
+.flight-ops-command-luxury .request-flow-pill strong {
+  color: #f6f3ef;
+}
+
+.flight-ops-command-luxury .request-summary-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.flight-ops-command-luxury .request-summary-card,
+.flight-ops-command-luxury .provider-release-cta,
+.flight-ops-command-luxury .alert-chip,
+.flight-ops-command-luxury .archived-requests-panel,
+.flight-ops-command-luxury .archived-request-card {
+  border: 1px solid rgba(201, 160, 99, 0.1);
+  background:
+    linear-gradient(135deg, rgba(7, 27, 54, 0.95), rgba(5, 10, 20, 0.98));
+  color: #f6f3ef;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.flight-ops-command-luxury .request-summary-card {
+  min-height: 116px;
+  border-radius: 18px;
+}
+
+.flight-ops-command-luxury .request-summary-card strong,
+.flight-ops-command-luxury .provider-release-cta strong {
+  color: #f6f3ef;
+}
+
+.flight-ops-command-luxury .provider-release-cta {
+  border-radius: 22px;
+}
+
+.flight-ops-command-luxury .ghost-button,
+.flight-ops-command-luxury .primary-action,
+.flight-ops-command-luxury .archive-toggle {
+  border-radius: 18px;
+  transition:
+    transform 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.flight-ops-command-luxury .archive-toggle {
+  border-color: rgba(201, 160, 99, 0.2);
+  background: rgba(255, 255, 255, 0.05);
+  color: #f6f3ef;
+}
+
+.flight-ops-command-luxury .archive-toggle__icon {
+  background: rgba(201, 160, 99, 0.12);
+}
+
+.flight-ops-command-luxury .archive-toggle__label {
+  color: #c9a063;
+}
+
+.flight-ops-command-luxury .archive-toggle strong {
+  background: #c9a063;
+  color: #050a14;
+}
+
+.flight-ops-command-luxury .primary-action {
+  border: 1px solid rgba(201, 160, 99, 0.42);
+  background: linear-gradient(135deg, #c9a063, #a9844f);
+  color: #050a14;
+  font-weight: 900;
+}
+
+.flight-ops-command-luxury .ghost-button {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: #f6f3ef;
+}
+
+.flight-ops-command-luxury .primary-action:hover:not(:disabled),
+.flight-ops-command-luxury .ghost-button:hover:not(:disabled),
+.flight-ops-command-luxury .archive-toggle:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 20px 50px rgba(201, 160, 99, 0.2);
+}
+
+.flight-ops-command-luxury .empty-state {
+  color: rgba(255, 255, 255, 0.62);
+}
+
+@media (max-width: 1280px) {
+  .flight-ops-command-luxury .request-kpi-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .flight-ops-command-luxury .requests-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .flight-ops-command-luxury .requests-dispatch-layout {
+    grid-template-columns: 300px minmax(0, 1fr);
+  }
+
+  .flight-ops-command-luxury .requests-queue {
+    width: 300px;
+  }
+}
+
+@media (max-width: 900px) {
+  .flight-ops-command-luxury .requests-dispatch-layout {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+
+  .flight-ops-command-luxury .requests-queue {
+    position: relative;
+    top: auto;
+    width: 100%;
+    max-height: 28rem;
+  }
+
+  .flight-ops-command-luxury .request-detail-surface {
+    max-height: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .flight-ops-command-luxury .requests-dispatch-surface > .section-head h2 {
+    font-size: 3.3rem;
+  }
+
+  .flight-ops-command-luxury .request-kpi-grid,
+  .flight-ops-command-luxury .request-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .flight-ops-command-luxury .request-detail-head,
+  .flight-ops-command-luxury .request-detail-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+/* Flight Workspace visibility correction */
+.flight-ops-command-luxury .requests-dispatch-layout {
+  gap: 24px;
+  height: auto;
+  min-height: auto;
+  align-items: start;
+}
+
+.flight-ops-command-luxury .request-detail-surface {
+  display: grid;
+  gap: 24px;
+  max-height: none;
+  min-height: auto;
+  overflow: visible;
+  padding: 32px;
+  transform: none;
+}
+
+.flight-ops-command-luxury .request-detail-surface::before {
+  margin-bottom: 0;
+}
+
+.flight-ops-command-luxury .request-detail-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 24px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.flight-ops-command-luxury .request-detail-head h3 {
+  max-width: 16ch;
+  font-size: clamp(32px, 3.1vw, 48px);
+  line-height: 1;
+}
+
+.flight-ops-command-luxury .request-detail-actions {
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.flight-ops-command-luxury .request-detail-status-chip {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.flight-ops-command-luxury .request-detail-surface > .helper-copy {
+  margin: -10px 0 0;
+  max-width: 64rem;
+}
+
+.flight-ops-command-luxury .request-alert-strip {
+  order: 5;
+  margin-top: 0;
+}
+
+.flight-ops-command-luxury .request-flow-strip {
+  order: 2;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(112px, 1fr));
+  gap: 14px;
+  overflow: visible;
+  padding: 10px 0 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.flight-ops-command-luxury .request-flow-pill {
+  flex: initial;
+  min-height: 96px;
+  padding: 16px;
+  align-content: center;
+}
+
+.flight-ops-command-luxury .request-flow-pill::after {
+  top: 50%;
+  right: -14px;
+  width: 14px;
+}
+
+.flight-ops-command-luxury .request-flow-pill__index {
+  gap: 0.55rem;
+}
+
+.flight-ops-command-luxury .request-flow-pill__icon {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.flight-ops-command-luxury .request-flow-pill[data-state='done'] .request-flow-pill__icon {
+  border-color: rgba(46, 139, 87, 0.42);
+  background: rgba(46, 139, 87, 0.18);
+  color: #b9f2d0;
+}
+
+.flight-ops-command-luxury .request-flow-pill[data-state='active'] .request-flow-pill__icon {
+  border-color: rgba(201, 160, 99, 0.5);
+  background: rgba(201, 160, 99, 0.16);
+  color: #c9a063;
+}
+

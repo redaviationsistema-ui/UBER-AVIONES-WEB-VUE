@@ -165,13 +165,6 @@ function formatDateTime(value) {
   }).format(date)
 }
 
-function formatHourLabel(date) {
-  return new Intl.DateTimeFormat('es-MX', {
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date)
-}
-
 function formatHistoryDate(value) {
   const date = parseDate(value)
   if (!date) return 'Sin fecha'

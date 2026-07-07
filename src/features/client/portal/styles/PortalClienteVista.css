@@ -1,0 +1,2935 @@
+.client-app-shell {
+  display: block;
+  width: 100%;
+  min-height: 100vh;
+  padding-top: 4.7rem;
+  background: linear-gradient(180deg, #fbfaf6 0%, #f3f1eb 100%), #f7f5ef;
+  color: #141414;
+}
+
+.client-page {
+  display: grid;
+  gap: 1rem;
+  width: 100%;
+  margin: 0 auto;
+  padding: 0.85rem;
+}
+
+.screen {
+  display: grid;
+  gap: 1rem;
+}
+
+.screen-head {
+  max-width: 760px;
+}
+
+.eyebrow,
+.tag {
+  color: #8b6a24;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+h2,
+h3 {
+  margin: 0;
+  font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 0;
+  font-weight: 600;
+}
+
+h2 {
+  font-size: clamp(2rem, 4vw, 3.2rem);
+  line-height: 1;
+}
+
+p,
+li,
+span {
+  color: #626262;
+}
+
+button {
+  min-height: 2.8rem;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 1rem;
+  background: #111111;
+  color: #ffffff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.filter-row,
+.card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.filter-row button,
+.card-actions button:first-child {
+  border: 1px solid #deded8;
+  background: #ffffff;
+  color: #111111;
+}
+
+.results-search-bar {
+  position: sticky;
+  top: 5.4rem;
+  z-index: 8;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr)) auto;
+  gap: 0.85rem;
+  padding: 1rem;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 22px 60px rgba(17, 17, 17, 0.12);
+  backdrop-filter: blur(18px);
+}
+
+.results-search-bar label {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.results-search-bar span {
+  color: #7a6851;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.results-search-bar input {
+  min-height: 3.35rem;
+  border: 1px solid #deded9;
+  border-radius: 16px;
+  padding: 0 1rem;
+  background: #fbfbfa;
+  color: #111111;
+  font: inherit;
+}
+
+.results-search-bar select {
+  min-height: 3.35rem;
+  border: 1px solid #deded9;
+  border-radius: 16px;
+  padding: 0 1rem;
+  background: #fbfbfa;
+  color: #111111;
+  font: inherit;
+}
+
+.results-search-bar button {
+  align-self: end;
+  min-width: 10rem;
+  min-height: 3.35rem;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #111111, #2b2925);
+}
+
+.aircraft-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.route-summary-bar {
+  display: flex;
+  align-items: center;
+  min-height: 3.1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid rgba(191, 151, 65, 0.22);
+  border-radius: 14px;
+  background: linear-gradient(135deg, #ffffff, #f8f6f0);
+}
+
+.route-summary-bar strong {
+  color: #171717;
+  font-size: 0.98rem;
+  line-height: 1.25;
+}
+
+.leg-list {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.itinerary-meta {
+  margin: 0;
+  color: #3a332a;
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.commercial-access-banner {
+  display: grid;
+  gap: 0.4rem;
+  padding: 1rem 1.15rem;
+  border: 1px solid #e5e1d8;
+  border-radius: 20px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(248, 245, 238, 0.96));
+}
+
+.commercial-access-banner strong {
+  color: #171717;
+  font-size: 1rem;
+}
+
+.commercial-access-banner p {
+  margin: 0;
+  color: #5d5549;
+  line-height: 1.55;
+}
+
+.commercial-access-banner__action {
+  justify-self: flex-start;
+  margin-top: 0.2rem;
+  padding: 0.75rem 1rem;
+  border: none;
+  border-radius: 999px;
+  background: #171717;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.commercial-access-banner--info {
+  border-color: rgba(191, 151, 65, 0.28);
+  background: linear-gradient(135deg, #fffdf8, #f8f3e6);
+}
+
+.commercial-access-banner--success {
+  border-color: rgba(34, 197, 94, 0.24);
+  background: linear-gradient(135deg, #f6fff8, #eefbf2);
+}
+
+.commercial-access-banner--warn {
+  border-color: rgba(215, 119, 6, 0.22);
+  background: linear-gradient(135deg, #fffaf4, #fdf1e2);
+}
+
+.loading-band {
+  padding: 1rem;
+  border: 1px solid #e5e1d8;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #3b3428;
+  font-weight: 800;
+}
+
+.results-recommendation {
+  display: none;
+}
+
+.aircraft-card,
+.plan-card,
+.support-card,
+.document-panel,
+.reservation-summary,
+.summary-band,
+.aircraft-detail {
+  border: 1px solid #e5e1d8;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.aircraft-card {
+  display: grid;
+  grid-template-columns: minmax(280px, 350px) minmax(0, 1fr) minmax(180px, 220px);
+  gap: 0.85rem;
+  align-items: stretch;
+  padding: 0.85rem;
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(249, 246, 240, 0.96));
+  box-shadow:
+    0 18px 46px rgba(17, 17, 17, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    border-color 180ms ease;
+}
+
+.aircraft-card--featured {
+  border-color: rgba(191, 151, 65, 0.5);
+  box-shadow: 0 24px 64px rgba(17, 17, 17, 0.12);
+}
+
+.aircraft-card > div {
+  min-width: 0;
+}
+
+.aircraft-thumb {
+  position: relative;
+  overflow: hidden;
+  min-height: 240px;
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.32), transparent 24%),
+    linear-gradient(135deg, #242424, #0f0f0f);
+}
+
+.aircraft-thumb img,
+.aircraft-visual img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.aircraft-thumb img {
+  display: block;
+  min-height: 250px;
+}
+
+.aircraft-thumb::after,
+.aircraft-visual::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.04), rgba(0, 0, 0, 0.42));
+  pointer-events: none;
+}
+
+.aircraft-thumb::before,
+.aircraft-visual::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    125deg,
+    rgba(255, 255, 255, 0.28),
+    transparent 28%,
+    transparent 72%,
+    rgba(255, 255, 255, 0.16)
+  );
+  mix-blend-mode: screen;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.aircraft-thumb__badge {
+  position: absolute;
+  top: 0.85rem;
+  left: 0.85rem;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  min-height: 2rem;
+  padding: 0.35rem 0.8rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #141414;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.aircraft-smart-badges {
+  position: absolute;
+  right: 0.85rem;
+  bottom: 0.85rem;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  max-width: calc(100% - 1.7rem);
+}
+
+.aircraft-smart-badges span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.85rem;
+  padding: 0.28rem 0.68rem;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  background: rgba(17, 17, 17, 0.6);
+  color: #ffffff;
+  font-size: 0.72rem;
+  font-weight: 800;
+  backdrop-filter: blur(14px);
+}
+
+.aircraft-thumb__empty {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 0.86rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.aircraft-image-source {
+  position: absolute;
+  right: 0.85rem;
+  bottom: 0.85rem;
+  z-index: 1;
+  max-width: calc(100% - 1.7rem);
+  overflow-wrap: anywhere;
+  padding: 0.32rem 0.62rem;
+  border-radius: 999px;
+  background: rgba(17, 17, 17, 0.78);
+  color: #ffffff;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.aircraft-thumb--placeholder,
+.aircraft-visual--placeholder {
+  background: linear-gradient(135deg, #242424, #0f0f0f);
+}
+
+.aircraft-copy {
+  display: grid;
+  gap: 0.72rem;
+  align-content: start;
+}
+
+.aircraft-model {
+  color: #5e5b55;
+  font-size: 0.94rem;
+  font-weight: 700;
+}
+
+.aircraft-price-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.18rem;
+  flex-direction: column;
+  align-items: flex-start;
+  margin: 0;
+}
+
+.aircraft-price-line > span {
+  color: #7a6a53;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.aircraft-price-line strong {
+  color: #111111;
+  font-size: clamp(1.7rem, 2.2vw, 2.2rem);
+  line-height: 0.95;
+}
+
+.aircraft-price-line small {
+  color: #6d6252;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.aircraft-meta,
+.aircraft-note {
+  margin: 0;
+}
+
+.aircraft-meta {
+  color: #3a332a;
+  font-weight: 500;
+}
+
+.aircraft-note {
+  color: #746652;
+}
+
+.aircraft-db-origin {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  padding: 0.52rem 0.78rem;
+  border: 1px solid rgba(191, 151, 65, 0.28);
+  border-radius: 999px;
+  background: #fffaf0;
+}
+
+.aircraft-db-origin span {
+  color: #7a5c1a;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.aircraft-card h3,
+.plan-card h3,
+.support-card h3 {
+  margin: 0;
+}
+
+.aircraft-card:hover,
+.aircraft-hero-card:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 24px 54px rgba(17, 17, 17, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.96);
+}
+
+.results-head-premium {
+  gap: 0.8rem;
+}
+
+.results-headline-hook {
+  color: #171717;
+  font-size: 1.02rem;
+  font-weight: 800;
+}
+
+.results-subhook {
+  color: #746652;
+  font-size: 0.96rem;
+}
+
+.filter-toolbar__copy span {
+  margin: 0.18rem 0 0;
+  color: #63584a;
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.filter-toolbar {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem 1.05rem;
+  border: 1px solid #ece4d5;
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(255, 250, 242, 0.9), #ffffff);
+}
+
+.filter-toolbar__copy {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.filter-toolbar__copy span {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.filter-toolbar__copy strong {
+  color: #171717;
+  font-size: 1rem;
+}
+
+.filter-row button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 3.35rem;
+  padding: 0.75rem 1.1rem;
+  border: 1px solid #e5ddcf;
+  border-radius: 16px;
+  background: #fffdfa;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.filter-row button strong {
+  font-size: 0.88rem;
+  font-weight: 800;
+  color: #171717;
+  text-align: center;
+}
+
+.filter-row button:hover {
+  border-color: rgba(191, 151, 65, 0.38);
+  box-shadow: 0 10px 24px rgba(17, 17, 17, 0.06);
+  transform: translateY(-1px);
+}
+
+.aircraft-hero-card {
+  display: grid;
+  grid-template-columns: minmax(220px, 270px) minmax(0, 1fr) minmax(170px, 210px);
+  gap: 0.75rem;
+  min-height: 300px;
+  padding: 0.8rem;
+  border: 1px solid rgba(191, 151, 65, 0.34);
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(252, 248, 240, 0.96));
+  box-shadow:
+    0 18px 46px rgba(17, 17, 17, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+.aircraft-thumb-hero {
+  min-height: 300px;
+}
+
+.aircraft-hero-copy {
+  display: grid;
+  gap: 0.72rem;
+  align-content: center;
+  min-height: 100%;
+}
+
+.aircraft-hero-copy h3,
+.aircraft-copy h3 {
+  margin: 0;
+  color: #111111;
+  font-size: clamp(1.4rem, 2.2vw, 2rem);
+  line-height: 1;
+}
+
+.hero-meta,
+.hero-availability,
+.hero-price-label {
+  margin: 0;
+}
+
+.hero-meta {
+  color: #42392d;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.hero-availability {
+  color: #8f6613;
+  font-size: 0.94rem;
+  font-weight: 800;
+}
+
+.hero-price-label {
+  color: #746652;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.hero-price {
+  color: #111111;
+  font-size: clamp(2rem, 2.8vw, 2.6rem);
+  line-height: 0.95;
+}
+
+.hero-service-copy {
+  margin: 0;
+  color: #5f5f5f;
+  font-size: 0.95rem;
+}
+
+.hero-emotional-copy,
+.aircraft-emotional-copy {
+  margin: 0;
+  color: #2f2821;
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.aircraft-time-line {
+  margin: 0;
+  color: #6c604f;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.aircraft-billing-note {
+  margin: 0;
+  color: #8f6613;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.aircraft-capacity-line {
+  margin: 0;
+  color: #40382d;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.hero-includes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.hero-includes span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.9rem;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid #e4ddd1;
+  border-radius: 999px;
+  background: #faf8f3;
+  color: #40382d;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.hero-actions {
+  display: grid;
+  gap: 0.6rem;
+  align-content: center;
+  justify-items: end;
+}
+
+.hero-actions button {
+  width: 100%;
+  min-width: 11rem;
+  min-height: 3.25rem;
+  color: #ffffff;
+}
+
+.secondary-ghost-button {
+  border: 1px solid rgba(191, 151, 65, 0.28) !important;
+  background: rgba(255, 255, 255, 0.68) !important;
+  color: #181512 !important;
+  backdrop-filter: blur(12px);
+}
+
+.aircraft-facts,
+.detail-grid,
+.reservation-summary {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.aircraft-facts {
+  align-content: center;
+}
+
+.aircraft-card-head {
+  display: flex;
+  gap: 0.8rem;
+  align-items: start;
+  justify-content: space-between;
+}
+
+.aircraft-card-head__copy {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.aircraft-trust-copy {
+  margin: 0;
+  color: #2f2821;
+  font-size: 0.96rem;
+  font-weight: 700;
+}
+
+.aircraft-quick-meta {
+  margin: 0;
+  color: #6d6252;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.availability-pill {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 2rem;
+  padding: 0.35rem 0.78rem;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.availability-pill--available {
+  background: #eaf6ef;
+  color: #17683a;
+}
+
+.availability-pill--soon {
+  background: #fff7df;
+  color: #87610d;
+}
+
+.availability-pill--demand {
+  background: #fff0ea;
+  color: #a34218;
+}
+
+.aircraft-detail {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.9fr) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: center;
+  padding: clamp(1rem, 3vw, 1.5rem);
+}
+
+.aircraft-visual {
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  min-height: 330px;
+  place-items: center;
+  border-radius: 8px;
+  color: #ffffff;
+  background:
+    linear-gradient(135deg, rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.52)),
+    url('https://images.unsplash.com/photo-1540962351504-03099e0a754b?auto=format&fit=crop&w=1200&q=80')
+      center/cover;
+}
+
+.aircraft-visual span {
+  position: relative;
+  z-index: 1;
+  align-self: end;
+  justify-self: start;
+  margin: 1rem;
+  padding: 0.45rem 0.85rem;
+  border-radius: 999px;
+  background: rgba(17, 17, 17, 0.72);
+  color: #ffffff;
+  font-weight: 800;
+}
+
+.detail-copy,
+.document-panel,
+.support-card,
+.plan-card,
+.reservation-summary {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+}
+
+.plan-card--selected {
+  border-color: rgba(191, 151, 65, 0.52);
+  box-shadow: 0 18px 44px rgba(17, 17, 17, 0.08);
+  background: linear-gradient(180deg, #fffdf8, #ffffff);
+}
+
+.price-stack {
+  display: grid;
+  gap: 0.22rem;
+}
+
+.price-stack small,
+.plan-card small {
+  color: #6d6252;
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.plan-accent {
+  color: #9a7322;
+  font-size: 0.9rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+
+.card-actions {
+  display: grid;
+  gap: 0.7rem;
+  align-content: center;
+  justify-items: end;
+}
+
+.card-actions button {
+  min-width: 12rem;
+}
+
+.card-actions button:first-child {
+  min-height: 3rem;
+  background: rgba(255, 255, 255, 0.7);
+  color: #111111;
+}
+
+.card-actions button:last-child:not(:only-child) {
+  min-height: 3.25rem;
+  background: linear-gradient(135deg, #111111, #2b2925);
+  color: #ffffff;
+}
+
+.aircraft-list-compact {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.aircraft-card-compact {
+  grid-template-columns: minmax(220px, 260px) minmax(0, 1fr) minmax(170px, 210px);
+  min-height: 290px;
+  padding: 0.8rem;
+  border-radius: 18px;
+}
+
+.aircraft-card-compact .aircraft-thumb {
+  min-height: 290px;
+}
+
+.aircraft-card-compact .aircraft-copy {
+  display: grid;
+  align-content: center;
+  gap: 0.85rem;
+  min-height: 100%;
+}
+
+.aircraft-gallery {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.aircraft-gallery-item {
+  position: relative;
+  overflow: hidden;
+  display: block;
+  aspect-ratio: 4 / 3;
+  border: 1px solid #e5e1d8;
+  border-radius: 8px;
+  background: #f1eee7;
+}
+
+.aircraft-gallery-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.plan-grid,
+.support-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.profile-cards,
+.confirmation-actions {
+  display: grid;
+  gap: 1rem;
+}
+
+.payment-checkout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 420px);
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.payment-checkout__main {
+  display: grid;
+  gap: 1.35rem;
+}
+
+.payment-back {
+  width: fit-content;
+  min-height: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #111111;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.payment-back span {
+  color: inherit;
+  font-weight: 700;
+}
+
+.payment-back:hover {
+  transform: translateX(-2px);
+}
+
+.payment-checkout__hero {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.payment-checkout__hero p {
+  margin: 0;
+  max-width: 760px;
+}
+
+.payment-trust-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  padding-top: 0.2rem;
+}
+
+.payment-trust-strip span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 2.2rem;
+  padding: 0.45rem 0.8rem;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.8);
+  color: #3d372e;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.payment-trust-strip svg,
+.payment-field__input-shell svg {
+  width: 1rem;
+  height: 1rem;
+  color: #8b6a24;
+  flex: 0 0 auto;
+}
+
+.payment-section {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.commercial-payment-brief {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.commercial-payment-brief__card {
+  display: grid;
+  gap: 0.35rem;
+  padding: 1rem 1.05rem;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  border-radius: 22px;
+  background: #ffffff;
+  box-shadow: 0 12px 28px rgba(17, 17, 17, 0.04);
+}
+
+.commercial-payment-brief__card span {
+  color: #746b5f;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.commercial-payment-brief__card strong {
+  color: #111111;
+  font-size: 1rem;
+  line-height: 1.25;
+}
+
+.commercial-payment-brief__card--warning {
+  background: linear-gradient(180deg, #fffaf2, #fff4e8);
+  border-color: rgba(196, 124, 48, 0.2);
+}
+
+.commercial-payment-brief__card--success {
+  background: linear-gradient(180deg, #f4fbf6, #eaf7ee);
+  border-color: rgba(40, 142, 88, 0.18);
+}
+
+.commercial-payment-brief__card--premium {
+  background: linear-gradient(135deg, #f8f4eb 0%, #efe4c9 100%);
+  border-color: rgba(191, 151, 65, 0.32);
+}
+
+.commercial-payment-brief__card--neutral {
+  background: linear-gradient(180deg, #ffffff, #f8f5ee);
+}
+
+.payment-section h3,
+.payment-summary-card h3 {
+  color: #111111;
+  font-size: clamp(1.2rem, 2vw, 1.7rem);
+}
+
+.payment-method-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.payment-method-card,
+.payment-quantity-card,
+.payment-summary-card,
+.payment-field--card,
+.payment-field--stacked {
+  border-radius: 24px;
+}
+
+.payment-method-card {
+  display: grid;
+  gap: 0.42rem;
+  min-height: 128px;
+  padding: 1.15rem;
+  border: 1px solid rgba(17, 17, 17, 0.1);
+  background: linear-gradient(180deg, #ffffff, #f8f5ee);
+  text-align: left;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.payment-method-card__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.8rem;
+  height: 2.8rem;
+  border-radius: 16px;
+  background: rgba(139, 106, 36, 0.08);
+  color: #8b6a24;
+}
+
+.payment-method-card__icon svg,
+.payment-feature-list__icon svg,
+.payment-summary-flight__icon svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.payment-method-card strong,
+.payment-quantity-card strong,
+.payment-summary-card strong,
+.payment-summary-card__route,
+.payment-totals__total span,
+.payment-totals__total strong {
+  color: #111111;
+}
+
+.payment-method-card span,
+.payment-quantity-card span,
+.payment-quantity-card small,
+.payment-field span,
+.payment-field small,
+.payment-summary-card__eyebrow,
+.payment-summary-meta span,
+.payment-totals span,
+.payment-summary-card__legal {
+  color: #655d52;
+}
+
+.payment-method-card--active {
+  border-color: rgba(191, 151, 65, 0.52);
+  box-shadow: 0 18px 44px rgba(17, 17, 17, 0.08);
+  background: linear-gradient(180deg, #fffdf7, #ffffff);
+}
+
+.payment-method-card:hover {
+  transform: translateY(-2px);
+}
+
+.payment-quantity-card {
+  display: grid;
+  gap: 0.6rem;
+  padding: 1.15rem;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  background: #ffffff;
+}
+
+.payment-quantity-card__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.payment-quantity-card__row strong {
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.payment-quantity-card__row small {
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.payment-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.payment-field {
+  display: grid;
+  gap: 0.42rem;
+}
+
+.payment-field--full {
+  grid-column: 1 / -1;
+}
+
+.payment-field--card,
+.payment-field--stacked {
+  padding: 1rem 1.1rem;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  background: #ffffff;
+}
+
+.payment-field__input-shell {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 3.2rem;
+}
+
+.payment-field__input-shell--compact {
+  gap: 0.6rem;
+}
+
+.payment-mode-panel,
+.payment-wire-card {
+  padding: 1rem 1.1rem;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  border-radius: 24px;
+  background: #ffffff;
+}
+
+.payment-mode-panel__copy {
+  display: grid;
+  gap: 1rem;
+}
+
+.payment-card-frame {
+  display: grid;
+  gap: 1rem;
+}
+
+.payment-card-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.payment-card-field {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.payment-card-field--dark {
+  position: relative;
+  padding: 1.55rem 1.6rem 1.35rem;
+  border-radius: 32px;
+  background: #ffffff;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.payment-card-field--full {
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: 1.25rem;
+  row-gap: 0.95rem;
+}
+
+.payment-card-field span {
+  font-size: 0.95rem;
+  color: #655d52;
+}
+
+.payment-card-field--dark > span {
+  font-size: 1.05rem;
+  color: #171717;
+}
+
+.payment-card-field__brands {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  justify-self: end;
+}
+
+.payment-card-field__security {
+  position: absolute;
+  right: 1.5rem;
+  bottom: 1.25rem;
+  color: rgba(23, 23, 23, 0.6);
+}
+
+.payment-card-field__security svg {
+  width: 2.7rem;
+  height: 2.7rem;
+}
+
+.payment-card-field__shell {
+  position: relative;
+}
+
+.payment-card-field__hint {
+  position: absolute;
+  top: 50%;
+  right: 1rem;
+  transform: translateY(-50%);
+  color: #9d9589;
+  font-size: 0.95rem;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.payment-element-shell {
+  min-height: 4.6rem;
+  padding: 1.15rem 1.2rem;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  border-radius: 22px;
+  background: #f8f6f2;
+  display: block;
+  width: 100%;
+  cursor: text;
+  overflow: hidden;
+}
+
+.payment-card-field--full .payment-element-shell {
+  grid-column: 1 / -1;
+}
+
+.payment-element-shell--dark {
+  min-height: 2rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.payment-element-shell--full {
+  min-height: 5rem;
+}
+
+.payment-element-shell :deep(.StripeElement),
+.payment-element-shell :deep(.__PrivateStripeElement) {
+  width: 100%;
+  display: block;
+}
+
+.payment-element-shell :deep(iframe) {
+  width: 100% !important;
+  min-height: 1.5rem;
+}
+
+.payment-element-shell--dark :deep(iframe) {
+  min-height: 2rem;
+}
+
+.payment-element-shell--loading {
+  display: grid;
+  place-items: center;
+  color: #655d52;
+  font-weight: 600;
+}
+
+.payment-element-shell--dark.payment-element-shell--loading {
+  min-height: 2rem;
+  justify-content: start;
+  color: #746b5f;
+}
+
+.payment-mode-panel__copy p,
+.payment-wire-card p,
+.payment-inline-error {
+  margin: 0;
+}
+
+.payment-wire-card {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.payment-wire-card p {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+}
+
+.payment-wire-card strong {
+  text-align: right;
+  color: #111111;
+}
+
+.payment-assisted-actions {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.payment-assisted-actions__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.payment-proof-input {
+  display: none;
+}
+
+.payment-proof-name,
+.payment-proof-hint {
+  color: #655d52;
+  font-size: 0.92rem;
+  margin: 0;
+}
+
+.payment-inline-error {
+  color: #8e2d2d;
+  font-weight: 700;
+}
+
+.payment-field input {
+  width: 100%;
+  min-height: 100%;
+  padding: 0 0.1rem;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: #111111;
+  font: inherit;
+}
+
+.payment-field input::placeholder {
+  color: #9d9589;
+}
+
+.payment-card-brands {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.payment-card-field-grid--dark {
+  gap: 1rem;
+}
+
+.brand-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.6rem;
+  height: 1.5rem;
+  padding: 0 0.38rem;
+  border-radius: 8px;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.brand-chip--detected {
+  gap: 0.45rem;
+  min-width: 7.2rem;
+  min-height: 2.2rem;
+  padding: 0 0.95rem;
+  border-radius: 14px;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  color: #111111;
+  background: linear-gradient(135deg, #f8f4eb 0%, #efe4c9 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+.brand-chip__logo {
+  width: auto;
+  height: 1.15rem;
+  display: block;
+  flex: 0 0 auto;
+}
+
+.payment-summary-card {
+  position: sticky;
+  top: 6rem;
+  display: grid;
+  gap: 1rem;
+  padding: 1.4rem;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  background:
+    radial-gradient(circle at top right, rgba(191, 151, 65, 0.14), transparent 30%),
+    linear-gradient(180deg, #fffdfa, #f6f0e5);
+  box-shadow: 0 24px 64px rgba(17, 17, 17, 0.08);
+}
+
+.payment-summary-card__eyebrow {
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.payment-summary-card__route,
+.payment-summary-card__legal {
+  margin: 0;
+}
+
+.payment-summary-flight {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.85rem;
+  padding: 1rem;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.payment-summary-flight__icon {
+  display: grid;
+  place-items: center;
+  width: 2.8rem;
+  height: 2.8rem;
+  border-radius: 16px;
+  background: #111111;
+  color: #ffffff;
+}
+
+.payment-summary-flight span,
+.payment-summary-flight strong {
+  display: block;
+}
+
+.payment-summary-flight span {
+  font-size: 0.82rem;
+  color: #6a6153;
+  font-weight: 700;
+}
+
+.payment-summary-flight strong {
+  color: #111111;
+  font-size: 1rem;
+}
+
+.payment-feature-list {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem 0;
+  border-top: 1px solid rgba(17, 17, 17, 0.08);
+  border-bottom: 1px solid rgba(17, 17, 17, 0.08);
+}
+
+.payment-feature-list article,
+.payment-summary-meta p,
+.payment-totals p {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: start;
+  margin: 0;
+}
+
+.payment-feature-list p {
+  display: grid;
+  gap: 0.16rem;
+  margin: 0;
+}
+
+.payment-feature-list p strong {
+  font-size: 0.94rem;
+}
+
+.payment-feature-list p span {
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.payment-feature-list__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.2rem;
+  height: 2.2rem;
+  margin-top: 0.1rem;
+  border-radius: 14px;
+  background: rgba(139, 106, 36, 0.08);
+  color: #8b6a24;
+}
+
+.payment-summary-meta,
+.payment-totals {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.payment-summary-meta p,
+.payment-totals p {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.payment-summary-meta strong,
+.payment-totals strong {
+  text-align: right;
+}
+
+.payment-totals__total {
+  padding-top: 0.85rem;
+  border-top: 1px solid rgba(17, 17, 17, 0.08);
+}
+
+.payment-submit {
+  min-height: 3.6rem;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #111111, #2b2925);
+  box-shadow: 0 16px 32px rgba(17, 17, 17, 0.14);
+}
+
+.payment-submit:disabled {
+  cursor: progress;
+  opacity: 0.72;
+}
+
+.profile-cards {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.profile-hero-shell {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.profile-hero-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) auto;
+  gap: 1rem;
+  align-items: end;
+  padding: 1.15rem 1.25rem;
+  border: 1px solid rgba(181, 138, 60, 0.24);
+  border-radius: 22px;
+  background:
+    linear-gradient(180deg, rgba(17, 17, 17, 0.9), rgba(33, 30, 26, 0.92)),
+    radial-gradient(circle at top right, rgba(181, 138, 60, 0.2), transparent 30%);
+  box-shadow: 0 24px 48px rgba(17, 17, 17, 0.14);
+}
+
+.profile-hero-copy {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.profile-hero-copy h3,
+.profile-concierge-card strong {
+  margin: 0;
+  color: #ffffff;
+  font-size: clamp(1.6rem, 3vw, 2.3rem);
+  line-height: 1;
+}
+
+.profile-hero-copy p,
+.profile-concierge-card p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.8);
+  line-height: 1.5;
+}
+
+.profile-member-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.78rem 0.95rem;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.profile-payment-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.8rem;
+  width: fit-content;
+  max-width: 100%;
+  padding: 0.9rem 1.4rem;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #f9edd0 0%, #efddb1 100%);
+  color: #9a7422;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.profile-payment-badge__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  background: rgba(154, 116, 34, 0.12);
+  flex: 0 0 auto;
+}
+
+.profile-payment-badge__icon svg {
+  width: 1.2rem;
+  height: 1.2rem;
+}
+
+.profile-payment-badge strong {
+  color: inherit;
+  font-size: clamp(1rem, 2vw, 1.2rem);
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  line-height: 1.15;
+}
+
+.profile-member-chip strong,
+.profile-member-chip small {
+  display: block;
+  color: #ffffff;
+}
+
+.profile-member-chip small {
+  opacity: 0.76;
+  font-size: 0.88rem;
+}
+
+.profile-member-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3rem;
+  height: 3rem;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #f0d39a, #b58a3c);
+  color: #111111;
+  font-weight: 900;
+}
+
+.profile-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.profile-kpi-card,
+.profile-document-card,
+.profile-concierge-card,
+.profile-activity-card {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.95rem 1rem;
+  border: 1px solid #e5dfd4;
+  border-radius: 20px;
+  background: #ffffff;
+  box-shadow: 0 16px 34px rgba(17, 17, 17, 0.04);
+}
+
+.profile-kpi-card span,
+.profile-document-card small,
+.profile-preferences-box span {
+  color: #8c6a1f;
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.profile-kpi-card strong {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.profile-kpi-card__head,
+.profile-field-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.profile-kpi-icon,
+.profile-field-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 999px;
+  background: #f3ead2;
+  color: #8c6a1f;
+  flex: 0 0 auto;
+}
+
+.profile-kpi-icon svg,
+.profile-field-icon svg {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.profile-kpi-card small {
+  color: #6d665a;
+}
+
+.profile-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+}
+
+.profile-tab-button {
+  min-height: 2.8rem;
+  padding: 0 1rem;
+  border: 1px solid #e1dbcf;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #111111;
+  font-weight: 800;
+}
+
+.profile-tab-button--active {
+  border-color: #b58a3c;
+  background: linear-gradient(180deg, #fff8ec, #f2e1bb);
+  box-shadow: 0 12px 26px rgba(181, 138, 60, 0.14);
+}
+
+.profile-cards--premium {
+  margin-top: 0.25rem;
+}
+
+.profile-renewal-card {
+  display: grid;
+  gap: 1rem;
+  padding: 1.25rem;
+  border: 1px solid #e5dfd4;
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at top right, rgba(181, 138, 60, 0.14), transparent 34%),
+    linear-gradient(180deg, #ffffff 0%, #fbf8f2 100%);
+  box-shadow: 0 20px 42px rgba(17, 17, 17, 0.05);
+}
+
+.profile-renewal-card[data-tone='success'] {
+  border-color: rgba(53, 122, 86, 0.2);
+  background:
+    radial-gradient(circle at top right, rgba(77, 155, 111, 0.18), transparent 34%),
+    linear-gradient(180deg, #ffffff 0%, #f4fbf6 100%);
+}
+
+.profile-renewal-card[data-tone='warning'] {
+  border-color: rgba(181, 138, 60, 0.24);
+  background:
+    radial-gradient(circle at top right, rgba(214, 159, 52, 0.18), transparent 34%),
+    linear-gradient(180deg, #ffffff 0%, #fff8ee 100%);
+}
+
+.profile-renewal-card[data-tone='danger'] {
+  border-color: rgba(180, 73, 73, 0.22);
+  background:
+    radial-gradient(circle at top right, rgba(214, 92, 92, 0.16), transparent 34%),
+    linear-gradient(180deg, #ffffff 0%, #fff5f4 100%);
+}
+
+.profile-renewal-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.profile-renewal-card__header strong {
+  padding: 0.65rem 0.9rem;
+  border-radius: 999px;
+  background: rgba(17, 17, 17, 0.05);
+  color: #111111;
+  font-size: 0.88rem;
+  line-height: 1.2;
+}
+
+.profile-renewal-card h3 {
+  font-size: clamp(1.35rem, 2.5vw, 1.8rem);
+}
+
+.profile-renewal-card p,
+.profile-renewal-card small {
+  margin: 0;
+  color: #5d5a53;
+  line-height: 1.6;
+}
+
+.profile-renewal-card__grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.profile-renewal-card__fact {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.95rem 1rem;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(17, 17, 17, 0.06);
+}
+
+.profile-renewal-card__fact span {
+  color: #8c6a1f;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.profile-renewal-card__fact strong {
+  color: #161616;
+  font-size: 0.98rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.profile-highlight-card--premium {
+  padding: 1.25rem;
+  border-radius: 20px;
+}
+
+.profile-form--premium {
+  padding: 1rem;
+  border-radius: 20px;
+  box-shadow: 0 18px 38px rgba(17, 17, 17, 0.04);
+}
+
+.profile-preferences-shell {
+  display: grid;
+  gap: 1rem;
+}
+
+.profile-chip-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+}
+
+.profile-chip {
+  min-height: 2.8rem;
+  padding: 0 1rem;
+  border: 1px solid #e1dbcf;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #111111;
+  font-weight: 700;
+}
+
+.profile-preferences-box {
+  display: grid;
+  gap: 0.55rem;
+  padding: 1rem;
+  border: 1px solid #e5dfd4;
+  border-radius: 20px;
+  background: #ffffff;
+}
+
+.profile-preferences-box textarea {
+  min-height: 180px;
+  width: 100%;
+  border: 1px solid #d8d2c4;
+  border-radius: 16px;
+  padding: 0.9rem;
+  background: #fbfaf7;
+  font: inherit;
+  resize: vertical;
+}
+
+.profile-document-grid,
+.profile-activity-shell {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.profile-document-card {
+  align-content: start;
+}
+
+.profile-document-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 14px;
+  background: #f2e6cd;
+  color: #111111;
+  font-size: 0.75rem;
+  font-weight: 900;
+}
+
+.profile-document-card p,
+.profile-activity-item p {
+  margin: 0;
+  color: #6b6458;
+  line-height: 1.55;
+}
+
+.profile-activity-card {
+  grid-column: span 2;
+}
+
+.profile-activity-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.profile-activity-item {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.9rem;
+  border-radius: 16px;
+  background: #f8f5ef;
+}
+
+.profile-activity-item strong {
+  font-size: 0.98rem;
+}
+
+.profile-activity-item small {
+  color: #7a7469;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.profile-concierge-card {
+  align-content: start;
+  background: linear-gradient(180deg, #111111, #24211b);
+}
+
+.profile-highlight-card,
+.confirmation-box {
+  padding: 1rem;
+  border: 1px solid #e5e1d8;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.profile-highlight-card {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.confirmation-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.secondary-button {
+  background: #ece8df;
+  color: #111111;
+}
+
+.plan-card ul {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0;
+  padding-left: 1rem;
+}
+
+.support-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.75fr);
+}
+
+.support-card textarea,
+.profile-form textarea {
+  min-height: 130px;
+  padding: 0.85rem;
+  resize: vertical;
+}
+
+.summary-band {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 1rem;
+  align-items: center;
+  padding: 1rem;
+}
+
+.signature-box {
+  display: grid;
+  min-height: 170px;
+  place-items: center;
+  border: 1px dashed #b9ad96;
+  border-radius: 8px;
+  background: #fbf8ef;
+  color: #6b5a3b;
+  font-weight: 800;
+}
+
+.profile-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem 1rem;
+  padding: 1rem;
+  border: 1px solid #e5e1d8;
+  border-radius: 16px;
+  background: #ffffff;
+}
+
+.profile-form label {
+  display: grid;
+  gap: 0.5rem;
+  color: #5f594e;
+  font-weight: 700;
+}
+
+.profile-form input,
+.profile-form textarea,
+.support-card textarea {
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  background: #f5f2eb;
+  color: #111111;
+  font: inherit;
+}
+
+.profile-form input {
+  min-height: 3.5rem;
+  padding: 0 1rem;
+  font-weight: 800;
+}
+
+.profile-form__field--half {
+  max-width: calc(50% - 0.5rem);
+}
+
+.profile-field-label {
+  color: #676055;
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.wide {
+  grid-column: 1 / -1;
+}
+
+.mobile-bottom-nav {
+  display: none;
+}
+
+.technical-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background: rgba(8, 8, 8, 0.62);
+  backdrop-filter: blur(20px);
+}
+
+.technical-sheet {
+  width: min(100%, 1040px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 28px;
+  background: linear-gradient(145deg, rgba(22, 22, 22, 0.96), rgba(9, 9, 9, 0.94));
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.35);
+  color: #f4efe7;
+  overflow: hidden;
+}
+
+.technical-sheet__hero {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr) auto;
+  gap: 1rem;
+  padding: 1rem;
+  align-items: center;
+}
+
+.technical-sheet__media {
+  position: relative;
+  min-height: 220px;
+  border-radius: 22px;
+  overflow: hidden;
+  background: linear-gradient(135deg, #1f1f1f, #0f0f0f);
+}
+
+.technical-sheet__media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.technical-sheet__copy {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.technical-sheet__copy p,
+.technical-sheet__copy strong,
+.technical-sheet__map span,
+.technical-sheet__map strong,
+.technical-sheet__stats span,
+.technical-sheet__stats strong,
+.technical-sheet__insights li,
+.technical-sheet__insights .eyebrow {
+  color: #f4efe7;
+}
+
+.technical-sheet__copy strong {
+  font-size: 2rem;
+}
+
+.technical-sheet__close {
+  align-self: start;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.technical-sheet__body {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  gap: 1rem;
+  padding: 0 1rem 1rem;
+}
+
+.technical-sheet__map,
+.technical-sheet__stats,
+.technical-sheet__insights {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(16px);
+}
+
+.technical-sheet__map {
+  display: grid;
+  gap: 0.5rem;
+  min-height: 240px;
+  padding: 1rem;
+  background:
+    radial-gradient(circle at top left, rgba(191, 151, 65, 0.24), transparent 28%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02));
+}
+
+.technical-sheet__stats {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+}
+
+.technical-sheet__stats article {
+  display: grid;
+  gap: 0.18rem;
+  padding: 0.8rem;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.technical-sheet__insights {
+  display: grid;
+  gap: 0.5rem;
+  padding: 1rem;
+}
+
+.technical-sheet__insights ul {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding-left: 1rem;
+}
+
+.sheet-fade-enter-active,
+.sheet-fade-leave-active {
+  transition: opacity 180ms ease;
+}
+
+.sheet-fade-enter-from,
+.sheet-fade-leave-to {
+  opacity: 0;
+}
+
+.active-filter {
+  background: #111111 !important;
+  border-color: #111111 !important;
+  color: #ffffff !important;
+  box-shadow: 0 14px 30px rgba(17, 17, 17, 0.14);
+}
+
+.active-filter strong {
+  color: #ffffff !important;
+}
+
+@media (min-width: 761px) {
+  .mobile-bottom-nav {
+    display: none !important;
+  }
+}
+
+@media (max-width: 1080px) {
+  .profile-kpi-grid,
+  .profile-renewal-card__grid,
+  .profile-document-grid,
+  .profile-activity-shell,
+  .results-search-bar,
+  .aircraft-card,
+  .aircraft-detail,
+  .plan-grid,
+  .profile-cards,
+  .confirmation-actions,
+  .support-grid,
+  .summary-band,
+  .profile-form {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-activity-card {
+    grid-column: auto;
+  }
+
+  .profile-hero-card {
+    grid-template-columns: 1fr;
+  }
+
+  .technical-sheet__hero,
+  .technical-sheet__body {
+    grid-template-columns: 1fr;
+  }
+
+  .payment-checkout {
+    grid-template-columns: 1fr;
+  }
+
+  .payment-summary-card {
+    position: static;
+  }
+}
+
+@media (max-width: 760px) {
+  .client-app-shell {
+    padding-top: 3.8rem;
+  }
+
+  .client-page {
+    gap: 0.5rem;
+    padding: 0.5rem 0.5rem 5.55rem;
+  }
+
+  .results-search-bar {
+    position: static;
+    top: auto;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.35rem;
+    padding: 0.45rem;
+    border-radius: 10px;
+    box-shadow: 0 6px 14px rgba(24, 24, 24, 0.04);
+  }
+
+  .results-search-bar label {
+    gap: 0.12rem;
+  }
+
+  .results-search-bar span {
+    font-size: 0.58rem;
+    letter-spacing: 0.05em;
+  }
+
+  .results-search-bar input {
+    min-height: 2.1rem;
+    padding: 0 0.5rem;
+    border-radius: 8px;
+    font-size: 0.88rem;
+  }
+
+  .results-search-bar select {
+    min-height: 2.1rem;
+    padding: 0 0.5rem;
+    border-radius: 8px;
+    font-size: 0.88rem;
+  }
+
+  .results-search-bar button {
+    grid-column: 1 / -1;
+    min-height: 2.2rem;
+    border-radius: 8px;
+    font-size: 0.88rem;
+  }
+
+  .screen {
+    gap: 0.5rem;
+  }
+
+  h2 {
+    font-size: clamp(0.98rem, 6.8vw, 1.55rem);
+    line-height: 0.98;
+  }
+
+  .filter-row {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 0.3rem;
+    overflow-x: auto;
+    padding-bottom: 0.15rem;
+    scrollbar-width: none;
+  }
+
+  .filter-row::-webkit-scrollbar {
+    display: none;
+  }
+
+  .filter-row button {
+    flex: 0 0 auto;
+    min-height: 1.9rem;
+    padding: 0 0.8rem;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 500;
+  }
+
+  .card-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .results-search-bar button,
+  .filter-row button,
+  .card-actions button,
+  .summary-band button,
+  .reservation-summary button,
+  .document-panel button,
+  .payment-checkout button,
+  .support-card button,
+  .plan-card button {
+    width: 100%;
+  }
+
+  .eyebrow,
+  .tag {
+    font-size: 0.6rem;
+    letter-spacing: 0.06em;
+  }
+
+  .screen-head {
+    max-width: none;
+  }
+
+  .results-head {
+    padding: 0.2rem 0 0;
+  }
+
+  .results-head h2 {
+    max-width: none;
+    font-size: 1.02rem;
+    line-height: 1.08;
+  }
+
+  .results-headline-hook {
+    font-size: 0.78rem;
+  }
+
+  .screen-head p {
+    display: block;
+    margin-top: 0.16rem;
+    font-size: 0.72rem;
+    line-height: 1.2;
+  }
+
+  .filter-toolbar {
+    padding: 0.72rem;
+    border-radius: 12px;
+  }
+
+  .filter-toolbar__copy strong {
+    font-size: 0.76rem;
+    line-height: 1.3;
+  }
+
+  .route-summary-bar {
+    min-height: 2.4rem;
+    padding: 0.55rem 0.65rem;
+    border-radius: 10px;
+  }
+
+  .route-summary-bar strong {
+    font-size: 0.72rem;
+    line-height: 1.2;
+  }
+
+  .results-recommendation {
+    display: grid;
+    gap: 0.18rem;
+    padding: 0.62rem 0.7rem;
+    border: 1px solid rgba(139, 106, 36, 0.14);
+    border-radius: 10px;
+    background: #ffffff;
+  }
+
+  .results-recommendation strong {
+    color: #141414;
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+
+  .leg-list span,
+  .aircraft-note,
+  .aircraft-meta,
+  .aircraft-facts span {
+    font-size: 0.72rem;
+    line-height: 1.2;
+  }
+
+  .aircraft-db-origin {
+    width: 100%;
+    gap: 0.08rem;
+    padding: 0.35rem 0.45rem;
+  }
+
+  .aircraft-db-origin span {
+    font-size: 0.52rem;
+  }
+
+  .aircraft-list {
+    display: grid;
+    gap: 0.75rem;
+    overflow: visible;
+    padding: 0;
+    scroll-snap-type: none;
+  }
+
+  .aircraft-card,
+  .plan-card,
+  .support-card,
+  .document-panel,
+  .payment-summary-card,
+  .reservation-summary,
+  .summary-band,
+  .aircraft-detail,
+  .profile-form,
+  .profile-kpi-card,
+  .profile-document-card,
+  .profile-concierge-card,
+  .profile-activity-card {
+    padding: 0.72rem;
+  }
+
+  .profile-hero-card,
+  .profile-form--premium,
+  .profile-highlight-card--premium,
+  .profile-preferences-box {
+    padding: 0.85rem;
+  }
+
+  .profile-tabs {
+    gap: 0.45rem;
+  }
+
+  .profile-tab-button,
+  .profile-chip {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .aircraft-card {
+    gap: 0.55rem;
+    border-radius: 18px;
+    padding: 0.65rem;
+    scroll-snap-align: none;
+  }
+
+  .aircraft-card-head {
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .aircraft-thumb {
+    min-height: 220px;
+    border-radius: 14px;
+  }
+
+  .aircraft-thumb img {
+    min-height: 220px;
+  }
+
+  .aircraft-thumb__badge {
+    top: 0.35rem;
+    left: 0.35rem;
+    min-height: 1.2rem;
+    padding: 0.12rem 0.42rem;
+    font-size: 0.52rem;
+  }
+
+  .aircraft-image-source {
+    right: 0.35rem;
+    bottom: 0.35rem;
+    max-width: calc(100% - 0.7rem);
+    padding: 0.12rem 0.36rem;
+    font-size: 0.48rem;
+  }
+
+  .aircraft-copy {
+    gap: 0.3rem;
+  }
+
+  .aircraft-copy h3,
+  .aircraft-hero-copy h3 {
+    font-size: 1rem;
+    line-height: 1.08;
+    font-weight: 700;
+  }
+
+  .aircraft-copy > strong {
+    font-size: 0.72rem;
+    line-height: 1.1;
+    display: none;
+  }
+
+  .aircraft-price-line {
+    gap: 0.1rem;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .aircraft-price-line strong {
+    font-size: 1.5rem;
+    line-height: 1;
+  }
+
+  .aircraft-price-line > span,
+  .aircraft-price-line small {
+    font-size: 0.68rem;
+  }
+
+  .aircraft-time-line,
+  .hero-service-copy,
+  .hero-emotional-copy,
+  .aircraft-emotional-copy {
+    font-size: 0.78rem;
+    line-height: 1.35;
+  }
+
+  .aircraft-facts {
+    grid-template-columns: 1fr;
+    gap: 0.14rem;
+    padding-top: 0.05rem;
+  }
+
+  .verified-pill {
+    width: 100%;
+    justify-content: center;
+    text-align: center;
+    min-height: 1.4rem;
+    padding: 0.15rem 0.42rem;
+    font-size: 0.64rem;
+  }
+
+  .card-actions {
+    gap: 0.28rem;
+  }
+
+  .card-actions button {
+    min-height: 2.9rem;
+    border-radius: 12px;
+    font-size: 0.9rem;
+  }
+
+  .aircraft-facts .fact-pill {
+    display: none;
+  }
+
+  .aircraft-visual {
+    min-height: 170px;
+  }
+
+  .aircraft-hero-card,
+  .aircraft-card-compact,
+  .payment-method-grid,
+  .payment-form-grid,
+  .payment-card-field-grid {
+    grid-template-columns: 1fr;
+    min-height: auto;
+  }
+
+  .payment-card-field--dark {
+    padding: 1.2rem;
+    border-radius: 24px;
+  }
+
+  .payment-card-field__brands {
+    top: 1rem;
+    right: 1rem;
+    gap: 0.3rem;
+  }
+
+  .payment-card-field__security {
+    right: 1rem;
+    bottom: 1rem;
+  }
+
+  .payment-card-field-grid--dark {
+    grid-template-columns: 1fr;
+  }
+
+  .payment-checkout {
+    gap: 1rem;
+  }
+
+  .payment-checkout__main {
+    gap: 1rem;
+  }
+
+  .payment-back {
+    width: fit-content !important;
+  }
+
+  .payment-method-card,
+  .payment-quantity-card,
+  .payment-field--card,
+  .payment-field--stacked,
+  .payment-mode-panel,
+  .payment-wire-card,
+  .payment-summary-card {
+    border-radius: 18px;
+  }
+
+  .payment-method-card,
+  .payment-quantity-card,
+  .payment-field--card,
+  .payment-field--stacked,
+  .payment-mode-panel,
+  .payment-wire-card {
+    padding: 0.9rem;
+  }
+
+  .payment-field input {
+    min-height: 2.7rem;
+  }
+
+  .payment-summary-card {
+    gap: 0.8rem;
+  }
+
+  .payment-feature-list article,
+  .payment-summary-meta p,
+  .payment-totals p {
+    gap: 0.55rem;
+  }
+
+  .aircraft-thumb-hero,
+  .aircraft-card-compact .aircraft-thumb {
+    min-height: 220px;
+  }
+
+  .hero-actions,
+  .card-actions {
+    justify-items: stretch;
+    align-content: stretch;
+  }
+
+  .hero-actions button,
+  .card-actions button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .aircraft-gallery {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.35rem;
+  }
+
+  .mobile-bottom-nav {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 35;
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.35rem;
+    padding: 0.55rem;
+    border-top: 1px solid #e5e1d8;
+    background: rgba(255, 255, 255, 0.96);
+    backdrop-filter: blur(16px);
+  }
+
+  .technical-sheet-backdrop {
+    padding: 0.75rem;
+  }
+
+  .technical-sheet {
+    border-radius: 22px;
+  }
+
+  .technical-sheet__hero,
+  .technical-sheet__body {
+    padding: 0.75rem;
+  }
+
+  .technical-sheet__media {
+    min-height: 200px;
+  }
+
+  .mobile-bottom-nav button {
+    min-height: 2.6rem;
+    padding: 0 0.35rem;
+    border-radius: 999px;
+    background: #f3efe7;
+    color: #111111;
+    font-size: 0.74rem;
+    font-weight: 800;
+  }
+
+  .mobile-bottom-nav button.active {
+    background: #111111;
+    color: #ffffff;
+  }
+}
+
+@media (max-width: 720px) {
+  .commercial-payment-brief {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .profile-renewal-card__header {
+    display: grid;
+  }
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 0;
+  }
+
+  :global(body.contract-print-mode) {
+    background: #ffffff !important;
+  }
+
+  :global(body.contract-print-mode *) {
+    visibility: hidden !important;
+  }
+
+  :global(body.contract-print-mode .document-panel),
+  :global(body.contract-print-mode .document-panel *) {
+    visibility: visible !important;
+  }
+
+  :global(body.contract-print-mode .document-panel) {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+    border: 0 !important;
+  }
+
+  :global(body.contract-print-mode .contract-preview) {
+    display: block !important;
+    padding: 0 !important;
+  }
+
+  :global(body.contract-print-mode .contract-pdf) {
+    width: 100% !important;
+    max-width: 100% !important;
+    font-size: 10.5px !important;
+    line-height: 1.35 !important;
+  }
+
+  :global(body.contract-print-mode .contract-sheet) {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-height: auto !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: #ffffff !important;
+  }
+
+  :global(body.contract-print-mode .contract-sheet__body) {
+    padding: 10mm 12mm 12mm !important;
+    border: 0 !important;
+  }
+
+  :global(body.contract-print-mode .contract-brandbar) {
+    print-color-adjust: exact !important;
+    -webkit-print-color-adjust: exact !important;
+    min-height: 15rem !important;
+    padding: 2.1rem 1.4rem !important;
+    border-radius: 0 !important;
+  }
+
+  :global(body.contract-print-mode .contract-brandbar__banner) {
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+  }
+
+  :global(body.contract-print-mode .contract-block),
+  :global(body.contract-print-mode .contract-summary),
+  :global(body.contract-print-mode .contract-footer),
+  :global(body.contract-print-mode .signature-card),
+  :global(body.contract-print-mode .account-card),
+  :global(body.contract-print-mode .annex-table),
+  :global(body.contract-print-mode .signatures-grid),
+  :global(body.contract-print-mode .accounts-grid) {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  :global(body.contract-print-mode .signatures-grid),
+  :global(body.contract-print-mode .accounts-grid) {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 6mm !important;
+  }
+
+  :global(body.contract-print-mode .signatures-grid) {
+    grid-template-columns: minmax(0, 1fr) !important;
+    justify-items: center !important;
+  }
+
+  :global(body.contract-print-mode .signature-card.signature-block) {
+    width: min(100%, 160mm) !important;
+    justify-items: center !important;
+    text-align: center !important;
+  }
+
+  :global(body.contract-print-mode .signature-line) {
+    min-height: 18mm !important;
+  }
+
+  :global(body.contract-print-mode .provider-signature-image),
+  :global(body.contract-print-mode .signature-uploaded__image) {
+    max-width: 56mm !important;
+    max-height: 18mm !important;
+    object-fit: contain !important;
+  }
+
+  :global(body.contract-print-mode .annex-table) {
+    font-size: 10px !important;
+    table-layout: fixed !important;
+  }
+
+  :global(body.contract-print-mode .annex-table th),
+  :global(body.contract-print-mode .annex-table td) {
+    padding: 6px 8px !important;
+    word-break: normal !important;
+    overflow-wrap: break-word !important;
+  }
+
+  :global(body.contract-print-mode .contract-table),
+  :global(body.contract-print-mode .contract-table thead),
+  :global(body.contract-print-mode .contract-table tbody),
+  :global(body.contract-print-mode .contract-table tr),
+  :global(body.contract-print-mode .contract-table th),
+  :global(body.contract-print-mode .contract-table td) {
+    display: revert !important;
+  }
+
+  :global(body.contract-print-mode .contract-watermark) {
+    position: fixed !important;
+    inset: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    opacity: 1 !important;
+    pointer-events: none !important;
+    z-index: 0 !important;
+  }
+
+  :global(body.contract-print-mode .contract-watermark img) {
+    display: block !important;
+    width: 72% !important;
+    max-width: 34rem !important;
+    opacity: 0.06 !important;
+    filter: grayscale(1) !important;
+  }
+
+  :global(body.contract-print-mode .signature-panel),
+  :global(body.contract-print-mode .signature-actions),
+  :global(body.contract-print-mode .signature-input),
+  :global(body.contract-print-mode .signature-panel__submit),
+  :global(body.contract-print-mode .signature-note),
+  :global(body.contract-print-mode .signature-uploaded__meta),
+  :global(body.contract-print-mode .signature-ready-badge) {
+    display: none !important;
+  }
+}

@@ -1,0 +1,993 @@
+@media (max-width: 720px) {
+  .fleet-operations-luxury .wizard-overlay {
+    padding: 0.5rem;
+  }
+
+  .fleet-operations-luxury .wizard-modal {
+    width: 100%;
+    max-height: calc(100vh - 1rem);
+    border-radius: 24px;
+  }
+
+  .fleet-operations-luxury .wizard-header,
+  .fleet-operations-luxury .wizard-stage-header,
+  .fleet-operations-luxury .wizard-footer {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .fleet-operations-luxury .wizard-hero-copy h2 {
+    font-size: clamp(2.4rem, 13vw, 3.8rem);
+  }
+
+  .fleet-operations-luxury .wizard-shell {
+    padding: 0.8rem;
+    max-height: calc(100vh - 22rem);
+  }
+
+  .fleet-operations-luxury .document-type-grid,
+  .fleet-operations-luxury .wizard-review-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.fleet-operations-luxury .wizard-modal {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 1.2rem);
+}
+
+.fleet-operations-luxury .wizard-sticky-head {
+  flex: 0 0 auto;
+  max-height: 180px;
+  padding: 0.9rem 1.05rem 0.75rem;
+}
+
+.fleet-operations-luxury .wizard-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 240px auto;
+  gap: 1rem;
+  align-items: start;
+}
+
+.fleet-operations-luxury .wizard-hero-copy {
+  gap: 0.28rem;
+  min-width: 0;
+}
+
+.fleet-operations-luxury .wizard-hero-copy .eyebrow {
+  margin-bottom: 0.1rem;
+}
+
+.fleet-operations-luxury .wizard-hero-copy h2 {
+  max-width: 100%;
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  font-size: 48px;
+  line-height: 0.96;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.fleet-operations-luxury .wizard-hero-copy .muted {
+  display: -webkit-box;
+  overflow: hidden;
+  max-width: 50rem;
+  margin: 0;
+  font-size: 0.86rem;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+}
+
+.fleet-operations-luxury .wizard-hero-meta {
+  gap: 0.45rem;
+}
+
+.fleet-operations-luxury .wizard-header-actions {
+  display: contents;
+}
+
+.fleet-operations-luxury .wizard-progress-shell {
+  align-self: start;
+  width: 220px;
+  min-width: 220px;
+  height: 60px;
+  padding: 0.55rem 0.7rem;
+  border-radius: 18px;
+}
+
+.fleet-operations-luxury .wizard-progress-copy {
+  margin-bottom: 0.34rem;
+}
+
+.fleet-operations-luxury .wizard-progress-copy span {
+  font-size: 0.66rem;
+}
+
+.fleet-operations-luxury .wizard-progress-copy strong {
+  font-size: 0.92rem;
+}
+
+.fleet-operations-luxury .wizard-progress-bar {
+  height: 0.45rem;
+}
+
+.fleet-operations-luxury .wizard-close-button {
+  align-self: start;
+  min-height: 40px;
+  padding: 0 0.85rem;
+}
+
+.fleet-operations-luxury .wizard-stepper {
+  gap: 0.65rem;
+  margin-top: 0.65rem;
+  padding-bottom: 0.15rem;
+}
+
+.fleet-operations-luxury .wizard-step {
+  flex-basis: 170px;
+  width: 170px;
+  height: 72px;
+  min-height: 72px;
+  gap: 0.18rem;
+  padding: 0.72rem 0.85rem;
+  border-radius: 18px;
+}
+
+.fleet-operations-luxury .wizard-step span {
+  font-size: 0.7rem;
+  line-height: 1;
+}
+
+.fleet-operations-luxury .wizard-step strong {
+  font-size: 0.92rem;
+  line-height: 1.05;
+}
+
+.fleet-operations-luxury .wizard-step small {
+  display: none;
+}
+
+.fleet-operations-luxury .wizard-step:hover,
+.fleet-operations-luxury .wizard-step.active {
+  transform: translateY(-2px) scale(1.03);
+}
+
+.fleet-operations-luxury .wizard-shell {
+  flex: 1 1 auto;
+  grid-template-columns: minmax(0, 3fr) minmax(300px, 1fr);
+  gap: 1rem;
+  max-height: none;
+  min-height: 0;
+  overflow: auto;
+  padding: 1rem 1.05rem;
+}
+
+.fleet-operations-luxury .wizard-body,
+.fleet-operations-luxury .wizard-sidebar {
+  gap: 1rem;
+}
+
+.fleet-operations-luxury .wizard-stage-header {
+  min-height: 70px;
+  grid-template-columns: minmax(0, 1fr) minmax(14rem, auto);
+  gap: 1rem;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  border-radius: 18px;
+}
+
+.fleet-operations-luxury .wizard-stage-header h3 {
+  margin: 0.08rem 0 0;
+  font-size: 1.15rem;
+  line-height: 1.1;
+}
+
+.fleet-operations-luxury .wizard-stage-header p {
+  margin: 0.16rem 0 0;
+  font-size: 0.84rem;
+  line-height: 1.25;
+}
+
+.fleet-operations-luxury .wizard-stage-detail {
+  max-width: 18rem;
+  font-size: 0.84rem;
+  line-height: 1.35;
+}
+
+.fleet-operations-luxury .wizard-panel {
+  padding: 20px;
+  border-radius: 22px;
+}
+
+.fleet-operations-luxury .wizard-panel .section-head {
+  margin-bottom: 0.75rem;
+}
+
+.fleet-operations-luxury .wizard-panel .form-grid,
+.fleet-operations-luxury .document-upload-grid,
+.fleet-operations-luxury .document-type-grid,
+.fleet-operations-luxury .document-preview-grid,
+.fleet-operations-luxury .stored-documents-list,
+.fleet-operations-luxury .stored-images-grid,
+.fleet-operations-luxury .wizard-review-grid {
+  gap: 16px;
+}
+
+.fleet-operations-luxury .wizard-panel input,
+.fleet-operations-luxury .wizard-panel select,
+.fleet-operations-luxury .document-upload-grid select {
+  min-height: 52px;
+}
+
+.fleet-operations-luxury .wizard-panel input[type='file'] {
+  min-height: 7.5rem;
+  padding: 2.7rem 1rem 0.75rem;
+}
+
+.fleet-operations-luxury .document-dropzone {
+  min-height: 8.5rem;
+  padding: 1rem;
+}
+
+.fleet-operations-luxury .document-type-card,
+.fleet-operations-luxury .document-preview-card,
+.fleet-operations-luxury .stored-document-card,
+.fleet-operations-luxury .stored-image-card,
+.fleet-operations-luxury .wizard-review-card,
+.fleet-operations-luxury .wizard-sidebar-card {
+  padding: 20px;
+}
+
+.fleet-operations-luxury .wizard-review-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.fleet-operations-luxury .wizard-review-card {
+  min-height: 0;
+}
+
+.fleet-operations-luxury .wizard-sidebar {
+  position: sticky;
+  top: 0;
+  width: 320px;
+  max-width: 100%;
+  justify-self: end;
+  align-self: start;
+}
+
+.fleet-operations-luxury .wizard-sidebar-card {
+  gap: 0.55rem;
+  border-radius: 20px;
+}
+
+.fleet-operations-luxury .wizard-sidebar-card--hero {
+  min-height: 10rem;
+}
+
+.fleet-operations-luxury .wizard-sidebar-card--hero::after {
+  width: 6.6rem;
+  height: 1.9rem;
+}
+
+.fleet-operations-luxury .wizard-sidebar-stats {
+  gap: 0.45rem;
+}
+
+.fleet-operations-luxury .wizard-sidebar-stat {
+  padding-bottom: 0.45rem;
+}
+
+.fleet-operations-luxury .wizard-sidebar-stat span,
+.fleet-operations-luxury .wizard-sidebar-stat strong {
+  font-size: 0.8rem;
+}
+
+.fleet-operations-luxury .wizard-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  min-height: 56px;
+  flex: 0 0 auto;
+  padding: 0.7rem 1.05rem;
+}
+
+.fleet-operations-luxury .wizard-footer .ghost-button,
+.fleet-operations-luxury .wizard-footer .primary-action {
+  min-height: 44px;
+  padding: 0 1rem;
+}
+
+@media (max-width: 1280px) {
+  .fleet-operations-luxury .wizard-hero-copy h2 {
+    font-size: 36px;
+  }
+
+  .fleet-operations-luxury .wizard-header {
+    grid-template-columns: minmax(0, 1fr) 220px auto;
+  }
+}
+
+@media (max-width: 1080px) {
+  .fleet-operations-luxury .wizard-sticky-head {
+    max-height: none;
+  }
+
+  .fleet-operations-luxury .wizard-header {
+    grid-template-columns: 1fr;
+  }
+
+  .fleet-operations-luxury .wizard-header-actions {
+    display: flex;
+  }
+
+  .fleet-operations-luxury .wizard-progress-shell {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .fleet-operations-luxury .wizard-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .fleet-operations-luxury .wizard-sidebar {
+    position: static;
+    width: 100%;
+    justify-self: stretch;
+  }
+}
+
+/* Premium aircraft wizard polish: compact executive workspace */
+.fleet-operations-luxury .wizard-modal {
+  max-height: calc(100vh - 32px);
+  padding: 0;
+  overflow: hidden;
+  box-shadow:
+    0 34px 110px rgba(0, 0, 0, 0.68),
+    0 0 90px rgba(10, 35, 66, 0.28);
+}
+
+.fleet-operations-luxury .wizard-sticky-head {
+  max-height: none;
+  padding: 24px 32px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.fleet-operations-luxury .wizard-header {
+  position: relative;
+  min-height: 120px;
+  grid-template-columns: minmax(0, 1fr);
+  padding-right: 420px;
+  align-items: start;
+}
+
+.fleet-operations-luxury .wizard-hero-copy {
+  margin-bottom: 24px;
+}
+
+.fleet-operations-luxury .wizard-hero-copy h2 {
+  max-width: 100%;
+  margin: 0;
+  font-size: 56px;
+  font-weight: 700;
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0;
+  -webkit-line-clamp: 1;
+  text-shadow: 0 0 30px rgba(201, 160, 99, 0.12);
+}
+
+.fleet-operations-luxury .wizard-hero-copy .muted {
+  max-width: 46rem;
+}
+
+.fleet-operations-luxury .wizard-header-actions {
+  display: contents;
+}
+
+.fleet-operations-luxury .wizard-progress-shell {
+  position: absolute;
+  top: 24px;
+  right: 150px;
+  width: 220px;
+  min-width: 220px;
+  height: 56px;
+  min-height: 56px;
+  padding: 0.55rem 0.72rem;
+  box-shadow:
+    0 0 20px rgba(201, 160, 99, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.fleet-operations-luxury .wizard-close-button {
+  position: absolute;
+  top: 28px;
+  right: 32px;
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  min-height: 48px;
+  padding: 0;
+  border-radius: 50%;
+  color: rgba(246, 243, 239, 0.74);
+  font-size: 0.86rem;
+  letter-spacing: 0;
+}
+
+.fleet-operations-luxury .wizard-close-button:hover {
+  color: #fff;
+  border-color: rgba(210, 80, 80, 0.34);
+  box-shadow:
+    0 10px 30px rgba(210, 80, 80, 0.12),
+    0 0 18px rgba(210, 80, 80, 0.14);
+}
+
+.fleet-operations-luxury .wizard-stepper {
+  position: relative;
+  gap: 20px;
+  height: 78px;
+  margin-top: 8px;
+  padding: 0;
+  overflow: visible;
+}
+
+.fleet-operations-luxury .wizard-stepper::before {
+  content: '';
+  position: absolute;
+  top: 38px;
+  left: 24px;
+  right: 24px;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    rgba(46, 139, 87, 0.42),
+    rgba(201, 160, 99, 0.32),
+    rgba(255, 255, 255, 0.08)
+  );
+  pointer-events: none;
+}
+
+.fleet-operations-luxury .wizard-step {
+  position: relative;
+  z-index: 1;
+  height: 78px;
+  min-height: 78px;
+  border-color: rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(135deg, rgba(7, 27, 54, 0.72), rgba(5, 10, 20, 0.92));
+  transition:
+    transform 250ms cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 250ms cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 250ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.fleet-operations-luxury .wizard-step span {
+  display: inline-grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.58);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.fleet-operations-luxury .wizard-step.complete {
+  border-color: rgba(46, 139, 87, 0.32);
+  background:
+    linear-gradient(135deg, rgba(20, 55, 45, 0.72), rgba(6, 20, 16, 0.94));
+}
+
+.fleet-operations-luxury .wizard-step.complete span {
+  color: #dff6e8;
+  background: rgba(46, 139, 87, 0.2);
+  border-color: rgba(46, 139, 87, 0.42);
+}
+
+.fleet-operations-luxury .wizard-step.active {
+  border-color: rgba(201, 160, 99, 0.52);
+  box-shadow:
+    0 16px 42px rgba(0, 0, 0, 0.34),
+    0 0 24px rgba(201, 160, 99, 0.18);
+}
+
+.fleet-operations-luxury .wizard-step.active span {
+  color: #050a14;
+  background: linear-gradient(135deg, #c9a063, #a9844f);
+  border-color: rgba(201, 160, 99, 0.7);
+}
+
+.fleet-operations-luxury .wizard-shell {
+  grid-template-columns: minmax(0, 72fr) minmax(340px, 28fr);
+  gap: 20px;
+  padding: 32px;
+}
+
+.fleet-operations-luxury .wizard-body,
+.fleet-operations-luxury .wizard-sidebar {
+  gap: 20px;
+}
+
+.fleet-operations-luxury .wizard-stage-header {
+  min-height: 90px;
+  padding: 18px 22px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+}
+
+.fleet-operations-luxury .wizard-stage-detail {
+  max-width: none;
+}
+
+.fleet-operations-luxury .wizard-panel {
+  padding: 32px;
+}
+
+.fleet-operations-luxury .wizard-panel .form-grid,
+.fleet-operations-luxury .document-upload-grid,
+.fleet-operations-luxury .document-type-grid,
+.fleet-operations-luxury .document-preview-grid,
+.fleet-operations-luxury .stored-documents-list,
+.fleet-operations-luxury .stored-images-grid,
+.fleet-operations-luxury .wizard-review-grid {
+  gap: 18px;
+}
+
+.fleet-operations-luxury .wizard-sidebar {
+  width: 340px;
+  min-width: 340px;
+}
+
+.fleet-operations-luxury .wizard-sidebar-card {
+  position: relative;
+  overflow: hidden;
+  backdrop-filter: blur(20px);
+}
+
+.fleet-operations-luxury .wizard-sidebar-card--hero {
+  min-height: 272px;
+  padding-top: 118px;
+  box-shadow:
+    0 22px 55px rgba(0, 0, 0, 0.35),
+    0 0 56px rgba(10, 35, 66, 0.22);
+}
+
+.fleet-operations-luxury .wizard-sidebar-card--hero::before {
+  content: '';
+  position: absolute;
+  inset: -35% -20% auto 18%;
+  height: 170px;
+  background: radial-gradient(circle, rgba(10, 80, 145, 0.38), transparent 68%);
+  filter: blur(12px);
+}
+
+.fleet-operations-luxury .wizard-sidebar-jet-image {
+  position: absolute;
+  top: 18px;
+  left: 18px;
+  right: 18px;
+  height: 84px;
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(5, 10, 20, 0.05), rgba(5, 10, 20, 0.72)),
+    url('https://images.unsplash.com/photo-1540962351504-03099e0a754b?auto=format&fit=crop&w=900&q=80') center 45% / cover;
+  border: 1px solid rgba(201, 160, 99, 0.12);
+  box-shadow: inset 0 -30px 45px rgba(5, 10, 20, 0.55);
+}
+
+.fleet-operations-luxury .wizard-sidebar-facts {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0;
+}
+
+.fleet-operations-luxury .wizard-sidebar-facts span,
+.fleet-operations-luxury .wizard-readiness-score {
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.fleet-operations-luxury .wizard-sidebar-facts span {
+  padding: 8px 10px;
+  color: rgba(246, 243, 239, 0.78);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.fleet-operations-luxury .wizard-readiness-score {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+}
+
+.fleet-operations-luxury .wizard-readiness-score span {
+  color: rgba(201, 160, 99, 0.88);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.fleet-operations-luxury .wizard-readiness-score strong {
+  color: #f6f3ef;
+  font-size: 1.2rem;
+}
+
+.fleet-operations-luxury .wizard-review-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.fleet-operations-luxury .wizard-review-card {
+  min-height: 120px;
+  padding: 18px 18px 16px;
+}
+
+.fleet-operations-luxury .wizard-review-card::before {
+  content: '';
+  display: block;
+  width: 34px;
+  height: 34px;
+  margin-bottom: 12px;
+  border-radius: 13px;
+  border: 1px solid rgba(201, 160, 99, 0.18);
+  background:
+    linear-gradient(135deg, rgba(201, 160, 99, 0.22), rgba(201, 160, 99, 0.04)),
+    radial-gradient(circle at 65% 35%, rgba(246, 243, 239, 0.38), transparent 4px);
+  box-shadow: 0 0 18px rgba(201, 160, 99, 0.1);
+}
+
+.fleet-operations-luxury .wizard-review-card[data-summary='aircraft']::before {
+  clip-path: polygon(0 54%, 58% 38%, 100% 47%, 100% 58%, 58% 58%, 0 66%);
+}
+
+.fleet-operations-luxury .wizard-review-card[data-summary='operation']::before {
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, transparent 38%, rgba(201, 160, 99, 0.42) 40%, transparent 43%),
+    conic-gradient(from 40deg, transparent, rgba(201, 160, 99, 0.42), transparent);
+}
+
+.fleet-operations-luxury .wizard-review-card[data-summary='gallery']::before {
+  background:
+    linear-gradient(135deg, rgba(201, 160, 99, 0.22), rgba(201, 160, 99, 0.04)),
+    linear-gradient(135deg, transparent 45%, rgba(246, 243, 239, 0.32) 46% 52%, transparent 53%);
+}
+
+.fleet-operations-luxury .wizard-review-card[data-summary='dossier']::before {
+  border-radius: 10px;
+  background:
+    linear-gradient(90deg, transparent 20%, rgba(246, 243, 239, 0.26) 21% 23%, transparent 24%),
+    linear-gradient(135deg, rgba(201, 160, 99, 0.22), rgba(201, 160, 99, 0.04));
+}
+
+.fleet-operations-luxury .wizard-executive-table {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 18px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(135deg, rgba(7, 27, 54, 0.68), rgba(5, 10, 20, 0.92));
+  overflow: hidden;
+}
+
+.fleet-operations-luxury .wizard-executive-table div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 48px;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.fleet-operations-luxury .wizard-executive-table div:nth-child(odd) {
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.fleet-operations-luxury .wizard-executive-table div:nth-last-child(-n + 2) {
+  border-bottom: 0;
+}
+
+.fleet-operations-luxury .wizard-executive-table span {
+  color: rgba(201, 160, 99, 0.9);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.fleet-operations-luxury .wizard-executive-table strong {
+  color: #f6f3ef;
+  font-size: 0.9rem;
+  text-align: right;
+}
+
+.fleet-operations-luxury .wizard-footer {
+  min-height: 56px;
+  padding: 12px 32px;
+}
+
+.fleet-operations-luxury .wizard-footer .ghost-button,
+.fleet-operations-luxury .wizard-footer .primary-action {
+  min-height: 56px;
+  border-radius: 16px;
+  transition:
+    transform 250ms cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 250ms cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 250ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.fleet-operations-luxury .wizard-footer .ghost-button:hover,
+.fleet-operations-luxury .wizard-footer .primary-action:hover {
+  transform: translateY(-2px);
+}
+
+@media (max-width: 1320px) {
+  .fleet-operations-luxury .wizard-hero-copy h2 {
+    font-size: 44px;
+  }
+
+  .fleet-operations-luxury .wizard-review-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1080px) {
+  .fleet-operations-luxury .wizard-sticky-head,
+  .fleet-operations-luxury .wizard-shell,
+  .fleet-operations-luxury .wizard-footer {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+
+  .fleet-operations-luxury .wizard-header {
+    min-height: auto;
+    padding-right: 0;
+  }
+
+  .fleet-operations-luxury .wizard-progress-shell,
+  .fleet-operations-luxury .wizard-close-button {
+    position: static;
+  }
+
+  .fleet-operations-luxury .wizard-header-actions {
+    display: flex;
+    align-items: center;
+  }
+
+  .fleet-operations-luxury .wizard-close-button {
+    flex: 0 0 48px;
+  }
+
+  .fleet-operations-luxury .wizard-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .fleet-operations-luxury .wizard-sidebar {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+@media (max-width: 760px) {
+  .fleet-operations-luxury .wizard-hero-copy h2 {
+    font-size: 34px;
+    -webkit-line-clamp: 2;
+  }
+
+  .fleet-operations-luxury .wizard-stepper {
+    gap: 12px;
+  }
+
+  .fleet-operations-luxury .wizard-review-grid,
+  .fleet-operations-luxury .wizard-executive-table {
+    grid-template-columns: 1fr;
+  }
+
+  .fleet-operations-luxury .wizard-executive-table div,
+  .fleet-operations-luxury .wizard-executive-table div:nth-child(odd) {
+    border-right: 0;
+  }
+}
+
+/* Premium wizard spacing refinement */
+.fleet-operations-luxury .wizard-modal {
+  line-height: 1.6;
+}
+
+.fleet-operations-luxury .wizard-sticky-head {
+  padding: 32px 40px 0;
+}
+
+.fleet-operations-luxury .wizard-header {
+  min-height: 136px;
+  padding-right: 430px;
+}
+
+.fleet-operations-luxury .wizard-hero-copy {
+  max-width: 700px;
+  margin-bottom: 24px;
+  gap: 0.5rem;
+}
+
+.fleet-operations-luxury .wizard-hero-copy h2 {
+  display: grid;
+  gap: 0.2rem;
+  max-width: 700px;
+  overflow: visible;
+  font-size: 56px;
+  line-height: 0.95;
+  -webkit-line-clamp: initial;
+}
+
+.fleet-operations-luxury .wizard-hero-copy h2 small {
+  display: block;
+  color: rgba(246, 243, 239, 0.74);
+  font-family: 'Inter', 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.45em;
+  font-weight: 700;
+  line-height: 1.15;
+  text-transform: none;
+}
+
+.fleet-operations-luxury .wizard-hero-copy .muted {
+  line-height: 1.6;
+}
+
+.fleet-operations-luxury .wizard-progress-shell {
+  right: 150px;
+}
+
+.fleet-operations-luxury .wizard-close-button {
+  right: 40px;
+}
+
+.fleet-operations-luxury .wizard-stepper {
+  gap: 32px;
+  height: 86px;
+  margin-top: 32px;
+  margin-bottom: 40px;
+  padding: 24px 0;
+}
+
+.fleet-operations-luxury .wizard-stepper::before {
+  top: 67px;
+}
+
+.fleet-operations-luxury .wizard-step {
+  height: 86px;
+  min-height: 86px;
+  padding: 1rem 1.1rem;
+}
+
+.fleet-operations-luxury .wizard-shell {
+  grid-template-columns: minmax(0, 74fr) minmax(360px, 26fr);
+  gap: 40px;
+  padding: 40px;
+}
+
+.fleet-operations-luxury .wizard-body,
+.fleet-operations-luxury .wizard-sidebar {
+  gap: 32px;
+}
+
+.fleet-operations-luxury .wizard-stage-header {
+  min-height: 110px;
+  padding: 32px;
+  gap: 18px;
+}
+
+.fleet-operations-luxury .wizard-stage-header > div {
+  display: grid;
+  gap: 10px;
+}
+
+.fleet-operations-luxury .wizard-stage-header h3,
+.fleet-operations-luxury .wizard-stage-header p,
+.fleet-operations-luxury .wizard-stage-detail {
+  margin: 0;
+}
+
+.fleet-operations-luxury .wizard-stage-detail {
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  line-height: 1.6;
+}
+
+.fleet-operations-luxury .wizard-panel,
+.fleet-operations-luxury .wizard-sidebar-card {
+  padding: 28px;
+}
+
+.fleet-operations-luxury .wizard-panel {
+  display: grid;
+  gap: 24px;
+}
+
+.fleet-operations-luxury .wizard-panel:has(.document-type-grid) {
+  gap: 32px;
+  padding: 40px;
+}
+
+.fleet-operations-luxury .wizard-panel:has(.document-type-grid) .section-head,
+.fleet-operations-luxury .wizard-panel:has(.document-type-grid) .document-type-grid,
+.fleet-operations-luxury .wizard-panel:has(.document-type-grid) .document-upload-grid,
+.fleet-operations-luxury .wizard-panel:has(.document-type-grid) .document-library-header,
+.fleet-operations-luxury .wizard-panel:has(.document-type-grid) .stored-documents-list,
+.fleet-operations-luxury .wizard-panel:has(.document-type-grid) .empty-state {
+  margin-bottom: 28px;
+}
+
+.fleet-operations-luxury .wizard-panel:has(.document-type-grid) .section-head {
+  padding-bottom: 28px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.fleet-operations-luxury .document-type-grid {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 180px));
+  gap: 20px;
+}
+
+.fleet-operations-luxury .document-type-card {
+  position: relative;
+  width: 180px;
+  min-height: 130px;
+  padding: 22px 18px 18px;
+  gap: 12px;
+}
+
+.fleet-operations-luxury .document-type-card::before {
+  content: '';
+  display: block;
+  width: 34px;
+  height: 34px;
+  border-radius: 14px;
+  border: 1px solid rgba(201, 160, 99, 0.22);
+  background:
+    linear-gradient(135deg, rgba(201, 160, 99, 0.2), rgba(201, 160, 99, 0.04)),
+    linear-gradient(90deg, transparent 28%, rgba(246, 243, 239, 0.22) 29% 31%, transparent 32%);
+  box-shadow: 0 0 18px rgba(201, 160, 99, 0.12);
+}
+
+.fleet-operations-luxury .document-type-card strong {
+  line-height: 1.25;
+}
+
+.fleet-operations-luxury .document-type-card span::after {
+  content: ' listo';
+}
+
+.fleet-operations-luxury .document-upload-grid {
+  grid-template-columns: minmax(220px, 0.36fr) minmax(0, 1fr);
+  gap: 32px;
+  align-items: stretch;
+}
+
+.fleet-operations-luxury .document-dropzone {
+  min-height: 160px;
+  padding: 40px;
+}
+
+.fleet-operations-luxury .document-dropzone::before {
+  width: 52px;
+  height: 52px;
+  margin-bottom: 16px;
+}
+
+.fleet-operations-luxury .wizard-sidebar {
+  width: 360px;
+  min-width: 360px;
+  gap: 24px;
+}
+
+.fleet-operations-luxury .wizard-sidebar-card--hero {
+  min-height: 340px;
+  padding: 150px 28px 28px;
+  gap: 20px;
+}
+

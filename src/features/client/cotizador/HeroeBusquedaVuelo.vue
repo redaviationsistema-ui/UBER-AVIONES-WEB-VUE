@@ -8,7 +8,6 @@ const airportSuggestions = reactive({})
 const airportLoading = reactive({})
 const activeAirportKey = ref('')
 const showDepartureTime = ref(false)
-const showReturnTime = ref(false)
 const airportTimers = {}
 const hourOptions = Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, '0'))
 const minuteOptions = Array.from({ length: 60 }, (_, index) => String(index).padStart(2, '0'))
@@ -30,6 +29,20 @@ const emit = defineEmits([
   'update-leg-field',
   'update-trip-type',
 ])
+
+const trustPillars = [
+  'Sin comisiones ocultas',
+  'Atencion 24/7',
+  'Seguridad y privacidad',
+  'Soporte personalizado',
+]
+
+const serviceHighlights = [
+  { title: 'Cotiza al instante', copy: 'Recibe opciones en minutos.' },
+  { title: 'Reserva segura', copy: 'Bloquea tu vuelo al instante.' },
+  { title: 'Contrato digital', copy: 'Firma en linea desde tu cuenta.' },
+  { title: 'Pago protegido', copy: 'Transacciones 100% seguras.' },
+]
 
 function formatLegDate(date = '') {
   if (!date) return 'Fecha pendiente'
@@ -148,10 +161,6 @@ function revealDepartureTime() {
   showDepartureTime.value = true
 }
 
-function revealReturnTime() {
-  showReturnTime.value = true
-}
-
 function splitTimeParts(value = '') {
   const normalized = String(value || '').trim()
 
@@ -227,50 +236,121 @@ function legStatusClass(leg = {}) {
 
 <template>
   <section class="flight-search-hero">
-    <div class="search-copy">
-      <span class="eyebrow">Planificador de aviacion privada</span>
-      <h1>Busca. Reserva. Vuela.</h1>
-      <p>Entra, elige y reserva tu vuelo privado con control total desde el primer paso.</p>
+    <header class="hero-status-bar">
+      <div class="hero-status-bar__account">
+        <span class="hero-status-dot" aria-hidden="true"></span>
+        <strong>Tu cuenta ya puede cotizar, reservar, firmar contrato y pagar vuelos.</strong>
+      </div>
 
-      <form class="flight-form" @submit.prevent="$emit('submit')">
-        <div class="segmented-control">
-          <button type="button" :class="{ active: tripType === 'Ida' }" @click="$emit('update-trip-type', 'Ida')">
-            <span class="control-icon" aria-hidden="true">
+      <div class="hero-status-bar__pills">
+        <span v-for="item in trustPillars" :key="item">{{ item }}</span>
+      </div>
+    </header>
+
+    <div class="hero-layout">
+      <aside class="hero-copy-panel">
+        <span class="eyebrow">Planificador de aviacion privada</span>
+        <h1>
+          <span>Busca.</span>
+          <span>Reserva.</span>
+          <span>Vuela.</span>
+        </h1>
+        <p>
+          Entra, elige y reserva tu vuelo privado con control total desde el primer paso.
+        </p>
+
+        <div class="hero-copy-panel__footer">
+          <strong>Cabina premium para decisiones rapidas.</strong>
+          <span>Todo el flujo vive en una misma experiencia: busqueda, contrato y pago.</span>
+        </div>
+      </aside>
+
+      <div class="search-copy">
+        <form class="flight-form" @submit.prevent="$emit('submit')">
+          <div class="segmented-control">
+            <button
+              type="button"
+              :class="{ active: tripType === 'Ida' }"
+              @click="$emit('update-trip-type', 'Ida')"
+            >
+              <span class="control-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M21 16v-2l-8-5V4.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5L21 16Z" fill="currentColor"/></svg>
+              </span>
+              <span class="control-copy">
+                <strong>Ida</strong>
+                <small>Solo un destino</small>
+              </span>
+            </button>
+            <button
+              type="button"
+              :class="{ active: tripType === 'Redondo' }"
+              @click="$emit('update-trip-type', 'Redondo')"
+            >
+              <span class="control-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M7 7h8.5l-2.8-2.8L14 3l5 5-5 5-1.3-1.2L15.5 9H7V7Zm10 10H8.5l2.8 2.8L10 21l-5-5 5-5 1.3 1.2L8.5 15H17v2Z" fill="currentColor"/></svg>
+              </span>
+              <span class="control-copy">
+                <strong>Redondo</strong>
+                <small>Mismo origen y regreso</small>
+              </span>
+            </button>
+            <button
+              type="button"
+              :class="{ active: tripType === 'Multi-destino' }"
+              @click="$emit('update-trip-type', 'Multi-destino')"
+            >
+              <span class="control-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M6 6a2 2 0 1 1 0 4 2 2 0 0 1 0-4Zm0 8a2 2 0 1 1 0 4 2 2 0 0 1 0-4Zm12-4a2 2 0 1 1 0 4 2 2 0 0 1 0-4ZM8 8h6v2H8V8Zm0 8h6v2H8v-2Zm8-4h-2v-2h2V7l4 4-4 4v-3Z" fill="currentColor"/></svg>
+              </span>
+              <span class="control-copy">
+                <strong>Multi-destino</strong>
+                <small>Varias paradas</small>
+              </span>
+            </button>
+          </div>
+
+          <div v-if="tripType === 'Ida'" class="mode-intro mode-intro--oneway">
+            <div class="mode-intro__symbol" aria-hidden="true">
               <svg viewBox="0 0 24 24"><path d="M21 16v-2l-8-5V4.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5L21 16Z" fill="currentColor"/></svg>
-            </span>
-            Ida
-          </button>
-          <button type="button" :class="{ active: tripType === 'Redondo' }" @click="$emit('update-trip-type', 'Redondo')">
-            <span class="control-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24"><path d="M7 7h8.5l-2.8-2.8L14 3l5 5-5 5-1.3-1.2L15.5 9H7V7Zm10 10H8.5l2.8 2.8L10 21l-5-5 5-5 1.3 1.2L8.5 15H17v2Z" fill="currentColor"/></svg>
-            </span>
-            Redondo
-          </button>
-          <button
-            type="button"
-            :class="{ active: tripType === 'Multi-destino' }"
-            @click="$emit('update-trip-type', 'Multi-destino')"
-          >
-            <span class="control-icon" aria-hidden="true">
+            </div>
+            <div>
+              <span class="mode-intro__eyebrow">Viaje de ida</span>
+              <strong>Define una salida directa en un flujo ejecutivo simple.</strong>
+              <p>
+                Ideal para traslados puntuales, agendas cerradas o vuelos privados con un solo
+                destino.
+              </p>
+            </div>
+          </div>
+
+          <div v-else-if="tripType === 'Redondo'" class="mode-intro mode-intro--roundtrip">
+            <div class="mode-intro__symbol" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M10.4 13.6a1 1 0 0 1 1.4 0l1.2 1.2 3.6-3.6a1 1 0 1 1 1.4 1.4l-4.3 4.3a1 1 0 0 1-1.4 0l-1.9-1.9a1 1 0 0 1 0-1.4ZM6 5a3 3 0 1 1 0 6 3 3 0 0 1 0-6Zm0 8a3 3 0 1 1 0 6 3 3 0 0 1 0-6Zm12-4a3 3 0 1 1 0 6 3 3 0 0 1 0-6Z" fill="currentColor"/></svg>
+            </div>
+            <div>
+              <span class="mode-intro__eyebrow">Viaje redondo</span>
+              <strong>Define salida y regreso en un mismo flujo ejecutivo.</strong>
+              <p>
+                Ideal para juntas, inspecciones o regreso el mismo dia con control total del
+                itinerario.
+              </p>
+            </div>
+          </div>
+
+          <div v-else-if="tripType === 'Multi-destino'" class="mode-intro mode-intro--multi">
+            <div class="mode-intro__symbol" aria-hidden="true">
               <svg viewBox="0 0 24 24"><path d="M6 6a2 2 0 1 1 0 4 2 2 0 0 1 0-4Zm0 8a2 2 0 1 1 0 4 2 2 0 0 1 0-4Zm12-4a2 2 0 1 1 0 4 2 2 0 0 1 0-4ZM8 8h6v2H8V8Zm0 8h6v2H8v-2Zm8-4h-2v-2h2V7l4 4-4 4v-3Z" fill="currentColor"/></svg>
-            </span>
-            Multi-destino
-          </button>
-        </div>
+            </div>
+            <div>
+              <span class="mode-intro__eyebrow">Ruta multi-destino</span>
+              <strong>Construye una gira privada tramo por tramo.</strong>
+              <p>
+                Perfecto para roadshows, visitas ejecutivas y agendas que combinan varias ciudades.
+              </p>
+            </div>
+          </div>
 
-        <div v-if="tripType === 'Redondo'" class="mode-intro mode-intro--roundtrip">
-          <span class="mode-intro__eyebrow">Viaje redondo</span>
-          <strong>Define salida y regreso en un mismo flujo ejecutivo.</strong>
-          <p>Ideal para juntas, inspecciones o regreso el mismo día con control total del itinerario.</p>
-        </div>
-
-        <div v-else-if="tripType === 'Multi-destino'" class="mode-intro mode-intro--multi">
-          <span class="mode-intro__eyebrow">Ruta multi-destino</span>
-          <strong>Construye una gira privada tramo por tramo.</strong>
-          <p>Perfecto para roadshows, visitas ejecutivas y agendas que combinan varias ciudades.</p>
-        </div>
-
-        <template v-if="tripType === 'Ida'">
+          <template v-if="tripType === 'Ida'">
           <label class="airport-field">
             <span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 1 7 7c0 5.25-7 13-7 13S5 14.25 5 9a7 7 0 0 1 7-7Zm0 9a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" fill="currentColor"/></svg></span>Origen</span>
             <input
@@ -341,9 +421,9 @@ function legStatusClass(leg = {}) {
               </select>
             </div>
           </label>
-        </template>
+          </template>
 
-        <template v-else-if="tripType === 'Redondo'">
+          <template v-else-if="tripType === 'Redondo'">
           <section class="roundtrip-grid">
             <article class="trip-panel trip-panel--primary">
               <div class="trip-panel__header">
@@ -399,15 +479,7 @@ function legStatusClass(leg = {}) {
                   </div>
                 </label>
                 <label class="date-field"><span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 2h2v2h6V2h2v2h3v18H4V4h3V2Zm12 8H5v10h14V10Z" fill="currentColor"/></svg></span>Fecha salida</span><input :value="form.departureDate" type="date" @input="updateFormField('departureDate', $event)" /></label>
-                <button
-                  v-if="!showDepartureTime && !form.departureTime"
-                  class="time-toggle"
-                  type="button"
-                  @click="revealDepartureTime"
-                >
-                  Agregar hora salida
-                </button>
-                <label v-else class="time-field">
+                <label class="time-field">
                   <span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20Zm1 5h-2v6l5 3 1-1.73-4-2.37V7Z" fill="currentColor"/></svg></span>Hora salida</span>
                   <div class="time-parts">
                     <select :value="splitTimeParts(form.departureTime).hour" @change="updateFormTime('departureTime', 'hour', $event.target.value)">
@@ -431,40 +503,17 @@ function legStatusClass(leg = {}) {
                 <strong>Regreso</strong>
                 <small>{{ routePreview(form.destination, form.origin) }}</small>
               </div>
-              <div class="trip-panel__body">
+              <div class="trip-panel__body trip-panel__body--return">
                 <label class="date-field"><span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 2h2v2h6V2h2v2h3v18H4V4h3V2Zm12 8H5v10h14V10Z" fill="currentColor"/></svg></span>Fecha regreso</span><input :value="form.returnDate" type="date" @input="updateFormField('returnDate', $event)" /></label>
-                <button
-                  v-if="!showReturnTime && !form.returnTime"
-                  class="time-toggle"
-                  type="button"
-                  @click="revealReturnTime"
-                >
-                  Agregar hora regreso
-                </button>
-                <label v-else class="time-field">
-                  <span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20Zm1 5h-2v6l5 3 1-1.73-4-2.37V7Z" fill="currentColor"/></svg></span>Hora regreso</span>
-                  <div class="time-parts">
-                    <select :value="splitTimeParts(form.returnTime).hour" @change="updateFormTime('returnTime', 'hour', $event.target.value)">
-                      <option value="">Hora</option>
-                      <option v-for="hour in hourOptions" :key="`return-hour-${hour}`" :value="hour">{{ hour }}</option>
-                    </select>
-                    <select :value="splitTimeParts(form.returnTime).minute" @change="updateFormTime('returnTime', 'minute', $event.target.value)">
-                      <option v-for="minute in minuteOptions" :key="`return-minute-${minute}`" :value="minute">{{ minute }}</option>
-                    </select>
-                    <select :value="splitTimeParts(form.returnTime).period" @change="updateFormTime('returnTime', 'period', $event.target.value)">
-                      <option v-for="period in periodOptions" :key="`return-period-${period}`" :value="period">{{ period }}</option>
-                    </select>
-                  </div>
-                </label>
                 <div class="trip-panel__note">
                   <span>El tramo de regreso toma automáticamente el aeropuerto inverso del viaje de salida.</span>
                 </div>
               </div>
             </article>
           </section>
-        </template>
+          </template>
 
-        <template v-else>
+          <template v-else>
           <section class="multi-leg-builder" aria-label="Tramos multi-destino">
             <article
               v-for="(leg, index) in form.legs"
@@ -572,62 +621,186 @@ function legStatusClass(leg = {}) {
             </button>
           </div>
 
-        </template>
+          </template>
 
-        <button class="primary-action" type="submit">Cotizar vuelo</button>
-      </form>
+          
+
+          <button class="primary-action" type="submit">Cotizar vuelo</button>
+        </form>
+      </div>
+
+      <aside class="hero-side-rail">
+        <article class="concierge-card">
+          <div class="concierge-card__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M12 3a4 4 0 0 1 4 4v1h1a3 3 0 0 1 3 3v4a4 4 0 0 1-4 4h-1v2h-2v-2h-2v2H9v-2H8a4 4 0 0 1-4-4v-4a3 3 0 0 1 3-3h1V7a4 4 0 0 1 4-4Zm2 5V7a2 2 0 1 0-4 0v1h4Zm-7 3a1 1 0 0 0-1 1v4a2 2 0 0 0 2 2h1v-4h2v4h2v-4h2v4h1a2 2 0 0 0 2-2v-4a1 1 0 0 0-1-1H7Z" fill="currentColor"/></svg>
+          </div>
+          <div class="concierge-card__copy">
+            <span>Concierge 24/7</span>
+            <strong>Estamos para ayudarte en cada detalle de tu viaje.</strong>
+          </div>
+          <button type="button" class="concierge-card__action">Contactar Concierge</button>
+        </article>
+
+        <article class="benefits-card">
+          <article v-for="item in serviceHighlights" :key="item.title" class="benefits-card__item">
+            <span class="benefits-card__bullet" aria-hidden="true"></span>
+            <div>
+              <strong>{{ item.title }}</strong>
+              <p>{{ item.copy }}</p>
+            </div>
+          </article>
+        </article>
+
+        <article class="testimonial-card">
+          <span class="testimonial-card__quote" aria-hidden="true">“</span>
+          <p>La mejor experiencia en aviacion privada, siempre a tiempo y con el mejor servicio.</p>
+          <strong>Cliente SkyGroup</strong>
+        </article>
+      </aside>
     </div>
-
   </section>
 </template>
 
 <style scoped>
 .flight-search-hero {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-items: stretch;
+  gap: 1.5rem;
+}
+
+.hero-status-bar {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.1rem 0;
+}
+
+.hero-status-bar__account,
+.hero-status-bar__pills,
+.hero-status-bar__pills span {
+  display: flex;
+  align-items: center;
+}
+
+.hero-status-bar__account {
+  gap: 0.7rem;
+  color: #3c3a35;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.hero-status-dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 999px;
+  background: #b58a34;
+  box-shadow: 0 0 0 6px rgba(181, 138, 52, 0.12);
+}
+
+.hero-status-bar__pills {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.55rem;
+}
+
+.hero-status-bar__pills span {
+  min-height: 2.1rem;
+  padding: 0 0.85rem;
+  border-radius: 999px;
+  background: rgba(255, 250, 241, 0.88);
+  border: 1px solid rgba(181, 138, 52, 0.2);
+  color: #6e5622;
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.hero-layout {
+  display: grid;
+  grid-template-columns: minmax(250px, 0.78fr) minmax(780px, 2fr) minmax(210px, 0.6fr);
+  column-gap: 2.35rem;
+  row-gap: 1.5rem;
+  align-items: start;
+}
+
+.hero-copy-panel {
+  display: grid;
+  gap: 1rem;
+  padding-top: 0.75rem;
+  justify-self: start;
+  margin-left: 2.1rem;
+  margin-right: 0.9rem;
+}
+
+.hero-copy-panel__footer {
+  display: grid;
+  gap: 0.35rem;
+  padding: 1rem 1.05rem;
+  border-radius: 24px;
+  background: linear-gradient(180deg, rgba(255, 251, 243, 0.96), rgba(247, 240, 226, 0.92));
+  border: 1px solid rgba(181, 138, 52, 0.16);
+}
+
+.hero-copy-panel__footer strong {
+  color: #171410;
+  font-size: 0.82rem;
+  line-height: 1.25;
+}
+
+.hero-copy-panel__footer span {
+  color: #655f56;
+  font-size: 0.76rem;
+  line-height: 1.45;
 }
 
 .search-copy {
-  border: 1px solid #e5e1d8;
-  border-radius: 8px;
-  background: #ffffff;
+  border: 1px solid rgba(212, 199, 173, 0.62);
+  border-radius: 28px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(251, 248, 241, 0.98));
+  box-shadow: 0 24px 60px rgba(75, 60, 31, 0.08);
+  padding: clamp(1.2rem, 2vw, 1.7rem);
   overflow: visible;
-}
-
-.search-copy {
-  padding: clamp(1.25rem, 4vw, 2rem);
 }
 
 .eyebrow {
   color: #8b6a24;
-  font-size: 0.76rem;
-  font-weight: 800;
+  font-size: 0.7rem;
+  font-weight: 900;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
 h1 {
-  max-width: 11ch;
-  margin: 0.55rem 0;
+  display: grid;
+  gap: 0.06em;
+  max-width: 7ch;
+  margin: 0;
   font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif;
-  font-size: clamp(2.15rem, 5vw, 4rem);
-  line-height: 0.98;
-  letter-spacing: 0;
-  overflow-wrap: anywhere;
+  font-size: clamp(3.2rem, 4.8vw, 4.9rem);
+  line-height: 0.88;
+  letter-spacing: -0.05em;
+  color: rgba(7, 27, 54, 0.86);
+  overflow-wrap: normal;
+  word-break: normal;
+  hyphens: none;
+}
+
+h1 span {
+  display: block;
+  color: rgba(7, 27, 54, 0.86);
 }
 
 p {
   margin: 0;
   color: #5f5f5f;
+  font-size: 0.95rem;
+  line-height: 1.45;
 }
 
 .flight-form {
   position: relative;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.75rem 0.7rem;
-  margin-top: 1.05rem;
+  gap: 0.9rem 0.85rem;
   overflow: visible;
 }
 
@@ -636,30 +809,35 @@ p {
   display: grid;
   gap: 0.4rem;
   color: #2d2922;
+  font-size: 0.82rem;
   font-weight: 600;
 }
 
 .flight-form input {
-  min-height: 2.95rem;
+  min-height: 3.2rem;
   width: 100%;
   min-width: 0;
-  border: 1px solid #d8d2c4;
-  border-radius: 8px;
+  border: 1px solid #dfd4bf;
+  border-radius: 14px;
   padding: 0 0.85rem;
-  background: #fbfaf7;
-  color: #111111;
+  background: #fffefb;
+  color: rgba(7, 27, 54, 0.86);
   font: inherit;
+  font-size: 0.76rem;
+  font-weight: 600;
 }
 
 .flight-form select {
-  min-height: 2.95rem;
+  min-height: 3.2rem;
   width: 100%;
-  border: 1px solid #d8d2c4;
-  border-radius: 8px;
+  border: 1px solid #dfd4bf;
+  border-radius: 14px;
   padding: 0 0.85rem;
-  background: #fbfaf7;
-  color: #111111;
+  background: #fffefb;
+  color: rgba(7, 27, 54, 0.86);
   font: inherit;
+  font-size: 0.76rem;
+  font-weight: 600;
 }
 
 .flight-form textarea {
@@ -669,7 +847,7 @@ p {
   border-radius: 8px;
   padding: 0.85rem;
   background: #fbfaf7;
-  color: #111111;
+  color: rgba(7, 27, 54, 0.86);
   font: inherit;
   resize: vertical;
 }
@@ -706,16 +884,17 @@ p {
   max-height: 16rem;
   overflow: auto;
   padding: 0.45rem;
-  border: 1px solid #d8d2c4;
-  border-radius: 8px;
+  border: 1px solid #dfd4bf;
+  border-radius: 16px;
   background: #ffffff;
   box-shadow: 0 18px 42px rgba(0, 0, 0, 0.14);
+
 }
 
 .airport-options span {
   padding: 0.65rem;
   color: #6a604f;
-  font-size: 0.82rem;
+  font-size: 0.76rem;
 }
 
 .airport-options button {
@@ -746,10 +925,10 @@ p {
 }
 
 .field-label__icon {
-  width: 1.7rem;
-  height: 1.7rem;
+  width: 1.9rem;
+  height: 1.9rem;
   border-radius: 999px;
-  background: #f3ead2;
+  background: #f4e8cb;
   color: #8b6a24;
 }
 
@@ -763,38 +942,78 @@ p {
   display: grid;
   grid-column: 1 / -1;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.35rem;
-  padding: 0.22rem;
-  border-radius: 999px;
-  background: #f3efe7;
+  gap: 0.4rem;
+  padding: 0.35rem;
+  border-radius: 24px;
+  background: #ffffff;
+  border: 1px solid rgba(221, 211, 190, 0.9);
 }
 
 button {
   min-height: 2.8rem;
   border: 0;
-  border-radius: 8px;
+  border-radius: 14px;
   padding: 0 1rem;
   font-weight: 600;
   cursor: pointer;
 }
 
 .segmented-control button {
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: auto 1fr;
   align-items: center;
-  justify-content: center;
-  gap: 0.45rem;
-  border-radius: 999px;
+  justify-content: start;
+  gap: 0.7rem;
+  padding: 0.85rem 1rem;
+  min-height: 4.6rem;
+  border-radius: 18px;
   background: transparent;
-  color: #111111;
+  color: rgba(7, 27, 54, 0.86);
+  text-align: left;
 }
 
 .segmented-control button.active,
 .primary-action {
-  background: #111111;
+  background: rgba(7, 27, 54, 0.86);
   color: #ffffff;
 }
 
+.segmented-control button.active .control-copy strong,
+.segmented-control button.active .control-copy small,
+.segmented-control button.active .control-icon,
+.segmented-control button.active .control-icon svg,
+.primary-action {
+  color: #ffffff;
+}
+
+.control-copy {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.control-copy strong,
+.control-copy small {
+  display: block;
+}
+
+.control-copy small {
+  color: inherit;
+  opacity: 0.78;
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+.segmented-control button.active .control-copy small {
+  opacity: 0.9;
+}
+
+.control-copy strong {
+  font-size: 0.92rem;
+  font-weight: 800;
+}
+
 .primary-action,
+.advanced-options,
 .secondary-action,
 .time-toggle,
 .wide-field,
@@ -808,44 +1027,64 @@ button {
 
 .mode-intro {
   display: grid;
-  gap: 0.28rem;
-  padding: 1rem 1.05rem;
+  grid-template-columns: auto 1fr;
+  gap: 1rem;
+  padding: 1.15rem 1.1rem;
   border: 1px solid #eadfcb;
-  border-radius: 18px;
+  border-radius: 22px;
   background: linear-gradient(145deg, #fffdf8, #f7f2e9);
+}
+
+.mode-intro__symbol {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 4.2rem;
+  height: 4.2rem;
+  border-radius: 999px;
+  border: 2px solid rgba(181, 138, 52, 0.7);
+  color: #9c7421;
+}
+
+.mode-intro__symbol svg {
+  width: 1.6rem;
+  height: 1.6rem;
 }
 
 .mode-intro__eyebrow {
   color: #8b6a24;
-  font-size: 0.74rem;
+  font-size: 0.72rem;
   font-weight: 900;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
 .mode-intro strong {
+  display: block;
+  margin-bottom: 0.2rem;
   color: #141414;
-  font-size: 1rem;
+  font-size: 0.88rem;
+  line-height: 1.3;
 }
 
 .mode-intro p {
   color: #5f5f5f;
-  font-size: 0.92rem;
+  font-size: 0.74rem;
   line-height: 1.45;
 }
 
 .roundtrip-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.85rem;
+  gap: 1rem;
 }
 
 .trip-panel {
   display: grid;
   gap: 0.85rem;
-  padding: 0.95rem;
-  border: 1px solid #e5e1d8;
-  border-radius: 18px;
+  padding: 1.15rem;
+  border: 1px solid #e5dcc8;
+  border-radius: 22px;
   background: linear-gradient(180deg, #ffffff, #fbfaf7);
 }
 
@@ -861,53 +1100,85 @@ button {
 
 .trip-panel__eyebrow {
   color: #8b6a24;
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   font-weight: 900;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
 .trip-panel__header strong {
-  color: #111111;
-  font-size: 1.05rem;
+  color: rgba(7, 27, 54, 0.86);
+  font-size: 0.92rem;
 }
 
 .trip-panel__header small {
   color: #6a604f;
-  font-size: 0.88rem;
+  font-size: 0.76rem;
   font-weight: 700;
 }
 
 .trip-panel__body {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.75rem 0.65rem;
+  gap: 0.9rem 0.75rem;
+}
+
+.trip-panel__body > .time-field,
+.trip-panel__body > .time-toggle {
+  grid-column: 1 / -1;
+}
+
+.trip-panel__body--return > .time-field,
+.trip-panel__body--return > .time-toggle {
+  grid-column: auto;
+}
+
+.trip-panel__body > .date-field,
+.trip-panel__body > .time-field,
+.trip-panel__body > .time-toggle,
+.trip-panel__body > .trip-panel__note {
+  align-self: start;
 }
 
 .trip-panel__note {
   display: grid;
   grid-column: 1 / -1;
-  padding: 0.8rem;
-  border-radius: 14px;
+  padding: 0.95rem 1rem;
+  border-radius: 16px;
   background: #f5f1e8;
+}
+
+.trip-panel__note--compact {
+  margin-top: -0.1rem;
 }
 
 .trip-panel__note span {
   color: #4e4333;
-  font-size: 0.84rem;
+  font-size: 0.76rem;
   line-height: 1.4;
 }
 
+.trip-panel__inline-toggle {
+  min-height: 3.2rem;
+}
+
+.trip-panel__time-field--return .time-parts {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .time-toggle {
-  min-height: 2.75rem;
+  min-height: 3rem;
   border: 1px dashed #d6cdbd;
+  border-radius: 14px;
   background: #fcfaf6;
   color: #3b3428;
+  font-size: 0.76rem;
+  font-weight: 700;
 }
 
 .secondary-action {
   background: #ece8df;
-  color: #111111;
+  color: rgba(7, 27, 54, 0.86);
 }
 
 .danger-action {
@@ -964,11 +1235,11 @@ button {
   gap: 1rem;
   align-items: start;
   min-height: 5.25rem;
-  padding: 1rem 1.1rem;
+  padding: 1rem 1.15rem;
   border: 1px solid #e1d5bc;
-  border-radius: 18px;
+  border-radius: 22px;
   background: linear-gradient(180deg, #fffdf9, #f8f4ec);
-  color: #111111;
+  color: rgba(7, 27, 54, 0.86);
   text-align: left;
   box-shadow: 0 10px 24px rgba(50, 38, 15, 0.04);
 }
@@ -1075,7 +1346,7 @@ button {
   gap: 0.85rem 0.65rem;
   padding: 1rem;
   border: 1px solid #eadfcb;
-  border-radius: 18px;
+  border-radius: 22px;
   background: #ffffff;
 }
 
@@ -1094,29 +1365,170 @@ button {
   background: #fbfaf7;
 }
 
-.trust-badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-top: 0.85rem;
-}
-
-.trust-badges span {
-  min-height: 1.95rem;
+.advanced-options {
   display: inline-flex;
   align-items: center;
-  border-radius: 999px;
-  padding: 0 0.75rem;
-  background: #f3efe7;
-  color: #3b3428;
+  justify-content: center;
+  gap: 0.55rem;
+  min-height: 3.1rem;
+  border: 1px solid rgba(221, 211, 190, 0.95);
+  background: #f6f1e8;
+  color: #342d22;
   font-size: 0.8rem;
+}
+
+.primary-action {
+  min-height: 3.5rem;
+  border-radius: 16px;
+  font-size: 0.9rem;
+  font-weight: 800;
+  box-shadow: 0 18px 34px rgba(17, 17, 17, 0.18);
+}
+
+.form-assurance {
+  grid-column: 1 / -1;
+  color: #5f5a52;
+  text-align: center;
+  font-size: 0.92rem;
   font-weight: 600;
 }
 
+.hero-side-rail {
+  display: grid;
+  gap: 1rem;
+}
+
+.concierge-card,
+.benefits-card,
+.testimonial-card {
+  border-radius: 24px;
+  border: 1px solid rgba(224, 212, 188, 0.86);
+  background: #ffffff;
+  box-shadow: 0 20px 44px rgba(75, 60, 31, 0.06);
+}
+
+.concierge-card {
+  display: grid;
+  gap: 1rem;
+  padding: 1.25rem;
+  background: linear-gradient(180deg, #171717, #101010);
+  color: #ffffff;
+}
+
+.concierge-card__icon {
+  width: 3rem;
+  height: 3rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgba(181, 138, 52, 0.18);
+  color: #cfaa57;
+}
+
+.concierge-card__icon svg {
+  width: 1.4rem;
+  height: 1.4rem;
+}
+
+.concierge-card__copy {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.concierge-card__copy span {
+  color: #cfaa57;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.concierge-card__copy strong {
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.concierge-card__action {
+  min-height: 3rem;
+  background: linear-gradient(180deg, #b9903d, #a77f2b);
+  color: #ffffff;
+}
+
+.benefits-card {
+  display: grid;
+  gap: 0.8rem;
+  padding: 1.15rem;
+}
+
+.benefits-card__item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.8rem;
+  align-items: start;
+}
+
+.benefits-card__bullet {
+  width: 0.75rem;
+  height: 0.75rem;
+  margin-top: 0.4rem;
+  border-radius: 999px;
+  background: #c59d46;
+  box-shadow: 0 0 0 6px rgba(197, 157, 70, 0.12);
+}
+
+.benefits-card__item strong {
+  display: block;
+  color: #181511;
+  margin-bottom: 0.2rem;
+}
+
+.benefits-card__item p {
+  color: #656056;
+  font-size: 0.74rem;
+  line-height: 1.4;
+}
+
+.benefits-card__item strong {
+  font-size: 0.84rem;
+}
+
+.testimonial-card {
+  display: grid;
+  gap: 0.7rem;
+  padding: 1.2rem;
+}
+
+.testimonial-card__quote {
+  color: #b48a34;
+  font-size: 2.2rem;
+  line-height: 1;
+}
+
+.testimonial-card p {
+  color: #302b23;
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+
+.testimonial-card strong {
+  color: #6e5622;
+  font-size: 0.78rem;
+}
+
 @media (max-width: 1080px) {
-  .flight-search-hero,
+  .hero-status-bar,
+  .hero-layout,
   .preference-panel {
     grid-template-columns: 1fr;
+  }
+
+  .hero-status-bar {
+    display: grid;
+  }
+
+  .hero-status-bar__pills {
+    justify-content: flex-start;
   }
 
   .flight-form,
@@ -1125,23 +1537,51 @@ button {
   .trip-panel__body {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .hero-copy-panel {
+    padding-top: 0;
+    margin-left: 0;
+    margin-right: 0;
+  }
+
+  h1 {
+    max-width: 8ch;
+  }
+}
+
+@media (min-width: 1081px) and (max-width: 1360px) {
+  .hero-copy-panel {
+    max-width: 15.5rem;
+    margin-left: -3rem;
+    margin-right: 1.2rem;
+  }
 }
 
 @media (max-width: 760px) {
-  .flight-search-hero,
+  .hero-copy-panel {
+    margin-left: 0;
+    margin-right: 0;
+  }
+
   .search-copy {
     overflow: visible;
   }
 
+  .hero-status-bar__account {
+    font-size: 0.88rem;
+  }
+
   .search-copy {
     padding: 1rem;
+    border-radius: 22px;
   }
 
   h1 {
-    max-width: 10ch;
-    font-size: clamp(1.7rem, 9vw, 2.45rem);
+    max-width: 8ch;
+    font-size: clamp(2.2rem, 11vw, 3.2rem);
   }
 
+  .hero-copy-panel p,
   .search-copy p {
     font-size: 0.92rem;
     line-height: 1.35;
@@ -1165,25 +1605,28 @@ button {
   }
 
   .segmented-control {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: 1fr;
+  }
+
+  .hero-status-bar__pills {
+    gap: 0.45rem;
+  }
+
+  .hero-status-bar__pills span {
+    font-size: 0.76rem;
   }
 
   .segmented-control button,
   .primary-action,
   .secondary-action,
-  .time-toggle {
-    min-height: 2.55rem;
+  .time-toggle,
+  .advanced-options {
+    min-height: 2.8rem;
     font-size: 0.92rem;
   }
 
-  .trust-badges {
-    gap: 0.35rem;
-  }
-
-  .trust-badges span {
-    min-height: 1.75rem;
-    font-size: 0.72rem;
-    padding: 0 0.6rem;
+  .mode-intro {
+    grid-template-columns: 1fr;
   }
 
   .leg-summary {
@@ -1209,9 +1652,11 @@ button {
 
   .mode-intro,
   .trip-panel,
-  .builder-headline {
+  .builder-headline,
+  .concierge-card,
+  .benefits-card,
+  .testimonial-card {
     border-radius: 14px;
   }
-
 }
 </style>
