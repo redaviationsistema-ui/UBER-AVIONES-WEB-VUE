@@ -762,101 +762,64 @@
           }}</span>
         </div>
 
-        <article class="company-verification-card">
-          <div class="operator-readiness-widget" :style="{ '--score': companyOnboardingProgress.percent }">
-            <strong>{{ companyOnboardingProgress.percent }}%</strong>
-            <span>Avance del expediente</span>
-          </div>
-          <span class="mini-label">Readiness</span>
-          <h3>{{ companyStatusMeta.headline }}</h3>
-          <p class="muted">
-            El readiness solo mide avance de captura y documentacion. La aprobacion final depende
-            exclusivamente de la decision manual del administrador.
-          </p>
-          <div class="company-checklist">
-            <span
-              v-for="chip in companyReadinessChips"
-              :key="chip.id"
-              class="progress-chip"
-              :data-tone="chip.tone"
-            >
-              {{ chip.label }}
-            </span>
-          </div>
-          <p class="muted">Ultima revision: {{ companyLastAuditDate }}</p>
-        </article>
+        <OperatorReadinessCard
+          :progress="companyOnboardingProgress"
+          :checklist="companyOnboardingSteps"
+          :alerts="companyAlerts"
+          title="Readiness del expediente"
+          subtitle="Vista compacta del avance real del operador"
+        />
 
-        <div class="company-summary-grid">
-          <article
-            v-for="item in companyValidationSummary"
-            :key="item.label"
-            class="company-summary-row"
-          >
-            <span>{{ item.label }}</span>
-            <strong>{{ item.value }}</strong>
-          </article>
-        </div>
+        <CompanyProfileCard
+          eyebrow="Empresa"
+          title="Informacion capturada por el proveedor"
+          :items="companyProfileItems"
+        />
 
-        <div class="company-alert-stack">
-          <article
-            v-for="alert in companyAlerts"
-            :key="alert.title"
-            class="company-alert"
-            :data-tone="alert.tone"
-          >
-            <strong>{{ alert.title }}</strong>
-            <button
-              v-if="alert.actionLabel"
-              type="button"
-              class="ghost-button company-alert-action"
-              @click="handleCompanyAlertAction(alert)"
-            >
-              {{ alert.actionLabel }}
-            </button>
-          </article>
-        </div>
+        <CompanyCommercialCard
+          eyebrow="Comercial"
+          title="Configuracion comercial"
+          :items="companyCommercialItems"
+        />
 
-        <div class="status-list">
-          <div class="status-row">
-            <span>Decision administrativa</span>
-            <strong>{{ companyAdminDecisionCopy.title }}</strong>
-          </div>
-          <div class="status-row">
-            <span>Detalle</span>
-            <strong>{{ companyAdminDecisionCopy.detail }}</strong>
-          </div>
-          <div class="status-row">
-            <span>Linea administrativa</span>
-            <strong>{{ companyAdminDecisionCopy.notes }}</strong>
-          </div>
-        </div>
+        <FleetSummary
+          eyebrow="Flota"
+          title="Aeronaves registradas"
+          :fleet="companyFleetSummary"
+        />
 
-        <div class="document-list company-document-list">
-          <article v-for="document in company.documents" :key="document.id" class="list-card">
-            <div>
-              <strong>{{ document.name }}</strong>
-              <p class="muted">Estado: {{ humanizeCompanyDocumentState(document.state) }}</p>
-            </div>
-            <button type="button" class="ghost-button" @click="openCompanyDocument(document)">Ver archivo</button>
-          </article>
-          <p v-if="!company.documents.length" class="empty-state">
-            Aun no hay documentos visibles en el expediente legal del operador.
-          </p>
-        </div>
+        <OperatorValidationSummary
+          :summary="companyValidationSummary"
+          :badge-label="companyStatusMeta.label"
+        />
 
-        <div class="ops-timeline">
-          <article v-for="entry in companyAuditTimeline" :key="entry.id" class="ops-timeline-item">
-            <span class="ops-timeline-time">{{ entry.date }}</span>
-            <div>
-              <strong>{{ entry.action }}</strong>
-              <p class="muted">{{ entry.actor }}</p>
-            </div>
-          </article>
-          <p v-if="!companyAuditTimeline.length" class="empty-state">
-            El historial administrativo aparecera aqui conforme avance la validacion.
-          </p>
-        </div>
+        <OperatorDocumentList
+          role="provider"
+          title="Documentacion legal"
+          subtitle="Misma informacion que ve administracion"
+          :documents="companySharedDocuments"
+          @view="openCompanyDocumentDrawer"
+          @download="openCompanyDocument"
+          @replace="handleCompanyAlertAction({ actionKey: $event.definitionKey === 'sat_certificate' ? 'sat' : 'legal-documents' })"
+        />
+
+        <OperatorActivityTimeline
+          title="Actividad del expediente"
+          :entries="companySharedActivity"
+        />
       </article>
+
+      <OperatorDocumentDrawer
+        :open="companyDocumentDrawer.open"
+        role="provider"
+        :document="companyDocumentDrawer.document"
+        :versions="companyDocumentDrawer.versions"
+        :activity="companySharedActivity"
+        :loading-versions="companyDocumentDrawer.loadingVersions"
+        @close="closeCompanyDocumentDrawer"
+        @download="openCompanyDocument"
+        @replace="handleCompanyAlertAction({ actionKey: $event.definitionKey === 'sat_certificate' ? 'sat' : 'legal-documents' })"
+      />
     </section>
 
     <section v-else-if="section === 'aeronaves'" class="page-grid fleet-operations-luxury">

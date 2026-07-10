@@ -11,6 +11,7 @@ let shouldShowRealtimeRequestInBanner
 let shouldKeepOperatorRealtimeRequestVisible
 let buildRequestFullRoute
 let buildRealtimeRequestPayload
+let shouldIgnoreOperatorRequestsRouteError
 
 beforeAll(async () => {
   const module = await import('../features/operator/portal/PortalOperador.componente.js')
@@ -21,6 +22,7 @@ beforeAll(async () => {
   shouldKeepOperatorRealtimeRequestVisible = module.shouldKeepOperatorRealtimeRequestVisible
   buildRequestFullRoute = requestUtils.buildRequestFullRoute
   buildRealtimeRequestPayload = requestUtils.buildRealtimeRequestPayload
+  shouldIgnoreOperatorRequestsRouteError = requestUtils.shouldIgnoreOperatorRequestsRouteError
 })
 
 describe('operator portal request filters', () => {
@@ -132,5 +134,32 @@ describe('operator portal request filters', () => {
     expect(payload.route).toBe('MMTO -> MMGL -> MMMX -> MMTO')
     expect(payload.origin).toBe('MMTO')
     expect(payload.destination).toBe('MMTO')
+  })
+
+  it('ignores 403 request-route errors when an earlier route already returned usable data', () => {
+    expect(
+      shouldIgnoreOperatorRequestsRouteError(
+        { status: 403, message: 'Proveedor no autorizado' },
+        { hasSuccessfulPayload: true },
+      ),
+    ).toBe(true)
+  })
+
+  it('ignores 403 request-route errors while the provider is still pending validation', () => {
+    expect(
+      shouldIgnoreOperatorRequestsRouteError(
+        { status: 403, message: 'Proveedor no autorizado' },
+        { providerPendingValidation: true },
+      ),
+    ).toBe(true)
+  })
+
+  it('still surfaces 403 request-route errors when there is no usable fallback', () => {
+    expect(
+      shouldIgnoreOperatorRequestsRouteError(
+        { status: 403, message: 'Proveedor no autorizado' },
+        {},
+      ),
+    ).toBe(false)
   })
 })

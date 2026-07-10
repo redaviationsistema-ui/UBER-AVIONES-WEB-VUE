@@ -404,3 +404,58 @@ export function buildProviderReviewFlow(provider = {}, metrics = {}) {
     companyName: resolveProviderCompanyName(provider),
   }
 }
+
+export function buildProviderReviewFlowFromBackend(summary = {}, validationSummary = {}) {
+  const statusMeta =
+    summary.statusMeta ||
+    resolveProviderStatusMeta({
+      admin_validation_status: summary.expedienteStatus || validationSummary.expedienteStatus || summary.status,
+      access_enabled: summary.accessEnabled || validationSummary.accessEnabled,
+    })
+
+  const checklist = Array.isArray(summary.checklist)
+    ? summary.checklist
+    : Array.isArray(validationSummary.checklist)
+      ? validationSummary.checklist
+      : []
+  const progress =
+    summary.progress ||
+    validationSummary.progress || {
+      completed: checklist.filter((item) => item.complete).length,
+      total: checklist.length,
+      percent: checklist.length ? Math.round((checklist.filter((item) => item.complete).length / checklist.length) * 100) : 0,
+    }
+  const validationRequirements = Array.isArray(validationSummary.validationRequirements)
+    ? validationSummary.validationRequirements
+    : Array.isArray(summary.validationRequirements)
+      ? summary.validationRequirements
+      : []
+  const alerts = Array.isArray(validationSummary.alerts)
+    ? validationSummary.alerts
+    : Array.isArray(summary.alerts)
+      ? summary.alerts
+      : []
+  const summaryItems = Array.isArray(summary.summary)
+    ? summary.summary
+    : Array.isArray(validationSummary.summary)
+      ? validationSummary.summary
+      : []
+
+  return {
+    statusMeta,
+    progress,
+    checklist,
+    validationRequirements,
+    summary: summaryItems,
+    alerts,
+    canValidate: Boolean(summary.canValidate ?? validationSummary.canValidate ?? false),
+    missingValidationItems: Array.isArray(validationSummary.missingValidationItems)
+      ? validationSummary.missingValidationItems
+      : validationRequirements.filter((item) => !item.complete),
+    accessEnabled: Boolean(summary.accessEnabled ?? validationSummary.accessEnabled ?? false),
+    documentCount: Number(summary.documentCount || validationSummary.documentCount || 0),
+    representative: summary.representative || validationSummary.representative || 'Sin representante',
+    base: summary.base || validationSummary.base || 'Base pendiente',
+    companyName: summary.companyName || validationSummary.companyName || 'Operador',
+  }
+}

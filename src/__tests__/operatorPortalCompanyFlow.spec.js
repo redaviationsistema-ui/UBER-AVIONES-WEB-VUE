@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildCompanyFieldErrors,
   buildCompanyPayload,
+  buildCompanyPendingValidationPatch,
   buildCompanyReviewCandidates,
   buildCompanyReviewFormData,
   buildCompanySaveCandidates,
@@ -163,5 +164,17 @@ describe('operator portal company flow helpers', () => {
         '/operator/company/send-review',
       ]),
     )
+  })
+
+  it('builds an explicit pending validation patch for resilient provider onboarding saves', () => {
+    expect(buildCompanyPendingValidationPatch()).toEqual({
+      review_status: 'pending_review',
+      validation_status: 'pending_validation',
+      status: 'pending_review',
+      admin_validation_status: 'pending_review',
+      approval_status: 'pending_review',
+      operator_status: 'pending_validation',
+      access_enabled: false,
+    })
   })
 })

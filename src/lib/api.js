@@ -21,6 +21,9 @@ const DOCUSIGN_TIMEOUT_MS = Number(import.meta.env.VITE_DOCUSIGN_TIMEOUT_MS || 1
 const API_CREDENTIALS_MODE = String(import.meta.env.VITE_API_CREDENTIALS_MODE || 'same-origin')
   .trim()
   .toLowerCase()
+const API_USE_DEV_PROXY = String(import.meta.env.VITE_USE_DEV_API_PROXY || 'true')
+  .trim()
+  .toLowerCase() === 'true'
 const AIRCRAFT_DEBUG_ENABLED = String(import.meta.env.VITE_AIRCRAFT_DEBUG || 'false')
   .trim()
   .toLowerCase() === 'true'
@@ -72,6 +75,7 @@ function toPathname(baseUrl = '') {
 }
 
 function shouldUseRelativeLocalApiBase(baseUrl = '') {
+  if (!API_USE_DEV_PROXY) return false
   if (typeof window === 'undefined') return false
   if (!isLocalOrigin(window.location.origin)) return false
 

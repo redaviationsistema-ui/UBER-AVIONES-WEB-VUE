@@ -115,6 +115,21 @@ export function buildCompanyPayload(companyForm = {}, normalizedRfc = '') {
   }
 }
 
+export function buildCompanyPendingValidationPatch({
+  reviewStatus = 'pending_review',
+  validationStatus = 'pending_validation',
+} = {}) {
+  return {
+    review_status: reviewStatus,
+    validation_status: validationStatus,
+    status: reviewStatus,
+    admin_validation_status: reviewStatus,
+    approval_status: reviewStatus,
+    operator_status: validationStatus,
+    access_enabled: false,
+  }
+}
+
 export function sanitizeCompanyPayloadForSave(payload = {}) {
   const nextPayload = { ...payload }
 
@@ -148,12 +163,14 @@ export function buildCompanyReviewFormData({
   validationStatus = 'pending_validation',
 } = {}) {
   const formData = new FormData()
+  const reviewPatch = buildCompanyPendingValidationPatch({
+    reviewStatus,
+    validationStatus,
+  })
 
-  formData.append('review_status', reviewStatus)
-  formData.append('validation_status', validationStatus)
-  formData.append('status', reviewStatus)
-  formData.append('admin_validation_status', reviewStatus)
-  formData.append('approval_status', reviewStatus)
+  Object.entries(reviewPatch).forEach(([key, value]) => {
+    formData.append(key, value)
+  })
 
   if (selectedFile) {
     formData.append('file', selectedFile)

@@ -827,7 +827,7 @@
 
 .fleet-operations-luxury .wizard-hero-copy h2 small {
   display: block;
-  color: rgba(246, 243, 239, 0.74);
+  color: #111111;
   font-family: 'Inter', 'Manrope', ui-sans-serif, system-ui, sans-serif;
   font-size: 0.45em;
   font-weight: 700;
@@ -990,4 +990,3 @@
   padding: 150px 28px 28px;
   gap: 20px;
 }
-

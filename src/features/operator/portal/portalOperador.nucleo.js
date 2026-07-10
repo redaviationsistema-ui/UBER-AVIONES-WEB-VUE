@@ -4,7 +4,14 @@ import { requestWithCandidates, pickCollection, pickRecord } from '../../../lib/
 import { api, resolveMediaUrl } from '../../../lib/api'
 import { resolveProviderIdForUser } from '../../../lib/providerContext'
 import { resolveBestCompanyDisplayName } from '../../../lib/companyDisplay'
+import { normalizeOperatorValidationDocument } from '../../../lib/providerCompanyDocuments'
 import { resolveProviderStatusMeta } from '../../../lib/providerReview'
+import {
+  buildOperatorCommercialConfig,
+  buildOperatorCompanyProfile,
+  buildOperatorFleetSummary,
+  getOperatorDocumentVersions,
+} from '../../../lib/operatorValidationApi'
 import { buildFrontendUrl } from '../../../lib/frontendUrl'
 import {
   buildSharedFlowStepStates,
@@ -37,6 +44,7 @@ import {
   normalizeRealtimeNotificationRecord as normalizeRealtimeNotificationRecordEntry,
   parseOperationalDate,
   resolveOperatorRequestQueue,
+  shouldIgnoreOperatorRequestsRouteError,
   shouldKeepOperatorRealtimeRequestVisible,
   shouldShowRealtimeRequestInBanner,
   syncRealtimeRequestsWithRequestsCollection,
@@ -83,6 +91,7 @@ import {
 import {
   buildCompanyFieldErrors,
   buildCompanyPayload,
+  buildCompanyPendingValidationPatch,
   buildCompanyReviewCandidates,
   buildCompanyReviewFormData,
   buildCompanySaveCandidates,
@@ -449,6 +458,13 @@ const documentPreview = reactive({
   open: false,
   file: null,
   url: '',
+})
+
+const companyDocumentDrawer = reactive({
+  open: false,
+  document: null,
+  versions: [],
+  loadingVersions: false,
 })
 
 const incidentDetailModal = reactive({
@@ -2423,6 +2439,96 @@ const companyValidationSummary = computed(() => [
   },
 ])
 
+const companyProfileItems = computed(() =>
+  buildOperatorCompanyProfile({
+    legal_name: company.legalName,
+    rfc: company.rfc,
+    commercial_name: company.tradeName,
+    base_airport: company.base,
+    address: company.address,
+    legal_representative: company.legalRepresentative,
+    company_phone: company.phone,
+    company_email: company.email,
+  }),
+)
+
+const companyCommercialItems = computed(() =>
+  buildOperatorCommercialConfig({
+    jet_a_price: company.jetAPrice,
+    margin_percent: company.marginPercent,
+    fixed_fee: company.fixedFee,
+  }),
+)
+
+const companyFleetSummary = computed(() =>
+  buildOperatorFleetSummary(
+    aircraft.value.map((item) => ({
+      id: item.id,
+      manufacturer: item.manufacturer,
+      name: item.name,
+      model: item.name,
+      registration: item.registration,
+      base: item.base,
+    })),
+  ),
+)
+
+const companySharedDocuments = computed(() => {
+  const definitions = [
+    {
+      id: 'sat_certificate',
+      label: getCompanyDocumentDefinition('sat_certificate')?.label || 'Constancia de situacion fiscal',
+      section: 'sat',
+    },
+    ...companyRequiredLegalDocuments.value.map((definition) => ({
+      id: definition.id,
+      label: definition.label,
+      section: definition.section,
+    })),
+  ]
+
+  return definitions.map((definition, index) => {
+    const currentDocument =
+      definition.id === 'sat_certificate'
+        ? companySatDocument.value
+        : companyDocumentsByDefinition.value[definition.id]
+
+    if (currentDocument) {
+      return normalizeOperatorValidationDocument(
+        {
+          ...currentDocument,
+          definition_key: definition.id,
+          definition_label: definition.label,
+          document_type: currentDocument.documentType || definition.id,
+          document_section: definition.section,
+          uploaded_at: currentDocument.createdAt,
+          reviewed_at: currentDocument.reviewedAt || '',
+          rejection_reason: currentDocument.rejectedReason || '',
+          file_url: currentDocument.url,
+          download_url: currentDocument.downloadUrl,
+          mime_type: currentDocument.mimeType,
+          file_size_bytes: currentDocument.size,
+          status: currentDocument.state,
+        },
+        index,
+      )
+    }
+
+    return normalizeOperatorValidationDocument(
+      {
+        id: `placeholder-${definition.id}`,
+        definition_key: definition.id,
+        definition_label: definition.label,
+        document_type: definition.id,
+        document_section: definition.section,
+        status: 'pending',
+        is_current: true,
+      },
+      index,
+    )
+  })
+})
+
 const companyAlerts = computed(() => {
   const alerts = []
 
@@ -2504,6 +2610,17 @@ const companyAuditTimeline = computed(() =>
       action: entry.action,
       actor: entry.actor,
     })),
+)
+
+const companySharedActivity = computed(() =>
+  companyAuditTimeline.value.map((entry) => ({
+    id: entry.id,
+    title: entry.action,
+    description: entry.actor,
+    createdAt: entry.date,
+    createdBy: entry.actor,
+    tone: 'info',
+  })),
 )
 
 const companyReadinessChips = computed(() => [
@@ -4043,6 +4160,9 @@ async function fetchRequestsPayload(timeoutMs = OPERATOR_SECTION_TIMEOUT_MS) {
   let firstSuccessfulPayload = null
   let firstSuccessfulPath = ''
   let lastError = null
+  const providerPendingValidation = ['pending_review', 'pending_validation'].includes(
+    String(company.adminValidationStatus || company.operatorStatus || '').trim().toLowerCase(),
+  )
 
   for (const path of REQUESTS_ROUTE_CANDIDATES) {
     try {
@@ -4060,13 +4180,10 @@ async function fetchRequestsPayload(timeoutMs = OPERATOR_SECTION_TIMEOUT_MS) {
       }
     } catch (error) {
       lastError = error
-      const status = Number(error?.status || 0)
-      const message = String(error?.message || '').toLowerCase()
-      const canTryNext =
-        status === 0 ||
-        [404, 405].includes(status) ||
-        (status >= 500 && status <= 599) ||
-        (message.includes('route') && message.includes('could not be found'))
+      const canTryNext = shouldIgnoreOperatorRequestsRouteError(error, {
+        hasSuccessfulPayload: Boolean(firstSuccessfulPayload),
+        providerPendingValidation,
+      })
 
       if (!canTryNext) {
         throw error
@@ -6460,9 +6577,13 @@ async function persistCompanyProfile(options = {}) {
   }
 
   const pendingDocumentsSnapshot = capturePendingCompanyDocumentState()
-  const payload = options.allowPartialSave === true
-    ? sanitizeCompanyPayloadForSave(buildCompanyPayload(companyForm, validation.normalizedRfc))
-    : buildCompanyPayload(companyForm, validation.normalizedRfc)
+  const basePayload = buildCompanyPayload(companyForm, validation.normalizedRfc)
+  const payload = {
+    ...(options.allowPartialSave === true
+      ? sanitizeCompanyPayloadForSave(basePayload)
+      : basePayload),
+    ...(options.statusPatch && typeof options.statusPatch === 'object' ? options.statusPatch : {}),
+  }
 
   try {
     const response = await requestWithCandidates(buildCompanySaveCandidates(payload))
@@ -6515,6 +6636,31 @@ function openCompanyDocument(document = null) {
   const targetUrl = document?.downloadUrl || document?.url || ''
   if (!targetUrl || typeof window === 'undefined') return
   window.open(targetUrl, '_blank', 'noopener,noreferrer')
+}
+
+async function openCompanyDocumentDrawer(document = null) {
+  if (!document) return
+
+  companyDocumentDrawer.open = true
+  companyDocumentDrawer.document = document
+  companyDocumentDrawer.versions = []
+  companyDocumentDrawer.loadingVersions = true
+
+  try {
+    const versions = await getOperatorDocumentVersions(companyId.value, document.id, { role: 'provider' })
+    companyDocumentDrawer.versions = Array.isArray(versions) ? versions : []
+  } catch (_error) {
+    companyDocumentDrawer.versions = document?.versions || []
+  } finally {
+    companyDocumentDrawer.loadingVersions = false
+  }
+}
+
+function closeCompanyDocumentDrawer() {
+  companyDocumentDrawer.open = false
+  companyDocumentDrawer.document = null
+  companyDocumentDrawer.versions = []
+  companyDocumentDrawer.loadingVersions = false
 }
 
 async function focusCompanySection(sectionId = '') {
@@ -8297,6 +8443,7 @@ async function sendCompanyToReview() {
       requireReviewSubmission: true,
       hasRequiredLegalDocuments: true,
       uploadPendingDocuments: true,
+      statusPatch: buildCompanyPendingValidationPatch(),
     })
     if (!persisted) return
 
@@ -10454,7 +10601,11 @@ watch(
       companyHasIdentityData,
       companyHasContactData,
       companySatApproved,
+      companyProfileItems,
+      companyCommercialItems,
+      companyFleetSummary,
       companyDocumentsByDefinition,
+      companySharedDocuments,
       companySatDocument,
       companyRequiredLegalDocuments,
       companyLegalDocumentsComplete,
@@ -10469,6 +10620,8 @@ watch(
       companyValidationSummary,
       companyAlerts,
       companyAuditTimeline,
+      companySharedActivity,
+      companyDocumentDrawer,
       dashboardCompletion,
       dashboardGlobalStatus,
       dashboardAlerts,
@@ -10622,6 +10775,8 @@ watch(
       uploadCompanyDocumentDraft,
       uploadPendingCompanyDocuments,
       openCompanyDocument,
+      openCompanyDocumentDrawer,
+      closeCompanyDocumentDrawer,
       focusCompanySection,
       handleCompanyAlertAction,
       resetAircraftForm,

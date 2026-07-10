@@ -1,16 +1,30 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { pickRecord, requestWithCandidates } from '../../lib/backendCrud'
 import { resolveRoleSectionPath } from '../../data/roleFlows'
+import CompanyCommercialCard from '../operator/validation/CompanyCommercialCard.vue'
+import CompanyProfileCard from '../operator/validation/CompanyProfileCard.vue'
+import FleetSummary from '../operator/validation/FleetSummary.vue'
+import OperatorActivityTimeline from '../operator/validation/OperatorActivityTimeline.vue'
+import OperatorDocumentDrawer from '../operator/validation/OperatorDocumentDrawer.vue'
+import OperatorDocumentList from '../operator/validation/OperatorDocumentList.vue'
+import OperatorValidationSummary from '../operator/validation/OperatorValidationSummary.vue'
 import { useUiStore } from '../../stores/ui'
+import {
+  buildOperatorCommercialConfig,
+  buildOperatorCompanyProfile,
+  buildOperatorFleetSummary,
+  getOperatorDocumentVersions,
+  normalizeValidationActivityEntry,
+} from '../../lib/operatorValidationApi'
 import {
   buildProviderReviewFlow,
   resolveProviderCompanyName,
   resolveProviderRepresentativeName,
   resolveProviderStatusMeta,
 } from '../../lib/providerReview'
-import { normalizeAdminProviderDocument } from '../../lib/providerCompanyDocuments'
+import { normalizeOperatorValidationDocument } from '../../lib/providerCompanyDocuments'
 
 const props = defineProps({
   providers: { type: Array, required: true },
@@ -29,6 +43,17 @@ const selectedAdminActionKey = ref('')
 const loadingProviderDetail = ref(false)
 const selectedProviderActivity = ref([])
 const loadingSelectedProviderActivity = ref(false)
+const selectedDocumentDrawer = ref(null)
+const selectedDocumentVersions = ref([])
+const loadingDocumentVersions = ref(false)
+const activeProviderRequestToken = ref(0)
+let providerDetailAbortController = null
+let providerActivityAbortController = null
+let providerDocumentVersionsAbortController = null
+
+const ADMIN_PROVIDER_DETAIL_TIMEOUT_MS = 30000
+const ADMIN_PROVIDER_ACTIVITY_TIMEOUT_MS = 30000
+const ADMIN_PROVIDER_DOCUMENT_VERSIONS_TIMEOUT_MS = 20000
 
 
 function missingValidationLabelsText() {
@@ -139,6 +164,48 @@ function isAnyValidationActionLoading() {
   return Boolean(activeValidationActionKey.value || activeRequirementActionKey.value)
 }
 
+function isAbortLikeError(error) {
+  return (
+    error?.name === 'AbortError' ||
+    String(error?.message || '')
+      .trim()
+      .toLowerCase()
+      .includes('aborted')
+  )
+}
+
+function abortProviderDetailRequest() {
+  if (providerDetailAbortController) {
+    providerDetailAbortController.abort()
+    providerDetailAbortController = null
+  }
+}
+
+function abortProviderActivityRequest() {
+  if (providerActivityAbortController) {
+    providerActivityAbortController.abort()
+    providerActivityAbortController = null
+  }
+}
+
+function abortProviderDocumentVersionsRequest() {
+  if (providerDocumentVersionsAbortController) {
+    providerDocumentVersionsAbortController.abort()
+    providerDocumentVersionsAbortController = null
+  }
+}
+
+function resetProviderAsyncState() {
+  loadingProviderDetail.value = false
+  loadingSelectedProviderActivity.value = false
+  loadingDocumentVersions.value = false
+}
+
+function nextProviderRequestToken() {
+  activeProviderRequestToken.value += 1
+  return activeProviderRequestToken.value
+}
+
 async function handleCorporateAdminAction(action) {
   if (!selectedProvider.value) return
 
@@ -215,6 +282,55 @@ function findFirstDocumentCollection(sources = []) {
   return []
 }
 
+function providerTaxDataSources(provider = {}) {
+  return [
+    provider.tax_data,
+    provider.taxData,
+    provider.profile?.tax_data,
+    provider.profile?.taxData,
+    provider.user?.tax_data,
+    provider.user?.taxData,
+    provider.user?.profile?.tax_data,
+    provider.user?.profile?.taxData,
+    provider.company?.tax_data,
+    provider.company?.taxData,
+    provider.data?.tax_data,
+    provider.data?.taxData,
+  ].filter((item) => item && typeof item === 'object')
+}
+
+function normalizeLegacyProviderDocument(document = {}, index = 0) {
+  return normalizeOperatorValidationDocument(
+    {
+      id: document.id || `legacy-${index + 1}`,
+      name: document.name || document.document_name || document.label || `Documento ${index + 1}`,
+      document_name: document.document_name || document.name || document.label || `Documento ${index + 1}`,
+      original_name: document.original_name || document.file_name || document.name || '',
+      file_name: document.file_name || document.original_name || document.name || '',
+      status: document.status || document.state || document.validation_status || 'pendiente',
+      state: document.state || document.status || 'pendiente',
+      notes: document.notes || document.observation || document.observacion || '',
+      created_at: document.created_at || document.uploaded_at || document.updated_at || '',
+      updated_at: document.updated_at || document.created_at || '',
+      document_slot: document.document_slot || document.slot || '',
+      document_type: document.document_type || document.type || '',
+      document_category: document.document_category || document.category || '',
+      document_section: document.document_section || document.section || '',
+      definition_key: document.definition_key || document.document_slot || '',
+      definition_label: document.definition_label || document.name || document.document_name || '',
+      section_key: document.section_key || '',
+      section_label: document.section_label || '',
+      field_map: Array.isArray(document.field_map) ? document.field_map : [],
+      file_url: document.file_url || document.document_url || document.url || '',
+      document_url: document.document_url || document.file_url || document.url || '',
+      download_url: document.download_url || document.downloadUrl || '',
+      mime_type: document.mime_type || '',
+      size: document.size || document.file_size || document.file_size_bytes || 0,
+    },
+    index,
+  )
+}
+
 function providerDocuments(provider = {}) {
   const rawDocuments = findFirstDocumentCollection([
     provider,
@@ -226,71 +342,112 @@ function providerDocuments(provider = {}) {
     provider.user?.profile,
     provider.data,
   ])
+  const legacyDocuments = providerTaxDataSources(provider).flatMap((source) =>
+    Array.isArray(source.documents) ? source.documents : [],
+  )
+  const selectedDocuments = rawDocuments.length ? rawDocuments : legacyDocuments
 
-  return rawDocuments.map((item, index) => {
-    const metadata = normalizeAdminProviderDocument(item, index)
-    const rawUrl =
-      item.download_url ||
-      item.downloadUrl ||
-      item.url ||
-      item.file_url ||
-      item.fileUrl ||
-      item.path ||
-      item.storage_path ||
-      ''
+  return selectedDocuments.map((item, index) =>
+    rawDocuments.length
+      ? normalizeOperatorValidationDocument(item, index)
+      : normalizeLegacyProviderDocument(item, index),
+  )
+}
 
-    return {
-      ...item,
-      ...metadata,
-      id: item.id || index + 1,
-      name:
-        item.original_name || item.document_name || item.name || item.file_name || `Documento ${index + 1}`,
-      fileName: item.file_name || item.filename || '',
-      mimeType: item.mime_type || item.mime || item.content_type || '',
-      size: Number(item.size || item.file_size || 0),
-      status: item.status || item.state || item.validation_status || item.review_status || 'Pendiente',
-      createdAt: item.created_at || item.uploaded_at || item.updated_at || '',
-      url: item.url || rawUrl || '',
-      downloadUrl: item.download_url || item.downloadUrl || rawUrl || '',
-      notes: item.notes || item.observation || item.observacion || item.admin_notes || '',
+function readProviderCandidateValue(provider = {}, keys = []) {
+  const sources = [
+    provider,
+    provider.company,
+    provider.empresa,
+    provider.provider,
+    provider.proveedor,
+    provider.profile,
+    provider.user?.profile,
+    provider.user,
+    provider.data,
+    ...providerTaxDataSources(provider),
+  ]
+
+  for (const source of sources) {
+    if (!source || typeof source !== 'object') continue
+
+    for (const key of keys) {
+      const value = source[key]
+      if (value !== undefined && value !== null && String(value).trim() !== '') {
+        return value
+      }
     }
-  })
-}
-
-function formatDocumentSize(size) {
-  const value = Number(size || 0)
-  if (!Number.isFinite(value) || value <= 0) return 'Tamano no disponible'
-  if (value >= 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(2)} MB`
-  if (value >= 1024) return `${(value / 1024).toFixed(1)} KB`
-  return `${value} B`
-}
-
-function formatDocumentDate(value) {
-  if (!value) return 'Fecha no disponible'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-
-  return new Intl.DateTimeFormat('es-MX', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(date)
-}
-
-function documentStatusLabel(value = '') {
-  const normalized = String(value || '').trim().toLowerCase()
-  if (normalized.includes('aprob')) return 'Aprobado'
-  if (normalized.includes('rech')) return 'Rechazado'
-  if (normalized.includes('pend') || normalized.includes('review') || normalized.includes('revision')) {
-    return 'Pendiente'
   }
-  return value || 'Pendiente'
+
+  return ''
 }
 
-function documentStatusTone(value = '') {
-  const normalized = String(value || '').trim().toLowerCase()
-  if (normalized.includes('aprob')) return 'success'
-  if (normalized.includes('rech')) return 'danger'
-  return 'warning'
+function buildAdminProviderSnapshot(provider = {}) {
+  const legalName =
+    readProviderCandidateValue(provider, ['legal_name', 'razon_social']) ||
+    readProviderCandidateValue(provider, ['company_name'])
+
+  return {
+    ...provider,
+    company_name: readProviderCandidateValue(provider, ['company_name', 'commercial_name', 'legal_name', 'nombre_empresa']),
+    commercial_name: readProviderCandidateValue(provider, ['commercial_name', 'trade_name', 'nombre_comercial', 'company_name', 'legal_name']),
+    legal_name: legalName,
+    company_phone: readProviderCandidateValue(provider, ['company_phone', 'phone', 'telefono']),
+    company_email: readProviderCandidateValue(provider, ['company_email', 'email', 'correo']),
+    rfc: readProviderCandidateValue(provider, ['rfc', 'tax_id']),
+    base_airport: readProviderCandidateValue(provider, ['base_airport', 'base', 'airport', 'location']),
+    address: readProviderCandidateValue(provider, ['address', 'direccion']),
+    legal_representative: readProviderCandidateValue(provider, [
+      'legal_representative',
+      'representative_name',
+      'representante_legal',
+      'representative',
+      'contact_name',
+      'contact',
+    ]),
+    jet_a_price: readProviderCandidateValue(provider, ['jet_a_price', 'jetA', 'precio_jet_a']),
+    margin_percent: readProviderCandidateValue(provider, ['margin_percent', 'utility_percent', 'porcentaje_utilidad']),
+    fixed_fee: readProviderCandidateValue(provider, ['fixed_fee', 'fixedFee', 'fee_fijo']),
+    sat_validation_status: readProviderCandidateValue(provider, ['sat_validation_status', 'satValidationStatus']),
+    admin_notes: readProviderCandidateValue(provider, ['admin_notes', 'admin_validation_notes', 'observations', 'observaciones']),
+    changes_notes: readProviderCandidateValue(provider, ['changes_notes', 'changesNotes']),
+    rejection_reason: readProviderCandidateValue(provider, ['rejection_reason', 'rejectionReason']),
+    documents: providerDocuments(provider),
+  }
+}
+
+function extractDetailRecord(payload = {}) {
+  const detailRecord = pickRecord(payload, [
+    'provider',
+    'proveedor',
+    'company',
+    'empresa',
+    'operator',
+    'data',
+  ])
+
+  if (!detailRecord || typeof detailRecord !== 'object' || Array.isArray(detailRecord)) {
+    return null
+  }
+
+  return detailRecord
+}
+
+function extractDocumentsRecord(payload = {}) {
+  const collections = [
+    payload?.documents,
+    payload?.legal_documents,
+    payload?.company_documents,
+    payload?.documentos,
+    payload?.data,
+  ]
+  const collection = collections.find((value) => Array.isArray(value))
+
+  if (!Array.isArray(collection) || !collection.length) return null
+
+  return {
+    documents: collection,
+  }
 }
 
 const aircraftMetricsByProvider = computed(() => {
@@ -416,9 +573,17 @@ const selectedProviderMetrics = computed(() =>
   selectedProvider.value ? providerMetrics(selectedProvider.value) : { aircraft: 0, active: 0, trial: 0, pending: 0 },
 )
 
-const selectedProviderReview = computed(() =>
-  selectedProvider.value ? buildProviderReviewFlow(selectedProvider.value, selectedProviderMetrics.value) : null,
+const selectedProviderSnapshot = computed(() =>
+  selectedProvider.value ? buildAdminProviderSnapshot(selectedProvider.value) : null,
 )
+
+const selectedProviderReview = computed(() =>
+  selectedProviderSnapshot.value ? buildProviderReviewFlow(selectedProviderSnapshot.value, selectedProviderMetrics.value) : null,
+)
+
+const providerProgressStyle = computed(() => ({
+  '--provider-progress': `${selectedProviderReview.value?.progress.percent || 0}%`,
+}))
 
 const selectedProviderDocuments = computed(() =>
   selectedProvider.value ? providerDocuments(selectedProvider.value) : [],
@@ -431,21 +596,112 @@ const selectedProviderHeader = computed(() => {
     companyName: selectedProviderReview.value.companyName,
     representative: selectedProviderReview.value.representative,
     base: selectedProviderReview.value.base,
-    email: selectedProvider.value.company_email || selectedProvider.value.email || 'Sin correo registrado',
-    phone: selectedProvider.value.company_phone || selectedProvider.value.phone || 'Sin telefono registrado',
-    rfc: selectedProvider.value.rfc || 'Sin RFC',
+    email: selectedProviderSnapshot.value?.company_email || 'Sin correo registrado',
+    phone: selectedProviderSnapshot.value?.company_phone || 'Sin telefono registrado',
+    rfc: selectedProviderSnapshot.value?.rfc || 'Sin RFC',
     legalName:
-      selectedProvider.value.legal_name ||
-      selectedProvider.value.razon_social ||
-      selectedProvider.value.company_name ||
+      selectedProviderSnapshot.value?.legal_name ||
+      selectedProviderSnapshot.value?.company_name ||
       'Sin razon social registrada',
     statusMeta: selectedProviderReview.value.statusMeta,
   }
 })
 
+const selectedProviderCompanyProfile = computed(() =>
+  selectedProviderSnapshot.value
+    ? buildOperatorCompanyProfile({
+        legal_name: selectedProviderSnapshot.value.legal_name || selectedProviderHeader.value?.legalName,
+        rfc: selectedProviderSnapshot.value.rfc,
+        commercial_name: selectedProviderSnapshot.value.commercial_name || selectedProviderHeader.value?.companyName,
+        base_airport: selectedProviderSnapshot.value.base_airport || selectedProviderHeader.value?.base,
+        address: selectedProviderSnapshot.value.address,
+        legal_representative: selectedProviderHeader.value?.representative,
+        company_phone: selectedProviderHeader.value?.phone,
+        company_email: selectedProviderHeader.value?.email,
+      })
+    : [],
+)
+
+const selectedProviderCommercialConfig = computed(() =>
+  selectedProviderSnapshot.value
+    ? buildOperatorCommercialConfig({
+        jet_a_price: selectedProviderSnapshot.value.jet_a_price,
+        margin_percent: selectedProviderSnapshot.value.margin_percent,
+        fixed_fee: selectedProviderSnapshot.value.fixed_fee,
+      })
+    : [],
+)
+
+const selectedProviderFleetSummary = computed(() =>
+  buildOperatorFleetSummary(
+    props.aircraft.filter((item) =>
+      String(item.provider_id || item.proveedor_id || item.provider?.id || '') ===
+      String(selectedProvider.value?.id || selectedProvider.value?.provider_id || ''),
+    ),
+  ),
+)
+
+const selectedProviderSharedActivity = computed(() =>
+  selectedProviderActivity.value.map((entry, index) => normalizeValidationActivityEntry(entry, index)),
+)
+
+const selectedProviderDocumentLoadingState = computed(() => {
+  const map = {}
+  const key = activeDocumentActionKey.value
+  if (!key) return map
+  const parts = String(key).split(':')
+  if (parts.length >= 3) {
+    map[`${parts[1]}:${parts[2]}`] = true
+  }
+  return map
+})
+
+const selectedDocumentDrawerActivity = computed(() => {
+  if (!selectedDocumentDrawer.value) return []
+  return selectedProviderSharedActivity.value.filter((entry) =>
+    String(entry.targetId || '') === String(selectedDocumentDrawer.value?.id || ''),
+  )
+})
+
 function closeProviderDetail() {
+  nextProviderRequestToken()
+  abortProviderDetailRequest()
+  abortProviderActivityRequest()
+  closeProviderDocumentDrawer()
   selectedProvider.value = null
   selectedProviderActivity.value = []
+  resetProviderAsyncState()
+}
+
+async function openProviderDocumentDrawer(provider, documentRecord) {
+  const providerId = provider?.id || provider?.provider_id
+  selectedDocumentDrawer.value = documentRecord
+  selectedDocumentVersions.value = []
+  loadingDocumentVersions.value = true
+  abortProviderDocumentVersionsRequest()
+  providerDocumentVersionsAbortController =
+    typeof AbortController !== 'undefined' ? new AbortController() : null
+
+  try {
+    const versions = await getOperatorDocumentVersions(providerId, documentRecord?.id, {
+      role: 'admin',
+      signal: providerDocumentVersionsAbortController?.signal,
+      timeoutMs: ADMIN_PROVIDER_DOCUMENT_VERSIONS_TIMEOUT_MS,
+    })
+    selectedDocumentVersions.value = Array.isArray(versions) ? versions : []
+  } catch (_error) {
+    selectedDocumentVersions.value = documentRecord?.versions || []
+  } finally {
+    providerDocumentVersionsAbortController = null
+    loadingDocumentVersions.value = false
+  }
+}
+
+function closeProviderDocumentDrawer() {
+  abortProviderDocumentVersionsRequest()
+  selectedDocumentDrawer.value = null
+  selectedDocumentVersions.value = []
+  loadingDocumentVersions.value = false
 }
 
 function mergeProviderDetailIntoSelection(baseProvider = {}, detailRecord = {}) {
@@ -483,41 +739,55 @@ function mergeProviderDetailIntoSelection(baseProvider = {}, detailRecord = {}) 
   }
 }
 
-async function loadProviderDetail(provider = {}) {
+async function loadProviderDetail(provider = {}, options = {}) {
   const providerId = provider?.id || provider?.provider_id
   if (!providerId) return provider
 
   try {
     loadingProviderDetail.value = true
-    const response = await requestWithCandidates([
-      { method: 'get', path: `/admin/providers/${providerId}` },
-      { method: 'get', path: `/admin/providers/${providerId}/detail` },
-      { method: 'get', path: `/admin/providers/${providerId}/documents` },
-      { method: 'get', path: `/admin/proveedores/${providerId}` },
-      { method: 'get', path: `/admin/proveedores/${providerId}/detalle` },
-      { method: 'get', path: `/admin/proveedores/${providerId}/documentos` },
-      { method: 'get', path: `/admin/operators/${providerId}` },
-      { method: 'get', path: `/admin/operators/${providerId}/documents` },
+    abortProviderDetailRequest()
+    providerDetailAbortController = typeof AbortController !== 'undefined' ? new AbortController() : null
+    const [detailResponse, documentsResponse] = await Promise.allSettled([
+      requestWithCandidates([
+        { method: 'get', path: `/admin/providers/${providerId}/detail`, timeoutMs: ADMIN_PROVIDER_DETAIL_TIMEOUT_MS },
+        { method: 'get', path: `/admin/proveedores/${providerId}/detalle`, timeoutMs: ADMIN_PROVIDER_DETAIL_TIMEOUT_MS },
+        { method: 'get', path: `/admin/providers/${providerId}`, timeoutMs: ADMIN_PROVIDER_DETAIL_TIMEOUT_MS },
+        { method: 'get', path: `/admin/proveedores/${providerId}`, timeoutMs: ADMIN_PROVIDER_DETAIL_TIMEOUT_MS },
+        { method: 'get', path: `/admin/operators/${providerId}`, timeoutMs: ADMIN_PROVIDER_DETAIL_TIMEOUT_MS },
+      ], { signal: providerDetailAbortController?.signal }),
+      requestWithCandidates([
+        { method: 'get', path: `/admin/providers/${providerId}/documents`, timeoutMs: ADMIN_PROVIDER_DETAIL_TIMEOUT_MS },
+        { method: 'get', path: `/admin/proveedores/${providerId}/documentos`, timeoutMs: ADMIN_PROVIDER_DETAIL_TIMEOUT_MS },
+        { method: 'get', path: `/admin/operators/${providerId}/documents`, timeoutMs: ADMIN_PROVIDER_DETAIL_TIMEOUT_MS },
+      ], { signal: providerDetailAbortController?.signal }),
     ])
 
-    const detailRecord = pickRecord(response, [
-      'provider',
-      'proveedor',
-      'company',
-      'empresa',
-      'operator',
-      'data',
-    ])
+    if (options.requestToken != null && options.requestToken !== activeProviderRequestToken.value) {
+      return provider
+    }
 
-    if (detailRecord && typeof detailRecord === 'object') {
-      return mergeProviderDetailIntoSelection(provider, detailRecord)
+    const detailRecord = extractDetailRecord(
+      detailResponse.status === 'fulfilled' ? detailResponse.value : null,
+    )
+    const documentsRecord = extractDocumentsRecord(
+      documentsResponse.status === 'fulfilled' ? documentsResponse.value : null,
+    )
+    const mergedRecord = {
+      ...(detailRecord || {}),
+      ...(documentsRecord || {}),
+    }
+
+    if (Object.keys(mergedRecord).length) {
+      return mergeProviderDetailIntoSelection(provider, mergedRecord)
     }
   } catch (error) {
+    if (isAbortLikeError(error)) return provider
     console.warn?.('[admin-provider-detail] no se pudo cargar detalle fresco', {
       providerId,
       message: error?.message || '',
     })
   } finally {
+    providerDetailAbortController = null
     loadingProviderDetail.value = false
   }
 
@@ -525,12 +795,17 @@ async function loadProviderDetail(provider = {}) {
 }
 
 async function openProviderDetail(provider) {
+  const providerId = String(provider?.id || provider?.provider_id || '')
+  const requestToken = nextProviderRequestToken()
+  abortProviderActivityRequest()
+  closeProviderDocumentDrawer()
   selectedProvider.value = provider
   const [enrichedProvider] = await Promise.all([
-    loadProviderDetail(provider),
-    loadSelectedProviderActivity(provider?.id || provider?.provider_id),
+    loadProviderDetail(provider, { requestToken }),
+    loadSelectedProviderActivity(provider?.id || provider?.provider_id, { requestToken }),
   ])
-  if (selectedProvider.value?.id === provider?.id) {
+  const selectedProviderId = String(selectedProvider.value?.id || selectedProvider.value?.provider_id || '')
+  if (requestToken === activeProviderRequestToken.value && selectedProviderId === providerId) {
     selectedProvider.value = enrichedProvider
   }
 }
@@ -566,7 +841,7 @@ function isRequirementBusy(providerId, requirementKey) {
   )
 }
 
-async function loadSelectedProviderActivity(providerId) {
+async function loadSelectedProviderActivity(providerId, options = {}) {
   if (!providerId) {
     selectedProviderActivity.value = []
     return
@@ -574,10 +849,16 @@ async function loadSelectedProviderActivity(providerId) {
 
   try {
     loadingSelectedProviderActivity.value = true
+    abortProviderActivityRequest()
+    providerActivityAbortController = typeof AbortController !== 'undefined' ? new AbortController() : null
     const response = await requestWithCandidates([
-      { method: 'get', path: `/admin/providers/${providerId}/activity` },
-      { method: 'get', path: `/admin/proveedores/${providerId}/actividad` },
-    ])
+      { method: 'get', path: `/admin/providers/${providerId}/activity`, timeoutMs: ADMIN_PROVIDER_ACTIVITY_TIMEOUT_MS },
+      { method: 'get', path: `/admin/proveedores/${providerId}/actividad`, timeoutMs: ADMIN_PROVIDER_ACTIVITY_TIMEOUT_MS },
+    ], { signal: providerActivityAbortController?.signal })
+
+    if (options.requestToken != null && options.requestToken !== activeProviderRequestToken.value) {
+      return
+    }
 
     selectedProviderActivity.value = Array.isArray(response?.data)
       ? response.data
@@ -585,6 +866,7 @@ async function loadSelectedProviderActivity(providerId) {
         ? response.activity
         : []
   } catch (error) {
+    if (isAbortLikeError(error)) return
     selectedProviderActivity.value = []
     ui.pushToast({
       tone: 'error',
@@ -592,6 +874,7 @@ async function loadSelectedProviderActivity(providerId) {
       message: error?.message || 'No se pudo cargar el registro del expediente.',
     })
   } finally {
+    providerActivityAbortController = null
     loadingSelectedProviderActivity.value = false
   }
 }
@@ -969,6 +1252,12 @@ async function openProviderAircraft(provider) {
     },
   })
 }
+
+onBeforeUnmount(() => {
+  abortProviderDetailRequest()
+  abortProviderActivityRequest()
+  abortProviderDocumentVersionsRequest()
+})
 </script>
 
 <template>
@@ -1086,6 +1375,10 @@ async function openProviderAircraft(provider) {
         </div>
       </div>
 
+      <div v-if="loadingProviderDetail" class="provider-detail-loading-note">
+        Estamos actualizando el expediente y la documentación más reciente del proveedor.
+      </div>
+
       <div class="provider-detail-layout">
         <div class="provider-detail-main">
           <section class="provider-detail-hero">
@@ -1096,9 +1389,11 @@ async function openProviderAircraft(provider) {
                   <strong class="provider-detail-company">{{ selectedProviderHeader.companyName }}</strong>
                   <p class="provider-detail-subtitle">{{ selectedProviderHeader.legalName }}</p>
                 </div>
-                <div class="provider-detail-progress">
-                  <strong>{{ selectedProviderReview.progress.percent }}%</strong>
-                  <span>Readiness</span>
+                <div class="provider-detail-progress" :style="providerProgressStyle">
+                  <div class="provider-detail-progress-ring">
+                    <strong>{{ selectedProviderReview.progress.percent }}%</strong>
+                    <span>Completo</span>
+                  </div>
                 </div>
               </div>
 
@@ -1135,167 +1430,53 @@ async function openProviderAircraft(provider) {
           </section>
 
           <section class="provider-detail-panel">
-            <div class="provider-detail-panel-head">
-              <span class="eyebrow">Identidad corporativa</span>
-              <strong>{{ selectedProviderHeader.statusMeta.headline }}</strong>
-            </div>
-            <div class="provider-data-grid">
-              <article class="provider-data-card">
-                <span>Razon social</span>
-                <strong>{{ selectedProviderHeader.legalName }}</strong>
-              </article>
-              <article class="provider-data-card">
-                <span>RFC</span>
-                <strong>{{ selectedProviderHeader.rfc }}</strong>
-              </article>
-              <article class="provider-data-card">
-                <span>Nombre comercial</span>
-                <strong>{{ selectedProviderHeader.companyName }}</strong>
-              </article>
-              <article class="provider-data-card">
-                <span>Base operativa</span>
-                <strong>{{ selectedProviderHeader.base }}</strong>
-              </article>
-            </div>
+            <CompanyProfileCard
+              eyebrow="Empresa"
+              title="Informacion capturada por el proveedor"
+              :items="selectedProviderCompanyProfile"
+            />
           </section>
 
           <section class="provider-detail-panel">
-            <div class="provider-detail-panel-head">
-              <span class="eyebrow">Representante legal</span>
-              <strong>Contacto principal para validacion</strong>
-            </div>
-            <div class="provider-data-grid">
-              <article class="provider-data-card">
-                <span>Nombre completo</span>
-                <strong>{{ selectedProviderHeader.representative }}</strong>
-              </article>
-              <article class="provider-data-card">
-                <span>Telefono</span>
-                <strong>{{ selectedProviderHeader.phone }}</strong>
-              </article>
-              <article class="provider-data-card provider-data-card-wide">
-                <span>Email</span>
-                <strong>{{ selectedProviderHeader.email }}</strong>
-              </article>
-            </div>
+            <CompanyCommercialCard
+              eyebrow="Comercial"
+              title="Configuracion comercial"
+              :items="selectedProviderCommercialConfig"
+            />
           </section>
 
           <section class="provider-detail-panel">
-            <div class="provider-detail-panel-head">
-              <span class="eyebrow">Documentacion legal del operador</span>
-              <strong>Revision, descarga y dictamen documental</strong>
-            </div>
-
-            <p v-if="loadingProviderDetail" class="provider-documents-loading">
-              Cargando expediente documental del proveedor...
-            </p>
-
-            <div v-else-if="selectedProviderDocuments.length" class="provider-documents-list">
-              <article
-                v-for="documentRecord in selectedProviderDocuments"
-                :key="documentRecord.id"
-                class="provider-document-card"
-              >
-                <div class="provider-document-head">
-                  <div class="provider-document-head__copy">
-                    <strong>{{ documentRecord.definitionLabel }}</strong>
-                    <p class="muted">{{ documentRecord.sectionLabel }}</p>
-                    <p class="muted provider-document-summary">
-                      {{ documentRecord.name }} ·
-                      {{ documentRecord.mimeType || 'Tipo no disponible' }} ·
-                      {{ formatDocumentSize(documentRecord.size) }}
-                    </p>
-                  </div>
-                  <span :class="['status-pill', `status-pill-${documentStatusTone(documentRecord.status)}`]">
-                    {{ documentStatusLabel(documentRecord.status) }}
-                  </span>
-                </div>
-
-                <div class="provider-document-meta">
-                  <article class="provider-document-meta-item">
-                    <span>Archivo</span>
-                    <strong>{{ documentRecord.fileName || 'Sin file_name' }}</strong>
-                  </article>
-                  <article class="provider-document-meta-item">
-                    <span>Clave</span>
-                    <strong>{{ documentRecord.definitionKey || 'Sin clave' }}</strong>
-                  </article>
-                  <article class="provider-document-meta-item">
-                    <span>Fecha de carga</span>
-                    <strong>{{ formatDocumentDate(documentRecord.createdAt) }}</strong>
-                  </article>
-                </div>
-
-                <div v-if="documentRecord.fieldMap.length" class="provider-document-columns">
-                  <span
-                    v-for="field in documentRecord.fieldMap"
-                    :key="`${documentRecord.id}-${field.column}`"
-                    class="provider-document-column-pill"
-                  >
-                    {{ field.column }}: {{ field.value }}
-                  </span>
-                </div>
-
-                <p v-if="documentRecord.notes" class="muted">Observacion: {{ documentRecord.notes }}</p>
-
-                <div class="provider-document-actions">
-                  <button
-                    type="button"
-                    class="provider-link provider-link-secondary"
-                    :disabled="isDocumentActionLoading(selectedProvider.id, documentRecord.id, 'preview')"
-                    @click="previewProviderDocument(selectedProvider, documentRecord)"
-                  >
-                    Ver documento
-                  </button>
-                  <button
-                    type="button"
-                    class="provider-link provider-link-secondary"
-                    :disabled="isDocumentActionLoading(selectedProvider.id, documentRecord.id, 'download')"
-                    @click="downloadProviderDocument(selectedProvider, documentRecord)"
-                  >
-                    Descargar
-                  </button>
-                  <button
-                    type="button"
-                    class="provider-link"
-                    :disabled="isDocumentActionLoading(selectedProvider.id, documentRecord.id, 'approved')"
-                    @click="approveProviderDocument(selectedProvider, documentRecord)"
-                  >
-                    Aprobar documento
-                  </button>
-                  <button
-                    type="button"
-                    class="provider-link provider-link-danger"
-                    :disabled="isDocumentActionLoading(selectedProvider.id, documentRecord.id, 'rejected')"
-                    @click="rejectProviderDocument(selectedProvider, documentRecord)"
-                  >
-                    Rechazar documento
-                  </button>
-                </div>
-              </article>
-            </div>
-
-            <p v-else class="empty-state provider-documents-empty">Sin documentos cargados</p>
+            <FleetSummary
+              eyebrow="Flota"
+              title="Aeronaves registradas"
+              :fleet="selectedProviderFleetSummary"
+            />
           </section>
+
+          <section class="provider-detail-panel">
+            <OperatorDocumentList
+              role="admin"
+              title="Documentacion legal"
+              subtitle="Lista compacta para revision administrativa"
+              :documents="selectedProviderDocuments"
+              :loading-state-by-key="selectedProviderDocumentLoadingState"
+              @view="openProviderDocumentDrawer(selectedProvider, $event)"
+              @download="downloadProviderDocument(selectedProvider, $event)"
+              @approve="approveProviderDocument(selectedProvider, $event)"
+              @reject="rejectProviderDocument(selectedProvider, $event)"
+              @cancel="rejectProviderDocument(selectedProvider, $event)"
+            />
+          </section>
+
+       
         </div>
 
         <aside class="provider-detail-sidebar">
           <section class="provider-detail-panel provider-detail-summary">
-            <div class="provider-detail-panel-head">
-              <span class="eyebrow">Resumen de validacion</span>
-              <strong>{{ selectedProviderHeader.statusMeta.headline }}</strong>
-            </div>
-
-            <div class="provider-summary-list">
-              <article
-                v-for="item in selectedProviderReview.summary"
-                :key="item.label"
-                :class="['provider-summary-row', `tone-${item.tone || 'default'}`]"
-              >
-                <span>{{ item.label }}</span>
-                <strong>{{ item.value }}</strong>
-              </article>
-            </div>
+            <OperatorValidationSummary
+              :summary="selectedProviderReview.summary"
+              :badge-label="selectedProviderHeader.statusMeta.label"
+            />
           </section>
 <section class="provider-detail-panel provider-admin-decision-panel">
   <div class="provider-admin-decision-head">
@@ -1392,6 +1573,16 @@ async function openProviderAircraft(provider) {
       </article>
     </div>
   </section>
+
+          <section class="provider-detail-panel">
+            <OperatorActivityTimeline
+              title="Actividad administrativa"
+              :entries="selectedProviderSharedActivity"
+            />
+            <p v-if="loadingSelectedProviderActivity" class="provider-activity-loading-note">
+              Cargando actividad reciente del expediente...
+            </p>
+          </section>
 
   <div class="admin-action-grid">
     <button
@@ -1525,43 +1716,6 @@ async function openProviderAircraft(provider) {
   </div>
 </section>
 
-          <section class="provider-detail-panel provider-activity-panel">
-            <div class="provider-detail-panel-head">
-              <span class="eyebrow">Actividad del proveedor</span>
-              <strong>Registro del expediente</strong>
-            </div>
-
-            <div class="provider-activity-list">
-              <p v-if="loadingSelectedProviderActivity" class="provider-activity-empty">
-                Cargando actividad del expediente...
-              </p>
-
-              <article
-                v-for="entry in selectedProviderActivity"
-                :key="entry.id"
-                :class="[
-                  'provider-activity-item',
-                  `tone-${resolveActivityTone(entry.event_type)}`
-                ]"
-              >
-                <span class="activity-dot"></span>
-                <div>
-                  <strong>{{ entry.title }}</strong>
-                  <p>{{ entry.description }}</p>
-                  <p v-if="entry.metadata?.document_slot || entry.metadata?.document_definition_label" class="muted">
-                    {{ entry.metadata?.document_definition_label || 'Documento' }}
-                    <span v-if="entry.metadata?.document_section_label"> · {{ entry.metadata.document_section_label }}</span>
-                  </p>
-                  <small>{{ formatDateTime(entry.created_at) }} · {{ entry.actor_name || 'Proveedor' }}</small>
-                </div>
-              </article>
-
-              <p v-if="!loadingSelectedProviderActivity && !selectedProviderActivity.length" class="provider-activity-empty">
-                Todavía no hay actividad registrada para este expediente.
-              </p>
-            </div>
-          </section>
-
           <section class="provider-detail-panel">
             <div class="provider-detail-panel-head">
               <span class="eyebrow">Alertas</span>
@@ -1582,6 +1736,20 @@ async function openProviderAircraft(provider) {
       
         </aside>
       </div>
+
+      <OperatorDocumentDrawer
+        :open="Boolean(selectedDocumentDrawer)"
+        role="admin"
+        :document="selectedDocumentDrawer"
+        :versions="selectedDocumentVersions"
+        :activity="selectedDocumentDrawerActivity"
+        :loading-versions="loadingDocumentVersions"
+        @close="closeProviderDocumentDrawer"
+        @download="downloadProviderDocument(selectedProvider, $event)"
+        @approve="approveProviderDocument(selectedProvider, $event)"
+        @reject="rejectProviderDocument(selectedProvider, $event)"
+        @cancel="rejectProviderDocument(selectedProvider, $event)"
+      />
     </section>
   </section>
 </template>
@@ -1589,26 +1757,27 @@ async function openProviderAircraft(provider) {
 <style scoped>
 /*------------------------------------------------------------------------------------------------------------------------------*/
 .providers-page {
-  --providers-ink: #17324a;
-  --providers-ink-soft: #60758b;
-  --providers-line: rgba(95, 122, 149, 0.22);
-  --providers-warm-line: rgba(185, 147, 87, 0.2);
-  --providers-surface: linear-gradient(180deg, rgba(252, 250, 245, 0.98), rgba(242, 238, 230, 0.96));
-  --providers-panel: linear-gradient(145deg, #1b3448 0%, #243f55 52%, #305168 100%);
-  --providers-panel-soft: linear-gradient(180deg, rgba(30, 53, 72, 0.96), rgba(23, 42, 58, 0.98));
-  --providers-shadow: 0 24px 56px rgba(18, 37, 55, 0.14);
-  --providers-accent: #d7a64d;
-  --providers-accent-soft: #f9edd2;
-  --providers-success: #2f8f68;
-  --providers-success-soft: #dff5ea;
-  --providers-warning: #c68620;
-  --providers-warning-soft: #fdf0d5;
-  --providers-danger: #cf665b;
-  --providers-danger-soft: #fde5e1;
-  --providers-info: #4f87b1;
-  --providers-info-soft: #dfedf8;
+  --providers-ink: #15324d;
+  --providers-ink-soft: #6f8096;
+  --providers-line: rgba(132, 151, 177, 0.18);
+  --providers-warm-line: rgba(226, 173, 71, 0.18);
+  --providers-surface: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 246, 241, 0.96));
+  --providers-panel: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 246, 242, 0.96));
+  --providers-panel-soft: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(249, 248, 245, 0.96));
+  --providers-shadow: 0 26px 54px rgba(27, 54, 82, 0.08);
+  --providers-accent: #eda83a;
+  --providers-accent-soft: #fff1d8;
+  --providers-success: #2f9a6c;
+  --providers-success-soft: #e8f8ef;
+  --providers-warning: #de9b29;
+  --providers-warning-soft: #fff4df;
+  --providers-danger: #dc7a68;
+  --providers-danger-soft: #feebe6;
+  --providers-info: #5f87c7;
+  --providers-info-soft: #e8f0fd;
   display: grid;
   gap: 1.25rem;
+  padding: 0.25rem 0 1rem;
 }
 
 .page-head,
@@ -1635,31 +1804,48 @@ async function openProviderAircraft(provider) {
 }
 
 .page-head {
+  position: relative;
+  overflow: hidden;
   border-radius: 1.6rem;
-  border: 1px solid rgba(114, 145, 174, 0.18);
+  border: 1px solid rgba(132, 151, 177, 0.14);
   background:
-    radial-gradient(circle at top right, rgba(227, 179, 91, 0.18), transparent 26%),
-    radial-gradient(circle at bottom left, rgba(113, 194, 205, 0.12), transparent 22%),
+    radial-gradient(circle at top right, rgba(237, 168, 58, 0.16), transparent 24%),
+    radial-gradient(circle at bottom left, rgba(111, 164, 222, 0.14), transparent 26%),
     var(--providers-panel);
   box-shadow: var(--providers-shadow);
 }
 
+.page-head::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    linear-gradient(rgba(232, 237, 244, 0.34) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(232, 237, 244, 0.34) 1px, transparent 1px);
+  background-size: 100% 1.4rem, 1.4rem 100%;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.26), transparent 58%);
+  pointer-events: none;
+}
+
 .page-head-copy {
   max-width: 44rem;
+  position: relative;
+  z-index: 1;
 }
 
 .page-head :deep(.eyebrow) {
-  color: var(--providers-accent);
+  color: #6483a8;
 }
 
 .page-head :deep(.muted),
 .empty-state :deep(.muted) {
-  color: rgba(236, 242, 247, 0.8);
+  color: var(--providers-ink-soft);
 }
 
 .page-head h3 {
-  color: #ffffff;
-  font-size: clamp(1.5rem, 2vw, 2rem);
+  color: var(--providers-ink);
+  font-size: clamp(1.6rem, 2vw, 2.1rem);
 }
 
 .kpi-grid {
@@ -1669,12 +1855,12 @@ async function openProviderAircraft(provider) {
 }
 
 .kpi-card {
-  border: 1px solid var(--providers-warm-line);
-  border-radius: 1.4rem;
+  border: 1px solid rgba(132, 151, 177, 0.14);
+  border-radius: 1.45rem;
   background:
-    radial-gradient(circle at top right, rgba(227, 179, 91, 0.08), transparent 30%),
+    radial-gradient(circle at top right, rgba(237, 168, 58, 0.08), transparent 34%),
     var(--providers-surface);
-  box-shadow: 0 16px 36px rgba(36, 58, 84, 0.08);
+  box-shadow: 0 18px 38px rgba(27, 54, 82, 0.08);
 }
 
 .kpi-card strong {
@@ -1684,44 +1870,44 @@ async function openProviderAircraft(provider) {
 }
 
 .kpi-card span {
-  color: #7d6b55;
-  font-size: 0.82rem;
+  color: #8593a6;
+  font-size: 0.76rem;
   font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
 }
 
 .tone-success {
-  border-color: rgba(47, 163, 107, 0.24);
+  border-color: rgba(47, 154, 108, 0.18);
   background:
-    radial-gradient(circle at top right, rgba(47, 163, 107, 0.1), transparent 30%),
+    radial-gradient(circle at top right, rgba(47, 154, 108, 0.08), transparent 30%),
     var(--providers-surface);
 }
 
 .tone-warning {
-  border-color: rgba(207, 138, 28, 0.26);
+  border-color: rgba(222, 155, 41, 0.18);
   background:
-    radial-gradient(circle at top right, rgba(207, 138, 28, 0.1), transparent 30%),
+    radial-gradient(circle at top right, rgba(222, 155, 41, 0.08), transparent 30%),
     var(--providers-surface);
 }
 
 .tone-info {
-  border-color: rgba(70, 137, 181, 0.24);
+  border-color: rgba(95, 135, 199, 0.18);
   background:
-    radial-gradient(circle at top right, rgba(70, 137, 181, 0.1), transparent 30%),
+    radial-gradient(circle at top right, rgba(95, 135, 199, 0.08), transparent 30%),
     var(--providers-surface);
 }
 
 .filters-shell {
   border-radius: 1.4rem;
-  border: 1px solid rgba(223, 212, 194, 0.65);
-  background: linear-gradient(180deg, #fffdf9 0%, #fbf7ef 100%);
-  box-shadow: 0 14px 30px rgba(36, 58, 84, 0.08);
+  border: 1px solid rgba(132, 151, 177, 0.14);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(250, 248, 244, 0.96));
+  box-shadow: 0 14px 30px rgba(27, 54, 82, 0.07);
 }
 
 .search-field span {
-  color: #7d6b55;
-  font-size: 0.78rem;
+  color: #8593a6;
+  font-size: 0.76rem;
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -1730,7 +1916,7 @@ async function openProviderAircraft(provider) {
 .search-field input {
   width: 100%;
   min-height: 3.6rem;
-  border: 1px solid rgba(191, 166, 126, 0.28);
+  border: 1px solid rgba(132, 151, 177, 0.16);
   border-radius: 1.2rem;
   background: rgba(255, 255, 255, 0.96);
   padding: 0 1.1rem;
@@ -1786,14 +1972,14 @@ async function openProviderAircraft(provider) {
 
 .provider-card {
   min-height: 150px;
-  border: 1px solid rgba(121, 153, 181, 0.18);
+  border: 1px solid rgba(132, 151, 177, 0.14);
   border-radius: 1.5rem;
   background:
-    radial-gradient(circle at top right, rgba(227, 179, 91, 0.14), transparent 24%),
-    radial-gradient(circle at bottom left, rgba(113, 194, 205, 0.12), transparent 24%),
+    radial-gradient(circle at top right, rgba(237, 168, 58, 0.1), transparent 26%),
+    radial-gradient(circle at bottom left, rgba(111, 164, 222, 0.08), transparent 24%),
     var(--providers-panel-soft);
-  color: #ffffff;
-  box-shadow: 0 22px 44px rgba(20, 44, 67, 0.16);
+  color: var(--providers-ink);
+  box-shadow: 0 20px 40px rgba(27, 54, 82, 0.08);
   padding: 1.3rem;
   transition:
     transform 0.2s ease,
@@ -1803,8 +1989,8 @@ async function openProviderAircraft(provider) {
 
 .provider-card:hover {
   transform: translateY(-4px);
-  box-shadow: 0 24px 48px rgba(20, 44, 67, 0.22);
-  border-color: rgba(171, 203, 227, 0.3);
+  box-shadow: 0 26px 44px rgba(27, 54, 82, 0.12);
+  border-color: rgba(95, 135, 199, 0.22);
 }
 
 .provider-card-top {
@@ -1826,13 +2012,13 @@ async function openProviderAircraft(provider) {
 }
 
 .provider-card h5 {
-  color: #ffffff;
+  color: var(--providers-ink);
   font-size: 1.12rem;
   font-weight: 800;
 }
 
 .provider-id {
-  color: rgba(224, 234, 242, 0.62);
+  color: #8d9caf;
   font-size: 0.74rem;
   font-weight: 700;
   letter-spacing: 0.05em;
@@ -1889,7 +2075,7 @@ async function openProviderAircraft(provider) {
 .provider-main-kpi span,
 .provider-stats-inline span,
 .provider-meta-row span {
-  color: rgba(229, 238, 245, 0.76);
+  color: #8091a6;
 }
 
 .provider-main-kpi span,
@@ -1909,9 +2095,9 @@ async function openProviderAircraft(provider) {
 .provider-stat-card {
   display: grid;
   gap: 0.28rem;
-  border: 1px solid rgba(183, 208, 227, 0.12);
+  border: 1px solid rgba(132, 151, 177, 0.12);
   border-radius: 1rem;
-  background: rgba(244, 249, 252, 0.06);
+  background: rgba(255, 255, 255, 0.72);
   padding: 0.72rem 0.8rem;
 }
 
@@ -1929,12 +2115,12 @@ async function openProviderAircraft(provider) {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  border-top: 1px solid rgba(183, 208, 227, 0.12);
+  border-top: 1px solid rgba(132, 151, 177, 0.12);
   padding-top: 0.65rem;
 }
 
 .provider-meta-row strong {
-  color: #ffffff;
+  color: var(--providers-ink);
   font-size: 0.92rem;
   text-align: right;
 }
@@ -1986,11 +2172,11 @@ async function openProviderAircraft(provider) {
 
 .empty-state {
   border-radius: 1.4rem;
-  border: 1px solid rgba(114, 145, 174, 0.18);
+  border: 1px solid rgba(132, 151, 177, 0.14);
   background:
-    radial-gradient(circle at top right, rgba(227, 179, 91, 0.12), transparent 28%),
+    radial-gradient(circle at top right, rgba(237, 168, 58, 0.1), transparent 28%),
     var(--providers-panel);
-  color: #ffffff;
+  color: var(--providers-ink);
   box-shadow: var(--providers-shadow);
   padding: 0.95rem 1rem;
 }
@@ -1998,27 +2184,27 @@ async function openProviderAircraft(provider) {
 .provider-detail-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(12, 24, 37, 0.45);
-  backdrop-filter: blur(4px);
+  background: rgba(17, 36, 55, 0.32);
+  backdrop-filter: blur(10px);
   z-index: 30;
 }
 
 .provider-detail-modal {
   position: fixed;
-  inset: 1.5rem;
+  inset: 1.1rem;
   width: auto;
   overflow: hidden;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  border: 1px solid rgba(126, 151, 176, 0.18);
-  border-radius: 1.8rem;
+  border: 1px solid rgba(132, 151, 177, 0.14);
+  border-radius: 2rem;
   background:
-    radial-gradient(circle at top right, rgba(215, 166, 77, 0.12), transparent 24%),
-    radial-gradient(circle at top left, rgba(92, 142, 176, 0.08), transparent 28%),
-    linear-gradient(180deg, rgba(253, 251, 246, 0.99), rgba(240, 236, 228, 0.99));
-  box-shadow: 0 30px 70px rgba(20, 44, 67, 0.24);
+    radial-gradient(circle at top right, rgba(237, 168, 58, 0.1), transparent 22%),
+    radial-gradient(circle at left 30%, rgba(111, 164, 222, 0.08), transparent 28%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(248, 246, 241, 0.98));
+  box-shadow: 0 34px 84px rgba(27, 54, 82, 0.16);
   z-index: 31;
-  padding: 1rem 1rem 0.95rem;
+  padding: 1.15rem 1.15rem 1rem;
 }
 
 .provider-detail-head,
@@ -2030,9 +2216,9 @@ async function openProviderAircraft(provider) {
 .provider-detail-head {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
-  margin-bottom: 0.8rem;
-  padding-bottom: 0.75rem;
-  border-bottom: 1px solid rgba(132, 154, 176, 0.14);
+  margin-bottom: 1rem;
+  padding-bottom: 0.9rem;
+  border-bottom: 1px solid rgba(132, 151, 177, 0.12);
 }
 
 .provider-detail-head-actions {
@@ -2044,13 +2230,13 @@ async function openProviderAircraft(provider) {
 .provider-detail-head h4 {
   margin: 0.18rem 0 0;
   color: var(--providers-ink);
-  font-size: 1.28rem;
+  font-size: 1.42rem;
 }
 
 .provider-detail-close {
-  border: 1px solid rgba(137, 161, 187, 0.24);
+  border: 1px solid rgba(132, 151, 177, 0.18);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.88);
+  background: rgba(255, 255, 255, 0.96);
   color: var(--providers-ink);
   padding: 0.56rem 0.85rem;
   font-size: 0.86rem;
@@ -2064,8 +2250,8 @@ async function openProviderAircraft(provider) {
 
 .provider-detail-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.7fr) minmax(20rem, 0.95fr);
-  gap: 0.85rem;
+  grid-template-columns: minmax(0, 1.7fr) minmax(20rem, 0.92fr);
+  gap: 1rem;
   min-height: 0;
   overflow: hidden;
 }
@@ -2100,19 +2286,34 @@ async function openProviderAircraft(provider) {
   padding-right: 0.15rem;
 }
 
+.provider-detail-summary,
+.provider-admin-decision-panel {
+  position: sticky;
+}
+
+.provider-detail-summary {
+  top: 0;
+}
+
+.provider-admin-decision-panel {
+  top: 16rem;
+}
+
 .provider-detail-panel,
 .provider-detail-hero-card {
-  border: 1px solid rgba(132, 154, 176, 0.14);
-  border-radius: 1.1rem;
+  border: 1px solid rgba(132, 151, 177, 0.12);
+  border-radius: 1.3rem;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(247, 246, 242, 0.76));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
-  padding: 0.82rem 0.88rem;
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(250, 248, 244, 0.94));
+  box-shadow:
+    0 14px 28px rgba(27, 54, 82, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.74);
+  padding: 1rem;
 }
 
 .provider-detail-hero {
-  grid-template-columns: minmax(0, 1.25fr) minmax(14rem, 0.75fr);
-  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1.3fr) minmax(16rem, 0.8fr);
+  gap: 1rem;
 }
 
 .provider-detail-title-row {
@@ -2125,7 +2326,7 @@ async function openProviderAircraft(provider) {
 .provider-detail-company {
   display: block;
   color: var(--providers-ink);
-  font-size: clamp(1.45rem, 2.5vw, 2.1rem);
+  font-size: clamp(1.7rem, 2.6vw, 2.4rem);
   line-height: 0.95;
   letter-spacing: -0.04em;
 }
@@ -2137,26 +2338,41 @@ async function openProviderAircraft(provider) {
 }
 
 .provider-detail-progress {
-  min-width: 5.7rem;
-  border-radius: 0.95rem;
+  display: grid;
+  place-items: center;
+  min-width: 6.6rem;
+  min-height: 6.6rem;
+  border-radius: 50%;
   background:
-    radial-gradient(circle at top, rgba(92, 142, 176, 0.18), transparent 44%),
-    linear-gradient(180deg, #1d3a56 0%, #163047 100%);
-  padding: 0.72rem 0.8rem;
-  color: #ffffff;
+    conic-gradient(from 180deg, #2a6bb2 0 var(--provider-progress), rgba(221, 230, 240, 0.9) var(--provider-progress) 100%);
+  padding: 0.42rem;
+  box-shadow: 0 16px 28px rgba(42, 107, 178, 0.16);
+}
+
+.provider-detail-progress-ring {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 0.12rem;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at top, rgba(97, 158, 221, 0.08), transparent 55%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 249, 252, 0.96));
   text-align: center;
-  box-shadow: 0 12px 22px rgba(20, 44, 67, 0.16);
 }
 
 .provider-detail-progress strong {
   display: block;
-  font-size: 1.55rem;
+  color: #295978;
+  font-size: 1.45rem;
   line-height: 1;
 }
 
 .provider-detail-progress span {
-  color: rgba(234, 241, 246, 0.72);
-  font-size: 0.7rem;
+  color: #7990ab;
+  font-size: 0.62rem;
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -2173,12 +2389,12 @@ async function openProviderAircraft(provider) {
 
 .provider-detail-checklist {
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.55rem;
+  gap: 0.65rem;
 }
 
 .provider-check-item {
-  border: 1px solid rgba(128, 152, 177, 0.18);
-  background: linear-gradient(180deg, rgba(243, 247, 251, 0.92), rgba(238, 243, 248, 0.88));
+  border: 1px solid rgba(132, 151, 177, 0.12);
+  background: linear-gradient(180deg, rgba(247, 250, 253, 0.98), rgba(241, 245, 250, 0.94));
   min-height: 0;
 }
 
@@ -2221,14 +2437,14 @@ async function openProviderAircraft(provider) {
 }
 
 .provider-data-card {
-  border: 1px solid rgba(132, 154, 176, 0.14);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(249, 250, 252, 0.88));
+  border: 1px solid rgba(132, 151, 177, 0.12);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.94));
   min-height: 0;
 }
 
 .provider-document-card {
-  border: 1px solid rgba(132, 154, 176, 0.14);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(244, 247, 251, 0.92));
+  border: 1px solid rgba(132, 151, 177, 0.12);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(247, 249, 252, 0.96));
   display: grid;
   gap: 0.7rem;
 }
@@ -2247,7 +2463,7 @@ async function openProviderAircraft(provider) {
 
 .provider-detail-panel-head strong {
   color: var(--providers-ink);
-  font-size: 0.94rem;
+  font-size: 0.98rem;
   line-height: 1.25;
 }
 
@@ -2261,13 +2477,13 @@ async function openProviderAircraft(provider) {
   flex-direction: column;
   justify-content: center;
   gap: 0.18rem;
-  min-height: 5.25rem;
-  padding: 0.72rem 0.8rem;
-  border: 1px solid rgba(132, 154, 176, 0.14);
-  border-radius: 0.95rem;
+  min-height: 6.1rem;
+  padding: 0.8rem 0.86rem;
+  border: 1px solid rgba(132, 151, 177, 0.12);
+  border-radius: 1.1rem;
   background:
-    radial-gradient(circle at top right, rgba(92, 142, 176, 0.08), transparent 34%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(246, 248, 251, 0.84));
+    radial-gradient(circle at top right, rgba(95, 135, 199, 0.08), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 249, 252, 0.95));
   text-align: center;
 }
 
@@ -2323,9 +2539,9 @@ async function openProviderAircraft(provider) {
   gap: 0.14rem;
   min-width: 0;
   padding: 0.58rem 0.68rem;
-  border: 1px solid rgba(132, 154, 176, 0.16);
+  border: 1px solid rgba(132, 151, 177, 0.14);
   border-radius: 0.85rem;
-  background: rgba(255, 255, 255, 0.74);
+  background: rgba(255, 255, 255, 0.86);
 }
 
 .provider-document-meta-item span {
@@ -2366,10 +2582,10 @@ async function openProviderAircraft(provider) {
 .provider-documents-loading,
 .provider-documents-empty {
   color: var(--providers-ink);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(249, 250, 252, 0.88));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(249, 250, 252, 0.94));
   border-radius: 0.95rem;
   padding: 0.75rem 0.85rem;
-  border: 1px solid rgba(132, 154, 176, 0.14);
+  border: 1px solid rgba(132, 151, 177, 0.12);
   min-height: 0;
   font-size: 0.86rem;
 }
@@ -2380,8 +2596,8 @@ async function openProviderAircraft(provider) {
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  border: 1px solid rgba(132, 154, 176, 0.12);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 250, 252, 0.9));
+  border: 1px solid rgba(132, 151, 177, 0.12);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.94));
 }
 
 .provider-summary-row span {
@@ -2441,12 +2657,12 @@ async function openProviderAircraft(provider) {
 }
 /*----------------------------------------------------------------------------------------------------*/
 .provider-admin-decision-panel {
-  border: 1px solid rgba(23, 50, 74, 0.18);
+  border: 1px solid rgba(220, 125, 109, 0.14);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 248, 250, 0.96));
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(252, 248, 247, 0.96));
   box-shadow:
-    0 18px 38px rgba(20, 44, 67, 0.08),
-    inset 0 3px 0 rgba(215, 166, 77, 0.62);
+    0 18px 38px rgba(27, 54, 82, 0.06),
+    inset 0 3px 0 rgba(242, 156, 133, 0.5);
 }
 
 .provider-admin-decision-head {
@@ -2455,7 +2671,7 @@ async function openProviderAircraft(provider) {
   gap: 0.75rem;
   align-items: start;
   margin-bottom: 0.8rem;
-  border-bottom: 1px solid rgba(132, 154, 176, 0.16);
+  border-bottom: 1px solid rgba(132, 151, 177, 0.14);
   padding-bottom: 0.8rem;
 }
 
@@ -2530,6 +2746,23 @@ async function openProviderAircraft(provider) {
   padding: 0.72rem 0.8rem;
 }
 
+.provider-detail-loading-note,
+.provider-activity-loading-note {
+  margin: 0 0 0.9rem;
+  border-radius: 0.9rem;
+  border: 1px solid rgba(21, 74, 127, 0.14);
+  background: rgba(244, 248, 252, 0.92);
+  color: var(--providers-ink-soft);
+  font-size: 0.8rem;
+  line-height: 1.4;
+  padding: 0.72rem 0.84rem;
+}
+
+.provider-activity-loading-note {
+  margin-top: 0.8rem;
+  margin-bottom: 0;
+}
+
 .admin-decision-ready-note strong {
   color: #0f5b39;
   font-size: 0.78rem;
@@ -2548,9 +2781,9 @@ async function openProviderAircraft(provider) {
   display: grid;
   gap: 0.7rem;
   margin-bottom: 0.8rem;
-  border: 1px solid rgba(132, 154, 176, 0.14);
+  border: 1px solid rgba(132, 151, 177, 0.12);
   border-radius: 1rem;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(247, 249, 251, 0.92));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 249, 251, 0.94));
   padding: 0.8rem;
 }
 
@@ -2580,9 +2813,9 @@ async function openProviderAircraft(provider) {
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: start;
   gap: 0.6rem;
-  border: 1px solid rgba(132, 154, 176, 0.14);
-  border-radius: 0.85rem;
-  padding: 0.68rem 0.75rem;
+  border: 1px solid rgba(132, 151, 177, 0.12);
+  border-radius: 0.95rem;
+  padding: 0.78rem 0.8rem;
 }
 
 .admin-validation-check__icon {
@@ -2653,7 +2886,7 @@ async function openProviderAircraft(provider) {
 
 .admin-validation-check__button {
   appearance: none;
-  border: 1px solid rgba(23, 50, 74, 0.18);
+  border: 1px solid rgba(132, 151, 177, 0.18);
   border-radius: 0.72rem;
   background: #ffffff;
   color: var(--providers-ink);
@@ -2765,10 +2998,10 @@ async function openProviderAircraft(provider) {
   grid-template-columns: auto minmax(0, 1fr);
   gap: 0.65rem;
   align-items: start;
-  border: 1px solid rgba(132, 154, 176, 0.14);
-  border-radius: 0.9rem;
-  padding: 0.72rem 0.8rem;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(247, 249, 251, 0.92));
+  border: 1px solid rgba(132, 151, 177, 0.12);
+  border-radius: 1rem;
+  padding: 0.85rem 0.9rem;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 249, 252, 0.95));
 }
 
 .provider-activity-item strong {
@@ -2797,8 +3030,8 @@ async function openProviderAircraft(provider) {
   height: 0.72rem;
   margin-top: 0.35rem;
   border-radius: 999px;
-  background: linear-gradient(180deg, #d7a64d 0%, #f1c974 100%);
-  box-shadow: 0 0 0 6px rgba(215, 166, 77, 0.14);
+  background: linear-gradient(180deg, #f0b24f 0%, #ffd48d 100%);
+  box-shadow: 0 0 0 6px rgba(237, 168, 58, 0.14);
 }
 
 .ghost-button-warning {
@@ -2817,13 +3050,13 @@ async function openProviderAircraft(provider) {
   grid-template-columns: 2.2rem minmax(0, 1fr) auto;
   gap: 0.7rem;
   align-items: center;
-  border: 1px solid rgba(132, 154, 176, 0.18);
+  border: 1px solid rgba(132, 151, 177, 0.14);
   border-radius: 0.95rem;
-  background: #ffffff;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(248, 250, 252, 0.95));
   padding: 0.72rem 0.78rem;
   text-align: left;
   cursor: pointer;
-  box-shadow: 0 12px 26px rgba(20, 44, 67, 0.06);
+  box-shadow: 0 12px 26px rgba(27, 54, 82, 0.06);
   transition:
     transform 0.18s ease,
     border-color 0.18s ease,
@@ -2833,8 +3066,8 @@ async function openProviderAircraft(provider) {
 
 .admin-action-card:hover {
   transform: translateY(-2px);
-  border-color: rgba(23, 50, 74, 0.3);
-  box-shadow: 0 18px 34px rgba(20, 44, 67, 0.12);
+  border-color: rgba(95, 135, 199, 0.24);
+  box-shadow: 0 18px 34px rgba(27, 54, 82, 0.1);
 }
 
 .admin-action-card.is-selected {
@@ -2894,8 +3127,6 @@ async function openProviderAircraft(provider) {
   text-transform: uppercase;
 }
 
-
--------------------------------------------------------------------------------
 .admin-action-primary .admin-action-icon {
   background: linear-gradient(180deg, #1d3a56 0%, #163047 100%);
   color: #ffffff;
@@ -2979,6 +3210,11 @@ async function openProviderAircraft(provider) {
   .provider-detail-sidebar {
     overflow: visible;
     padding-right: 0;
+  }
+
+  .provider-detail-summary,
+  .provider-admin-decision-panel {
+    position: static;
   }
 }
 

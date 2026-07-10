@@ -232,6 +232,29 @@ export function buildRealtimeRequestPayload(payload = {}, providerId = '') {
   }
 }
 
+export function shouldIgnoreOperatorRequestsRouteError(
+  error,
+  { hasSuccessfulPayload = false, providerPendingValidation = false } = {},
+) {
+  const status = Number(error?.status || 0)
+  const message = String(error?.message || '').toLowerCase()
+
+  if (
+    status === 0 ||
+    [404, 405].includes(status) ||
+    (status >= 500 && status <= 599) ||
+    (message.includes('route') && message.includes('could not be found'))
+  ) {
+    return true
+  }
+
+  if ([401, 403].includes(status) && (hasSuccessfulPayload || providerPendingValidation)) {
+    return true
+  }
+
+  return false
+}
+
 export function syncRealtimeRequestsWithRequestsCollection(realtimeRequests = [], requests = []) {
   if (!realtimeRequests.length || !requests.length) return realtimeRequests
 
