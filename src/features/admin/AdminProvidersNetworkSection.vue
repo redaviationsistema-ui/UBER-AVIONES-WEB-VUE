@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watchEffect } from 'vue'
 import { useRouter } from 'vue-router'
 import { pickRecord, requestWithCandidates } from '../../lib/backendCrud'
 import { resolveRoleSectionPath } from '../../data/roleFlows'
@@ -57,24 +57,23 @@ const ADMIN_PROVIDER_DOCUMENT_VERSIONS_TIMEOUT_MS = 20000
 
 
 function missingValidationLabelsText() {
-  const pendingItems =
-    selectedProviderReview.value?.validationRequirements?.filter(
-      (item) => !item.complete || !isRequirementApproved(item),
-    ) || []
+  const pendingItems = estadoExpediente.value?.requisitos?.filter(
+    (item) => item.isComplete !== true || !isRequirementApproved(item),
+  ) || []
 
   if (!pendingItems.length) {
     return 'Todos los requisitos administrativos ya fueron aprobados.'
   }
 
   return `Faltan requisitos por aprobar: ${pendingItems
-    .map((item) => (item.complete ? `${item.label} (pendiente de validacion admin)` : `${item.label} (dato incompleto)`))
+    .map((item) => (item.isComplete === true ? `${item.label} (pendiente de validacion admin)` : `${item.label} (dato incompleto)`))
     .join(', ')}.`
 }
 
 function getValidationPanelHeadline() {
   if (!selectedProviderReview.value) return 'Expediente pendiente de validacion administrativa'
   if (selectedProviderReview.value.statusMeta.key === 'approved') return 'Operador validado por administracion'
-  if (selectedProviderReview.value.canValidate) return 'Listo para validacion administrativa'
+  if (estadoExpediente.value.requisitosCompletosParaValidar) return 'Listo para validacion administrativa'
   return 'Expediente pendiente de validacion administrativa'
 }
 
@@ -83,14 +82,91 @@ function getValidationPanelDetail() {
   if (selectedProviderReview.value.statusMeta.key === 'approved') {
     return 'La validacion del operador ya fue aprobada manualmente y el acceso operativo quedo habilitado.'
   }
-  if (selectedProviderReview.value.canValidate) {
-    return 'Todos los requisitos del checklist ya fueron aprobados individualmente. Ya puedes validar formalmente al operador.'
+  if (estadoExpediente.value.requisitosCompletosParaValidar) {
+    return 'El backend ya considera completo el expediente obligatorio. Ya puedes validar formalmente al operador.'
   }
   return 'Cada requisito debe aprobarse o cancelarse por separado. Validar el operador completo solo se habilita cuando todos esten aprobados.'
 }
 
+function normalizeExpedienteToken(value = '') {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+}
+
+function normalizeExplicitBoolean(value, options = {}) {
+  const truthyValues = Array.isArray(options.truthyValues) ? options.truthyValues : []
+  const falsyValues = Array.isArray(options.falsyValues) ? options.falsyValues : []
+
+  if (value === true) return true
+  if (value === false) return false
+  if (value === null || value === undefined) return null
+
+  const normalized = normalizeExpedienteToken(value)
+  if (!normalized) return null
+  if (truthyValues.includes(normalized)) return true
+  if (falsyValues.includes(normalized)) return false
+
+  return null
+}
+
+function normalizeDecisionStatus(value) {
+  const normalized = normalizeExpedienteToken(value)
+
+  if (!normalized || ['null', 'undefined', 'pending', 'pendiente', 'en revision', 'pending review'].includes(normalized)) {
+    return 'pending'
+  }
+  if (['approved', 'aprobado', 'aprobada', 'validated', 'validado', 'validada'].includes(normalized)) {
+    return 'approved'
+  }
+  if (['rejected', 'rechazado', 'rechazada', 'cancelled', 'canceled', 'cancelado', 'cancelada'].includes(normalized)) {
+    return 'rejected'
+  }
+
+  return 'pending'
+}
+
+function normalizeRequirementComplete(item = {}) {
+  const normalized = normalizeExplicitBoolean(item?.complete, {
+    truthyValues: ['true', 'approved', 'aprobado', 'aprobada', 'validated', 'validado', 'validada', 'complete', 'completo', 'completa'],
+    falsyValues: ['false', 'pending', 'pendiente', 'rejected', 'rechazado', 'rechazada', 'incomplete', 'incompleto', 'incompleta'],
+  })
+
+  if (normalized === true) return true
+  if (normalized === false) return false
+
+  const decisionStatus = normalizeDecisionStatus(item?.response_status ?? item?.responseStatus ?? null)
+  if (decisionStatus === 'approved' || decisionStatus === 'rejected') return true
+
+  return false
+}
+
+function normalizeWorkflowStatus(value) {
+  const normalized = normalizeExpedienteToken(value)
+
+  if (!normalized || ['null', 'undefined'].includes(normalized)) return 'draft'
+  if (['approved', 'aprobado', 'aprobada', 'validated', 'validado', 'validada'].includes(normalized)) return 'approved'
+  if (['pending review', 'under review', 'en revision'].includes(normalized)) return 'pending_review'
+  if (['pending validation'].includes(normalized)) return 'pending_validation'
+  if (['changes required', 'suspended', 'suspendido'].includes(normalized)) return 'changes_required'
+  if (['rejected', 'rechazado', 'rechazada'].includes(normalized)) return 'rejected'
+  if (['cancelled', 'canceled', 'cancelado', 'cancelada'].includes(normalized)) return 'cancelled'
+  if (['draft', 'expediente incompleto', 'incomplete', 'incompleto', 'incompleta'].includes(normalized)) return 'draft'
+
+  return normalized.replace(/\s+/g, '_')
+}
+
+function hasTextValue(value) {
+  return value !== null && value !== undefined && String(value).trim() !== ''
+}
+
+function isRequirementManagedByDocuments(item = {}) {
+  return item?.key === 'legal_documents_approved' && Array.isArray(item?.sourceDocuments) && item.sourceDocuments.length > 0
+}
+
 function validationRequirementStateLabel(item = {}) {
-  return item.complete ? 'Dato completo' : 'Dato pendiente'
+  return item.isComplete === true ? 'Dato completo' : 'Dato pendiente'
 }
 
 function normalizeRequirementResponseStatus(item = {}) {
@@ -98,25 +174,23 @@ function normalizeRequirementResponseStatus(item = {}) {
 }
 
 function isRequirementApproved(item = {}) {
-  return ['approved', 'aprobado', 'validated', 'validado'].includes(normalizeRequirementResponseStatus(item))
+  return normalizeDecisionStatus(item.normalizedResponseStatus || normalizeRequirementResponseStatus(item)) === 'approved'
 }
 
 function isRequirementRejected(item = {}) {
-  return ['rejected', 'rechazado', 'rechazada', 'cancelled', 'canceled', 'cancelado'].includes(
-    normalizeRequirementResponseStatus(item),
-  )
+  return normalizeDecisionStatus(item.normalizedResponseStatus || normalizeRequirementResponseStatus(item)) === 'rejected'
 }
 
 function validationRequirementTone(item = {}) {
   if (isRequirementApproved(item)) return 'success'
   if (isRequirementRejected(item)) return 'danger'
-  return item.complete ? 'info' : 'warning'
+  return item.isComplete === true ? 'info' : 'warning'
 }
 
 function validationRequirementIcon(item = {}) {
   if (isRequirementApproved(item)) return '✓'
   if (isRequirementRejected(item)) return '×'
-  return item.complete ? '•' : '!'
+  return item.isComplete === true ? '•' : '!'
 }
 
 function validationRequirementResponseLabel(item = {}) {
@@ -128,13 +202,18 @@ function validationRequirementResponseLabel(item = {}) {
 function validationRequirementResponseTone(item = {}) {
   if (isRequirementApproved(item)) return 'success'
   if (isRequirementRejected(item)) return 'danger'
-  return item.complete ? 'info' : 'warning'
+  return item.isComplete === true ? 'info' : 'warning'
 }
 
 function validationRequirementHint(item = {}) {
   if (isRequirementApproved(item)) return 'Este requisito ya fue aprobado de forma individual.'
   if (isRequirementRejected(item)) return 'Este requisito fue cancelado y requiere correccion o nueva revision.'
-  if (item.complete) return 'El dato ya esta completo y listo para que Admin lo valide o lo cancele.'
+  if (isRequirementManagedByDocuments(item)) {
+    return item.isComplete === true
+      ? 'Este requisito depende de aprobar o rechazar los documentos legales pendientes del expediente.'
+      : 'Aun faltan documentos legales obligatorios o aprobaciones administrativas en esos documentos.'
+  }
+  if (item.isComplete === true) return 'El dato ya esta completo y listo para que Admin lo valide o lo cancele.'
   return 'Aun faltan datos del operador para poder aprobar este requisito.'
 }
 
@@ -581,6 +660,224 @@ const selectedProviderReview = computed(() =>
   selectedProviderSnapshot.value ? buildProviderReviewFlow(selectedProviderSnapshot.value, selectedProviderMetrics.value) : null,
 )
 
+const estadoExpediente = computed(() => {
+  const provider = selectedProvider.value
+  const snapshot = selectedProviderSnapshot.value
+  const review = selectedProviderReview.value
+  const providerId = provider?.id || provider?.provider_id || null
+  const reviewRequirements = Array.isArray(review?.validationRequirements) ? review.validationRequirements : []
+  const requirementSource = reviewRequirements
+  const requirementBusyProviderId = providerId || 'provider'
+  const workflowFields = {
+    admin_validation_status: provider?.admin_validation_status ?? snapshot?.admin_validation_status ?? null,
+    review_status: provider?.review_status ?? snapshot?.review_status ?? null,
+    approval_status: provider?.approval_status ?? snapshot?.approval_status ?? null,
+    operator_status: provider?.operator_status ?? snapshot?.operator_status ?? null,
+    access_enabled: provider?.access_enabled ?? snapshot?.access_enabled ?? null,
+    admin_review_submitted_at: provider?.admin_review_submitted_at ?? snapshot?.admin_review_submitted_at ?? null,
+    can_validate: provider?.can_validate ?? snapshot?.can_validate ?? null,
+    documents_count:
+      provider?.documents_count ??
+      provider?.legal_documents_count ??
+      provider?.company_documents_count ??
+      snapshot?.documents_count ??
+      null,
+    validation_requirements_count: reviewRequirements.length,
+  }
+
+  const requisitos = requirementSource.map((item, index) => {
+    const requirementKey = item?.key || item?.id || `requirement-${index + 1}`
+    const responseStatus = item?.response_status ?? item?.responseStatus ?? null
+    const normalizedResponseStatus = normalizeDecisionStatus(responseStatus)
+    const isComplete = normalizeRequirementComplete(item)
+
+    return {
+      ...item,
+      key: requirementKey,
+      label: item?.label || item?.key || 'Requisito',
+      message: item?.message || item?.reason || '',
+      responseStatus: responseStatus || 'pending',
+      normalizedResponseStatus,
+      isComplete,
+      complete: isComplete,
+      adminNote: item?.admin_note || item?.adminNote || '',
+      respondedAt: item?.responded_at || item?.respondedAt || '',
+      actorName: item?.actor_name || item?.actorName || '',
+      managedByDocuments: isRequirementManagedByDocuments(item),
+      approveDisabled:
+        loadingProviderDetail.value === true ||
+        isRequirementManagedByDocuments(item) ||
+        isRequirementBusy(requirementBusyProviderId, requirementKey) ||
+        isComplete !== true,
+      rejectDisabled:
+        loadingProviderDetail.value === true ||
+        isRequirementManagedByDocuments(item) ||
+        isRequirementBusy(requirementBusyProviderId, requirementKey),
+    }
+  })
+
+  const workflowStatuses = [
+    workflowFields.admin_validation_status,
+    workflowFields.review_status,
+    workflowFields.approval_status,
+    workflowFields.operator_status,
+  ].map((value) => normalizeWorkflowStatus(value))
+
+  const accessEnabledFlag = normalizeExplicitBoolean(workflowFields.access_enabled, {
+    truthyValues: ['true', 'approved', 'aprobado', 'aprobada', 'validated', 'validado', 'validada'],
+    falsyValues: ['false', 'pending', 'pendiente', 'rejected', 'rechazado', 'rechazada', 'cancelled', 'canceled', 'cancelado', 'cancelada'],
+  })
+  const canValidateFlag = normalizeExplicitBoolean(workflowFields.can_validate, {
+    truthyValues: ['true', 'approved', 'aprobado', 'aprobada', 'validated', 'validado', 'validada'],
+    falsyValues: ['false', 'pending', 'pendiente', 'rejected', 'rechazado', 'rechazada', 'cancelled', 'canceled', 'cancelado', 'cancelada'],
+  })
+  const hasReviewPayload =
+    providerId !== null &&
+    (requisitos.length > 0 ||
+      hasTextValue(snapshot?.company_name) ||
+      hasTextValue(snapshot?.legal_name) ||
+      hasTextValue(snapshot?.rfc) ||
+      hasTextValue(snapshot?.company_email) ||
+      hasTextValue(snapshot?.company_phone) ||
+      hasTextValue(snapshot?.base_airport) ||
+      selectedProviderDocuments.value.length > 0)
+  const expedienteCargado = loadingProviderDetail.value === false && hasReviewPayload
+  const requisitosCompletosParaValidar =
+    requisitos.length > 0 &&
+    requisitos.every((item) => item.isComplete === true)
+  const todosRequisitosObligatoriosAprobados =
+    requisitos.length > 0 &&
+    requisitos.every((item) => item.isComplete === true && item.normalizedResponseStatus === 'approved')
+  const validacionIniciada =
+    workflowStatuses.some((status) => ['pending_review', 'pending_validation', 'approved', 'changes_required', 'rejected', 'cancelled'].includes(status)) ||
+    hasTextValue(workflowFields.admin_review_submitted_at)
+  const operadorValido =
+    accessEnabledFlag === true ||
+    workflowStatuses.some((status) => status === 'approved')
+  const loadingTerminado = loadingProviderDetail.value === false
+  const accionEnCurso = isAnyValidationActionLoading() === true
+
+  return {
+    providerId,
+    loading: {
+      detalle: loadingProviderDetail.value === true,
+      actividad: loadingSelectedProviderActivity.value === true,
+      terminado: loadingTerminado,
+      accionEnCurso,
+    },
+    camposSupabase: workflowFields,
+    requisitos,
+    expedienteCargado,
+    validacionIniciada,
+    operadorValido,
+    requisitosCompletosParaValidar,
+    todosRequisitosObligatoriosAprobados,
+    canValidateExplicito: canValidateFlag,
+    botones: {
+      validarOperador: {
+        enabled:
+          loadingTerminado &&
+          accionEnCurso === false &&
+          (canValidateFlag === true || requisitosCompletosParaValidar),
+      },
+      solicitarCambios: {
+        enabled: loadingTerminado && accionEnCurso === false && expedienteCargado,
+      },
+      cancelarValidacion: {
+        enabled: loadingTerminado && accionEnCurso === false && validacionIniciada,
+      },
+      revisarAeronaves: {
+        enabled: loadingTerminado && accionEnCurso === false && operadorValido,
+      },
+      continuarDespues: {
+        enabled: loadingTerminado && accionEnCurso === false,
+      },
+    },
+  }
+})
+
+watchEffect(() => {
+  if (!selectedProvider.value || !estadoExpediente.value.providerId) return
+
+  console.table([
+    {
+      boton: 'Validar operador',
+      adminValidationStatus: estadoExpediente.value.camposSupabase.admin_validation_status,
+      reviewStatus: estadoExpediente.value.camposSupabase.review_status,
+      approvalStatus: estadoExpediente.value.camposSupabase.approval_status,
+      operatorStatus: estadoExpediente.value.camposSupabase.operator_status,
+      accessEnabled: estadoExpediente.value.camposSupabase.access_enabled,
+      loadingTerminado: estadoExpediente.value.loading.terminado,
+      expedienteCargado: estadoExpediente.value.expedienteCargado,
+      requisitosAprobados: estadoExpediente.value.todosRequisitosObligatoriosAprobados,
+      validacionIniciada: estadoExpediente.value.validacionIniciada,
+      operadorValido: estadoExpediente.value.operadorValido,
+      accionEnCurso: estadoExpediente.value.loading.accionEnCurso,
+      enabled: estadoExpediente.value.botones.validarOperador.enabled,
+    },
+    {
+      boton: 'Solicitar cambios',
+      adminValidationStatus: estadoExpediente.value.camposSupabase.admin_validation_status,
+      reviewStatus: estadoExpediente.value.camposSupabase.review_status,
+      approvalStatus: estadoExpediente.value.camposSupabase.approval_status,
+      operatorStatus: estadoExpediente.value.camposSupabase.operator_status,
+      accessEnabled: estadoExpediente.value.camposSupabase.access_enabled,
+      loadingTerminado: estadoExpediente.value.loading.terminado,
+      expedienteCargado: estadoExpediente.value.expedienteCargado,
+      requisitosAprobados: estadoExpediente.value.todosRequisitosObligatoriosAprobados,
+      validacionIniciada: estadoExpediente.value.validacionIniciada,
+      operadorValido: estadoExpediente.value.operadorValido,
+      accionEnCurso: estadoExpediente.value.loading.accionEnCurso,
+      enabled: estadoExpediente.value.botones.solicitarCambios.enabled,
+    },
+    {
+      boton: 'Cancelar validación',
+      adminValidationStatus: estadoExpediente.value.camposSupabase.admin_validation_status,
+      reviewStatus: estadoExpediente.value.camposSupabase.review_status,
+      approvalStatus: estadoExpediente.value.camposSupabase.approval_status,
+      operatorStatus: estadoExpediente.value.camposSupabase.operator_status,
+      accessEnabled: estadoExpediente.value.camposSupabase.access_enabled,
+      loadingTerminado: estadoExpediente.value.loading.terminado,
+      expedienteCargado: estadoExpediente.value.expedienteCargado,
+      requisitosAprobados: estadoExpediente.value.todosRequisitosObligatoriosAprobados,
+      validacionIniciada: estadoExpediente.value.validacionIniciada,
+      operadorValido: estadoExpediente.value.operadorValido,
+      accionEnCurso: estadoExpediente.value.loading.accionEnCurso,
+      enabled: estadoExpediente.value.botones.cancelarValidacion.enabled,
+    },
+    {
+      boton: 'Revisar aeronaves',
+      adminValidationStatus: estadoExpediente.value.camposSupabase.admin_validation_status,
+      reviewStatus: estadoExpediente.value.camposSupabase.review_status,
+      approvalStatus: estadoExpediente.value.camposSupabase.approval_status,
+      operatorStatus: estadoExpediente.value.camposSupabase.operator_status,
+      accessEnabled: estadoExpediente.value.camposSupabase.access_enabled,
+      loadingTerminado: estadoExpediente.value.loading.terminado,
+      expedienteCargado: estadoExpediente.value.expedienteCargado,
+      requisitosAprobados: estadoExpediente.value.todosRequisitosObligatoriosAprobados,
+      validacionIniciada: estadoExpediente.value.validacionIniciada,
+      operadorValido: estadoExpediente.value.operadorValido,
+      accionEnCurso: estadoExpediente.value.loading.accionEnCurso,
+      enabled: estadoExpediente.value.botones.revisarAeronaves.enabled,
+    },
+    {
+      boton: 'Continuar después',
+      adminValidationStatus: estadoExpediente.value.camposSupabase.admin_validation_status,
+      reviewStatus: estadoExpediente.value.camposSupabase.review_status,
+      approvalStatus: estadoExpediente.value.camposSupabase.approval_status,
+      operatorStatus: estadoExpediente.value.camposSupabase.operator_status,
+      accessEnabled: estadoExpediente.value.camposSupabase.access_enabled,
+      loadingTerminado: estadoExpediente.value.loading.terminado,
+      expedienteCargado: estadoExpediente.value.expedienteCargado,
+      requisitosAprobados: estadoExpediente.value.todosRequisitosObligatoriosAprobados,
+      validacionIniciada: estadoExpediente.value.validacionIniciada,
+      operadorValido: estadoExpediente.value.operadorValido,
+      accionEnCurso: estadoExpediente.value.loading.accionEnCurso,
+      enabled: estadoExpediente.value.botones.continuarDespues.enabled,
+    },
+  ])
+})
+
 const providerProgressStyle = computed(() => ({
   '--provider-progress': `${selectedProviderReview.value?.progress.percent || 0}%`,
 }))
@@ -963,12 +1260,12 @@ async function downloadProviderDocument(provider, documentRecord) {
   }
 }
 
-async function updateProviderDocumentStatus(provider, documentRecord, status, notes = '') {
+async function updateProviderDocumentStatus(provider, documentRecord, status, notes = '', actionKey = status) {
   const providerId = provider?.id || provider?.provider_id
   const documentId = documentRecord?.id
 
   try {
-    activeDocumentActionKey.value = documentActionKey(providerId, documentId, status)
+    activeDocumentActionKey.value = documentActionKey(providerId, documentId, actionKey)
     const payload = {
       status,
       validation_status: status,
@@ -1001,12 +1298,19 @@ async function updateProviderDocumentStatus(provider, documentRecord, status, no
     await refreshSelectedProviderState(provider)
 
     ui.pushToast({
-      tone: status === 'approved' ? 'success' : 'warning',
-      title: status === 'approved' ? 'Documento aprobado' : 'Documento rechazado',
+      tone: status === 'approved' ? 'success' : status === 'pending' ? 'info' : 'warning',
+      title:
+        status === 'approved'
+          ? 'Documento aprobado'
+          : status === 'pending'
+            ? 'Aprobacion revocada'
+            : 'Documento rechazado',
       message:
         status === 'approved'
           ? `${updatedDocument.name} ya quedo validado para el operador.`
-          : `${updatedDocument.name} quedo marcado con observaciones administrativas.`,
+          : status === 'pending'
+            ? `${updatedDocument.name} regreso a revision administrativa.`
+            : `${updatedDocument.name} quedo marcado con observaciones administrativas.`,
     })
   } catch (error) {
     ui.pushToast({
@@ -1020,14 +1324,18 @@ async function updateProviderDocumentStatus(provider, documentRecord, status, no
 }
 
 async function approveProviderDocument(provider, documentRecord) {
-  await updateProviderDocumentStatus(provider, documentRecord, 'approved')
+  await updateProviderDocumentStatus(provider, documentRecord, 'approved', '', 'approve')
 }
 
 async function rejectProviderDocument(provider, documentRecord) {
   if (typeof window === 'undefined') return
   const note = window.prompt('Observacion para rechazar el documento', documentRecord?.notes || '')
   if (note == null) return
-  await updateProviderDocumentStatus(provider, documentRecord, 'rejected', note)
+  await updateProviderDocumentStatus(provider, documentRecord, 'rejected', note, 'reject')
+}
+
+async function cancelProviderDocument(provider, documentRecord) {
+  await updateProviderDocumentStatus(provider, documentRecord, 'pending', '', 'cancel')
 }
 
 async function updateProviderValidation(provider, action, notes = '') {
@@ -1123,11 +1431,14 @@ async function updateProviderValidation(provider, action, notes = '') {
 async function validateSelectedProvider() {
   if (!selectedProvider.value || !selectedProviderReview.value) return
 
-  if (!selectedProviderReview.value.canValidate) {
+  if (estadoExpediente.value.botones.validarOperador.enabled !== true) {
+    const missingItems = estadoExpediente.value.requisitos.filter(
+      (item) => item.isComplete !== true || item.normalizedResponseStatus !== 'approved',
+    )
     ui.pushToast({
       tone: 'warning',
       title: 'No se puede validar todavia',
-      message: selectedProviderReview.value.missingValidationItems.map((item) => item.message).join(' '),
+      message: missingItems.map((item) => item.message || `${item.label} pendiente.`).join(' '),
     })
     return
   }
@@ -1172,6 +1483,15 @@ async function updateRequirementDecision(requirement, action) {
   const providerId = provider?.id || provider?.provider_id
   const requirementKey = requirement?.key
   if (!providerId || !requirementKey) return
+
+  if (isRequirementManagedByDocuments(requirement)) {
+    ui.pushToast({
+      tone: 'info',
+      title: 'Este requisito se actualiza desde los documentos',
+      message: 'Documentación legal aprobada cambia automáticamente cuando apruebas o rechazas los documentos legales del expediente.',
+    })
+    return
+  }
 
   let note = ''
   if (action === 'reject') {
@@ -1401,9 +1721,12 @@ onBeforeUnmount(() => {
                 <article
                   v-for="step in selectedProviderReview.checklist"
                   :key="step.id"
-                  :class="['provider-check-item', step.complete ? 'is-complete' : step.pending ? 'is-pending' : 'is-idle']"
+                  :class="[
+                    'provider-check-item',
+                    step.complete ? 'is-complete' : step.rejected ? 'is-rejected' : step.pending ? 'is-pending' : 'is-idle'
+                  ]"
                 >
-                  <strong>{{ step.complete ? 'OK' : step.pending ? 'Pend' : 'Info' }}</strong>
+                  <strong>{{ step.complete ? 'OK' : step.rejected ? 'Obs' : step.pending ? 'Pend' : 'Info' }}</strong>
                   <span>{{ step.label }}</span>
                 </article>
               </div>
@@ -1464,7 +1787,7 @@ onBeforeUnmount(() => {
               @download="downloadProviderDocument(selectedProvider, $event)"
               @approve="approveProviderDocument(selectedProvider, $event)"
               @reject="rejectProviderDocument(selectedProvider, $event)"
-              @cancel="rejectProviderDocument(selectedProvider, $event)"
+              @cancel="cancelProviderDocument(selectedProvider, $event)"
             />
           </section>
 
@@ -1491,15 +1814,15 @@ onBeforeUnmount(() => {
     <span
       :class="[
         'admin-decision-status',
-        selectedProviderReview.canValidate ? 'is-ready' : 'is-blocked'
+        estadoExpediente.botones.validarOperador.enabled ? 'is-ready' : 'is-blocked'
       ]"
     >
-      {{ selectedProviderReview.canValidate ? 'Listo para validar' : 'Bloqueado por requisitos' }}
+      {{ estadoExpediente.botones.validarOperador.enabled ? 'Listo para validar' : 'Bloqueado por requisitos' }}
     </span>
   </div>
 
   <div
-    v-if="!selectedProviderReview.canValidate"
+    v-if="!estadoExpediente.todosRequisitosObligatoriosAprobados"
     class="admin-decision-blocked-note"
   >
     <strong>Validación bloqueada</strong>
@@ -1519,7 +1842,7 @@ onBeforeUnmount(() => {
 
     <div class="admin-validation-checklist__grid">
       <article
-        v-for="item in selectedProviderReview.validationRequirements"
+        v-for="item in estadoExpediente.requisitos"
         :key="item.key"
         :class="[
           'admin-validation-check',
@@ -1538,6 +1861,9 @@ onBeforeUnmount(() => {
           >
             {{ validationRequirementResponseLabel(item) }}
           </small>
+          <small v-if="item.managedByDocuments" class="admin-validation-check__hint">
+            Este requisito se sincroniza automaticamente con los documentos legales.
+          </small>
           <small class="admin-validation-check__hint">{{ validationRequirementHint(item) }}</small>
           <small v-if="item.respondedAt || item.actorName">
             {{ formatDateTime(item.respondedAt) }}<span v-if="item.actorName"> · {{ item.actorName }}</span>
@@ -1552,7 +1878,7 @@ onBeforeUnmount(() => {
               'admin-validation-check__button--approve',
               { 'is-active': isRequirementApproved(item) }
             ]"
-            :disabled="isRequirementBusy(selectedProvider.id || selectedProvider.provider_id, item.key) || !item.complete"
+            :disabled="item.approveDisabled"
             @click="updateRequirementDecision(item, 'approve')"
           >
             {{ isRequirementActionLoading(selectedProvider.id || selectedProvider.provider_id, item.key, 'approve') ? 'Validando...' : 'Validar' }}
@@ -1564,7 +1890,7 @@ onBeforeUnmount(() => {
               'admin-validation-check__button--reject',
               { 'is-active': isRequirementRejected(item) }
             ]"
-            :disabled="isRequirementBusy(selectedProvider.id || selectedProvider.provider_id, item.key)"
+            :disabled="item.rejectDisabled"
             @click="updateRequirementDecision(item, 'reject')"
           >
             {{ isRequirementActionLoading(selectedProvider.id || selectedProvider.provider_id, item.key, 'reject') ? 'Guardando...' : 'Cancelar' }}
@@ -1574,146 +1900,9 @@ onBeforeUnmount(() => {
     </div>
   </section>
 
-          <section class="provider-detail-panel">
-            <OperatorActivityTimeline
-              title="Actividad administrativa"
-              :entries="selectedProviderSharedActivity"
-            />
-            <p v-if="loadingSelectedProviderActivity" class="provider-activity-loading-note">
-              Cargando actividad reciente del expediente...
-            </p>
-          </section>
+        
 
-  <div class="admin-action-grid">
-    <button
-      type="button"
-      :class="[
-        'admin-action-card',
-        'admin-action-primary',
-        {
-          'is-selected': isAdminActionSelected('validate'),
-          'is-disabled': !selectedProviderReview.canValidate,
-          'is-loading': isValidationActionLoading(selectedProvider.id, 'validate')
-        }
-      ]"
-      :aria-disabled="!selectedProviderReview.canValidate || isAnyValidationActionLoading()"
-      @click="handleCorporateAdminAction('validate')"
-    >
-      <span class="admin-action-icon">✓</span>
-      <span class="admin-action-copy">
-        <strong>
-          {{ isValidationActionLoading(selectedProvider.id, 'validate') ? 'Validando operador...' : 'Validar operador' }}
-        </strong>
-        <small v-if="selectedProviderReview.canValidate">
-          Aprueba formalmente al operador y habilita su acceso a la plataforma.
-        </small>
-        <small v-else>
-          Bloqueado hasta completar los requisitos obligatorios.
-        </small>
-      </span>
-      <span v-if="isAdminActionSelected('validate')" class="admin-action-selected">
-        Seleccionado
-      </span>
-    </button>
-
-    <button
-      type="button"
-      :class="[
-        'admin-action-card',
-        'admin-action-warning',
-        {
-          'is-selected': isAdminActionSelected('request_changes'),
-          'is-loading': isValidationActionLoading(selectedProvider.id, 'request_changes')
-        }
-      ]"
-      :disabled="isAnyValidationActionLoading()"
-      @click="handleCorporateAdminAction('request_changes')"
-    >
-      <span class="admin-action-icon">!</span>
-      <span class="admin-action-copy">
-        <strong>
-          {{ isValidationActionLoading(selectedProvider.id, 'request_changes') ? 'Registrando cambios...' : 'Solicitar cambios' }}
-        </strong>
-        <small>
-          Envía observaciones formales al operador para corregir información pendiente.
-        </small>
-      </span>
-      <span v-if="isAdminActionSelected('request_changes')" class="admin-action-selected">
-        Seleccionado
-      </span>
-    </button>
-
-    <button
-      type="button"
-      :class="[
-        'admin-action-card',
-        'admin-action-danger',
-        {
-          'is-selected': isAdminActionSelected('reject'),
-          'is-loading': isValidationActionLoading(selectedProvider.id, 'reject')
-        }
-      ]"
-      :disabled="isAnyValidationActionLoading()"
-      @click="handleCorporateAdminAction('reject')"
-    >
-      <span class="admin-action-icon">×</span>
-      <span class="admin-action-copy">
-        <strong>
-          {{ isValidationActionLoading(selectedProvider.id, 'reject') ? 'Cancelando validación...' : 'Cancelar validación' }}
-        </strong>
-        <small>
-          Rechaza o cancela el proceso de validación administrativa del operador.
-        </small>
-      </span>
-      <span v-if="isAdminActionSelected('reject')" class="admin-action-selected">
-        Seleccionado
-      </span>
-    </button>
-
-    <button
-      type="button"
-      :class="[
-        'admin-action-card',
-        'admin-action-neutral',
-        { 'is-selected': isAdminActionSelected('aircraft') }
-      ]"
-      :disabled="isAnyValidationActionLoading()"
-      @click="handleCorporateAdminAction('aircraft')"
-    >
-      <span class="admin-action-icon">✈</span>
-      <span class="admin-action-copy">
-        <strong>Revisar aeronaves</strong>
-        <small>
-          Abre el módulo de revisión de aeronaves registradas por este operador.
-        </small>
-      </span>
-      <span v-if="isAdminActionSelected('aircraft')" class="admin-action-selected">
-        Seleccionado
-      </span>
-    </button>
-
-    <button
-      type="button"
-      :class="[
-        'admin-action-card',
-        'admin-action-secondary',
-        { 'is-selected': isAdminActionSelected('close') }
-      ]"
-      :disabled="isAnyValidationActionLoading()"
-      @click="handleCorporateAdminAction('close')"
-    >
-      <span class="admin-action-icon">↗</span>
-      <span class="admin-action-copy">
-        <strong>Continuar después</strong>
-        <small>
-          Cierra la revisión sin modificar el estado administrativo del operador.
-        </small>
-      </span>
-      <span v-if="isAdminActionSelected('close')" class="admin-action-selected">
-        Seleccionado
-      </span>
-    </button>
-  </div>
+  
 </section>
 
           <section class="provider-detail-panel">
@@ -1748,7 +1937,7 @@ onBeforeUnmount(() => {
         @download="downloadProviderDocument(selectedProvider, $event)"
         @approve="approveProviderDocument(selectedProvider, $event)"
         @reject="rejectProviderDocument(selectedProvider, $event)"
-        @cancel="rejectProviderDocument(selectedProvider, $event)"
+        @cancel="cancelProviderDocument(selectedProvider, $event)"
       />
     </section>
   </section>
@@ -2424,6 +2613,11 @@ onBeforeUnmount(() => {
 .provider-check-item.is-pending {
   border-color: rgba(198, 134, 32, 0.24);
   background: linear-gradient(180deg, rgba(253, 240, 213, 0.98), rgba(249, 233, 196, 0.92));
+}
+
+.provider-check-item.is-rejected {
+  border-color: rgba(207, 102, 91, 0.24);
+  background: linear-gradient(180deg, rgba(254, 235, 231, 0.96), rgba(251, 222, 216, 0.92));
 }
 
 .provider-check-item.is-idle {

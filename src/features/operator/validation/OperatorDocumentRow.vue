@@ -17,9 +17,16 @@ const props = defineProps({
 const emit = defineEmits(['view', 'download', 'approve', 'reject', 'cancel', 'replace'])
 
 const statusMeta = computed(() => buildValidationStatusMeta(props.document?.status))
+const documentStatusKey = computed(() => String(statusMeta.value.key || 'pending').trim().toLowerCase())
 const canAdmin = computed(() => props.role === 'admin')
 const canProvider = computed(() => props.role === 'provider')
 const hasDocumentFile = computed(() => Boolean(props.document?.fileUrl || props.document?.downloadUrl || props.document?.fileName))
+const canApprove = computed(() => canAdmin.value && ['pending', 'rejected', 'cancelled', 'canceled'].includes(documentStatusKey.value))
+const canReject = computed(() => canAdmin.value && documentStatusKey.value === 'pending')
+const canCancel = computed(() => canAdmin.value && documentStatusKey.value === 'approved')
+const approveLabel = computed(() =>
+  ['rejected', 'cancelled', 'canceled'].includes(documentStatusKey.value) ? 'Aprobar nuevamente' : 'Aprobar',
+)
 </script>
 
 <template>
@@ -48,16 +55,16 @@ const hasDocumentFile = computed(() => Boolean(props.document?.fileUrl || props.
         {{ hasDocumentFile ? 'Reemplazar' : 'Subir' }}
       </button>
       <button
-        v-if="canAdmin"
+        v-if="canApprove"
         type="button"
         class="ghost-button success"
         :disabled="approving"
         @click="emit('approve', document)"
       >
-        {{ approving ? 'Aprobando...' : 'Aprobar' }}
+        {{ approving ? 'Aprobando...' : approveLabel }}
       </button>
       <button
-        v-if="canAdmin"
+        v-if="canReject"
         type="button"
         class="ghost-button warning"
         :disabled="rejecting"
@@ -66,13 +73,13 @@ const hasDocumentFile = computed(() => Boolean(props.document?.fileUrl || props.
         {{ rejecting ? 'Guardando...' : 'Rechazar' }}
       </button>
       <button
-        v-if="canAdmin"
+        v-if="canCancel"
         type="button"
         class="ghost-button danger"
         :disabled="cancelling"
         @click="emit('cancel', document)"
       >
-        {{ cancelling ? 'Cancelando...' : 'Cancelar' }}
+        {{ cancelling ? 'Actualizando...' : 'Revocar aprobación' }}
       </button>
     </div>
   </article>

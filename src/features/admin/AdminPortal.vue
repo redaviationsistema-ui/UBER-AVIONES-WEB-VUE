@@ -869,11 +869,9 @@ const resolvedAdminSectionConfig = computed(() => {
 })
 
 function normalizeAdminAircraft(item = {}) {
-  const docs = Array.isArray(item.documents) ? item.documents : []
   return {
     ...item,
     provider: item.provider || null,
-    documents_valid: docs.length > 0,
     approved: item.status === 'active',
     trial_ends_at: item.trial_ends_at || null,
   }
@@ -2364,6 +2362,14 @@ async function refreshNetworkState(title, message) {
   ui.pushToast({ tone: 'success', title, message })
 }
 
+async function refreshAircraftAndProvidersState(title, message) {
+  await Promise.all([
+    requestPortalSectionLoad('aeronaves', { force: true }),
+    requestPortalSectionLoad('proveedores', { force: true }),
+  ])
+  ui.pushToast({ tone: 'success', title, message })
+}
+
 async function refreshSubscriptionsPanel() {
   const targetSection =
     props.section === 'pagos' || props.section === 'pagos-proveedor'
@@ -2488,6 +2494,47 @@ function resolveAdminFlowErrorMessage(error) {
   return isTimeoutLikeError(error)
     ? 'El backend tardo demasiado en responder. El cambio de flujo no fue confirmado.'
     : error?.message || 'El backend no confirmo el cambio de etapa.'
+}
+
+function findAircraftRecordById(aircraftId) {
+  return aircraft.value.find((item) => Number(item?.id || 0) === Number(aircraftId || 0)) || null
+}
+
+function resolveAircraftProviderId(aircraftRecord = {}) {
+  return Number(
+    aircraftRecord?.provider_id ||
+      aircraftRecord?.providerId ||
+      aircraftRecord?.provider?.id ||
+      aircraftRecord?.company_id ||
+      0,
+  )
+}
+
+function isProviderNotApprovedError(error) {
+  const backendCode = String(error?.payload?.code || error?.code || '')
+    .trim()
+    .toUpperCase()
+  if (backendCode === 'PROVIDER_NOT_APPROVED') return true
+
+  const message = String(error?.message || '')
+    .trim()
+    .toLowerCase()
+
+  return message.includes('proveedor') && message.includes('no esta aprobado')
+}
+
+async function activateAircraftInBackend(aircraftId) {
+  return requestWithCandidates([
+    { method: 'post', path: `/admin/aeronaves/${aircraftId}/activar`, body: {} },
+  ])
+}
+
+async function validateProviderInBackend(providerId) {
+  return requestWithCandidates([
+    { method: 'post', path: `/admin/providers/${providerId}/validate`, body: {} },
+    { method: 'post', path: `/admin/proveedores/${providerId}/validar`, body: {} },
+    { method: 'post', path: `/admin/proveedores/${providerId}/aprobar`, body: {} },
+  ])
 }
 
 function applyExternalWorkflowSync(payload = {}) {
@@ -2702,14 +2749,46 @@ async function handleMarkManualReservationPaid({ reservationId }) {
 
 async function handleApproveAircraft(aircraftId) {
   try {
-    await requestWithCandidates([
-      { method: 'post', path: `/admin/aeronaves/${aircraftId}/activar`, body: {} },
-    ])
+    await activateAircraftInBackend(aircraftId)
     await refreshNetworkState(
       'Aeronave activada',
       `La aeronave #${aircraftId} quedo activa en la base de datos.`,
     )
   } catch (error) {
+    if (isProviderNotApprovedError(error)) {
+      const aircraftRecord = findAircraftRecordById(aircraftId)
+      const providerId = resolveAircraftProviderId(aircraftRecord)
+
+      if (!providerId) {
+        ui.pushToast({
+          tone: 'error',
+          title: 'Proveedor no localizado',
+          message:
+            'La aeronave no tiene un proveedor asociado en la vista administrativa. Recarga el panel y vuelve a intentar.',
+        })
+        return
+      }
+
+      try {
+        await validateProviderInBackend(providerId)
+        await activateAircraftInBackend(aircraftId)
+        await refreshAircraftAndProvidersState(
+          'Proveedor validado y aeronave activada',
+          `El proveedor #${providerId} se valido desde admin y la aeronave #${aircraftId} quedo activa.`,
+        )
+        return
+      } catch (validationError) {
+        ui.pushToast({
+          tone: 'error',
+          title: 'No se pudo validar el proveedor',
+          message:
+            validationError?.message ||
+            'Admin no pudo validar al proveedor antes de activar la aeronave.',
+        })
+        return
+      }
+    }
+
     ui.pushToast({
       tone: 'error',
       title: 'No se pudo activar',

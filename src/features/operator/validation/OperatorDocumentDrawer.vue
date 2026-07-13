@@ -18,6 +18,13 @@ const props = defineProps({
 const emit = defineEmits(['close', 'approve', 'reject', 'cancel', 'download', 'replace'])
 
 const statusMeta = computed(() => buildValidationStatusMeta(props.document?.status))
+const documentStatusKey = computed(() => String(statusMeta.value.key || 'pending').trim().toLowerCase())
+const canApprove = computed(() => props.role === 'admin' && ['pending', 'rejected', 'cancelled', 'canceled'].includes(documentStatusKey.value))
+const canReject = computed(() => props.role === 'admin' && documentStatusKey.value === 'pending')
+const canCancel = computed(() => props.role === 'admin' && documentStatusKey.value === 'approved')
+const approveLabel = computed(() =>
+  ['rejected', 'cancelled', 'canceled'].includes(documentStatusKey.value) ? 'Aprobar nuevamente' : 'Aprobar',
+)
 const previewKind = computed(() => {
   const mime = String(props.document?.mimeType || '').toLowerCase()
   if (mime.includes('pdf')) return 'pdf'
@@ -114,14 +121,14 @@ const technicalItems = computed(() => {
         <button v-if="role === 'provider'" type="button" class="ghost-button" @click="emit('replace', document)">
           Reemplazar
         </button>
-        <button v-if="role === 'admin'" type="button" class="ghost-button success" @click="emit('approve', document)">
-          Aprobar
+        <button v-if="canApprove" type="button" class="ghost-button success" @click="emit('approve', document)">
+          {{ approveLabel }}
         </button>
-        <button v-if="role === 'admin'" type="button" class="ghost-button warning" @click="emit('reject', document)">
+        <button v-if="canReject" type="button" class="ghost-button warning" @click="emit('reject', document)">
           Rechazar
         </button>
-        <button v-if="role === 'admin'" type="button" class="ghost-button danger" @click="emit('cancel', document)">
-          Cancelar
+        <button v-if="canCancel" type="button" class="ghost-button danger" @click="emit('cancel', document)">
+          Revocar aprobación
         </button>
       </footer>
     </aside>
@@ -164,19 +171,19 @@ const technicalItems = computed(() => {
   letter-spacing: 0.08em;
   font-size: 0.78rem;
   font-weight: 700;
-  color: #5f87c7;
+  color: #000000;
 }
 
 .operator-document-drawer__head h3,
 .operator-document-drawer__head p,
 .operator-document-drawer__card h4 {
   margin: 0;
-  color: #15324d;
+  color: #000000;
 }
 
 .operator-document-drawer__head p {
   margin-top: 8px;
-  color: #6f8096;
+  color: #000000;
 }
 
 .operator-document-drawer__body {
@@ -237,7 +244,16 @@ const technicalItems = computed(() => {
 .version-item span,
 .activity-item span,
 .muted {
-  color: #6f8096;
+  color: #000000;
+}
+
+.info-list strong,
+.version-item strong,
+.activity-item strong,
+.activity-item p,
+.operator-document-drawer__preview-empty strong,
+.operator-document-drawer__preview-empty p {
+  color: #000000;
 }
 
 .ghost-button {

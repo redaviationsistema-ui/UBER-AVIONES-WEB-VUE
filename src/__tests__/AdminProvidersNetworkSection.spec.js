@@ -44,6 +44,17 @@ function buildProvider(id, companyName) {
   }
 }
 
+function buildApprovedDocument(documentSlot, id) {
+  return {
+    id,
+    document_slot: documentSlot,
+    status: 'approved',
+    reviewed_at: '2026-07-09T10:00:00Z',
+    reviewed_by: 'Administrador',
+    file_name: `${documentSlot}.pdf`,
+  }
+}
+
 function stubbedMount(props = {}) {
   return mount(AdminProvidersNetworkSection, {
     props: {
@@ -81,6 +92,19 @@ function stubbedMount(props = {}) {
       },
     },
   })
+}
+
+async function openProviderReviewByName(wrapper, companyName) {
+  const cards = wrapper.findAll('.provider-card')
+  const targetCard = cards.find((card) => card.text().includes(companyName))
+  if (!targetCard) throw new Error(`Provider card not found for ${companyName}`)
+  await targetCard.find('button.provider-link-secondary').trigger('click')
+  await Promise.resolve()
+  await Promise.resolve()
+}
+
+function findButtonByText(wrapper, text) {
+  return wrapper.findAll('button').find((button) => button.text().includes(text))
 }
 
 function abortablePendingPromise(signal) {
@@ -197,5 +221,164 @@ describe('AdminProvidersNetworkSection', () => {
     expect(modal.text()).toContain('SAE COMPLETO')
     expect(modal.text()).toContain('Documentacion legal 1')
     expect(modal.text()).toContain('aprobado')
+  })
+
+  it('enables admin actions from backend validation requirements even when auxiliary columns are null', async () => {
+    pushToast.mockReset()
+    requestWithCandidates.mockReset()
+
+    const wrapper = stubbedMount({
+      providers: [
+        {
+          id: 77,
+          company_name: 'Operador Validable',
+          legal_name: 'Operador Validable SA de CV',
+          representative_name: 'Valeria Ruiz',
+          company_email: 'operador@test.com',
+          company_phone: '5551112233',
+          rfc: 'OPV770101AAA',
+          base_airport: 'MMMX',
+          admin_validation_status: null,
+          review_status: null,
+          approval_status: null,
+          operator_status: null,
+          access_enabled: false,
+          validation_requirements: [
+            { key: 'company_identity', label: 'Datos de empresa completos', complete: true, response_status: 'approved' },
+            { key: 'rfc_valid', label: 'RFC valido', complete: true, response_status: 'approved' },
+            { key: 'sat_validation', label: 'Validacion SAT', complete: true, response_status: 'aprobado' },
+            { key: 'legal_documents_approved', label: 'Documentacion legal aprobada', complete: true, response_status: 'approved' },
+            { key: 'base_operativa', label: 'Base operativa definida', complete: true, response_status: 'aprobado' },
+            { key: 'aircraft_active', label: 'Aeronave activa o aprobada', complete: true, response_status: 'approved' },
+            { key: 'contact_complete', label: 'Datos de contacto completos', complete: true, response_status: 'approved' },
+            { key: 'legal_representative_complete', label: 'Representante legal completo', complete: true, response_status: 'approved' },
+          ],
+          documents: [
+            buildApprovedDocument('sat_certificate', 'sat-1'),
+            buildApprovedDocument('articles_of_incorporation', 'legal-1'),
+            buildApprovedDocument('legal_representative_power', 'legal-2'),
+            buildApprovedDocument('legal_representative_id', 'legal-3'),
+            buildApprovedDocument('tax_address_proof', 'legal-4'),
+            buildApprovedDocument('operational_permit', 'legal-5'),
+          ],
+        },
+        {
+          id: 78,
+          company_name: 'Operador En Revision',
+          legal_name: 'Operador En Revision SA de CV',
+          company_email: 'revision@test.com',
+          company_phone: '5552223344',
+          rfc: 'REV780101AAA',
+          base_airport: 'MMGL',
+          review_status: 'pending_review',
+          validation_requirements: [
+            { key: 'sat_validation', label: 'Validacion SAT', complete: true, response_status: 'approved' },
+          ],
+        },
+        {
+          id: 79,
+          company_name: 'Operador Aprobado',
+          legal_name: 'Operador Aprobado SA de CV',
+          company_email: 'aprobado@test.com',
+          company_phone: '5553334455',
+          rfc: 'APR790101AAA',
+          base_airport: 'MMTO',
+          approval_status: 'approved',
+          access_enabled: true,
+          validation_requirements: [
+            { key: 'sat_validation', label: 'Validacion SAT', complete: true, response_status: 'approved' },
+          ],
+        },
+      ],
+      aircraft: [{ id: 701, provider_id: 77, registration: 'XA-VAL', status: 'active', approved: true }],
+    })
+
+    await openProviderReviewByName(wrapper, 'Operador Validable')
+
+    let validateButton = findButtonByText(wrapper, 'Validar operador')
+    let requestChangesButton = findButtonByText(wrapper, 'Solicitar cambios')
+    expect(validateButton?.attributes('disabled')).toBeUndefined()
+    expect(requestChangesButton?.attributes('disabled')).toBeUndefined()
+
+    await openProviderReviewByName(wrapper, 'Operador En Revision')
+
+    const cancelButton = findButtonByText(wrapper, 'Cancelar validación')
+    expect(cancelButton?.attributes('disabled')).toBeUndefined()
+
+    await openProviderReviewByName(wrapper, 'Operador Aprobado')
+
+    const aircraftButton = findButtonByText(wrapper, 'Revisar aeronaves')
+    expect(aircraftButton?.attributes('disabled')).toBeUndefined()
+  })
+
+  it('shows approved requirements as complete even when backend sends complete null', async () => {
+    pushToast.mockReset()
+    requestWithCandidates.mockReset()
+
+    const wrapper = stubbedMount({
+      providers: [
+        {
+          id: 91,
+          company_name: 'Operador Consistente',
+          rfc: 'RFC910101AAA',
+          validation_requirements: [
+            {
+              key: 'rfc_valid',
+              label: 'RFC valido',
+              complete: null,
+              response_status: 'approved',
+              actor_name: 'Administrador',
+            },
+          ],
+        },
+      ],
+    })
+
+    await openProviderReviewByName(wrapper, 'Operador Consistente')
+
+    const validationCard = wrapper
+      .findAll('.admin-validation-check')
+      .find((card) => card.text().includes('RFC valido'))
+    expect(validationCard).toBeTruthy()
+
+    const validationCardWrapper = validationCard
+    expect(validationCard.text()).toContain('Dato completo')
+    expect(validationCard.text()).toContain('Aprobado por administracion')
+    expect(validationCardWrapper?.find('button').attributes('disabled')).toBeUndefined()
+  })
+
+  it('does not post manual requirement decisions for legal document aggregate requirement', async () => {
+    pushToast.mockReset()
+    requestWithCandidates.mockReset()
+
+    const wrapper = stubbedMount({
+      providers: [
+        {
+          id: 105,
+          company_name: 'Operador Legal',
+          documents: [
+            buildApprovedDocument('articles_of_incorporation', 'legal-1'),
+            buildApprovedDocument('legal_representative_power', 'legal-2'),
+            buildApprovedDocument('legal_representative_id', 'legal-3'),
+            buildApprovedDocument('tax_address_proof', 'legal-4'),
+            buildApprovedDocument('operational_permit', 'legal-5'),
+          ],
+        },
+      ],
+    })
+
+    await openProviderReviewByName(wrapper, 'Operador Legal')
+
+    const validationCard = wrapper
+      .findAll('.admin-validation-check')
+      .find((card) => card.text().includes('Documentacion legal aprobada'))
+    expect(validationCard).toBeTruthy()
+    requestWithCandidates.mockClear()
+
+    const buttons = validationCard?.findAll('button') || []
+    expect(buttons[0]?.attributes('disabled')).toBeDefined()
+    expect(buttons[1]?.attributes('disabled')).toBeDefined()
+    expect(validationCard?.text()).toContain('se sincroniza automaticamente con los documentos legales')
+    expect(requestWithCandidates).not.toHaveBeenCalled()
   })
 })

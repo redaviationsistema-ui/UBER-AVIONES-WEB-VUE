@@ -31,7 +31,7 @@ const previewDocument = ref(null)
 
 const approvalOptions = ['Todas', 'Aprobadas', 'Pendientes', 'Suspendidas']
 const matchingOptions = ['Todos', 'Visibles', 'Bloqueados']
-const documentOptions = ['Todos', 'Validos', 'Incompletos', 'Vencidos']
+const documentOptions = ['Todos', 'Validos', 'Pendientes', 'Incompletos', 'Rechazados', 'Vencidos']
 const trialOptions = ['Todos', 'Trial activo', 'Trial vencido', 'Sin trial']
 const sortOptions = [
   { label: 'Mas recientes', value: 'recent' },
@@ -211,27 +211,19 @@ function formatHours(value) {
 }
 
 function documentSummaryItems(item = {}) {
-  const documents = aircraftDocuments(item)
-  const requiredDocuments = [
-    { key: 'airworthiness', label: 'Certificado de aeronavegabilidad' },
-    { key: 'registration', label: 'Matricula' },
-    { key: 'insurance', label: 'Seguro' },
-    { key: 'maintenance', label: 'Mantenimiento' },
-  ]
-
-  const summary = requiredDocuments.map((requirement) => {
-    const match = documents.find((document) => normalizeStatus(document.type).includes(requirement.key))
-    return {
-      label: requirement.label,
-      complete: Boolean(match),
-      detail: match?.name || 'Pendiente',
-    }
-  })
+  const validation = resolveAircraftDocumentValidation(item)
+  const summary = validation.requirements.map((requirement) => ({
+    label: requirement.label,
+    complete: requirement.complete,
+    status: requirement.status,
+    detail: requirement.detail,
+  }))
 
   summary.push({
     label: 'Fotografias',
     complete: aircraftImages(item).length > 0,
-    detail: aircraftImages(item).length ? `${aircraftImages(item).length} archivo(s)` : 'Pendiente',
+    status: aircraftImages(item).length > 0 ? 'approved' : 'missing',
+    detail: aircraftImages(item).length ? `${aircraftImages(item).length} archivo(s)` : 'No cargado',
   })
 
   return summary
@@ -244,6 +236,17 @@ function normalizeDocumentCollection(value) {
   return []
 }
 
+function buildAircraftDocumentIdentity(record = {}, index = 0) {
+  if (record.storage_path != null && String(record.storage_path).trim() !== '') return `storage:${record.storage_path}`
+  if (record.file_path != null && String(record.file_path).trim() !== '') return `path:${record.file_path}`
+  if (record.path != null && String(record.path).trim() !== '') return `path:${record.path}`
+  if (record.file_url != null && String(record.file_url).trim() !== '') return `url:${record.file_url}`
+  if (record.document_url != null && String(record.document_url).trim() !== '') return `url:${record.document_url}`
+  if (record.id != null && String(record.id).trim() !== '') return `id:${record.id}`
+  if (record.uuid != null && String(record.uuid).trim() !== '') return `uuid:${record.uuid}`
+  return `index:${index}:${record.document_name || record.name || record.file_name || 'documento'}`
+}
+
 function aircraftDocuments(item = {}) {
   const documents = [
     ...normalizeDocumentCollection(item.documents),
@@ -254,7 +257,7 @@ function aircraftDocuments(item = {}) {
     ...normalizeDocumentCollection(item.attachments),
   ]
 
-  return documents
+  const normalizedDocuments = documents
     .map((document, index) => {
       const record = typeof document === 'string' ? { document_name: document } : document || {}
       const fileUrl = normalizeMediaUrl(
@@ -270,9 +273,18 @@ function aircraftDocuments(item = {}) {
       )
 
       return {
+        identityKey: buildAircraftDocumentIdentity(record, index),
         id: record.id || record.uuid || `document-${index}`,
         aircraftId: record.aircraft_id || record.aircraftId || item.id || '',
+        filename: record.file_name || record.filename || '',
         type: record.document_type || record.type || record.kind || 'documento',
+        kind: record.kind || '',
+        slot: record.slot || record.document_slot || '',
+        category: record.document_category || record.category || '',
+        document_type: record.document_type || '',
+        document_category: record.document_category || '',
+        requirement_key: record.requirement_key || record.requirementKey || '',
+        requirement_code: record.requirement_code || record.requirementCode || '',
         name:
           record.document_name ||
           record.name ||
@@ -281,19 +293,16 @@ function aircraftDocuments(item = {}) {
           record.title ||
           `Documento ${index + 1}`,
         status: record.status || record.state || record.validation_status || 'Pendiente',
+        approval_status: record.approval_status || record.review_status || record.validation_status || '',
         expiresAt: record.expires_at || record.expiration_date || record.expirationDate || null,
         notes: record.notes || record.observations || record.observaciones || '',
+        storagePath: record.storage_path || record.file_path || record.path || '',
         fileUrl,
       }
     })
     .filter((document) => document.name || document.fileUrl)
-}
 
-function documentTone(document = {}) {
-  const status = normalizeStatus(document.status)
-  if (status.includes('valid') || status.includes('approved') || status.includes('vigente')) return 'success'
-  if (status.includes('reject') || status.includes('venc') || status.includes('expired')) return 'danger'
-  return 'warning'
+  return [...new Map(normalizedDocuments.map((document) => [document.identityKey, document])).values()]
 }
 
 function documentTypeLabel(type = '') {
@@ -441,6 +450,317 @@ function normalizeStatus(value) {
   return String(value || '').toLowerCase()
 }
 
+function normalizeDocumentReviewStatus(value = '') {
+  const status = normalizeStatus(value).trim()
+
+  if (!status) return 'pending'
+  if (['approved', 'aprobado', 'aprobada', 'valid', 'validado', 'validada', 'vigente', 'activo', 'active'].includes(status)) {
+    return 'approved'
+  }
+  if (['rejected', 'rechazado', 'rechazada', 'cancelled', 'canceled', 'cancelado', 'cancelada'].includes(status)) {
+    return 'rejected'
+  }
+  if (['expired', 'vencido', 'vencida'].includes(status) || status.includes('expir') || status.includes('venc')) {
+    return 'expired'
+  }
+  if (
+    [
+      'pending',
+      'pendiente',
+      'pending review',
+      'pending_review',
+      'en revision',
+      'en revisión',
+      'under review',
+    ].includes(status)
+  ) {
+    return 'pending'
+  }
+
+  return 'pending'
+}
+
+function documentStatusMeta(document = {}) {
+  const normalizedStatus = normalizeDocumentReviewStatus(
+    document.status || document.approval_status || document.review_status || document.validation_status,
+  )
+
+  if (normalizedStatus === 'approved') {
+    return { key: 'approved', label: 'Aprobado', tone: 'success' }
+  }
+  if (normalizedStatus === 'rejected') {
+    return { key: 'rejected', label: 'Rechazado', tone: 'danger' }
+  }
+  if (normalizedStatus === 'expired') {
+    return { key: 'expired', label: 'Vencido', tone: 'danger' }
+  }
+
+  return { key: 'pending', label: 'Pendiente', tone: 'warning' }
+}
+
+const AIRCRAFT_DOCUMENT_REQUIREMENTS = [
+  {
+    key: 'airworthiness',
+    label: 'Certificado de aeronavegabilidad',
+    aliases: [
+      'airworthiness',
+      'aeronavegabilidad',
+      'airworthiness_certificate',
+      'certificate_airworthiness',
+      'certificado_aeronavegabilidad',
+      'certificado_de_aeronavegabilidad',
+    ],
+  },
+  {
+    key: 'registration',
+    label: 'Matricula',
+    aliases: [
+      'registration',
+      'registro',
+      'matricula',
+      'aircraft_registration',
+      'registro_aeronave',
+      'matricula_aeronave',
+    ],
+  },
+  {
+    key: 'insurance',
+    label: 'Seguro',
+    aliases: ['insurance', 'seguro', 'insurance_policy', 'policy', 'poliza', 'poliza_seguro'],
+  },
+  {
+    key: 'maintenance',
+    label: 'Mantenimiento',
+    aliases: [
+      'maintenance',
+      'mantenimiento',
+      'maintenance_sticker',
+      'sticker_mantenimiento',
+      'maintenance_sticker_document',
+      'flight_logbook',
+      'logbook',
+      'bitacora_vuelo',
+      'bitacora',
+    ],
+  },
+]
+
+const DOCUMENT_REQUIREMENT_ALIASES = {
+  airworthiness: 'airworthiness',
+  aeronavegabilidad: 'airworthiness',
+  airworthiness_certificate: 'airworthiness',
+  certificate_airworthiness: 'airworthiness',
+  certificado_aeronavegabilidad: 'airworthiness',
+  certificado_de_aeronavegabilidad: 'airworthiness',
+  registration: 'registration',
+  registro: 'registration',
+  matricula: 'registration',
+  aircraft_registration: 'registration',
+  registro_aeronave: 'registration',
+  matricula_aeronave: 'registration',
+  insurance: 'insurance',
+  seguro: 'insurance',
+  insurance_policy: 'insurance',
+  policy: 'insurance',
+  poliza: 'insurance',
+  poliza_seguro: 'insurance',
+  maintenance: 'maintenance',
+  mantenimiento: 'maintenance',
+  maintenance_sticker: 'maintenance',
+  sticker_mantenimiento: 'maintenance',
+  maintenance_sticker_document: 'maintenance',
+  flight_logbook: 'maintenance',
+  logbook: 'maintenance',
+  bitacora_vuelo: 'maintenance',
+  bitacora: 'maintenance',
+  photos: 'photos',
+  fotografias: 'photos',
+}
+
+function normalizeDocumentRequirementKey(value = '') {
+  const normalized = normalizeStatus(value)
+    .trim()
+    .replace(/[\s-]+/g, '_')
+  return DOCUMENT_REQUIREMENT_ALIASES[normalized] || normalized
+}
+
+function documentRequirementKeys(document = {}) {
+  return [
+    document.requirement_key,
+    document.requirement_code,
+    document.document_type,
+    document.document_category,
+    document.type,
+    document.category,
+    document.slot,
+    document.kind,
+  ]
+    .map((value) => normalizeDocumentRequirementKey(value))
+    .filter(Boolean)
+}
+
+function documentMatchesRequirement(document = {}, requirement = {}) {
+  const requirementKey = normalizeDocumentRequirementKey(requirement.key)
+  const keys = documentRequirementKeys(document)
+  if (keys.includes(requirementKey)) return true
+
+  // Fallback temporal para registros legacy sin tipo persistido.
+  return Array.isArray(requirement.aliases)
+    ? requirement.aliases.some((alias) => normalizeStatus(document.name).includes(normalizeStatus(alias)))
+    : false
+}
+
+function requirementDocuments(item = {}, requirement = {}) {
+  return aircraftDocuments(item).filter((document) => documentMatchesRequirement(document, requirement))
+}
+
+function isExpiredDocument(document = {}) {
+  const rawDate = String(document.expiresAt || '').trim()
+  if (!rawDate) return false
+
+  const normalizedDate = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? `${rawDate}T23:59:59` : rawDate
+  const date = new Date(normalizedDate)
+  if (Number.isNaN(date.getTime())) return false
+
+  return date.getTime() < Date.now()
+}
+
+function aircraftRequirementSummary(item = {}) {
+  return AIRCRAFT_DOCUMENT_REQUIREMENTS.map((requirement) => {
+    const documents = requirementDocuments(item, requirement)
+    let status = 'missing'
+
+    if (documents.length) {
+      const hasApprovedCurrent = documents.some((document) => {
+        const meta = documentStatusMeta(document)
+        return meta.key === 'approved' && !isExpiredDocument(document)
+      })
+      const hasExpired = documents.some((document) => {
+        const meta = documentStatusMeta(document)
+        return meta.key === 'expired' || (meta.key === 'approved' && isExpiredDocument(document))
+      })
+      const hasApprovedExpired = documents.some((document) => {
+        const meta = documentStatusMeta(document)
+        return meta.key === 'approved' && isExpiredDocument(document)
+      })
+      const hasRejected = documents.some((document) => documentStatusMeta(document).key === 'rejected')
+
+      if (hasApprovedCurrent) status = 'approved'
+      else if (hasExpired || hasApprovedExpired) status = 'expired'
+      else if (hasRejected) status = 'rejected'
+      else status = 'pending'
+    }
+
+    const statusLabel =
+      status === 'approved'
+        ? 'Aprobado'
+        : status === 'pending'
+          ? 'Pendiente'
+          : status === 'rejected'
+            ? 'Rechazado'
+            : status === 'expired'
+              ? 'Vencido'
+              : 'No cargado'
+    return {
+      key: requirement.key,
+      label: requirement.label,
+      complete: status === 'approved',
+      status,
+      statusLabel,
+      detail: statusLabel,
+      hasDanger: ['rejected', 'expired'].includes(status),
+      documents,
+    }
+  })
+}
+
+function getAircraftDocumentValidation(item = {}) {
+  const requirements = aircraftRequirementSummary(item)
+  const totals = requirements.reduce(
+    (accumulator, requirement) => {
+      accumulator.totalRequired += 1
+      if (requirement.status === 'approved') accumulator.approved += 1
+      else if (requirement.status === 'pending') accumulator.pending += 1
+      else if (requirement.status === 'rejected') accumulator.rejected += 1
+      else if (requirement.status === 'expired') accumulator.expired += 1
+      else accumulator.missing += 1
+      return accumulator
+    },
+    {
+      totalRequired: 0,
+      approved: 0,
+      pending: 0,
+      rejected: 0,
+      expired: 0,
+      missing: 0,
+    },
+  )
+  const hasDocuments = aircraftDocuments(item).length > 0
+  const allApproved =
+    totals.totalRequired > 0 &&
+    totals.approved === totals.totalRequired &&
+    totals.pending === 0 &&
+    totals.rejected === 0 &&
+    totals.expired === 0 &&
+    totals.missing === 0
+
+  let status = 'incomplete'
+  let label = 'Documentacion incompleta'
+
+  if (allApproved) {
+    status = 'approved'
+    label = 'Docs validos'
+  } else if (totals.expired > 0) {
+    status = 'expired'
+    label = 'Documentacion vencida'
+  } else if (totals.rejected > 0) {
+    status = 'rejected'
+    label = 'Documentacion rechazada'
+  } else if (totals.pending > 0) {
+    status = 'pending'
+    label = 'Documentacion pendiente'
+  }
+
+  return {
+    requirements,
+    totalRequired: totals.totalRequired,
+    approved: totals.approved,
+    pending: totals.pending,
+    rejected: totals.rejected,
+    expired: totals.expired,
+    missing: totals.missing,
+    allApproved,
+    hasDocuments,
+    status,
+    label,
+  }
+}
+
+function aircraftDocumentValidationKey(item = {}) {
+  return String(item.id || item.uuid || item.registration || '').trim()
+}
+
+const aircraftDocumentValidationMap = computed(() => {
+  const validationMap = new Map()
+
+  props.aircraft.forEach((item) => {
+    const key = aircraftDocumentValidationKey(item)
+    if (!key) return
+    validationMap.set(key, getAircraftDocumentValidation(item))
+  })
+
+  return validationMap
+})
+
+function resolveAircraftDocumentValidation(item = {}) {
+  const key = aircraftDocumentValidationKey(item)
+  if (key && aircraftDocumentValidationMap.value.has(key)) {
+    return aircraftDocumentValidationMap.value.get(key)
+  }
+
+  return getAircraftDocumentValidation(item)
+}
+
 function hasTextValue(value) {
   return Boolean(String(value || '').trim())
 }
@@ -470,27 +790,61 @@ function hasRangeValue(item) {
   return numericValue(item.range_km || item.rangeKm || item.range || item.max_range_km) > 0
 }
 
+function normalizedAircraftReviewStatus(item = {}) {
+  return normalizeStatus(item.review_status || item.validation_status || item.approval_status || '')
+}
+
+function hasApprovedMarker(item = {}) {
+  return Boolean(item.approved_at || item.approvedAt || item.approved === true)
+}
+
 function isApproved(item) {
-  const status = normalizeStatus(item.status || item.approval_status || item.validation_status)
-  return Boolean(item.approved || ['active', 'approved', 'aprobada', 'aprobado', 'trial_active'].includes(status))
+  const status = normalizeStatus(item.status || '')
+  const reviewStatus = normalizedAircraftReviewStatus(item)
+  return (
+    hasApprovedMarker(item) ||
+    reviewStatus === 'approved' ||
+    ['active', 'approved', 'aprobada', 'aprobado', 'trial_active'].includes(status)
+  )
 }
 
 function isSuspended(item) {
-  const status = normalizeStatus(item.status || item.approval_status || item.validation_status)
-  return status.includes('suspend') || status.includes('block') || status.includes('reject') || status === 'inactive'
+  const status = normalizeStatus(item.status || '')
+  const reviewStatus = normalizedAircraftReviewStatus(item)
+  return (
+    status.includes('suspend') ||
+    status.includes('block') ||
+    status.includes('archiv') ||
+    reviewStatus.includes('reject') ||
+    reviewStatus.includes('rechaz')
+  )
+}
+
+function billingStatusKey(item = {}) {
+  return normalizeStatus(item.billing_status || item.billingStatus || item.subscription_status || item.subscriptionStatus || '')
+}
+
+function hasActiveBilling(item = {}) {
+  const status = billingStatusKey(item)
+  return ['active', 'trialing', 'paid', 'vigente'].includes(status)
+}
+
+function hasPendingPayment(item = {}) {
+  const status = billingStatusKey(item)
+  return ['pending_payment', 'pending', 'inactive'].includes(status) && isApproved(item) && !hasActiveBilling(item)
 }
 
 function hasValidDocuments(item) {
-  if (item.documents_valid != null) return Boolean(item.documents_valid)
-  const status = normalizeStatus(item.documents_status || item.document_status)
-  if (status.includes('valid') || status.includes('vigent') || status.includes('approved')) return true
-  return aircraftDocuments(item).length >= 4
+  return resolveAircraftDocumentValidation(item).allApproved
 }
 
 function documentsState(item) {
-  const status = normalizeStatus(item.documents_status || item.document_status)
-  if (status.includes('venc') || status.includes('expir')) return 'Vencidos'
-  return hasValidDocuments(item) ? 'Validos' : 'Incompletos'
+  const validation = resolveAircraftDocumentValidation(item)
+  if (validation.status === 'approved') return 'Validos'
+  if (validation.status === 'expired') return 'Vencidos'
+  if (validation.status === 'rejected') return 'Rechazados'
+  if (validation.status === 'pending') return 'Pendientes'
+  return 'Incompletos'
 }
 
 function trialState(item) {
@@ -531,20 +885,27 @@ function matchingVisibilityFlag(item) {
 }
 
 function matchingVisible(item) {
+  const validation = resolveAircraftDocumentValidation(item)
+  const commerciallyEligible =
+    isApproved(item) &&
+    validation.allApproved &&
+    hasActiveBilling(item) &&
+    ['trial_active', 'active', 'approved'].includes(normalizeStatus(item.status))
   const explicitVisibility = matchingVisibilityFlag(item)
-  if (explicitVisibility !== null) return explicitVisibility
-  return isApproved(item) && hasValidDocuments(item) && ['trial_active', 'active', 'approved'].includes(normalizeStatus(item.status))
+  if (explicitVisibility !== null) return explicitVisibility && commerciallyEligible
+  return commerciallyEligible
 }
 
 function aircraftMissingFields(item) {
   const missing = []
+  const documentValidation = resolveAircraftDocumentValidation(item)
 
   if (!hasRegistration(item)) missing.push('matricula')
   if (!hasRegisteredBase(item)) missing.push('base')
   if (!hasCapacityValue(item)) missing.push('capacidad')
   if (!hasHourlyRateValue(item)) missing.push('tarifa')
   if (!hasRangeValue(item)) missing.push('rango')
-  if (!hasValidDocuments(item)) missing.push('documentacion')
+  if (!documentValidation.allApproved) missing.push('documentacion')
   if (!aircraftImages(item).length) missing.push('fotografias')
 
   return missing
@@ -554,15 +915,20 @@ function aircraftReadiness(item) {
   const missing = aircraftMissingFields(item)
   const approved = isApproved(item)
   const suspended = isSuspended(item)
-  const documented = hasValidDocuments(item)
+  const documentValidation = resolveAircraftDocumentValidation(item)
+  const documented = documentValidation.allApproved
   const baseRegistered = hasRegisteredBase(item)
   const visibleForMatching = matchingVisible(item)
+  const billingPending = hasPendingPayment(item)
+  const billingActive = hasActiveBilling(item)
   const quoteReady = approved && !suspended && documented && baseRegistered && hasCapacityValue(item) && hasHourlyRateValue(item)
   const reservationReady = quoteReady && visibleForMatching && hasRegistration(item)
 
   return {
     approved,
     suspended,
+    billingPending,
+    billingActive,
     documented,
     visibleForMatching,
     baseRegistered,
@@ -576,6 +942,7 @@ function readinessTone(item) {
   const readiness = aircraftReadiness(item)
   if (readiness.suspended) return 'danger'
   if (readiness.reservationReady) return 'success'
+  if (readiness.billingPending) return 'warning'
   if (readiness.quoteReady) return 'info'
   return readiness.missing.length ? 'warning' : 'neutral'
 }
@@ -584,6 +951,7 @@ function readinessHeadline(item) {
   const readiness = aircraftReadiness(item)
   if (readiness.suspended) return 'Suspendida'
   if (readiness.reservationReady) return 'Lista para reservar'
+  if (readiness.billingPending) return 'Pendiente de pago'
   if (readiness.quoteReady) return 'Lista para cotizar'
   if (readiness.approved) return 'En integracion comercial'
   return 'Pendiente de validacion'
@@ -591,9 +959,12 @@ function readinessHeadline(item) {
 
 function readinessDescription(item) {
   const readiness = aircraftReadiness(item)
+  const documentValidation = resolveAircraftDocumentValidation(item)
   if (readiness.suspended) return 'La aeronave esta bloqueada y no debe mostrarse en matching.'
   if (readiness.reservationReady) return 'Cumple aprobacion, base, documentos y datos comerciales para reservas.'
+  if (readiness.billingPending) return 'La aeronave ya fue aprobada por administracion, pero no se activa hasta reflejar el pago mensual.'
   if (readiness.quoteReady) return 'Puede entrar a cotizaciones, pero aun requiere visibilidad final o ajuste operativo.'
+  if (!documentValidation.allApproved) return `${documentValidation.label}.`
   if (readiness.missing.length) return `Faltan ${readiness.missing.slice(0, 3).join(', ')}${readiness.missing.length > 3 ? '...' : ''}.`
   return 'Requiere revision administrativa antes de habilitarla comercialmente.'
 }
@@ -603,6 +974,7 @@ function readinessChecklist(item) {
   return [
     { label: 'Aprobada', complete: readiness.approved && !readiness.suspended },
     { label: 'Documentada', complete: readiness.documented },
+    { label: 'Pago activo', complete: readiness.billingActive },
     { label: 'Matching', complete: readiness.visibleForMatching },
     { label: 'Base registrada', complete: readiness.baseRegistered },
   ]
@@ -633,11 +1005,19 @@ function statusChip(item) {
   return { label: 'Pendiente', tone: 'warning', icon: '!' }
 }
 
+function billingChip(item) {
+  if (hasActiveBilling(item)) return { label: 'Pago activo', tone: 'success', icon: '✓' }
+  if (hasPendingPayment(item)) return { label: 'Pendiente de pago', tone: 'warning', icon: '!' }
+  return { label: 'Sin cobro activo', tone: 'neutral', icon: '•' }
+}
+
 function docsChip(item) {
-  const state = documentsState(item)
-  if (state === 'Validos') return { label: 'Docs validos', tone: 'success', icon: '✓' }
-  if (state === 'Vencidos') return { label: 'Docs vencidos', tone: 'danger', icon: '!' }
-  return { label: 'Docs incompletos', tone: 'warning', icon: '!' }
+  const validation = resolveAircraftDocumentValidation(item)
+  if (validation.status === 'approved') return { label: 'Docs validos', tone: 'success', icon: '✓' }
+  if (validation.status === 'expired') return { label: 'Docs vencidos', tone: 'danger', icon: '!' }
+  if (validation.status === 'rejected') return { label: 'Docs rechazados', tone: 'danger', icon: '!' }
+  if (validation.status === 'pending') return { label: 'Docs pendientes', tone: 'warning', icon: '!' }
+  return { label: 'Documentacion incompleta', tone: 'warning', icon: '!' }
 }
 
 function matchingChip(item) {
@@ -938,7 +1318,7 @@ watch(
       <header class="command-hero">
         <div>
           <span class="eyebrow">Dashboard aeronaves</span>
-          <h2>Control center de flota</h2>
+          <h2>Control de la flota</h2>
           <p>Revision ejecutiva de aprobacion, documentos, trial y visibilidad en marketplace.</p>
         </div>
         <button type="button" class="export-button" @click="exportAircraftCsv">Exportar</button>
@@ -1113,6 +1493,9 @@ watch(
                 <span :class="['chip', `chip-${docsChip(item).tone}`]">
                   {{ docsChip(item).icon }} {{ docsChip(item).label }}
                 </span>
+                <span :class="['chip', `chip-${billingChip(item).tone}`]">
+                  {{ billingChip(item).icon }} {{ billingChip(item).label }}
+                </span>
                 <span :class="['chip', `chip-${matchingChip(item).tone}`]">
                   {{ matchingChip(item).icon }} {{ matchingChip(item).label }}
                 </span>
@@ -1210,6 +1593,7 @@ watch(
                 <div class="drawer-chips">
                   <span :class="['chip', `chip-${statusChip(selectedAircraft).tone}`]">{{ statusChip(selectedAircraft).label }}</span>
                   <span :class="['chip', `chip-${docsChip(selectedAircraft).tone}`]">{{ docsChip(selectedAircraft).label }}</span>
+                  <span :class="['chip', `chip-${billingChip(selectedAircraft).tone}`]">{{ billingChip(selectedAircraft).label }}</span>
                   <span :class="['chip', `chip-${matchingChip(selectedAircraft).tone}`]">{{ matchingChip(selectedAircraft).label }}</span>
                   <span :class="['chip', `chip-${trialChip(selectedAircraft).tone}`]">{{ trialChip(selectedAircraft).label }}</span>
                   <span :class="['chip', `chip-${readinessTone(selectedAircraft)}`]">{{ readinessHeadline(selectedAircraft) }}</span>
@@ -1322,7 +1706,7 @@ watch(
                 <div
                   v-for="item in selectedAircraftDocumentSummary"
                   :key="item.label"
-                  :class="['document-summary-card', { complete: item.complete }]"
+                  :class="['document-summary-card', `document-summary-card-${item.status || 'missing'}`, { complete: item.complete }]"
                 >
                   <strong>{{ item.complete ? '✓' : '!' }} {{ item.label }}</strong>
                   <small>{{ item.detail }}</small>
@@ -1339,7 +1723,7 @@ watch(
                   class="document-item"
                 >
                   <div>
-                    <span :class="['chip', `chip-${documentTone(document)}`]">{{ document.status }}</span>
+                    <span :class="['chip', `chip-${documentStatusMeta(document).tone}`]">{{ documentStatusMeta(document).label }}</span>
                     <strong>{{ document.name }}</strong>
                     <small>{{ documentTypeLabel(document.type) }} · Vence: {{ formatDate(document.expiresAt) }}</small>
                     <p v-if="document.notes">{{ document.notes }}</p>

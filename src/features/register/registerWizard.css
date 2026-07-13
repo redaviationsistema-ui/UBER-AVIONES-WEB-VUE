@@ -1169,11 +1169,6 @@
     grid-template-columns: 1fr;
   }
 }
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  align-items: center;
-}
 
 .register-page .register-links a {
   color: #8c6a1f;

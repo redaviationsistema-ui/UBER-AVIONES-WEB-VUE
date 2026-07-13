@@ -9,6 +9,7 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
     formatCurrency,
     formatDateTimeRange,
     providerAircraftPlanAmount,
+    isProviderApproved,
   } = ctx
 
   function getDateDiffInDays(value) {
@@ -25,6 +26,41 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
     }
 
     return Math.ceil((endDate.getTime() - startOfToday.getTime()) / 86400000)
+  }
+
+  function collectAircraftBillingSignals(item = {}, relatedPayment = null) {
+    const signals = [
+      item.subscriptionStatus,
+      item.subscription_status,
+      item.billingStatus,
+      item.billing_status,
+      relatedPayment?.statusNormalized,
+      relatedPayment?.status,
+    ]
+      .map((value) => String(value || '').trim().toLowerCase())
+      .filter(Boolean)
+
+    const hasExplicitBillingState = signals.length > 0
+    const hasStripeTrace =
+      Boolean(
+        item.providerSubscriptionId ||
+          item.provider_subscription_id ||
+          item.providerCheckoutId ||
+          item.provider_checkout_id ||
+          relatedPayment?.providerSubscriptionId ||
+          relatedPayment?.providerCheckoutId,
+      ) ||
+      Boolean(item.subscriptionEndsAt || item.subscription_ends_at || item.lastPaymentAt || item.last_payment_at)
+
+    return {
+      signals,
+      hasExplicitBillingState,
+      hasStripeTrace,
+    }
+  }
+
+  function hasAnySignal(signals = [], candidates = []) {
+    return candidates.some((candidate) => signals.includes(candidate))
   }
 
   function hasExpiredAircraftSubscription(item = {}) {
@@ -225,15 +261,40 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
   }
 
   function getAircraftBillingStatusMeta(item = {}) {
-    const normalizedStatus = String(
-      item.subscriptionStatus || item.billingStatus || item.status || '',
-    )
-      .trim()
-      .toLowerCase()
+    const { signals, hasExplicitBillingState, hasStripeTrace } = collectAircraftBillingSignals(item)
+    const normalizedStatus = signals[0] || ''
+    const providerApproved = typeof isProviderApproved?.value === 'boolean' ? isProviderApproved.value : true
+    const activeSignals = ['active', 'paid', 'current', 'trialing', 'complete', 'completed', 'success', 'succeeded']
+    const pendingSignals = [
+      'pending',
+      'pending_payment',
+      'payment_pending',
+      'processing',
+      'open',
+      'incomplete',
+      'requires_action',
+      'requires_payment_method',
+    ]
+    const inactiveSignals = ['inactive', 'unpaid']
+    const expiredSignals = ['past_due', 'expired', 'failed', 'payment_failed', 'incomplete_expired']
+    const cancelledSignals = ['cancelled', 'canceled']
+
+    if (!providerApproved) {
+      return {
+        label: 'Bloqueado por aprobacion',
+        tone: 'warning',
+        detail: 'Disponible despues de la aprobacion administrativa.',
+        cta: 'Esperando aprobacion administrativa',
+        action: 'blocked',
+        ready: false,
+        code: 'provider_pending',
+        reasonMessage: 'Disponible despues de la aprobacion administrativa',
+      }
+    }
 
     if (
       hasExpiredAircraftSubscription(item) &&
-      !['cancelled', 'canceled'].includes(normalizedStatus)
+      !hasAnySignal(signals, cancelledSignals)
     ) {
       return {
         label: 'Pago vencido',
@@ -243,10 +304,12 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
           ? `Renovar por ${formatCurrency(providerAircraftPlanAmount.value)}`
           : 'Renovar mensualidad',
         action: 'activate',
+        ready: false,
+        code: 'billing_expired',
       }
     }
 
-    if (['active', 'paid', 'current'].includes(normalizedStatus)) {
+    if (hasAnySignal(signals, activeSignals)) {
       return {
         label: 'Activa',
         tone: 'success',
@@ -255,10 +318,12 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
           : 'La aeronave ya esta visible en el sistema.',
         cta: 'Ver pagos',
         action: 'payments',
+        ready: true,
+        code: 'billing_active',
       }
     }
 
-    if (['past_due', 'expired'].includes(normalizedStatus)) {
+    if (hasAnySignal(signals, expiredSignals)) {
       return {
         label: 'Pago vencido',
         tone: 'danger',
@@ -267,10 +332,12 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
           ? `Renovar por ${formatCurrency(providerAircraftPlanAmount.value)}`
           : 'Renovar mensualidad',
         action: 'activate',
+        ready: false,
+        code: 'billing_expired',
       }
     }
 
-    if (['cancelled', 'canceled'].includes(normalizedStatus)) {
+    if (hasAnySignal(signals, cancelledSignals)) {
       return {
         label: 'Cancelada',
         tone: 'danger',
@@ -279,18 +346,53 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
           ? `Reactivar por ${formatCurrency(providerAircraftPlanAmount.value)}`
           : 'Reactivar aeronave',
         action: 'activate',
+        ready: false,
+        code: 'billing_cancelled',
       }
     }
 
-    if (['inactive'].includes(normalizedStatus)) {
+    if (hasAnySignal(signals, pendingSignals)) {
       return {
-        label: 'Inactiva',
+        label: 'Pago en verificacion',
+        tone: 'info',
+        detail: hasStripeTrace
+          ? 'Stripe ya devolvio actividad para esta aeronave. Estamos esperando que el backend confirme la activacion final.'
+          : 'La mensualidad se esta sincronizando. Actualiza el estado en unos segundos.',
+        cta: 'Actualizar estado',
+        action: 'sync',
+        ready: false,
+        code: 'billing_syncing',
+        reasonMessage: 'Pago en validacion con Stripe y backend.',
+      }
+    }
+
+    if (hasAnySignal(signals, inactiveSignals)) {
+      return {
+        label: 'Pendiente de pago',
         tone: 'warning',
-        detail: 'La aeronave sigue registrada, pero todavia no esta visible para clientes.',
+        detail: 'La aeronave ya fue aprobada administrativamente, pero no se activara hasta reflejar el pago mensual.',
         cta: providerAircraftPlanAmount.value
-          ? `Activar por ${formatCurrency(providerAircraftPlanAmount.value)}`
-          : 'Activar aeronave',
+          ? `Pagar y activar por ${formatCurrency(providerAircraftPlanAmount.value)}`
+          : 'Pagar y activar aeronave',
         action: 'activate',
+        ready: false,
+        code: 'billing_inactive',
+        reasonMessage: 'Aprobada, pendiente de pago para activarse.',
+      }
+    }
+
+    if (!hasExplicitBillingState && !hasStripeTrace) {
+      return {
+        label: 'Pendiente de pago',
+        tone: 'warning',
+        detail: 'Aeronave aprobada operativamente, pero sin una suscripcion mensual confirmada todavia.',
+        cta: providerAircraftPlanAmount.value
+          ? `Pagar y activar por ${formatCurrency(providerAircraftPlanAmount.value)}`
+          : 'Pagar y activar aeronave',
+        action: 'activate',
+        ready: false,
+        code: 'billing_missing_state',
+        reasonMessage: 'Falta una confirmacion de cobro para activar la aeronave.',
       }
     }
 
@@ -302,11 +404,13 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
         ? `Pagar y activar por ${formatCurrency(providerAircraftPlanAmount.value)}`
         : 'Pagar y activar aeronave',
       action: 'activate',
+      ready: false,
+      code: 'billing_pending',
     }
   }
 
   function isAircraftBillingActive(item = {}) {
-    return getAircraftBillingStatusMeta(item).action !== 'activate'
+    return getAircraftBillingStatusMeta(item).ready === true
   }
 
   function normalizePayment(raw = {}, index = 0, parseRequestAmount) {

@@ -7,6 +7,9 @@ function compactStatus(value = '') {
   return String(value || '')
     .trim()
     .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[\s-]+/g, '_')
 }
 
 function filterCandidates(candidates = []) {
@@ -32,10 +35,11 @@ function getActivityCollectionFromPayload(payload = {}) {
 
 function humanizeValidationStatus(status = '') {
   const normalized = compactStatus(status)
-  if (normalized === 'approved') return 'Aprobado'
-  if (normalized === 'rejected') return 'Rechazado'
-  if (normalized === 'cancelled' || normalized === 'canceled') return 'Cancelado'
+  if (['approved', 'aprobado', 'aprobada', 'validated', 'validado', 'validada'].includes(normalized)) return 'Aprobado'
+  if (['rejected', 'rechazado', 'rechazada'].includes(normalized)) return 'Rechazado'
+  if (['cancelled', 'canceled', 'cancelado', 'cancelada'].includes(normalized)) return 'Cancelado'
   if (normalized === 'expired') return 'Vencido'
+  if (normalized === 'pending' || normalized === 'pendiente') return 'Pendiente'
   if (normalized === 'under_review' || normalized === 'pending_review') return 'En revision'
   if (normalized === 'blocked') return 'Bloqueado'
   if (normalized === 'incomplete') return 'Incompleto'
@@ -52,8 +56,18 @@ export function getValidationTone(status = '') {
 }
 
 export function buildValidationStatusMeta(status = '') {
+  const normalized = compactStatus(status)
+  const resolvedKey =
+    normalized === 'pendiente'
+      ? 'pending'
+      : normalized === 'aprobado' || normalized === 'aprobada' || normalized === 'validado' || normalized === 'validada'
+        ? 'approved'
+        : normalized === 'rechazado' || normalized === 'rechazada'
+          ? 'rejected'
+          : normalized
+
   return {
-    key: compactStatus(status) || 'pending',
+    key: resolvedKey || 'pending',
     label: humanizeValidationStatus(status),
     tone: getValidationTone(status),
   }

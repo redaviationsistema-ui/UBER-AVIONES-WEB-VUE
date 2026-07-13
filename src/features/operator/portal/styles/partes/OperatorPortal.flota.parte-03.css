@@ -459,6 +459,22 @@
   padding: 10px 14px;
 }
 
+.fleet-operations-luxury .wizard-review-status {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 18px 20px;
+  border-radius: 22px;
+  border: 1px solid rgba(21, 50, 77, 0.08);
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.fleet-operations-luxury .wizard-review-status p {
+  margin: 0;
+  color: #15324d;
+  line-height: 1.5;
+}
+
 .fleet-operations-luxury .wizard-footer {
   position: sticky;
   bottom: 0;
@@ -967,4 +983,3 @@
     0 0 22px rgba(201, 160, 99, 0.12);
   transform: translateY(-4px) scale(1.02);
 }
-

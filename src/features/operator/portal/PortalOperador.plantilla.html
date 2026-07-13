@@ -683,7 +683,7 @@
                 <h3>Flota registrada</h3>
                 <p class="muted">Registra aeronaves y completa su expediente sin salir de la revision de empresa.</p>
               </div>
-              <button type="button" class="primary-action" @click="openAircraftWizard()">
+              <button type="button" class="primary-action" @click="openAircraftRegistrationFlow()">
                 Agregar aeronave
               </button>
             </div>
@@ -716,7 +716,7 @@
             <div v-else class="company-empty-inline">
               <strong>No hay aeronaves registradas.</strong>
               <p class="muted">Agrega al menos una aeronave con matricula, fabricante, modelo, categoria, capacidad, base y expediente tecnico.</p>
-              <button type="button" class="ghost-button" @click="openAircraftWizard()">Agregar aeronave</button>
+              <button type="button" class="ghost-button" @click="openAircraftRegistrationFlow()">Agregar aeronave</button>
             </div>
           </section>
         </div>
@@ -963,8 +963,8 @@
                   <span class="status-pill" :data-tone="getAircraftLiveStatus(item).tone">
                     {{ getAircraftLiveStatus(item).label }}
                   </span>
-                  <span class="status-pill status-pill--ghost">
-                    {{ humanizeAircraftStatus(item.status) }}
+                  <span class="status-pill status-pill--ghost" :data-tone="getAircraftApprovalMeta(item).tone">
+                    {{ getAircraftApprovalMeta(item).label }}
                   </span>
                 </div>
               </div>
@@ -987,7 +987,7 @@
                   </div>
                   <div>
                     <span>Tarifa</span>
-                    <strong>{{ formatCurrency(item.hourlyPrice) }}</strong>
+                    <strong>{{ getAircraftHourlyPriceLabel(item) }}</strong>
                   </div>
                   <div>
                     <span>Membresia</span>
@@ -1023,20 +1023,26 @@
                     <span>Pago y membresia</span>
                     <strong>{{ getAircraftBillingStatusMeta(item).label }}</strong>
                     <small>{{
-                      item.subscriptionEndsAt
-                        ? `Proximo pago: ${formatDateTimeRange(item.subscriptionEndsAt).slice(0, 10)}`
-                        : item.lastPaymentAt
-                          ? `Ultimo pago: ${formatDateTimeRange(item.lastPaymentAt).slice(0, 10)}`
-                          : 'Sin pagos confirmados.'
+                      Number(billingStatusRefreshAircraftId) === Number(item.id)
+                        ? 'Validando la respuesta de Stripe y sincronizando la activacion...'
+                        : getAircraftBillingStatusMeta(item).action === 'blocked'
+                          ? getAircraftBillingStatusMeta(item).detail
+                          : item.subscriptionEndsAt
+                            ? `Proximo pago: ${formatDateTimeRange(item.subscriptionEndsAt).slice(0, 10)}`
+                            : item.lastPaymentAt
+                              ? `Ultimo pago: ${formatDateTimeRange(item.lastPaymentAt).slice(0, 10)}`
+                              : 'Sin pagos confirmados.'
                     }}</small>
                   </div>
 
                   <div class="fleet-compact-info-card">
                     <span>Disponibilidad</span>
                     <strong>{{
-                      getAircraftUpcomingOperation(item)?.departure
+                      getAircraftCommercialState(item).isAvailable && getAircraftUpcomingOperation(item)?.departure
                         ? formatDateTimeDisplay(getAircraftUpcomingOperation(item).departure)
-                        : 'Disponible hoy'
+                        : getAircraftCommercialState(item).isAvailable
+                          ? 'Disponible hoy'
+                          : 'No disponible comercialmente'
                     }}</strong>
                     <small>{{ getAircraftDocumentHealth(item).detail }}</small>
                   </div>
@@ -1062,7 +1068,7 @@
                 <div v-if="aircraftCatalogMenuId === item.id" class="fleet-card-menu" @click.stop>
                   <button type="button" @click="goToSection('disponibilidad', { aircraft_id: String(item.id) }); closeAircraftCatalogMenu()">Configurar disponibilidad</button>
                   <button type="button" @click="openAircraftWizardAtStep(item, 2, 'edit')">Actualizar tarifas</button>
-                  <button type="button" @click="getAircraftBillingStatusMeta(item).action === 'activate' ? activateAircraftBilling(item) : (focusAircraftBilling(item.id), openAircraftBillingPayments()); closeAircraftCatalogMenu()">
+                  <button type="button" :disabled="getAircraftBillingStatusMeta(item).action === 'blocked'" @click="runAircraftBillingPrimaryAction(item); closeAircraftCatalogMenu()">
                     {{ getAircraftBillingStatusMeta(item).cta }}
                   </button>
                   <button type="button" @click="archiveAircraft(item.id); closeAircraftCatalogMenu()">Pausar visibilidad</button>
@@ -1094,7 +1100,7 @@
               <span>{{ item.category || 'N/D' }}</span>
               <span>{{ item.base || 'Sin base' }}</span>
               <span>{{ item.capacity || 'N/D' }}</span>
-              <span>{{ formatCurrency(item.hourlyPrice) }}</span>
+              <span>{{ getAircraftHourlyPriceLabel(item) }}</span>
               <span>{{ getAircraftLiveStatus(item).label }}</span>
               <div class="fleet-table-actions">
                 <button type="button" class="ghost-button" @click="openAircraftWizard(item, 'view')">Ver</button>
@@ -1657,6 +1663,21 @@
               <p v-if="formSuccess.aircraft" class="form-feedback form-feedback-success">
                 {{ formSuccess.aircraft }}
               </p>
+              <article class="wizard-review-status">
+                <div class="card-top">
+                  <div>
+                    <span class="mini-label">Estado de revision</span>
+                    <strong>{{ aircraftWizardReviewState.label }}</strong>
+                  </div>
+                  <span class="status-pill" :data-tone="aircraftWizardReviewState.tone">
+                    {{ aircraftWizardReviewState.label }}
+                  </span>
+                </div>
+                <p>{{ aircraftWizardReviewState.message }}</p>
+                <p v-if="aircraftWizardReviewState.notes" class="muted">
+                  {{ aircraftWizardReviewState.notes }}
+                </p>
+              </article>
               </div>
             </div>
 
@@ -3415,7 +3436,7 @@
             <button type="button" class="ghost-button" @click="goToSection('empresa')">
               Mi empresa
             </button>
-            <button type="button" class="primary-action" @click="goToSection('aeronaves')">
+            <button type="button" class="primary-action" @click="openAircraftRegistrationFlow()">
               Crear / gestionar aeronaves
             </button>
           </div>

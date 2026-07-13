@@ -111,6 +111,153 @@ export {
   shouldShowRealtimeRequestInBanner,
 }
 
+export const AIRCRAFT_WIZARD_ROUTE_QUERY_KEY = 'aircraft_wizard'
+export const AIRCRAFT_WIZARD_ROUTE_CREATE_VALUE = 'new'
+
+export const AIRCRAFT_REVIEW_WIZARD_STATES = {
+  BORRADOR: 'BORRADOR',
+  LISTO_PARA_REGISTRAR: 'LISTO_PARA_REGISTRAR',
+  PENDIENTE_REVISION: 'PENDIENTE_REVISION',
+  APROBADA: 'APROBADA',
+  RECHAZADA: 'RECHAZADA',
+  CAMBIOS_SOLICITADOS: 'CAMBIOS_SOLICITADOS',
+}
+
+export function normalizeAircraftWizardRouteMode(value = '') {
+  return String(value || '').trim().toLowerCase()
+}
+
+export function normalizeAircraftValidationStatus(value = '') {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase()
+
+  if (!normalized) return 'pending'
+
+  if (['approved', 'aprobada', 'aprobado', 'active', 'trial_active'].includes(normalized)) {
+    return 'approved'
+  }
+
+  if (['changes_requested', 'changes_required', 'cambios_solicitados', 'cambios_requeridos', 'needs_changes'].includes(normalized)) {
+    return 'changes_requested'
+  }
+
+  if (['rejected', 'rechazada', 'rechazado'].includes(normalized)) {
+    return 'rejected'
+  }
+
+  if (
+    [
+      'pending',
+      'pendiente',
+      'pending_review',
+      'pendiente_revision',
+      'review',
+      'revision',
+      'red_aviation_review',
+      'draft',
+      'borrador',
+    ].includes(normalized)
+  ) {
+    return 'pending'
+  }
+
+  return normalized
+}
+
+export function deriveAircraftWizardReviewState({
+  aircraftId = null,
+  aircraftStatus = '',
+  validationStatus = '',
+  rejectionReason = '',
+  changesRequestedNotes = '',
+  isReadyForRegistration = false,
+} = {}) {
+  const hasPersistedRecord = Number(aircraftId || 0) > 0
+  const normalizedValidationStatus = normalizeAircraftValidationStatus(validationStatus)
+  const normalizedAircraftStatus = normalizeAircraftValidationStatus(aircraftStatus)
+  const normalizedRejectionReason = String(rejectionReason || '').trim()
+  const normalizedChangesRequestedNotes = String(changesRequestedNotes || '').trim()
+
+  if (hasPersistedRecord === false) {
+    if (isReadyForRegistration === true) {
+      return {
+        key: AIRCRAFT_REVIEW_WIZARD_STATES.LISTO_PARA_REGISTRAR,
+        label: 'Lista para registrar',
+        tone: 'info',
+        message: 'Revisa la informacion antes de registrar la aeronave.',
+        notes: 'Al registrarla, sera enviada a revision administrativa.',
+      }
+    }
+
+    return {
+      key: AIRCRAFT_REVIEW_WIZARD_STATES.BORRADOR,
+      label: 'Borrador',
+      tone: 'neutral',
+      message: 'Continua completando la informacion antes de registrar la aeronave.',
+      notes: '',
+    }
+  }
+
+  if (
+    normalizedValidationStatus === 'changes_requested' ||
+    normalizedAircraftStatus === 'changes_requested'
+  ) {
+    return {
+      key: AIRCRAFT_REVIEW_WIZARD_STATES.CAMBIOS_SOLICITADOS,
+      label: 'Cambios solicitados',
+      tone: 'warning',
+      message: 'Administracion solicito cambios para esta aeronave.',
+      notes:
+        normalizedChangesRequestedNotes ||
+        'Revisa las observaciones administrativas antes de volver a enviarla.',
+    }
+  }
+
+  if (normalizedValidationStatus === 'rejected' || normalizedAircraftStatus === 'rejected') {
+    return {
+      key: AIRCRAFT_REVIEW_WIZARD_STATES.RECHAZADA,
+      label: 'Rechazada',
+      tone: 'danger',
+      message: 'La aeronave fue rechazada por administracion.',
+      notes: normalizedRejectionReason || 'No se registro un motivo de rechazo.',
+    }
+  }
+
+  if (normalizedValidationStatus === 'approved' || normalizedAircraftStatus === 'approved') {
+    return {
+      key: AIRCRAFT_REVIEW_WIZARD_STATES.APROBADA,
+      label: 'Aprobada',
+      tone: 'success',
+      message: 'Aeronave aprobada.',
+      notes: '',
+    }
+  }
+
+  return {
+    key: AIRCRAFT_REVIEW_WIZARD_STATES.PENDIENTE_REVISION,
+    label: 'Pendiente de revision',
+    tone: 'warning',
+    message: 'Aeronave registrada y pendiente de revision administrativa.',
+    notes: '',
+  }
+}
+
+export function hasCreateAircraftWizardIntent(section = '', query = {}) {
+  if (String(section || '').trim().toLowerCase() !== 'aeronaves') return false
+
+  return (
+    normalizeAircraftWizardRouteMode(query?.[AIRCRAFT_WIZARD_ROUTE_QUERY_KEY]) ===
+    AIRCRAFT_WIZARD_ROUTE_CREATE_VALUE
+  )
+}
+
+export function removeAircraftWizardRouteIntent(query = {}) {
+  const nextQuery = { ...query }
+  delete nextQuery[AIRCRAFT_WIZARD_ROUTE_QUERY_KEY]
+  return nextQuery
+}
+
 export function useOperatorPortalSetup(props) {
 const route = useRoute()
 
@@ -373,6 +520,7 @@ const paymentsTab = ref('operations')
 const history = ref([])
 
 const providerAircraftBillingPlan = ref(null)
+const providerAircraftBillingPlanLoaded = ref(false)
 
 const loadingProviderAircraftBillingPlan = ref(false)
 
@@ -762,6 +910,9 @@ const aircraftCategoryRules = {
 }
 
 const aircraftDocumentTypes = [
+  { id: 'airworthiness_certificate', label: 'Certificado de aeronavegabilidad', requiresExpiry: true, accepts: ['image', 'pdf'] },
+  { id: 'matricula_aeronave', label: 'Matricula', requiresExpiry: false, accepts: ['image', 'pdf'] },
+  { id: 'insurance_policy', label: 'Seguro', requiresExpiry: true, accepts: ['image', 'pdf'] },
   { id: 'maintenance_sticker', label: 'Sticker de mantenimiento', requiresExpiry: false, accepts: ['image', 'pdf'] },
   { id: 'flight_logbook', label: 'Bitacora de vuelo', requiresExpiry: false, accepts: ['image', 'pdf'] },
 ]
@@ -888,18 +1039,6 @@ const providerAircraftBillingCurrency = computed(() =>
 )
 
 const providerAircraftBillingAmount = computed(() => providerAircraftPlanAmount.value || 100)
-
-const billingDomain = createOperatorPortalBillingDomain({
-  formatCurrency,
-  formatDateTimeRange,
-  providerAircraftPlanAmount,
-})
-
-const {
-  getAircraftRenewalMeta,
-  getAircraftBillingStatusMeta,
-  hasExpiredAircraftSubscription,
-} = billingDomain
 
 const selectedPaymentsAircraftId = computed(() => {
   const routeAircraftId = Number(route.query.aircraft_id || 0)
@@ -1892,10 +2031,9 @@ const crewBackendStatus = computed(() => (loading.value ? 'Sincronizando backend
 const crewConnectedUsers = computed(() => Math.max(assignableCrewOptions.value.length, 1))
 
 const fleetGroupedByStatus = computed(() => ({
-  aprobadas: aircraft.value.filter((item) => humanizeAircraftStatus(item.status) === 'Aprobada')
-    .length,
+  aprobadas: aircraft.value.filter((item) => Boolean(item.approved)).length,
   revision: aircraft.value.filter(
-    (item) => humanizeAircraftStatus(item.status) === 'Pendiente revision',
+    (item) => !item.approved && humanizeAircraftStatus(item.status) === 'Pendiente revision',
   ).length,
   bloqueadas: aircraft.value.filter((item) => humanizeAircraftStatus(item.status) === 'Bloqueada')
     .length,
@@ -2042,17 +2180,15 @@ const aircraftCatalogCategoryOptions = computed(() => [
 
 function getAircraftCatalogStatusKey(item = {}) {
   const backendStatus = humanizeAircraftStatus(item.status)
-  const liveStatus = getAircraftLiveStatus(item).label
-  const billingStatus = getAircraftBillingStatusMeta(item)
-  const documentHealth = getAircraftDocumentHealth(item)
+  const commercialState = getAircraftCommercialState(item)
 
   if (['Bloqueada', 'Archivada', 'Suspendida', 'Inactiva', 'Rechazada'].includes(backendStatus)) return 'inactive'
-  if (billingStatus.action === 'activate') return 'pending_payment'
+  if (commercialState.code === 'provider_pending' || commercialState.code === 'aircraft_pending') return 'review'
+  if (commercialState.code === 'billing_blocked' || String(commercialState.code).startsWith('billing_')) return 'pending_payment'
   if (backendStatus === 'Pendiente revision') return 'review'
-  if (documentHealth.tone !== 'success' || !item.approved) return 'review'
-  if (liveStatus === 'En mision' || liveStatus === 'Mantenimiento') return 'active'
-  if (billingStatus.action === 'payments' && liveStatus === 'Disponible' && item.approved) return 'active'
-  if (billingStatus.action === 'payments') return 'hidden'
+  if (!commercialState.isAvailable && commercialState.isActive) return 'active'
+  if (!commercialState.isAvailable) return 'inactive'
+  if (commercialState.isAvailable) return 'active'
   return 'all'
 }
 
@@ -2184,6 +2320,25 @@ const aircraftWizardCompletion = computed(() => {
   return Math.round((aircraftWizardStep.value / total) * 100)
 })
 
+const aircraftWizardReadyForRegistration = computed(
+  () => Object.keys(getAircraftWizardStepErrors(5)).length === 0,
+)
+
+const selectedEditingAircraft = computed(
+  () => aircraft.value.find((item) => Number(item.id) === Number(editingAircraftId.value || 0)) || null,
+)
+
+const aircraftWizardCurrentRecord = computed(() => {
+  if (selectedEditingAircraft.value) return selectedEditingAircraft.value
+
+  const scopedAircraftId = Number(imageForm.aircraftId || documentForm.aircraftId || 0)
+  if (scopedAircraftId > 0) {
+    return aircraft.value.find((item) => Number(item.id) === scopedAircraftId) || null
+  }
+
+  return null
+})
+
 const aircraftWizardModeMeta = computed(() => {
   if (aircraftWizardReadOnly.value) {
     return {
@@ -2207,6 +2362,26 @@ const aircraftWizardModeMeta = computed(() => {
     detail: 'El proveedor deja la aeronave lista para revision y activacion.',
   }
 })
+
+const aircraftWizardReviewState = computed(() =>
+  deriveAircraftWizardReviewState({
+    aircraftId: aircraftWizardCurrentRecord.value?.id || null,
+    aircraftStatus: aircraftWizardCurrentRecord.value?.status || '',
+    validationStatus:
+      aircraftWizardCurrentRecord.value?.validationStatus ||
+      aircraftWizardCurrentRecord.value?.reviewStatus ||
+      '',
+    rejectionReason:
+      aircraftWizardCurrentRecord.value?.rejectionReason ||
+      aircraftWizardCurrentRecord.value?.adminNotes ||
+      '',
+    changesRequestedNotes:
+      aircraftWizardCurrentRecord.value?.changesRequestedNotes ||
+      aircraftWizardCurrentRecord.value?.adminNotes ||
+      '',
+    isReadyForRegistration: aircraftWizardReadyForRegistration.value,
+  }),
+)
 
 const aircraftWizardSnapshot = computed(() => [
   {
@@ -2256,6 +2431,21 @@ const companyStatusMeta = computed(() => {
     access_enabled: company.accessEnabled,
   })
 })
+
+const providerIsApproved = computed(() => companyStatusMeta.value.tone === 'success')
+
+const billingDomain = createOperatorPortalBillingDomain({
+  formatCurrency,
+  formatDateTimeRange,
+  providerAircraftPlanAmount,
+  isProviderApproved: providerIsApproved,
+})
+
+const {
+  getAircraftRenewalMeta,
+  getAircraftBillingStatusMeta,
+  hasExpiredAircraftSubscription,
+} = billingDomain
 
 const providerCanRegisterAircraft = computed(() => company.canRegisterAircraft !== false)
 
@@ -2727,7 +2917,7 @@ const dashboardQuickActions = computed(() => [
     icon: '✈',
     label: 'Registrar aeronave',
     detail: 'Alta premium de flota',
-    action: () => goToSection('aeronaves'),
+    action: () => openAircraftRegistrationFlow(),
   },
   {
     id: 'requests',
@@ -4256,6 +4446,39 @@ function goToSection(section, query = {}) {
   })
 }
 
+async function openAircraftRegistrationFlow() {
+  if (props.section === 'aeronaves') {
+    openAircraftWizard()
+    return
+  }
+
+  await goToSection('aeronaves', {
+    [AIRCRAFT_WIZARD_ROUTE_QUERY_KEY]: AIRCRAFT_WIZARD_ROUTE_CREATE_VALUE,
+  })
+}
+
+async function clearAircraftWizardRouteIntent() {
+  if (!Object.prototype.hasOwnProperty.call(route.query, AIRCRAFT_WIZARD_ROUTE_QUERY_KEY)) return
+
+  await router.replace({
+    name: 'operador',
+    params: { section: 'aeronaves' },
+    query: removeAircraftWizardRouteIntent(route.query),
+  })
+}
+
+async function syncAircraftWizardRouteIntent() {
+  if (!hasCreateAircraftWizardIntent(props.section, route.query)) return
+  if (aircraftWizardOpen.value) {
+    void clearAircraftWizardRouteIntent()
+    return
+  }
+
+  openAircraftWizard()
+  await nextTick()
+  void clearAircraftWizardRouteIntent()
+}
+
 function openProviderRelease(requestOrId = null) {
   const requestId =
     typeof requestOrId === 'object' && requestOrId
@@ -4510,6 +4733,9 @@ function aircraftYearValidationMessage() {
 
 function normalizeAircraft(raw = {}, index = 0) {
   const statusRaw = String(raw.status || raw.aircraft_status || 'draft').toLowerCase()
+  const validationStatusRaw = String(
+    raw.validation_status || raw.validationStatus || raw.review_status || raw.reviewStatus || '',
+  ).toLowerCase()
   const statusMap = {
     draft: 'borrador',
     pending_review: 'pendiente_revision',
@@ -4532,6 +4758,7 @@ function normalizeAircraft(raw = {}, index = 0) {
   const trialEndsAt = raw.trial_ends_at || raw.trialEndsAt || null
   const trialStartsAt = raw.trial_starts_at || raw.trialStartsAt || null
   const status = statusMap[statusRaw] || statusRaw || 'borrador'
+  const validationStatus = normalizeAircraftValidationStatus(validationStatusRaw || statusRaw)
   const billingStatus = String(
     raw.billing_status || raw.billingStatus || raw.subscription_status || raw.subscriptionStatus || '',
   )
@@ -4546,6 +4773,11 @@ function normalizeAircraft(raw = {}, index = 0) {
       normalizedImages[0]?.imageUrl ||
       '',
   )
+
+  const derivedApproved =
+    Boolean(raw.approved_at || raw.approved || raw.is_approved) ||
+    validationStatus === 'approved' ||
+    ['active', 'trial_active', 'approved', 'aprobada', 'aprobado', 'inactive', 'inactiva'].includes(statusRaw)
 
   return {
     id: raw.id || index + 1,
@@ -4589,6 +4821,8 @@ function normalizeAircraft(raw = {}, index = 0) {
     cateringBaseCost: Number(raw.catering_base_cost || 0),
     operationalCost: Number(raw.operational_cost || raw.cost || 0),
     status,
+    validationStatus,
+    reviewStatus: validationStatus,
     availability: raw.availability_status || raw.availability || 'Pendiente de confirmacion',
     trial: trialEndsAt
       ? `Activo hasta ${String(trialEndsAt).slice(0, 10)}`
@@ -4620,7 +4854,7 @@ function normalizeAircraft(raw = {}, index = 0) {
       raw.hasDefaultPaymentMethod ??
       null,
     lastPaymentAt: raw.last_payment_at || raw.lastPaymentAt || null,
-    approved: Boolean(raw.approved_at || raw.approved || raw.is_approved),
+    approved: derivedApproved,
     approvedAt: raw.approved_at || raw.approvedAt || null,
     mainImage,
     images: normalizedImages,
@@ -4631,6 +4865,18 @@ function normalizeAircraft(raw = {}, index = 0) {
       normalizedDocuments.some((document) =>
         ['vigente', 'validado', 'approved'].includes(String(document.state).toLowerCase()),
       ),
+    rejectionReason:
+      raw.rejection_reason ||
+      raw.rejectionReason ||
+      raw.rejected_reason ||
+      raw.rejectedReason ||
+      '',
+    changesRequestedNotes:
+      raw.changes_requested_notes ||
+      raw.changesRequestedNotes ||
+      raw.changes_notes ||
+      raw.changesNotes ||
+      '',
     adminNotes: raw.admin_notes || raw.observations || raw.notes || 'Sin observaciones',
   }
 }
@@ -4670,16 +4916,27 @@ function clearAircraftBillingFocus() {
 
 function shouldAutoRefreshAircraftBilling() {
   if (props.section !== 'aeronaves') return false
+  if (!providerIsApproved.value) return false
 
   return aircraft.value.some((item) => !isAircraftBillingActive(item))
 }
 
 async function loadProviderAircraftBillingPlan(options = {}) {
-  if (providerAircraftBillingPlan.value && options.force !== true) {
+  if (!providerIsApproved.value) {
+    providerAircraftBillingPlan.value = null
+    providerAircraftBillingPlanLoaded.value = true
+    return null
+  }
+
+  if ((providerAircraftBillingPlanLoaded.value || providerAircraftBillingPlan.value) && options.force !== true) {
     return providerAircraftBillingPlan.value
   }
 
   if (shouldSkipAircraftBillingRefresh()) {
+    return providerAircraftBillingPlan.value
+  }
+
+  if (loadingProviderAircraftBillingPlan.value) {
     return providerAircraftBillingPlan.value
   }
 
@@ -4691,10 +4948,12 @@ async function loadProviderAircraftBillingPlan(options = {}) {
     ])
     const plan = pickRecord(response, ['plan', 'data'])
     providerAircraftBillingPlan.value = plan && Object.keys(plan).length ? plan : null
+    providerAircraftBillingPlanLoaded.value = true
     return providerAircraftBillingPlan.value
   } catch (error) {
     if (isAircraftBillingBackendUnavailable(error)) {
       markAircraftBillingBackendUnavailable()
+      providerAircraftBillingPlanLoaded.value = true
       return providerAircraftBillingPlan.value
     }
 
@@ -4706,6 +4965,7 @@ async function loadProviderAircraftBillingPlan(options = {}) {
         'billing-plan',
       ),
     )
+    providerAircraftBillingPlanLoaded.value = true
     return null
   } finally {
     loadingProviderAircraftBillingPlan.value = false
@@ -4755,6 +5015,7 @@ function shouldSkipAircraftBillingRefresh() {
 async function refreshAircraftBillingStatus(aircraftId, options = {}) {
   if (!aircraftId) return null
   if (shouldSkipAircraftBillingRefresh()) return null
+  if (!providerIsApproved.value) return null
 
   const rawSessionId = String(options.sessionId || '').trim()
   const sessionId =
@@ -4823,6 +5084,13 @@ function buildAircraftBillingReturnUrl(state, aircraftId) {
 async function activateAircraftBilling(item = {}) {
   const aircraftId = Number(item?.id || 0)
   if (!aircraftId || activatingAircraftId.value) return
+  if (!providerIsApproved.value) {
+    showError(
+      'Facturacion bloqueada',
+      'La facturacion estara disponible cuando el proveedor sea aprobado.',
+    )
+    return
+  }
 
   activatingAircraftId.value = aircraftId
 
@@ -4872,6 +5140,26 @@ function openAircraftBillingPayments() {
     payments_tab: 'aircraft',
     ...(selectedPaymentsAircraftId.value ? { aircraft_id: String(selectedPaymentsAircraftId.value) } : {}),
   })
+}
+
+function runAircraftBillingPrimaryAction(item = {}) {
+  const billingMeta = getAircraftBillingStatusMeta(item)
+
+  if (billingMeta.action === 'activate') {
+    void activateAircraftBilling(item)
+    return
+  }
+
+  if (billingMeta.action === 'sync') {
+    void refreshAircraftBillingStatus(item.id, {
+      reloadAircraftList: true,
+      reloadPayments: true,
+    })
+    return
+  }
+
+  focusAircraftBilling(item.id)
+  openAircraftBillingPayments()
 }
 
 function syncAircraftBillingFocusFromRoute() {
@@ -4942,6 +5230,14 @@ async function handleAircraftBillingReturnFromRoute() {
 
   if (billingState === 'success') {
     await syncAircraftBillingAfterCheckout(aircraftId, sessionId)
+    router.replace({
+      query: {
+        ...route.query,
+        aircraft_id: String(aircraftId),
+        billing: undefined,
+        session_id: undefined,
+      },
+    })
     return
   }
 
@@ -4950,6 +5246,14 @@ async function handleAircraftBillingReturnFromRoute() {
       tone: 'warning',
       title: 'Pago cancelado',
       message: 'La aeronave sigue pendiente de activacion. Puedes intentarlo de nuevo cuando quieras.',
+    })
+    router.replace({
+      query: {
+        ...route.query,
+        aircraft_id: String(aircraftId),
+        billing: undefined,
+        session_id: undefined,
+      },
     })
   }
 }
@@ -7021,63 +7325,217 @@ function previousAircraftWizardStep() {
   aircraftWizardStep.value = Math.max(aircraftWizardStep.value - 1, 1)
 }
 
-function getAircraftLiveStatus(item) {
-  const normalized = String(item?.availability || item?.status || '').toLowerCase()
-
-  if (normalized.includes('mantenimiento') || normalized.includes('maintenance')) {
-    return { label: 'Mantenimiento', tone: 'warning' }
+function getAircraftDocumentHealth(item) {
+  const validationState = getAircraftDocumentValidationState(item)
+  return {
+    label: validationState.label,
+    tone: validationState.tone,
+    detail: validationState.detail,
   }
-  if (
-    normalized.includes('reserv') ||
-    normalized.includes('ocupad') ||
-    normalized.includes('en vuelo')
-  ) {
-    return { label: 'En mision', tone: 'info' }
-  }
-  if (
-    normalized.includes('bloque') ||
-    normalized.includes('suspend') ||
-    normalized.includes('archiv')
-  ) {
-    return { label: 'Bloqueada', tone: 'danger' }
-  }
-
-  return { label: 'Disponible', tone: 'success' }
 }
 
-function getAircraftDocumentHealth(item) {
-  const documents = Array.isArray(item?.documents) ? item.documents : []
-  if (!documents.length) {
-    return { label: 'Sin expediente', tone: 'warning', detail: 'Aun no tiene documentos visibles.' }
-  }
+function normalizeAircraftDocumentState(value = '') {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (!normalized) return 'pending'
+  if (['approved', 'aprobado', 'aprobada', 'vigente', 'validado', 'validada'].includes(normalized)) return 'approved'
+  if (['rejected', 'rechazado', 'rechazada', 'cancelled', 'canceled'].includes(normalized)) return 'rejected'
+  if (['expired', 'vencido', 'vencida'].includes(normalized) || normalized.includes('expir') || normalized.includes('venc')) return 'expired'
+  return 'pending'
+}
 
-  const hasExpired = documents.some((document) => {
-    if (!document.expiresAt) return false
-    const expiration = new Date(document.expiresAt)
-    return !Number.isNaN(expiration.getTime()) && expiration.getTime() < Date.now()
+const AIRCRAFT_DOCUMENT_REQUIREMENT_ALIASES = {
+  airworthiness_certificate: 'airworthiness_certificate',
+  certificate_airworthiness: 'airworthiness_certificate',
+  airworthiness: 'airworthiness_certificate',
+  aeronavegabilidad: 'airworthiness_certificate',
+  certificado_aeronavegabilidad: 'airworthiness_certificate',
+  certificado_de_aeronavegabilidad: 'airworthiness_certificate',
+  matricula_aeronave: 'registration',
+  aircraft_registration: 'registration',
+  registration: 'registration',
+  registro: 'registration',
+  matricula: 'registration',
+  insurance_policy: 'insurance',
+  aircraft_insurance: 'insurance',
+  insurance: 'insurance',
+  seguro: 'insurance',
+  poliza: 'insurance',
+  poliza_seguro: 'insurance',
+  maintenance_sticker: 'maintenance',
+  maintenance_sticker_document: 'maintenance',
+  maintenance: 'maintenance',
+  mantenimiento: 'maintenance',
+  flight_logbook: 'maintenance',
+  logbook: 'maintenance',
+  bitacora_vuelo: 'maintenance',
+  bitacora: 'maintenance',
+}
+
+const AIRCRAFT_REQUIRED_DOCUMENTS = [
+  { key: 'airworthiness_certificate', label: 'Certificado de aeronavegabilidad' },
+  { key: 'registration', label: 'Matricula' },
+  { key: 'insurance', label: 'Seguro' },
+  { key: 'maintenance', label: 'Mantenimiento' },
+]
+
+function normalizeAircraftRequirementKey(value = '') {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_')
+  return AIRCRAFT_DOCUMENT_REQUIREMENT_ALIASES[normalized] || normalized
+}
+
+function getAircraftDocumentRequirementKeys(document = {}) {
+  return [
+    document.documentType,
+    document.document_type,
+    document.documentCategory,
+    document.document_category,
+    document.category,
+    document.type,
+    document.kind,
+    document.slot,
+  ]
+    .map((value) => normalizeAircraftRequirementKey(value))
+    .filter(Boolean)
+}
+
+function isDocumentExpiredAt(value) {
+  if (!value) return false
+  const rawValue = String(value).trim()
+  const normalizedValue = /^\d{4}-\d{2}-\d{2}$/.test(rawValue) ? `${rawValue}T23:59:59` : rawValue
+  const expiration = new Date(normalizedValue)
+  return !Number.isNaN(expiration.getTime()) && expiration.getTime() < Date.now()
+}
+
+function getAircraftDocumentValidationState(item = {}) {
+  const documents = Array.isArray(item?.documents) ? item.documents : []
+  const requirements = AIRCRAFT_REQUIRED_DOCUMENTS.map((requirement) => {
+    const matchedDocuments = documents.filter((document) =>
+      getAircraftDocumentRequirementKeys(document).includes(requirement.key),
+    )
+    if (!matchedDocuments.length) {
+      return { ...requirement, status: 'missing', documents: [] }
+    }
+
+    const hasApprovedCurrent = matchedDocuments.some((document) => {
+      const status = normalizeAircraftDocumentState(document.state || document.status)
+      return status === 'approved' && !isDocumentExpiredAt(document.expiresAt || document.expires_at)
+    })
+    const hasExpired = matchedDocuments.some((document) => {
+      const status = normalizeAircraftDocumentState(document.state || document.status)
+      return status === 'expired' || (status === 'approved' && isDocumentExpiredAt(document.expiresAt || document.expires_at))
+    })
+    const hasRejected = matchedDocuments.some((document) => normalizeAircraftDocumentState(document.state || document.status) === 'rejected')
+
+    return {
+      ...requirement,
+      status: hasApprovedCurrent ? 'approved' : hasExpired ? 'expired' : hasRejected ? 'rejected' : 'pending',
+      documents: matchedDocuments,
+    }
   })
 
+  const allApproved = requirements.length > 0 && requirements.every((requirement) => requirement.status === 'approved')
+  const hasExpired = requirements.some((requirement) => requirement.status === 'expired')
+  const hasRejected = requirements.some((requirement) => requirement.status === 'rejected')
+  const hasPending = requirements.some((requirement) => requirement.status === 'pending')
+  const hasMissing = requirements.some((requirement) => requirement.status === 'missing')
+
   if (hasExpired) {
-    return {
-      label: 'Vencido',
-      tone: 'danger',
-      detail: 'Hay documentos vencidos o fuera de vigencia.',
-    }
+    return { requirements, approved: false, tone: 'danger', label: 'Vencido', detail: 'Hay documentos vencidos o fuera de vigencia.' }
   }
-
-  const hasPending = documents.some((document) =>
-    ['pendiente', 'pending', 'needs_update'].includes(String(document.state || '').toLowerCase()),
-  )
-
+  if (hasRejected) {
+    return { requirements, approved: false, tone: 'danger', label: 'Rechazado', detail: 'Hay documentos rechazados que requieren correccion.' }
+  }
   if (hasPending) {
-    return {
-      label: 'En revision',
-      tone: 'warning',
-      detail: 'Documentos cargados pendientes de revision.',
-    }
+    return { requirements, approved: false, tone: 'warning', label: 'En revision', detail: 'Documentos cargados pendientes de revision.' }
+  }
+  if (hasMissing) {
+    return { requirements, approved: false, tone: 'warning', label: 'Sin expediente', detail: 'Faltan documentos obligatorios para aprobar la aeronave.' }
+  }
+  if (allApproved) {
+    return { requirements, approved: true, tone: 'success', label: 'Vigente', detail: `${requirements.length} documentos obligatorios aprobados.` }
   }
 
-  return { label: 'Vigente', tone: 'success', detail: `${documents.length} documentos listos.` }
+  return { requirements, approved: false, tone: 'warning', label: 'Sin expediente', detail: 'Aun no tiene documentos visibles.' }
+}
+
+function getAircraftCommercialState(item = {}, provider = companyStatusMeta.value, billingMeta = null) {
+  const normalizedAvailability = String(item?.availability || item?.status || '').toLowerCase()
+  const normalizedBackendStatus = String(humanizeAircraftStatus(item?.status) || '').toLowerCase()
+  const documentHealth = getAircraftDocumentValidationState(item)
+  const resolvedBillingMeta = billingMeta || getAircraftBillingStatusMeta(item)
+  const reasons = []
+  const providerApproved = provider?.tone === 'success'
+  const aircraftApproved = Boolean(item?.approved)
+  const aircraftIsActive = Boolean(item?.is_active ?? item?.isActive ?? false)
+  const hasRange = Number(item?.rangeKm || 0) > 0
+  const hasValidPrice = Number(item?.hourlyPrice || 0) > 0
+  const matchingEnabled = Boolean(item?.matching_visible ?? item?.matchingVisible ?? item?.marketplace_visible ?? item?.visible_for_matching ?? false)
+  const billingReady = resolvedBillingMeta?.ready === true
+
+  if (normalizedAvailability.includes('bloque') || normalizedAvailability.includes('suspend') || normalizedAvailability.includes('archiv') || normalizedBackendStatus.includes('rechazada')) {
+    reasons.push('Aeronave suspendida o bloqueada manualmente')
+    return { code: 'aircraft_blocked', label: 'Bloqueada', tone: 'danger', isAvailable: false, isActive: false, canQuote: false, canReserve: false, canMatch: false, reasons }
+  }
+  if (!providerApproved) {
+    reasons.push('Proveedor pendiente de aprobacion administrativa')
+    return { code: 'provider_pending', label: 'Pendiente de aprobacion', tone: 'warning', isAvailable: false, isActive: false, canQuote: false, canReserve: false, canMatch: false, reasons }
+  }
+  if (!aircraftApproved) {
+    reasons.push('Aeronave pendiente de revision administrativa')
+    return { code: 'aircraft_pending', label: 'Aeronave pendiente de revision', tone: 'warning', isAvailable: false, isActive: false, canQuote: false, canReserve: false, canMatch: false, reasons }
+  }
+  if (!documentHealth.approved) {
+    reasons.push(documentHealth.detail === 'Faltan documentos obligatorios para aprobar la aeronave.' ? 'Documentacion incompleta' : documentHealth.detail)
+    return { code: 'documents_pending', label: 'Inactiva', tone: 'warning', isAvailable: false, isActive: false, canQuote: false, canReserve: false, canMatch: false, reasons }
+  }
+  if (!hasRange) {
+    reasons.push('Rango pendiente')
+    return { code: 'missing_range', label: 'Inactiva', tone: 'warning', isAvailable: false, isActive: false, canQuote: false, canReserve: false, canMatch: false, reasons }
+  }
+  if (!hasValidPrice) {
+    reasons.push('Sin tarifa')
+    return { code: 'missing_price', label: 'Inactiva', tone: 'warning', isAvailable: false, isActive: false, canQuote: false, canReserve: false, canMatch: false, reasons }
+  }
+  if (!billingReady) {
+    reasons.push(resolvedBillingMeta?.reasonMessage || 'Disponible despues de la aprobacion administrativa')
+    return {
+      code: resolvedBillingMeta?.code || 'billing_blocked',
+      label: resolvedBillingMeta?.label || 'Pendiente de pago',
+      tone: resolvedBillingMeta?.tone || 'warning',
+      isAvailable: false,
+      isActive: false,
+      canQuote: false,
+      canReserve: false,
+      canMatch: false,
+      reasons,
+    }
+  }
+  if (!aircraftIsActive) {
+    reasons.push('Aeronave inactiva')
+    return { code: 'inactive', label: 'Inactiva', tone: 'warning', isAvailable: false, isActive: false, canQuote: false, canReserve: false, canMatch: false, reasons }
+  }
+  if (!matchingEnabled) {
+    reasons.push('Matching no habilitado')
+    return { code: 'matching_disabled', label: 'Inactiva', tone: 'warning', isAvailable: false, isActive: false, canQuote: false, canReserve: false, canMatch: false, reasons }
+  }
+  if (normalizedAvailability.includes('mantenimiento') || normalizedAvailability.includes('maintenance')) {
+    reasons.push('Aeronave en mantenimiento')
+    return { code: 'maintenance', label: 'Mantenimiento', tone: 'warning', isAvailable: false, isActive: true, canQuote: false, canReserve: false, canMatch: false, reasons }
+  }
+  if (normalizedAvailability.includes('reserv') || normalizedAvailability.includes('ocupad') || normalizedAvailability.includes('en vuelo')) {
+    reasons.push('Aeronave en operacion')
+    return { code: 'mission', label: 'En mision', tone: 'info', isAvailable: false, isActive: true, canQuote: false, canReserve: false, canMatch: false, reasons }
+  }
+
+  return { code: 'available', label: 'Disponible', tone: 'success', isAvailable: true, isActive: true, canQuote: true, canReserve: true, canMatch: true, reasons: ['Lista para matching, cotizacion y reserva'] }
+}
+
+function getAircraftLiveStatus(item) {
+  const commercialState = getAircraftCommercialState(item)
+  return { label: commercialState.label, tone: commercialState.tone }
 }
 
 function hasAircraftCommercialImages(item) {
@@ -7086,20 +7544,21 @@ function hasAircraftCommercialImages(item) {
 
 function getAircraftMissingItems(item = {}) {
   const missing = []
-  const documentHealth = getAircraftDocumentHealth(item)
+  const documentHealth = getAircraftDocumentValidationState(item)
+  const commercialState = getAircraftCommercialState(item)
 
   if (!String(item.name || '').trim()) missing.push('modelo')
   if (!String(item.registration || '').trim()) missing.push('matricula')
   if (!String(item.base || '').trim()) missing.push('base')
   if (!Number(item.capacity || 0)) missing.push('capacidad')
-  if (!Number(item.hourlyPrice || 0)) missing.push('tarifa')
+  if (!Number(item.hourlyPrice || 0)) missing.push('sin tarifa')
   if (!Number(item.rangeKm || 0)) missing.push('rango')
   if (!hasAircraftCommercialImages(item)) missing.push('fotos')
-  if (documentHealth.tone !== 'success') missing.push('documentos')
+  if (!documentHealth.approved) missing.push('documentacion')
   if (!item.approved) missing.push('aprobacion admin')
-  if (!isAircraftBillingActive(item)) missing.push('activacion mensual')
+  if (!commercialState.canMatch) missing.push(...commercialState.reasons.map((reason) => reason.toLowerCase()))
 
-  return missing
+  return [...new Set(missing)]
 }
 
 function getAircraftMissingItemsLabel(item = {}) {
@@ -7110,20 +7569,9 @@ function getAircraftMissingItemsLabel(item = {}) {
 
 function getAircraftReadinessSummary(item = {}) {
   const missing = getAircraftMissingItems(item)
-  const liveStatus = getAircraftLiveStatus(item)
-  const documentHealth = getAircraftDocumentHealth(item)
-  const billingActive = isAircraftBillingActive(item)
+  const commercialState = getAircraftCommercialState(item)
 
-  if (liveStatus.tone === 'danger') {
-    return {
-      tone: 'danger',
-      label: 'Bloqueada',
-      detail: 'La aeronave esta bloqueada y no puede entrar a cotizaciones o reservas.',
-      missing,
-    }
-  }
-
-  if (!missing.length) {
+  if (commercialState.isAvailable) {
     return {
       tone: 'success',
       label: 'Lista para cotizar y reservar',
@@ -7132,54 +7580,34 @@ function getAircraftReadinessSummary(item = {}) {
     }
   }
 
-  if (item.approved && documentHealth.tone === 'success' && billingActive) {
-    return {
-      tone: 'info',
-      label: 'Casi lista',
-      detail: 'Ya tiene validacion operativa; solo faltan datos comerciales complementarios.',
-      missing,
-    }
-  }
-
   return {
-    tone: 'warning',
-    label: 'Pendiente de completar',
-    detail: getAircraftMissingItemsLabel(item),
+    tone: commercialState.tone,
+    label: commercialState.label,
+    detail: commercialState.reasons[0] || getAircraftMissingItemsLabel(item),
     missing,
   }
 }
 
 function getAircraftApprovalMeta(item = {}) {
+  if (!providerIsApproved.value) return { label: 'Proveedor pendiente', tone: 'warning' }
   if (item.approved) return { label: 'Aprobada', tone: 'success' }
   if (humanizeAircraftStatus(item.status) === 'Pendiente revision') return { label: 'En revision', tone: 'warning' }
   return { label: 'Pendiente admin', tone: 'warning' }
 }
 
 function getAircraftCommercialMeta(item = {}) {
-  const billingMeta = getAircraftBillingStatusMeta(item)
-  const readiness = getAircraftReadinessSummary(item)
-
-  if (billingMeta.action === 'activate') {
-    return {
-      label: 'Pendiente de activacion',
-      tone: billingMeta.tone,
-      detail: 'No visible para clientes hasta confirmar mensualidad.',
-    }
-  }
-
-  if (readiness.missing.length) {
-    return {
-      label: 'Visible con restricciones',
-      tone: 'warning',
-      detail: getAircraftMissingItemsLabel(item),
-    }
-  }
-
+  const state = getAircraftCommercialState(item)
   return {
-    label: 'Visible para clientes',
-    tone: 'success',
-    detail: 'Lista para cotizaciones y reservas dentro del sistema.',
+    label: state.isAvailable ? 'Visible para clientes' : state.label,
+    tone: state.tone,
+    detail: state.isAvailable
+      ? 'Lista para cotizaciones y reservas dentro del sistema.'
+      : state.reasons[0] || 'No disponible comercialmente.',
   }
+}
+
+function getAircraftHourlyPriceLabel(item = {}) {
+  return Number(item?.hourlyPrice || 0) > 0 ? formatCurrency(item.hourlyPrice) : 'Sin tarifa'
 }
 
 function toggleAircraftCatalogMenu(aircraftId) {
@@ -10361,6 +10789,14 @@ watch(
 )
 
 watch(
+  () => [props.section, route.query[AIRCRAFT_WIZARD_ROUTE_QUERY_KEY]],
+  () => {
+    void syncAircraftWizardRouteIntent()
+  },
+  { immediate: true },
+)
+
+watch(
   () => [props.section, route.query.billing, route.query.aircraft_id],
   () => {
     if (props.section !== 'aeronaves') return
@@ -10595,6 +11031,7 @@ watch(
       aircraftWizardCurrentStepMeta,
       aircraftWizardCompletion,
       aircraftWizardModeMeta,
+      aircraftWizardReviewState,
       aircraftWizardSnapshot,
       companyStatusMeta,
       companyRfcIsValid,
@@ -10731,6 +11168,7 @@ watch(
       loadProviderAircraftBillingPlan,
       refreshAircraftBillingStatus,
       activateAircraftBilling,
+      runAircraftBillingPrimaryAction,
       openAircraftBillingPayments,
       handleAircraftBillingReturnFromRoute,
       setPaymentsTab,
@@ -10793,6 +11231,7 @@ watch(
       applyAircraftCategoryRule,
       resetImageForm,
       resetDocumentForm,
+      openAircraftRegistrationFlow,
       startEditingAircraft,
       cancelEditingAircraft,
       openAircraftWizard,
@@ -10802,12 +11241,15 @@ watch(
       previousAircraftWizardStep,
       getAircraftLiveStatus,
       getAircraftDocumentHealth,
+      getAircraftDocumentValidationState,
+      getAircraftCommercialState,
       getAircraftMissingItems,
       getAircraftMissingItemsLabel,
       getAircraftReadinessSummary,
       getAircraftCatalogStatusKey,
       getAircraftApprovalMeta,
       getAircraftCommercialMeta,
+      getAircraftHourlyPriceLabel,
       getAircraftUpcomingOperation,
       getAircraftWeeklyAvailability,
       toggleAircraftCatalogMenu,

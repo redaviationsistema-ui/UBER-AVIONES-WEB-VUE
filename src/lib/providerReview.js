@@ -1,4 +1,5 @@
 import { looksLikePlaceholderCompany, resolveBestCompanyDisplayName } from './companyDisplay'
+import { resolveCompanyDocumentDefinition } from './providerCompanyDocuments'
 
 function normalizeToken(value = '') {
   return String(value || '')
@@ -76,32 +77,175 @@ function resolveSatValidationStatus(provider = {}) {
   return provider.rfc ? 'approved' : 'pending'
 }
 
-function requirementResponseApproved(item = {}) {
-  return ['approved', 'aprobado', 'validated', 'validado'].includes(normalizeToken(item.responseStatus))
+function normalizeRequirementDecisionStatus(value = '') {
+  const normalized = normalizeToken(value)
+  if (['approved', 'aprobado', 'aprobada', 'validated', 'validado', 'validada'].includes(normalized)) return 'approved'
+  if (['rejected', 'rechazado', 'rechazada', 'cancelled', 'canceled', 'cancelado', 'cancelada'].includes(normalized)) return 'rejected'
+  return 'pending'
 }
 
-function resolveValidationRequirements(provider = {}, metrics = {}) {
+function normalizeExplicitBoolean(value) {
+  if (value === true) return true
+  if (value === false) return false
+
+  const normalized = normalizeToken(value)
+  if (!normalized) return null
+  if (['true', '1', 'yes', 'si', 'approved', 'aprobado', 'aprobada', 'validated', 'validado', 'validada', 'complete', 'completo', 'completa'].includes(normalized)) {
+    return true
+  }
+  if (['false', '0', 'no', 'pending', 'pendiente', 'rejected', 'rechazado', 'rechazada', 'incomplete', 'incompleto', 'incompleta'].includes(normalized)) {
+    return false
+  }
+
+  return null
+}
+
+function normalizeRequirementComplete(item = {}) {
+  const explicit = normalizeExplicitBoolean(item.complete)
+  if (explicit !== null) return explicit
+
+  const decisionStatus = normalizeRequirementDecisionStatus(item.response_status || item.responseStatus)
+  if (decisionStatus === 'approved' || decisionStatus === 'rejected') return true
+
+  return false
+}
+
+function requirementResponseApproved(item = {}) {
+  return normalizeRequirementDecisionStatus(item.responseStatus || item.response_status) === 'approved'
+}
+
+function requirementResponseRejected(item = {}) {
+  return normalizeRequirementDecisionStatus(item.responseStatus || item.response_status) === 'rejected'
+}
+
+function normalizeReviewDocumentStatus(document = {}) {
+  return normalizeRequirementDecisionStatus(
+    document.status || document.state || document.validation_status || document.review_status || document.currentStatus,
+  )
+}
+
+function normalizeReviewDocuments(provider = {}) {
+  return normalizeDocumentCollection(provider).map((document, index) => {
+    const definition = resolveCompanyDocumentDefinition(document)
+
+    return {
+      ...document,
+      _index: index,
+      _definitionKey: document.definitionKey || document.definition_key || definition?.id || '',
+      _sectionKey: document.sectionKey || document.section_key || document.document_section || definition?.sectionKey || '',
+      _normalizedStatus: normalizeReviewDocumentStatus(document),
+      _reviewedAt: document.reviewedAt || document.reviewed_at || document.validated_at || document.validatedAt || '',
+      _reviewedBy: document.reviewedBy || document.reviewed_by || document.validated_by || document.validatedBy || '',
+      _rejectionReason: document.rejectionReason || document.rejection_reason || '',
+    }
+  })
+}
+
+const APPROVED_AIRCRAFT_STATUSES = ['active', 'trial_active', 'inactive', 'approved', 'aprobado', 'aprobada']
+
+const LEGAL_REQUIREMENT_DOCUMENT_KEYS = [
+  'articles_of_incorporation',
+  'legal_representative_power',
+  'legal_representative_id',
+  'tax_address_proof',
+  'operational_permit',
+]
+
+function latestReviewedDocument(documents = []) {
+  return [...documents].sort((left, right) => {
+    const leftTime = new Date(left._reviewedAt || 0).getTime()
+    const rightTime = new Date(right._reviewedAt || 0).getTime()
+    return rightTime - leftTime
+  })[0] || null
+}
+
+function resolveDocumentRequirementState(documents = [], options = {}) {
+  const expectedKeys = Array.isArray(options.expectedKeys) ? options.expectedKeys : []
+  const availableDocuments = Array.isArray(documents) ? documents : []
+  const hasAllExpectedDocuments =
+    expectedKeys.length === 0
+      ? availableDocuments.length > 0
+      : expectedKeys.every((key) => availableDocuments.some((document) => document._definitionKey === key))
+  const approvedCount = availableDocuments.filter((document) => document._normalizedStatus === 'approved').length
+  const rejectedCount = availableDocuments.filter((document) => document._normalizedStatus === 'rejected').length
+
+  if (!availableDocuments.length || !hasAllExpectedDocuments) {
+    return {
+      complete: false,
+      responseStatus: 'pending',
+    }
+  }
+
+  if (rejectedCount > 0) {
+    return {
+      complete: true,
+      responseStatus: 'rejected',
+    }
+  }
+
+  if (approvedCount === availableDocuments.length) {
+    return {
+      complete: true,
+      responseStatus: 'approved',
+    }
+  }
+
+  return {
+    complete: true,
+    responseStatus: 'pending',
+  }
+}
+
+function buildBackendRequirementMap(provider = {}) {
   const backendRequirements = Array.isArray(provider.validation_requirements)
     ? provider.validation_requirements
     : Array.isArray(provider.validationRequirements)
       ? provider.validationRequirements
-      : null
+      : []
 
-  if (backendRequirements?.length) {
-    return backendRequirements.map((item) => ({
-      key: item.key || item.id || item.label,
-      label: item.label || item.key || 'Requisito',
-      complete: Boolean(item.complete),
-      message: item.message || item.reason || '',
-      responseStatus: item.response_status || item.responseStatus || 'pending',
-      adminNote: item.admin_note || item.adminNote || '',
-      respondedAt: item.responded_at || item.respondedAt || '',
-      actorId: item.actor_id || item.actorId || null,
-      actorName: item.actor_name || item.actorName || '',
-      actorType: item.actor_type || item.actorType || '',
-    }))
+  return new Map(
+    backendRequirements.map((item, index) => [
+      item.key || item.id || item.label || `backend-${index + 1}`,
+      item,
+    ]),
+  )
+}
+
+function buildRequirementRecord(base, backendItem = {}, overrides = {}) {
+  return {
+    key: base.key,
+    label: backendItem.label || base.label,
+    complete: overrides.complete ?? normalizeRequirementComplete(backendItem),
+    message: backendItem.message || backendItem.reason || base.message,
+    responseStatus:
+      overrides.responseStatus ||
+      backendItem.response_status ||
+      backendItem.responseStatus ||
+      'pending',
+    adminNote:
+      overrides.adminNote ??
+      backendItem.admin_note ??
+      backendItem.adminNote ??
+      '',
+    respondedAt:
+      overrides.respondedAt ??
+      backendItem.responded_at ??
+      backendItem.respondedAt ??
+      '',
+    actorId: backendItem.actor_id || backendItem.actorId || null,
+    actorName:
+      overrides.actorName ??
+      backendItem.actor_name ??
+      backendItem.actorName ??
+      '',
+    actorType: backendItem.actor_type || backendItem.actorType || '',
+    sourceDocuments: Array.isArray(overrides.sourceDocuments) ? overrides.sourceDocuments : [],
   }
+}
 
+function resolveValidationRequirements(provider = {}, metrics = {}) {
+  const backendRequirementMap = buildBackendRequirementMap(provider)
+  const documents = normalizeReviewDocuments(provider)
   const aircraft = toNumber(metrics.aircraft || provider.aircraft_count || 0)
   const active = toNumber(metrics.active || provider.active_aircraft_count || 0)
   const hasCompanyData = Boolean(
@@ -109,66 +253,117 @@ function resolveValidationRequirements(provider = {}, metrics = {}) {
       provider.razon_social ||
       provider.company_name ||
       provider.commercial_name ||
-      provider.nombre_empresa,
+      provider.nombre_empresa
   )
   const hasContact = Boolean(provider.company_phone || provider.phone) && Boolean(provider.company_email || provider.email)
   const hasFiscal = Boolean(provider.rfc)
-  const satApproved = ['approved', 'aprobado', 'validated', 'validado'].includes(
-    resolveSatValidationStatus(provider),
-  )
   const representative = resolveProviderRepresentativeName(provider)
   const base = provider.base_airport || provider.base || provider.location || ''
+  const satDocuments = documents.filter((document) => document._definitionKey === 'sat_certificate')
+  const legalDocuments = documents.filter(
+    (document) =>
+      LEGAL_REQUIREMENT_DOCUMENT_KEYS.includes(document._definitionKey) ||
+      (document._sectionKey === 'legal' && document._definitionKey !== 'sat_certificate'),
+  )
+  const satDocumentState = resolveDocumentRequirementState(satDocuments, { expectedKeys: ['sat_certificate'] })
+  const legalDocumentState = resolveDocumentRequirementState(legalDocuments, { expectedKeys: LEGAL_REQUIREMENT_DOCUMENT_KEYS })
+  const latestSatDocument = latestReviewedDocument(satDocuments)
+  const latestLegalDocument = latestReviewedDocument(legalDocuments)
+  const satFallbackStatus = normalizeRequirementDecisionStatus(resolveSatValidationStatus(provider))
+  const satRequirementStatus =
+    satDocuments.length > 0 || satDocumentState.complete
+      ? satDocumentState.responseStatus
+      : satFallbackStatus
+  const satRequirementComplete = satRequirementStatus === 'approved'
+  const legalRequirementComplete = legalDocumentState.responseStatus === 'approved'
+  const providerAircraft = Array.isArray(provider.aircraft) ? provider.aircraft : []
+  const approvedAircraftCount = providerAircraft.filter((item) =>
+    APPROVED_AIRCRAFT_STATUSES.includes(normalizeToken(item?.status)),
+  ).length
+  const aircraftRequirementComplete = approvedAircraftCount > 0 || active > 0
 
-  return [
-    {
-      key: 'company_identity',
-      label: 'Datos de empresa completos',
-      complete: hasCompanyData,
-      message: 'Faltan datos corporativos del operador.',
-    },
-    {
-      key: 'rfc_valid',
-      label: 'RFC valido',
-      complete: hasFiscal,
-      message: 'Falta RFC valido del operador.',
-    },
-    {
-      key: 'sat_validation',
-      label: 'Validacion SAT',
-      complete: satApproved,
-      message: 'La validacion SAT sigue pendiente.',
-    },
-    {
-      key: 'legal_documents_approved',
-      label: 'Documentacion legal aprobada',
-      complete: areLegalDocumentsApproved(provider),
-      message: 'La documentacion legal aun no esta aprobada.',
-    },
-    {
-      key: 'base_operativa',
-      label: 'Base operativa definida',
-      complete: Boolean(base),
-      message: 'Falta base operativa definida.',
-    },
-    {
-      key: 'aircraft_active',
-      label: 'Aeronave activa o aprobada',
-      complete: active > 0 || aircraft > 0,
-      message: 'Se requiere al menos una aeronave activa o aprobada.',
-    },
-    {
-      key: 'contact_complete',
-      label: 'Datos de contacto completos',
-      complete: hasContact,
-      message: 'Faltan datos de contacto completos.',
-    },
-    {
-      key: 'legal_representative_complete',
-      label: 'Representante legal completo',
-      complete: representative !== 'Sin representante',
-      message: 'Falta representante legal completo.',
-    },
+  const requirements = [
+    buildRequirementRecord(
+      { key: 'company_identity', label: 'Datos de empresa completos', message: 'Faltan datos corporativos del operador.' },
+      backendRequirementMap.get('company_identity'),
+      {
+        complete: hasCompanyData,
+      },
+    ),
+    buildRequirementRecord(
+      { key: 'rfc_valid', label: 'RFC valido', message: 'Falta RFC valido del operador.' },
+      backendRequirementMap.get('rfc_valid'),
+      {
+        complete: hasFiscal,
+      },
+    ),
+    buildRequirementRecord(
+      { key: 'sat_validation', label: 'Validacion SAT', message: 'La validacion SAT sigue pendiente.' },
+      backendRequirementMap.get('sat_validation'),
+      {
+        complete: satRequirementComplete,
+        responseStatus: satRequirementStatus,
+        respondedAt: latestSatDocument?._reviewedAt,
+        actorName: latestSatDocument?._reviewedBy,
+        adminNote: latestSatDocument?._rejectionReason,
+        sourceDocuments: satDocuments.map((document) => document.id || document._index),
+      },
+    ),
+    buildRequirementRecord(
+      { key: 'legal_documents_approved', label: 'Documentacion legal aprobada', message: 'La documentacion legal aun no esta aprobada.' },
+      backendRequirementMap.get('legal_documents_approved'),
+      {
+        complete: legalRequirementComplete,
+        responseStatus: legalDocumentState.responseStatus,
+        respondedAt: latestLegalDocument?._reviewedAt,
+        actorName: latestLegalDocument?._reviewedBy,
+        adminNote:
+          latestLegalDocument?._rejectionReason ||
+          legalDocuments.find((document) => document._normalizedStatus === 'rejected')?._rejectionReason,
+        sourceDocuments: legalDocuments.map((document) => document.id || document._index),
+      },
+    ),
+    buildRequirementRecord(
+      { key: 'base_operativa', label: 'Base operativa definida', message: 'Falta base operativa definida.' },
+      backendRequirementMap.get('base_operativa'),
+      {
+        complete: Boolean(base),
+      },
+    ),
+    buildRequirementRecord(
+      { key: 'aircraft_active', label: 'Aeronave activa o aprobada', message: 'Se requiere al menos una aeronave activa o aprobada.' },
+      backendRequirementMap.get('aircraft_active'),
+      {
+        complete: aircraftRequirementComplete,
+      },
+    ),
+    buildRequirementRecord(
+      { key: 'contact_complete', label: 'Datos de contacto completos', message: 'Faltan datos de contacto completos.' },
+      backendRequirementMap.get('contact_complete'),
+      {
+        complete: hasContact,
+      },
+    ),
+    buildRequirementRecord(
+      { key: 'legal_representative_complete', label: 'Representante legal completo', message: 'Falta representante legal completo.' },
+      backendRequirementMap.get('legal_representative_complete'),
+      {
+        complete: representative !== 'Sin representante',
+      },
+    ),
   ]
+
+  backendRequirementMap.forEach((item, key) => {
+    if (requirements.some((requirement) => requirement.key === key)) return
+    requirements.push(
+      buildRequirementRecord(
+        { key, label: item.label || item.key || 'Requisito', message: item.message || item.reason || '' },
+        item,
+      ),
+    )
+  })
+
+  return requirements
 }
 
 export function resolveProviderCompanyName(provider = {}) {
@@ -276,65 +471,87 @@ export function resolveProviderStatusMeta(provider = {}) {
 }
 
 export function buildProviderReviewFlow(provider = {}, metrics = {}) {
-  const statusMeta = resolveProviderStatusMeta(provider)
+  const baseStatusMeta = resolveProviderStatusMeta(provider)
   const documentCount = countDocuments(provider)
   const aircraft = toNumber(metrics.aircraft || provider.aircraft_count || 0)
   const active = toNumber(metrics.active || provider.active_aircraft_count || 0)
   const pending = toNumber(metrics.pending || provider.pending_aircraft_count || 0)
   const trial = toNumber(metrics.trial || provider.trial_aircraft_count || 0)
-  const hasCompanyData = Boolean(
-    provider.legal_name ||
-      provider.razon_social ||
-      provider.company_name ||
-      provider.commercial_name ||
-      provider.nombre_empresa,
-  )
-  const hasContact = Boolean(provider.company_phone || provider.phone || provider.company_email || provider.email)
-  const hasFiscal = Boolean(provider.rfc)
   const representative = resolveProviderRepresentativeName(provider)
   const base = provider.base_airport || provider.base || provider.location || 'Base pendiente'
-  const satStatus = resolveSatValidationStatus(provider)
   const validationRequirements = resolveValidationRequirements(provider, metrics)
-  const missingValidationItems = validationRequirements.filter((item) => !item.complete)
   const approvedValidationItems = validationRequirements.filter((item) => requirementResponseApproved(item))
+  const rejectedValidationItems = validationRequirements.filter((item) => requirementResponseRejected(item))
+  const pendingValidationItems = validationRequirements.filter(
+    (item) => !requirementResponseApproved(item) && !requirementResponseRejected(item),
+  )
+  const missingValidationItems = validationRequirements.filter((item) => !requirementResponseApproved(item))
   const allRequirementsApproved =
     validationRequirements.length > 0 && validationRequirements.every((item) => item.complete && requirementResponseApproved(item))
-  const explicitCanValidate = provider.can_validate ?? provider.canValidate
-  const canValidate = allRequirementsApproved && (explicitCanValidate == null ? true : Boolean(explicitCanValidate))
-
-  const checklist = [
-    { id: 'company', label: 'Datos empresa', complete: hasCompanyData },
-    { id: 'contact', label: 'Contacto', complete: hasContact },
-    { id: 'tax', label: 'RFC', complete: hasFiscal },
-    { id: 'documents', label: 'Documentos', complete: documentCount > 0, pending: documentCount === 0 },
-    { id: 'base', label: 'Base operativa', complete: base !== 'Base pendiente', pending: base === 'Base pendiente' },
-    { id: 'representative', label: 'Representante legal', complete: representative !== 'Sin representante', pending: representative === 'Sin representante' },
-    { id: 'aircraft', label: 'Aeronaves', complete: aircraft > 0, pending: aircraft === 0 },
-  ]
+  const explicitCanValidate = normalizeExplicitBoolean(provider.can_validate ?? provider.canValidate)
+  const canValidate = allRequirementsApproved && (explicitCanValidate == null ? true : explicitCanValidate === true)
+  const checklist = validationRequirements.map((item) => ({
+    id: item.key,
+    label: item.label,
+    complete: requirementResponseApproved(item),
+    pending: !requirementResponseApproved(item) && !requirementResponseRejected(item) && item.complete,
+    rejected: requirementResponseRejected(item),
+  }))
 
   const completed = checklist.filter((step) => step.complete).length
   const progress = {
     completed,
     total: checklist.length,
-    percent: Math.round((completed / checklist.length) * 100),
+    percent: checklist.length ? Math.round((completed / checklist.length) * 100) : 0,
   }
+  const statusMeta =
+    baseStatusMeta.key === 'draft' && allRequirementsApproved
+      ? {
+          key: 'pending',
+          label: 'Listo para validar',
+          tone: 'info',
+          headline: 'Expediente listo para validacion administrativa',
+        }
+      : baseStatusMeta
 
   const summary = [
     { label: 'Estado empresa', value: statusMeta.label, tone: statusMeta.tone },
     {
-      label: 'Validacion SAT',
-      value: ['approved', 'aprobado', 'validated', 'validado'].includes(satStatus) ? 'Verificada' : 'Pendiente',
-      tone: ['approved', 'aprobado', 'validated', 'validado'].includes(satStatus) ? 'success' : 'warning',
+      label: 'Expediente',
+      value: allRequirementsApproved ? 'Completo' : rejectedValidationItems.length ? 'Con observaciones' : 'Incompleto',
+      tone: allRequirementsApproved ? 'success' : rejectedValidationItems.length ? 'danger' : 'warning',
     },
     {
       label: 'Documentacion legal',
-      value: documentCount ? (areLegalDocumentsApproved(provider) ? `${documentCount} documento(s)` : 'Pendiente de dictamen') : 'Sin documentos',
-      tone: areLegalDocumentsApproved(provider) ? 'success' : documentCount ? 'warning' : 'warning',
+      value: (() => {
+        const legalRequirement = validationRequirements.find((item) => item.key === 'legal_documents_approved')
+        if (!legalRequirement) return documentCount ? `${documentCount} documento(s)` : 'Sin documentos'
+        if (requirementResponseApproved(legalRequirement)) return 'Aprobada'
+        if (requirementResponseRejected(legalRequirement)) return 'Rechazada'
+        return legalRequirement.complete ? 'Pendiente de decision' : 'Incompleta'
+      })(),
+      tone: (() => {
+        const legalRequirement = validationRequirements.find((item) => item.key === 'legal_documents_approved')
+        if (!legalRequirement) return documentCount ? 'warning' : 'warning'
+        if (requirementResponseApproved(legalRequirement)) return 'success'
+        if (requirementResponseRejected(legalRequirement)) return 'danger'
+        return legalRequirement.complete ? 'warning' : 'warning'
+      })(),
     },
     {
       label: 'Requisitos admin aprobados',
       value: `${approvedValidationItems.length}/${validationRequirements.length}`,
       tone: allRequirementsApproved ? 'success' : approvedValidationItems.length ? 'warning' : 'neutral',
+    },
+    {
+      label: 'Requisitos pendientes',
+      value: `${pendingValidationItems.length}`,
+      tone: pendingValidationItems.length ? 'warning' : 'success',
+    },
+    {
+      label: 'Requisitos rechazados',
+      value: `${rejectedValidationItems.length}`,
+      tone: rejectedValidationItems.length ? 'danger' : 'neutral',
     },
     {
       label: 'Aeronaves activas',
@@ -353,10 +570,19 @@ export function buildProviderReviewFlow(provider = {}, metrics = {}) {
     },
   ]
 
-  const alerts = missingValidationItems.map((item) => ({
-    tone: 'warning',
-    title: item.message || `${item.label} pendiente`,
-  }))
+  const alerts = [
+    ...rejectedValidationItems.map((item) => ({
+      tone: 'danger',
+      title: item.adminNote || item.message || `${item.label} rechazado`,
+    })),
+    ...pendingValidationItems.map((item) => ({
+      tone: item.complete ? 'warning' : 'info',
+      title:
+        item.complete
+          ? `${item.label} pendiente de decision administrativa.`
+          : item.message || `${item.label} pendiente`,
+    })),
+  ]
 
   if (statusMeta.key === 'changes_required') {
     alerts.unshift({
