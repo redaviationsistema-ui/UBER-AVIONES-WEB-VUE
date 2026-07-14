@@ -1025,13 +1025,7 @@
                     <small>{{
                       Number(billingStatusRefreshAircraftId) === Number(item.id)
                         ? 'Validando la respuesta de Stripe y sincronizando la activacion...'
-                        : getAircraftBillingStatusMeta(item).action === 'blocked'
-                          ? getAircraftBillingStatusMeta(item).detail
-                          : item.subscriptionEndsAt
-                            ? `Proximo pago: ${formatDateTimeRange(item.subscriptionEndsAt).slice(0, 10)}`
-                            : item.lastPaymentAt
-                              ? `Ultimo pago: ${formatDateTimeRange(item.lastPaymentAt).slice(0, 10)}`
-                              : 'Sin pagos confirmados.'
+                        : getAircraftBillingStatusMeta(item).detail
                     }}</small>
                   </div>
 
@@ -1074,7 +1068,6 @@
                   <button type="button" @click="archiveAircraft(item.id); closeAircraftCatalogMenu()">Pausar visibilidad</button>
                   <button type="button" @click="openAircraftWizardAtStep(item, 4, 'edit')">Subir documentos</button>
                   <button type="button" @click="focusAircraftBilling(item.id); openAircraftBillingPayments(); closeAircraftCatalogMenu()">Ver historial</button>
-                  <button type="button" @click="duplicateAircraft(item)">Duplicar</button>
                   <button type="button" @click="archiveAircraft(item.id); closeAircraftCatalogMenu()">Desactivar</button>
                 </div>
               </div>
@@ -1527,16 +1520,60 @@
               </div>
 
               <div class="document-library-header">
-                <div>
-                  <span class="mini-label">Contenido documental</span>
-                  <strong>Biblioteca guardada de la aeronave</strong>
+                <div class="document-library-heading">
+                  <span class="mini-label">CONTENIDO DOCUMENTAL</span>
+                  <strong>Biblioteca de la aeronave</strong>
+                  <p class="muted">Consulta, organiza y administra los documentos registrados para esta aeronave.</p>
                 </div>
-                <span class="badge">{{ selectedDocumentAircraft?.documents?.length || 0 }} archivo(s)</span>
+                <div class="document-library-summary">
+                  <span class="badge">{{ documentLibrarySummary.total }} documentos</span>
+                  <span class="badge" data-tone="success">{{ documentLibrarySummary.valid }} vigentes</span>
+                  <span class="badge" data-tone="warning">{{ documentLibrarySummary.pending }} pendientes</span>
+                  <span class="badge" data-tone="danger">{{ documentLibrarySummary.expired }} vencido<span v-if="documentLibrarySummary.expired !== 1">s</span></span>
+                </div>
               </div>
 
-              <div v-if="selectedDocumentAircraft?.documents?.length" class="stored-documents-list document-library">
+              <div v-if="selectedDocumentAircraft?.documents?.length" class="document-library-toolbar">
+                <label class="document-library-search">
+                  <span class="mini-label">Buscar</span>
+                  <input v-model="documentLibrarySearch" type="search" placeholder="Buscar documento..." />
+                </label>
+
+                <label>
+                  <span class="mini-label">Categoria</span>
+                  <select v-model="documentLibraryCategory">
+                    <option v-for="option in documentLibraryCategoryOptions" :key="option.value" :value="option.value">
+                      {{ option.label }}
+                    </option>
+                  </select>
+                </label>
+
+                <label>
+                  <span class="mini-label">Estado</span>
+                  <select v-model="documentLibraryState">
+                    <option v-for="option in documentLibraryStateOptions" :key="option.value" :value="option.value">
+                      {{ option.label }}
+                    </option>
+                  </select>
+                </label>
+
+                <label>
+                  <span class="mini-label">Orden</span>
+                  <select v-model="documentLibrarySort">
+                    <option v-for="option in documentLibrarySortOptions" :key="option.value" :value="option.value">
+                      {{ option.label }}
+                    </option>
+                  </select>
+                </label>
+
+                <button type="button" class="ghost-button" @click="clearDocumentLibraryFilters">
+                  Limpiar filtros
+                </button>
+              </div>
+
+              <div v-if="filteredStoredAircraftDocuments.length" class="stored-documents-list document-library">
                 <article
-                  v-for="document in selectedDocumentAircraft.documents"
+                  v-for="document in filteredStoredAircraftDocuments"
                   :key="document.id"
                   class="stored-document-card"
                   role="button"
@@ -1544,34 +1581,63 @@
                   @click="openStoredDocumentPreview(document)"
                   @keydown.enter.prevent="openStoredDocumentPreview(document)"
                 >
-                  <div class="card-top">
-                    <div>
+                  <div class="stored-document-visual" :data-kind="document.kind">
+                    <span>{{ document.kindIcon }}</span>
+                  </div>
+
+                  <div class="stored-document-main">
+                    <div class="stored-document-copy">
                       <strong>{{ document.name }}</strong>
-                      <p class="muted">
-                        {{ document.type }} · {{ formatDocumentExpiry(document.expiresAt) }}
-                      </p>
+                      <p class="stored-document-type">{{ document.typeLabel }}</p>
+                      <p class="muted">{{ document.uploadedAtLabel }}</p>
                     </div>
-                    <span class="badge">{{ document.state }}</span>
+
+                    <div class="stored-document-tags">
+                      <span class="document-chip">{{ document.categoryLabel }}</span>
+                      <span class="document-chip">{{ document.fileExtension }}</span>
+                      <span class="document-chip">{{ document.expiryLabel }}</span>
+                    </div>
                   </div>
-                  <div class="fleet-inline-metrics">
-                    <span>{{ document.typeLabel }}</span>
-                    <span>{{ document.fileType || (getStoredDocumentKind(document) === 'image' ? 'Imagen' : 'PDF') }}</span>
-                    <span>{{ document.expiresAt ? 'Con vencimiento' : 'Sin vencimiento' }}</span>
+
+                  <div class="stored-document-side">
+                    <span class="document-status-badge" :data-tone="document.stateMeta.tone">
+                      <span class="document-status-badge__dot" :data-tone="document.stateMeta.dot"></span>
+                      {{ document.stateMeta.label }}
+                    </span>
+
+                    <div class="inline-actions stored-document-actions">
+                      <button type="button" class="primary-action" @click.stop="openStoredDocumentPreview(document)">
+                        Ver
+                      </button>
+                      <button type="button" class="ghost-button" @click.stop="downloadDocumentFile(document)">
+                        Descargar
+                      </button>
+                      <button type="button" class="card-menu-button" @click.stop="toggleDocumentLibraryMenu(document.id)">
+                        ⋮
+                      </button>
+                    </div>
+
+                    <div v-if="documentLibraryMenuId === document.id" class="fleet-card-menu document-actions-menu" @click.stop>
+                      <button type="button" disabled @click="showDocumentLibraryComingSoon('Editar informacion', document)">
+                        Editar informacion
+                      </button>
+                      <button type="button" disabled @click="showDocumentLibraryComingSoon('Reemplazar archivo', document)">
+                        Reemplazar archivo
+                      </button>
+                      <button
+                        type="button"
+                        class="danger-option"
+                        @click.stop="removeStoredAircraftDocument(selectedDocumentAircraft?.id, document.id)"
+                      >
+                        Eliminar
+                      </button>
+                    </div>
                   </div>
-                  <div class="inline-actions">
-                    <button
-                      type="button"
-                      class="ghost-button danger-button"
-                      @click.stop="removeStoredAircraftDocument(selectedDocumentAircraft?.id, document.id)"
-                    >
-                      Eliminar
-                    </button>
-                  </div>
-                  <a v-if="document.fileUrl" class="admin-text-link" :href="document.fileUrl" target="_blank" rel="noreferrer">
-                    Ver archivo
-                  </a>
                 </article>
               </div>
+              <p v-else-if="selectedDocumentAircraft?.documents?.length" class="empty-state">
+                No hay documentos que coincidan con los filtros actuales.
+              </p>
               <p v-else class="empty-state">
                 Aun no hay documentos guardados para esta aeronave. Cuando subas archivos aqui se iran mostrando en esta biblioteca.
               </p>
@@ -1776,13 +1842,45 @@
         <div v-if="documentPreview.open" class="document-preview-overlay" @click.self="closeDocumentPreview">
           <article class="document-preview-modal">
             <div class="document-preview-head">
-              <div>
+              <div class="document-preview-head__copy">
                 <span class="mini-label">{{ documentPreview.file?.typeLabel }}</span>
                 <h3>{{ documentPreview.file?.name }}</h3>
+                <div class="document-preview-meta">
+                  <span class="document-chip">{{ documentPreview.file?.categoryLabel }}</span>
+                  <span class="document-chip">{{ documentPreview.file?.kindLabel || documentPreview.file?.kind?.toUpperCase() }}</span>
+                  <span class="document-chip">{{ documentPreview.file?.expiryLabel }}</span>
+                </div>
               </div>
-              <button type="button" class="ghost-button" @click="closeDocumentPreview">Cerrar</button>
+              <div class="document-preview-head__actions">
+                <button type="button" class="ghost-button" @click="downloadDocumentFile(documentPreview.file)">Descargar</button>
+                <button type="button" class="ghost-button" @click="closeDocumentPreview">Cerrar</button>
+              </div>
             </div>
 
+            <div class="document-preview-layout">
+              <aside class="document-preview-sidebar">
+                <div>
+                  <span class="mini-label">Estado</span>
+                  <span class="document-status-badge" :data-tone="documentPreview.file?.stateMeta?.tone || 'neutral'">
+                    <span class="document-status-badge__dot" :data-tone="documentPreview.file?.stateMeta?.dot || 'neutral'"></span>
+                    {{ documentPreview.file?.stateMeta?.label || 'Sin estado' }}
+                  </span>
+                </div>
+                <div>
+                  <span class="mini-label">Categoria</span>
+                  <strong>{{ documentPreview.file?.categoryLabel || 'Otros' }}</strong>
+                </div>
+                <div>
+                  <span class="mini-label">Fecha de carga</span>
+                  <strong>{{ documentPreview.file?.uploadedAtLabel || 'Fecha no disponible' }}</strong>
+                </div>
+                <div>
+                  <span class="mini-label">Vencimiento</span>
+                  <strong>{{ documentPreview.file?.expiryLabel || 'Sin vencimiento' }}</strong>
+                </div>
+              </aside>
+
+              <div v-if="documentPreview.canPreview" class="document-preview-canvas">
             <img
               v-if="documentPreview.file?.kind === 'image'"
               :src="documentPreview.url"
@@ -1795,6 +1893,19 @@
               class="document-preview-frame"
               title="Vista previa PDF"
             ></iframe>
+              </div>
+
+              <div v-else class="document-preview-fallback">
+                <div class="document-preview-fallback__icon">{{ documentPreview.file?.kindIcon || 'FILE' }}</div>
+                <strong>Vista previa no disponible para este formato</strong>
+                <p class="muted">
+                  Puedes descargar el archivo para revisarlo en tu equipo.
+                </p>
+                <button type="button" class="primary-action" @click="downloadDocumentFile(documentPreview.file)">
+                  Descargar archivo
+                </button>
+              </div>
+            </div>
           </article>
         </div>
       </div>
@@ -1886,9 +1997,10 @@
             <button
               type="button"
               class="primary-action pricing-save-button"
+              :disabled="savingPricingAircraftId === row.id"
               @click="savePricing(row.id)"
             >
-              Guardar
+              {{ savingPricingAircraftId === row.id ? 'Guardando...' : 'Guardar' }}
             </button>
           </div>
         </div>
@@ -4098,12 +4210,19 @@
               <div class="inline-actions">
                 <button type="button" class="ghost-button" @click="focusAircraftBilling(payment.aircraftId)">Ver</button>
                 <button
-                  v-if="payment.canRenewNow"
+                  v-if="payment.action === 'sync' || payment.canRenewNow"
                   type="button"
                   class="primary-action"
-                  @click="activateAircraftBilling(aircraft.find((item) => Number(item.id) === Number(payment.aircraftId)))"
+                  :disabled="isAircraftBillingActionPending(payment.aircraftId)"
+                  @click="runAircraftBillingPrimaryAction(aircraft.find((item) => Number(item.id) === Number(payment.aircraftId)))"
                 >
-                  {{ payment.action === 'activate' ? 'Pagar' : 'Renovar' }}
+                  {{
+                    payment.action === 'sync'
+                      ? 'Sincronizar'
+                      : payment.action === 'activate'
+                        ? 'Pagar'
+                        : 'Renovar'
+                  }}
                 </button>
               </div>
             </div>
@@ -4178,16 +4297,24 @@
                   Ver historial
                 </button>
                 <button
-                  v-if="payment.action === 'activate' || payment.canRenewNow"
+                  v-if="payment.action === 'sync' || payment.action === 'activate' || payment.canRenewNow"
                   type="button"
                   class="primary-action"
-                  @click="activateAircraftBilling(aircraft.find((item) => Number(item.id) === Number(payment.aircraftId)))"
+                  :disabled="isAircraftBillingActionPending(payment.aircraftId)"
+                  @click="runAircraftBillingPrimaryAction(aircraft.find((item) => Number(item.id) === Number(payment.aircraftId)))"
                 >
-                  {{ payment.action === 'activate' ? 'Pagar y activar' : 'Renovar antes de vencer' }}
+                  {{
+                    payment.action === 'sync'
+                      ? 'Sincronizar pago'
+                      : payment.action === 'activate'
+                        ? 'Pagar y activar'
+                        : 'Renovar antes de vencer'
+                  }}
                 </button>
                 <button
                   type="button"
                   class="ghost-button"
+                  :disabled="isAircraftBillingActionPending(payment.aircraftId)"
                   @click="refreshAircraftBillingStatus(payment.aircraftId, { reloadAircraftList: true, reloadPayments: true })"
                 >
                   Actualizar estado

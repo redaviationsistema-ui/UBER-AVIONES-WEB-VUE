@@ -22,6 +22,23 @@ const StartMembershipView = () => import('../views/StartMembershipView.vue')
 const BusinessRegisterView = () => import('../views/BusinessRegisterView.vue')
 const BusinessContactView = () => import('../views/BusinessContactView.vue')
 const LanguageView = () => import('../views/LanguageView.vue')
+const AccessDeniedView = () => import('../views/AccessDeniedView.vue')
+
+const PUBLIC_ACCESS = 'public'
+const GUEST_ACCESS = 'guest'
+const AUTHENTICATED_ACCESS = 'authenticated'
+
+function buildAuthenticatedMeta(role, extra = {}) {
+  const normalizedRole = normalizeAuthRole(role)
+
+  return {
+    access: AUTHENTICATED_ACCESS,
+    role,
+    requiresAuth: true,
+    ...(normalizedRole === 'admin' ? { requiresAdmin: true } : {}),
+    ...extra,
+  }
+}
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -31,42 +48,43 @@ const router = createRouter({
       path: '/',
       name: 'home',
       component: HomeView,
-      meta: { redirectAuthenticated: true },
+      meta: { access: PUBLIC_ACCESS, redirectAuthenticated: true },
     },
     {
       path: '/vuelos',
       name: 'vuelos',
       redirect: '/renta-aeronaves',
+      meta: { access: PUBLIC_ACCESS },
     },
     {
       path: '/servicios',
       name: 'servicios',
       component: ServicesView,
-      meta: { redirectAuthenticated: true },
+      meta: { access: PUBLIC_ACCESS, redirectAuthenticated: true },
     },
     {
       path: '/plataforma',
       name: 'plataforma',
       component: PlatformView,
-      meta: { redirectAuthenticated: true },
+      meta: { access: PUBLIC_ACCESS, redirectAuthenticated: true },
     },
     {
       path: '/membresias',
       name: 'membresias',
       component: MembershipsView,
-      meta: { redirectAuthenticated: true },
+      meta: { access: PUBLIC_ACCESS, redirectAuthenticated: true },
     },
     {
       path: '/cobertura',
       name: 'cobertura',
       component: CoverageView,
-      meta: { redirectAuthenticated: true },
+      meta: { access: PUBLIC_ACCESS, redirectAuthenticated: true },
     },
     {
       path: '/ayuda',
       name: 'ayuda',
       component: HelpView,
-      meta: { redirectAuthenticated: true },
+      meta: { access: PUBLIC_ACCESS, redirectAuthenticated: true },
     },
     {
       path: '/acceso',
@@ -75,26 +93,27 @@ const router = createRouter({
         name: 'login',
         query: to.query,
       }),
+      meta: { access: PUBLIC_ACCESS },
     },
     {
       path: '/login',
       alias: ['/login-cliente'],
       name: 'login-cliente',
       component: ClientLoginView,
-      meta: { guestOnly: true, hideTopbar: true },
+      meta: { access: GUEST_ACCESS, hideTopbar: true },
     },
     {
       path: '/login-operacion',
       name: 'login',
       component: LoginView,
-      meta: { guestOnly: true, hideTopbar: true },
+      meta: { access: GUEST_ACCESS, hideTopbar: true },
     },
     {
       path: '/registro',
       alias: ['/register'],
       name: 'registro',
       component: RegisterView,
-      meta: { guestOnly: true },
+      meta: { access: GUEST_ACCESS },
     },
 
     {
@@ -102,88 +121,95 @@ const router = createRouter({
       alias: ['/cliente/contrato/resultado', '/client/contract', '/client/contract/result'],
       name: 'contract-result',
       component: ContractResultView,
-      meta: { requiresAuth: true, role: 'client', hideTopbar: true },
+      meta: buildAuthenticatedMeta('client', { hideTopbar: true }),
     },
     {
       path: '/cliente/:section/:id/:subsection',
       name: 'cliente-subdetalle',
       component: RoleView,
-      meta: { requiresAuth: true, role: 'client', hideTopbar: true },
+      meta: buildAuthenticatedMeta('client', { hideTopbar: true }),
     },
     {
       path: '/cliente/:section/:id',
       name: 'cliente-detalle',
       component: RoleView,
-      meta: { requiresAuth: true, role: 'client', hideTopbar: true },
+      meta: buildAuthenticatedMeta('client', { hideTopbar: true }),
     },
     {
       path: '/cliente/:section?',
       alias: ['/client/:section?'],
       name: 'cliente',
       component: RoleView,
-      meta: { requiresAuth: true, role: 'client', hideTopbar: true },
+      meta: buildAuthenticatedMeta('client', { hideTopbar: true }),
     },
     {
       path: '/operador/:section?',
       alias: ['/operator/:section?'],
       name: 'operador',
       component: RoleView,
-      meta: { requiresAuth: true, role: 'operator', hideTopbar: true },
+      meta: buildAuthenticatedMeta('operator', { hideTopbar: true }),
     },
     {
       path: '/sobrecargo/disponibilidad',
       alias: ['/crew/disponibilidad'],
       name: 'sobrecargo-disponibilidad',
       component: DisponibilidadSobrecargoView,
-      meta: { requiresAuth: true, role: 'crew', hideTopbar: true },
+      meta: buildAuthenticatedMeta('crew', { hideTopbar: true }),
     },
     {
       path: '/crew/:section?',
       alias: ['/sobrecargo/:section?'],
       name: 'crew',
       component: RoleView,
-      meta: { requiresAuth: true, role: 'crew', hideTopbar: true },
+      meta: buildAuthenticatedMeta('crew', { hideTopbar: true }),
     },
     {
       path: '/admin/sobrecargos/disponibilidad',
       name: 'admin-sobrecargos-disponibilidad',
       component: DisponibilidadSobrecargosAdminView,
-      meta: { requiresAuth: true, role: 'admin', hideTopbar: true },
+      meta: buildAuthenticatedMeta('admin', { hideTopbar: true }),
     },
     {
       path: '/admin/:section?',
       name: 'admin',
       component: RoleView,
-      meta: { requiresAuth: true, role: 'admin', hideTopbar: true },
+      meta: buildAuthenticatedMeta('admin', { hideTopbar: true }),
+    },
+    {
+      path: '/acceso-denegado',
+      name: 'access-denied',
+      component: AccessDeniedView,
+      meta: { access: PUBLIC_ACCESS, hideTopbar: true },
     },
     {
       path: '/renta-aeronaves',
       name: 'renta-aeronaves',
       component: AircraftRentView,
-      meta: { hideTopbar: true },
+      meta: { access: PUBLIC_ACCESS, hideTopbar: true },
     },
     {
       path: '/membresias/comenzar',
       name: 'membresias-comenzar',
       component: StartMembershipView,
+      meta: { access: PUBLIC_ACCESS },
     },
     {
       path: '/membresias/registro',
       name: 'membresias-registro',
       component: BusinessRegisterView,
-      meta: { hideTopbar: true },
+      meta: { access: PUBLIC_ACCESS, hideTopbar: true },
     },
     {
       path: '/membresias/contacto',
       name: 'membresias-contacto',
       component: BusinessContactView,
-      meta: { hideTopbar: true },
+      meta: { access: PUBLIC_ACCESS, hideTopbar: true },
     },
     {
       path: '/idioma',
       name: 'idioma',
       component: LanguageView,
-      meta: { hideTopbar: true },
+      meta: { access: PUBLIC_ACCESS, hideTopbar: true },
     },
 
     {
@@ -203,18 +229,35 @@ const router = createRouter({
 
 router.beforeEach(async (to) => {
   const auth = useAuthStore(pinia)
+  const accessMode = String(to.meta.access || '').trim()
+  const requiresAdmin =
+    to.meta.requiresAdmin === true || normalizeAuthRole(to.meta.role) === 'admin'
   const shouldResolveAuthBeforeEnter =
-    to.meta.requiresAuth || to.meta.guestOnly || to.meta.redirectAuthenticated
+    accessMode === AUTHENTICATED_ACCESS ||
+    accessMode === GUEST_ACCESS ||
+    Boolean(to.meta.redirectAuthenticated)
+
+  if (![PUBLIC_ACCESS, GUEST_ACCESS, AUTHENTICATED_ACCESS].includes(accessMode)) {
+    return { name: 'access-denied', query: { reason: 'route-policy' } }
+  }
 
   if (!auth.initialized) {
     if (shouldResolveAuthBeforeEnter) {
       await auth.initialize()
     } else {
-      auth.initialize()
+      void auth.initialize()
     }
   }
 
-  if (to.meta.guestOnly && auth.isAuthenticated) {
+  if (shouldResolveAuthBeforeEnter && auth.token && !auth.loaded) {
+    try {
+      await auth.loadCurrentUser({ preferCache: false })
+    } catch {
+      // Dejamos que las validaciones siguientes decidan con el mejor estado local disponible.
+    }
+  }
+
+  if (accessMode === GUEST_ACCESS && auth.isAuthenticated) {
     return auth.dashboardPath
   }
 
@@ -222,23 +265,30 @@ router.beforeEach(async (to) => {
     return auth.dashboardPath
   }
 
-  if (to.meta.requiresAuth && !auth.isAuthenticated) {
+  if (accessMode === AUTHENTICATED_ACCESS && !auth.isAuthenticated) {
     if (normalizeAuthRole(to.meta.role) === 'client') {
       return {
         name: 'login-cliente',
-        query: { redirect: to.fullPath },
+        query: { redirect: to.fullPath, session: 'expired' },
       }
     }
 
-    return { name: 'home' }
+    return {
+      name: 'login',
+      query: { redirect: to.fullPath, session: 'expired' },
+    }
   }
 
   if (!to.meta.role || !auth.user) {
     return true
   }
 
+  if (normalizeAuthRole(to.meta.role) === 'admin' && !auth.hasAdminAccess()) {
+    return { name: 'access-denied', query: { reason: 'admin-role-required' } }
+  }
+
   if (!auth.hasRole(to.meta.role)) {
-    return auth.dashboardPath
+    return { name: 'access-denied', query: { reason: 'insufficient-role' } }
   }
 
   return true

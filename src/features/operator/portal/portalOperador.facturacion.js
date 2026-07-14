@@ -9,8 +9,66 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
     formatCurrency,
     formatDateTimeRange,
     providerAircraftPlanAmount,
-    isProviderApproved,
   } = ctx
+
+  const ACTIVE_SUBSCRIPTION_STATUSES = ['active', 'trialing']
+  const PENDING_SUBSCRIPTION_STATUSES = ['pending_payment', 'incomplete']
+  const EXPIRED_SUBSCRIPTION_STATUSES = ['past_due', 'unpaid', 'expired', 'incomplete_expired']
+  const CANCELLED_SUBSCRIPTION_STATUSES = ['cancelled', 'canceled', 'paused']
+  const ACTIVE_BILLING_STATUSES = ['active']
+  const PENDING_BILLING_STATUSES = ['pending_payment', 'payment_pending']
+  const EXPIRED_BILLING_STATUSES = ['past_due', 'expired']
+
+  function normalizeStatus(value = '') {
+    return String(value || '')
+      .trim()
+      .toLowerCase()
+  }
+
+  function getOperationalStatus(item = {}) {
+    return normalizeStatus(item.status)
+  }
+
+  function getBillingStatus(item = {}) {
+    return normalizeStatus(item.billingStatus || item.billing_status)
+  }
+
+  function getSubscriptionStatus(item = {}) {
+    return normalizeStatus(item.subscriptionStatus || item.subscription_status)
+  }
+
+  function getSubscriptionEndsAt(item = {}) {
+    return String(item.subscriptionEndsAt || item.subscription_ends_at || item.ends_at || '').trim()
+  }
+
+  function isHiddenOperationalStatus(status = '') {
+    return ['hidden', 'archived'].includes(status)
+  }
+
+  function isUnderReviewOperationalStatus(status = '') {
+    return ['under_review', 'pending_review', 'draft'].includes(status)
+  }
+
+  function formatSubscriptionEndsAtLabel(item = {}) {
+    const rawEndsAt = getSubscriptionEndsAt(item)
+    if (!rawEndsAt) return ''
+
+    const label = formatDateTimeRange(rawEndsAt)
+    return String(label || rawEndsAt).slice(0, 10)
+  }
+
+  function logInconsistentAircraftState(item = {}, reason = '') {
+    if (!import.meta.env?.DEV) return
+
+    console.warn('[portalOperador] Estado de aeronave inconsistente detectado.', {
+      reason,
+      aircraftId: item.id,
+      status: item.status,
+      billing_status: item.billing_status ?? item.billingStatus,
+      subscription_status: item.subscription_status ?? item.subscriptionStatus,
+      subscription_ends_at: item.subscription_ends_at ?? item.subscriptionEndsAt,
+    })
+  }
 
   function getDateDiffInDays(value) {
     if (!value) return null
@@ -59,13 +117,8 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
     }
   }
 
-  function hasAnySignal(signals = [], candidates = []) {
-    return candidates.some((candidate) => signals.includes(candidate))
-  }
-
   function hasExpiredAircraftSubscription(item = {}) {
-    const rawEndsAt = String(item.subscriptionEndsAt || item.subscription_ends_at || item.ends_at || '')
-      .trim()
+    const rawEndsAt = getSubscriptionEndsAt(item)
 
     if (!rawEndsAt) return false
 
@@ -77,6 +130,129 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
     if (Number.isNaN(endsAt.getTime())) return false
 
     return endsAt.getTime() < Date.now()
+  }
+
+  function getAircraftUiState(item = {}) {
+    const operationalStatus = getOperationalStatus(item)
+    const billingStatus = getBillingStatus(item)
+    const subscriptionStatus = getSubscriptionStatus(item)
+    const hasActiveSubscription = ACTIVE_SUBSCRIPTION_STATUSES.includes(subscriptionStatus)
+    const hasPendingSubscription =
+      PENDING_SUBSCRIPTION_STATUSES.includes(subscriptionStatus) ||
+      PENDING_BILLING_STATUSES.includes(billingStatus)
+    const hasExpiredSubscription =
+      EXPIRED_SUBSCRIPTION_STATUSES.includes(subscriptionStatus) ||
+      EXPIRED_BILLING_STATUSES.includes(billingStatus)
+    const hasCancelledSubscription = CANCELLED_SUBSCRIPTION_STATUSES.includes(subscriptionStatus)
+    const hasActiveBilling = ACTIVE_BILLING_STATUSES.includes(billingStatus)
+
+    if (isHiddenOperationalStatus(operationalStatus)) {
+      return {
+        key: 'hidden',
+        label: 'Oculta',
+        tone: 'info',
+        action: 'payments',
+        operationalEnabled: false,
+        reasonMessage: 'Aeronave oculta manualmente.',
+      }
+    }
+
+    if (isUnderReviewOperationalStatus(operationalStatus)) {
+      return {
+        key: 'under_review',
+        label: 'En revision',
+        tone: 'warning',
+        action: 'payments',
+        operationalEnabled: false,
+        reasonMessage: 'Aeronave pendiente de revision administrativa.',
+      }
+    }
+
+    if (
+      operationalStatus === 'active' &&
+      (hasPendingSubscription || hasExpiredSubscription || hasCancelledSubscription)
+    ) {
+      logInconsistentAircraftState(item, 'active_with_non_active_subscription')
+      return {
+        key: 'sync_required',
+        label: 'Sincronizacion requerida',
+        tone: 'warning',
+        action: 'sync',
+        operationalEnabled: false,
+        reasonMessage: 'El backend devolvio un estado comercial contradictorio para una aeronave activa.',
+      }
+    }
+
+    if (operationalStatus === 'active' && hasActiveSubscription) {
+      return {
+        key: 'active',
+        label: 'Activa',
+        tone: 'success',
+        action: 'payments',
+        operationalEnabled: true,
+        reasonMessage: 'Aeronave activa y con suscripcion vigente.',
+      }
+    }
+
+    if (
+      operationalStatus !== 'active' &&
+      hasActiveSubscription &&
+      hasActiveBilling &&
+      !isHiddenOperationalStatus(operationalStatus) &&
+      !isUnderReviewOperationalStatus(operationalStatus)
+    ) {
+      logInconsistentAircraftState(item, 'inactive_with_active_subscription')
+      return {
+        key: 'sync_required',
+        label: 'Sincronizacion requerida',
+        tone: 'warning',
+        action: 'sync',
+        operationalEnabled: false,
+        reasonMessage: 'La suscripcion figura activa, pero la aeronave no fue reactivada en el backend.',
+      }
+    }
+
+    if (hasPendingSubscription) {
+      return {
+        key: 'pending_payment',
+        label: 'Pago pendiente',
+        tone: 'warning',
+        action: 'sync',
+        operationalEnabled: false,
+        reasonMessage: 'Esta aeronave esta deshabilitada porque su suscripcion no esta vigente.',
+      }
+    }
+
+    if (hasExpiredSubscription) {
+      return {
+        key: 'expired',
+        label: 'Pago vencido',
+        tone: 'danger',
+        action: 'activate',
+        operationalEnabled: false,
+        reasonMessage: 'Tu mensualidad vencio. Realiza el pago para volver a activar la aeronave.',
+      }
+    }
+
+    if (hasCancelledSubscription) {
+      return {
+        key: 'cancelled',
+        label: 'Suscripcion cancelada',
+        tone: 'neutral',
+        action: 'activate',
+        operationalEnabled: false,
+        reasonMessage: 'Esta aeronave esta deshabilitada porque su suscripcion no esta vigente.',
+      }
+    }
+
+    return {
+      key: 'inactive',
+      label: 'Inactiva',
+      tone: 'warning',
+      action: 'activate',
+      operationalEnabled: false,
+      reasonMessage: 'Esta aeronave esta deshabilitada porque su suscripcion no esta vigente.',
+    }
   }
 
   function resolveAircraftAutoRenewState(item = {}, relatedPayment = null) {
@@ -261,156 +437,152 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
   }
 
   function getAircraftBillingStatusMeta(item = {}) {
-    const { signals, hasExplicitBillingState, hasStripeTrace } = collectAircraftBillingSignals(item)
-    const normalizedStatus = signals[0] || ''
-    const providerApproved = typeof isProviderApproved?.value === 'boolean' ? isProviderApproved.value : true
-    const activeSignals = ['active', 'paid', 'current', 'trialing', 'complete', 'completed', 'success', 'succeeded']
-    const pendingSignals = [
-      'pending',
-      'pending_payment',
-      'payment_pending',
-      'processing',
-      'open',
-      'incomplete',
-      'requires_action',
-      'requires_payment_method',
-    ]
-    const inactiveSignals = ['inactive', 'unpaid']
-    const expiredSignals = ['past_due', 'expired', 'failed', 'payment_failed', 'incomplete_expired']
-    const cancelledSignals = ['cancelled', 'canceled']
+    const { hasExplicitBillingState, hasStripeTrace } = collectAircraftBillingSignals(item)
+    const uiState = getAircraftUiState(item)
+    const formattedEndsAt = formatSubscriptionEndsAtLabel(item)
 
-    if (!providerApproved) {
+    if (uiState.key === 'active') {
       return {
-        label: 'Bloqueado por aprobacion',
-        tone: 'warning',
-        detail: 'Disponible despues de la aprobacion administrativa.',
-        cta: 'Esperando aprobacion administrativa',
-        action: 'blocked',
-        ready: false,
-        code: 'provider_pending',
-        reasonMessage: 'Disponible despues de la aprobacion administrativa',
-      }
-    }
-
-    if (
-      hasExpiredAircraftSubscription(item) &&
-      !hasAnySignal(signals, cancelledSignals)
-    ) {
-      return {
-        label: 'Pago vencido',
-        tone: 'danger',
-        detail: 'La mensualidad expiro. La aeronave queda desactivada hasta confirmar un nuevo pago.',
-        cta: providerAircraftPlanAmount.value
-          ? `Renovar por ${formatCurrency(providerAircraftPlanAmount.value)}`
-          : 'Renovar mensualidad',
-        action: 'activate',
-        ready: false,
-        code: 'billing_expired',
-      }
-    }
-
-    if (hasAnySignal(signals, activeSignals)) {
-      return {
-        label: 'Activa',
-        tone: 'success',
-        detail: item.subscriptionEndsAt
-          ? `Visible en el sistema hasta ${formatDateTimeRange(item.subscriptionEndsAt)}.`
+        label: uiState.label,
+        tone: uiState.tone,
+        detail: formattedEndsAt
+          ? `Vigente hasta: ${formattedEndsAt}`
           : 'La aeronave ya esta visible en el sistema.',
         cta: 'Ver pagos',
-        action: 'payments',
+        action: uiState.action,
         ready: true,
         code: 'billing_active',
+        reasonMessage: uiState.reasonMessage,
       }
     }
 
-    if (hasAnySignal(signals, expiredSignals)) {
+    if (uiState.key === 'pending_payment') {
       return {
-        label: 'Pago vencido',
-        tone: 'danger',
-        detail: 'La aeronave no esta visible actualmente. Renueva la mensualidad para reactivarla.',
-        cta: providerAircraftPlanAmount.value
-          ? `Renovar por ${formatCurrency(providerAircraftPlanAmount.value)}`
-          : 'Renovar mensualidad',
-        action: 'activate',
-        ready: false,
-        code: 'billing_expired',
-      }
-    }
-
-    if (hasAnySignal(signals, cancelledSignals)) {
-      return {
-        label: 'Cancelada',
-        tone: 'danger',
-        detail: 'La suscripcion fue cancelada. Necesita un nuevo cobro para reactivarse.',
-        cta: providerAircraftPlanAmount.value
-          ? `Reactivar por ${formatCurrency(providerAircraftPlanAmount.value)}`
-          : 'Reactivar aeronave',
-        action: 'activate',
-        ready: false,
-        code: 'billing_cancelled',
-      }
-    }
-
-    if (hasAnySignal(signals, pendingSignals)) {
-      return {
-        label: 'Pago en verificacion',
-        tone: 'info',
+        label: uiState.label,
+        tone: uiState.tone,
         detail: hasStripeTrace
           ? 'Stripe ya devolvio actividad para esta aeronave. Estamos esperando que el backend confirme la activacion final.'
           : 'La mensualidad se esta sincronizando. Actualiza el estado en unos segundos.',
-        cta: 'Actualizar estado',
-        action: 'sync',
+        cta: 'Sincronizar pago',
+        action: uiState.action,
         ready: false,
         code: 'billing_syncing',
-        reasonMessage: 'Pago en validacion con Stripe y backend.',
+        reasonMessage: uiState.reasonMessage,
       }
     }
 
-    if (hasAnySignal(signals, inactiveSignals)) {
+    if (uiState.key === 'expired') {
       return {
-        label: 'Pendiente de pago',
-        tone: 'warning',
-        detail: 'La aeronave ya fue aprobada administrativamente, pero no se activara hasta reflejar el pago mensual.',
+        label: uiState.label,
+        tone: uiState.tone,
+        detail: formattedEndsAt
+          ? `Vencio el: ${formattedEndsAt}`
+          : 'La aeronave no esta visible actualmente. Renueva la mensualidad para reactivarla.',
         cta: providerAircraftPlanAmount.value
-          ? `Pagar y activar por ${formatCurrency(providerAircraftPlanAmount.value)}`
-          : 'Pagar y activar aeronave',
-        action: 'activate',
+          ? `Pagar mensualidad por ${formatCurrency(providerAircraftPlanAmount.value)}`
+          : 'Pagar mensualidad',
+        action: uiState.action,
         ready: false,
-        code: 'billing_inactive',
-        reasonMessage: 'Aprobada, pendiente de pago para activarse.',
+        code: 'billing_expired',
+        reasonMessage: uiState.reasonMessage,
+      }
+    }
+
+    if (uiState.key === 'cancelled') {
+      return {
+        label: uiState.label,
+        tone: 'neutral',
+        detail: 'La suscripcion fue cancelada. Necesita un nuevo cobro para reactivarse.',
+        cta: providerAircraftPlanAmount.value
+          ? `Reactivar por ${formatCurrency(providerAircraftPlanAmount.value)}`
+          : 'Reactivar',
+        action: uiState.action,
+        ready: false,
+        code: 'billing_cancelled',
+        reasonMessage: uiState.reasonMessage,
+      }
+    }
+
+    if (uiState.key === 'sync_required') {
+      return {
+        label: uiState.label,
+        tone: uiState.tone,
+        detail: 'La informacion de facturacion y estado operativo no coincide. Sincroniza la aeronave antes de operar.',
+        cta: 'Sincronizar',
+        action: uiState.action,
+        ready: false,
+        code: 'billing_sync_required',
+        reasonMessage: uiState.reasonMessage,
+      }
+    }
+
+    if (uiState.key === 'hidden') {
+      return {
+        label: uiState.label,
+        tone: uiState.tone,
+        detail: 'La aeronave esta oculta en el portal y no participa en matching comercial.',
+        cta: 'Ver pagos',
+        action: uiState.action,
+        ready: false,
+        code: 'billing_hidden',
+        reasonMessage: uiState.reasonMessage,
+      }
+    }
+
+    if (uiState.key === 'under_review') {
+      return {
+        label: uiState.label,
+        tone: uiState.tone,
+        detail: 'La aeronave sigue en revision administrativa y no esta habilitada comercialmente.',
+        cta: 'Ver pagos',
+        action: uiState.action,
+        ready: false,
+        code: 'billing_under_review',
+        reasonMessage: uiState.reasonMessage,
       }
     }
 
     if (!hasExplicitBillingState && !hasStripeTrace) {
       return {
-        label: 'Pendiente de pago',
-        tone: 'warning',
-        detail: 'Aeronave aprobada operativamente, pero sin una suscripcion mensual confirmada todavia.',
+        label: uiState.label,
+        tone: uiState.tone,
+        detail: 'La aeronave fue registrada correctamente y queda pendiente de activacion mensual.',
         cta: providerAircraftPlanAmount.value
-          ? `Pagar y activar por ${formatCurrency(providerAircraftPlanAmount.value)}`
-          : 'Pagar y activar aeronave',
-        action: 'activate',
+          ? `Activar por ${formatCurrency(providerAircraftPlanAmount.value)}`
+          : 'Activar',
+        action: uiState.action,
         ready: false,
         code: 'billing_missing_state',
-        reasonMessage: 'Falta una confirmacion de cobro para activar la aeronave.',
+        reasonMessage: uiState.reasonMessage,
       }
     }
 
     return {
-      label: 'Pendiente de pago',
-      tone: 'warning',
-      detail: 'La aeronave fue registrada correctamente y queda pendiente de activacion mensual.',
+      label: uiState.label,
+      tone: uiState.tone,
+      detail: 'Esta aeronave esta deshabilitada porque su suscripcion no esta vigente.',
       cta: providerAircraftPlanAmount.value
-        ? `Pagar y activar por ${formatCurrency(providerAircraftPlanAmount.value)}`
-        : 'Pagar y activar aeronave',
-      action: 'activate',
+        ? `Activar por ${formatCurrency(providerAircraftPlanAmount.value)}`
+        : 'Activar',
+      action: uiState.action,
       ready: false,
-      code: 'billing_pending',
+      code: 'billing_inactive',
+      reasonMessage: uiState.reasonMessage,
     }
   }
 
   function isAircraftBillingActive(item = {}) {
-    return getAircraftBillingStatusMeta(item).ready === true
+    return getAircraftUiState(item).key === 'active'
+  }
+
+  function shouldPollAircraftBillingStatus(item = {}) {
+    const subscriptionStatus = getSubscriptionStatus(item)
+    const billingStatus = getBillingStatus(item)
+
+    return (
+      ['trialing', ...PENDING_SUBSCRIPTION_STATUSES].includes(subscriptionStatus) ||
+      PENDING_BILLING_STATUSES.includes(billingStatus)
+    )
   }
 
   function normalizePayment(raw = {}, index = 0, parseRequestAmount) {
@@ -422,6 +594,7 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
 
   return {
     compactBillingReference,
+    getAircraftUiState,
     getAircraftBillingStatusMeta,
     getAircraftRenewalMeta,
     getDateDiffInDays,
@@ -429,5 +602,6 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
     isAircraftBillingActive,
     normalizePayment,
     resolveAircraftAutoRenewState,
+    shouldPollAircraftBillingStatus,
   }
 }

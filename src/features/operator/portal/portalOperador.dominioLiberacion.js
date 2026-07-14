@@ -27,7 +27,6 @@ export function createOperatorPortalReleaseDomain(ctx = {}) {
     resolveWorkflowState,
     resolveRequestWorkflowValue,
     resolveOperatorRequestStatusSource,
-    buildWorkflowApiPayload,
     normalizeProviderOperationalBinaryStatus,
     normalizeProviderOperationalCrewOverallStatus,
     normalizeProviderOperationalAircraftOverallStatus,

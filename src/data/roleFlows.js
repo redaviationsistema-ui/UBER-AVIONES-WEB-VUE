@@ -53,11 +53,12 @@ export const roleSections = {
     { id: 'importaciones', label: 'Importaciones / Exportaciones', icon: 'clipboard' },
     { id: 'usuarios', label: 'Usuarios y Roles', icon: 'crew' },
     { id: 'clientes', label: 'Clientes', icon: 'account' },
+    { id: 'cotizaciones', label: 'Cotizaciones', icon: 'chart' },
     { id: 'proveedores', label: 'Proveedores', icon: 'shield' },
     { id: 'aeronaves', label: 'Aeronaves', icon: 'jet' },
     { id: 'disponibilidad-aeronaves', label: 'Disponibilidad de Aeronaves', icon: 'calendar' },
     { id: 'pagos-proveedor', label: 'Pagos proveedor', icon: 'wallet' },
-    { id: 'operadores', label: 'Operadores', icon: 'clipboard' },
+    { id: 'vuelos', label: 'Vuelos', icon: 'jet' },
     { id: 'sobrecargos', label: 'Directorio de sobrecargos', icon: 'crew' },
     { id: 'disponibilidad', label: 'Disponibilidad', icon: 'calendar', path: '/admin/sobrecargos/disponibilidad' },
     { id: 'sobrecargo-operaciones', label: 'Operaciones de sobrecargos', icon: 'link' },
@@ -69,6 +70,8 @@ export const roleSections = {
     { id: 'pagos', label: 'Pagos y Finanzas', icon: 'wallet' },
     { id: 'incidencias', label: 'Incidencias', icon: 'alert' },
     { id: 'documentos', label: 'Documentos', icon: 'clipboard' },
+    { id: 'auditoria', label: 'Auditoria', icon: 'history' },
+    { id: 'reportes', label: 'Reportes', icon: 'chart' },
     { id: 'configuracion', label: 'Configuracion', icon: 'grid' },
   ],
 }
@@ -96,13 +99,13 @@ export const roleSectionGroups = {
     { label: 'Control', ids: ['pagos', 'historial', 'configuracion'] },
   ],
   admin: [
-    { label: 'Cliente y Comercial', ids: ['clientes', 'reservas', 'contratos', 'suscripciones', 'pagos'] },
+    { label: 'Cliente y Comercial', ids: ['clientes', 'cotizaciones', 'reservas', 'contratos', 'suscripciones', 'pagos'] },
     {
       label: 'Operacion y Proveedores',
-      ids: ['proveedores', 'aeronaves', 'disponibilidad-aeronaves', 'pagos-proveedor', 'operadores', 'liberaciones', 'documentos'],
+      ids: ['proveedores', 'aeronaves', 'disponibilidad-aeronaves', 'vuelos', 'pagos-proveedor', 'liberaciones', 'documentos'],
     },
     { label: 'Sobrecargos', ids: ['sobrecargos', 'disponibilidad', 'sobrecargo-operaciones', 'sobrecargos-en-vuelo', 'incidencias'] },
-    { label: 'Control Interno', ids: ['ejecutivo', 'importaciones', 'usuarios', 'configuracion'] },
+    { label: 'Control Interno', ids: ['ejecutivo', 'importaciones', 'usuarios', 'auditoria', 'reportes', 'configuracion'] },
   ],
 }
 
@@ -205,4 +208,39 @@ export function resolveRoleSectionPath(role, sectionOrItem) {
   const basePath = roleBasePaths[role] || ''
   const sectionId = sectionItem?.id || sectionOrItem || ''
   return `${basePath}/${sectionId}`.replace(/\/+$/, '')
+}
+
+export function resolveRoleSectionRoute(role, sectionOrItem) {
+  const sectionItem =
+    typeof sectionOrItem === 'object' && sectionOrItem !== null
+      ? sectionOrItem
+      : (roleSections[role] || []).find((item) => item.id === sectionOrItem)
+
+  const sectionId = sectionItem?.id || sectionOrItem || ''
+
+  if (role === 'admin' && sectionItem?.path === '/admin/sobrecargos/disponibilidad') {
+    return { name: 'admin-sobrecargos-disponibilidad' }
+  }
+
+  if (role === 'crew' && sectionItem?.path === '/sobrecargo/disponibilidad') {
+    return { name: 'sobrecargo-disponibilidad' }
+  }
+
+  const routeNameByRole = {
+    client: 'cliente',
+    operator: 'operador',
+    crew: 'crew',
+    admin: 'admin',
+  }
+
+  const routeName = routeNameByRole[role]
+
+  if (!routeName) {
+    return { path: resolveRoleSectionPath(role, sectionItem || sectionOrItem) }
+  }
+
+  return {
+    name: routeName,
+    params: sectionId ? { section: sectionId } : {},
+  }
 }

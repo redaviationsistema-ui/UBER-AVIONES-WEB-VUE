@@ -354,6 +354,7 @@ export async function getAdminReservations(options = {}) {
       path,
       timeoutMs: options.timeoutMs,
     })),
+    { signal: options.signal },
   )
 
   return pickCollection(response, ['operations', 'operaciones', 'requests', 'solicitudes', 'data']).map(
@@ -368,6 +369,7 @@ export async function getAdminReleases(options = {}) {
       path,
       timeoutMs: options.timeoutMs,
     })),
+    { signal: options.signal },
   )
 
   return pickCollection(response, ['releases', 'requests', 'solicitudes', 'data']).map(

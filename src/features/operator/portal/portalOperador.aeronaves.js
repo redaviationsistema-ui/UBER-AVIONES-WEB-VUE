@@ -32,15 +32,26 @@ export function createOperatorPortalAircraftDomain(ctx = {}) {
 
   function normalizeAircraftDocument(raw = {}, index = 0) {
     const type = raw.type || raw.document_type || 'documento'
+    const fileUrl = normalizeMediaUrl(raw.file_url || raw.document_url || raw.url || '')
+    const fileType = raw.file_type || raw.mime_type || ''
+    const fileName =
+      raw.document_name ||
+      raw.name ||
+      raw.file_name ||
+      (fileUrl ? fileUrl.split('/').pop()?.split('?')[0] : '') ||
+      `Documento ${index + 1}`
+
     return {
       id: raw.id || index + 1,
       type,
       typeLabel: getAircraftDocumentTypeMeta(type).label,
-      name: raw.document_name || raw.name || raw.file_name || `Documento ${index + 1}`,
+      name: fileName,
       state: raw.status || raw.state || 'pendiente',
       expiresAt: raw.expires_at || raw.expiration_date || null,
-      fileUrl: normalizeMediaUrl(raw.file_url || raw.document_url || raw.url || ''),
-      fileType: raw.file_type || raw.mime_type || '',
+      fileUrl,
+      fileType,
+      uploadedAt: raw.updated_at || raw.updatedAt || raw.created_at || raw.createdAt || null,
+      updatedAt: raw.updated_at || raw.updatedAt || raw.modified_at || raw.modifiedAt || null,
     }
   }
 

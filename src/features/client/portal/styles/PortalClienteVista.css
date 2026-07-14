@@ -1300,18 +1300,18 @@ button {
   min-height: 5rem;
 }
 
-.payment-element-shell :deep(.StripeElement),
-.payment-element-shell :deep(.__PrivateStripeElement) {
+.payment-element-shell .StripeElement,
+.payment-element-shell .__PrivateStripeElement {
   width: 100%;
   display: block;
 }
 
-.payment-element-shell :deep(iframe) {
+.payment-element-shell iframe {
   width: 100% !important;
   min-height: 1.5rem;
 }
 
-.payment-element-shell--dark :deep(iframe) {
+.payment-element-shell--dark iframe {
   min-height: 2rem;
 }
 
@@ -2776,20 +2776,20 @@ button {
     margin: 0;
   }
 
-  :global(body.contract-print-mode) {
+  body.contract-print-mode {
     background: #ffffff !important;
   }
 
-  :global(body.contract-print-mode *) {
+  body.contract-print-mode * {
     visibility: hidden !important;
   }
 
-  :global(body.contract-print-mode .document-panel),
-  :global(body.contract-print-mode .document-panel *) {
+  body.contract-print-mode .document-panel,
+  body.contract-print-mode .document-panel * {
     visibility: visible !important;
   }
 
-  :global(body.contract-print-mode .document-panel) {
+  body.contract-print-mode .document-panel {
     position: absolute !important;
     inset: 0 !important;
     width: 100% !important;
@@ -2800,19 +2800,19 @@ button {
     border: 0 !important;
   }
 
-  :global(body.contract-print-mode .contract-preview) {
+  body.contract-print-mode .contract-preview {
     display: block !important;
     padding: 0 !important;
   }
 
-  :global(body.contract-print-mode .contract-pdf) {
+  body.contract-print-mode .contract-pdf {
     width: 100% !important;
     max-width: 100% !important;
     font-size: 10.5px !important;
     line-height: 1.35 !important;
   }
 
-  :global(body.contract-print-mode .contract-sheet) {
+  body.contract-print-mode .contract-sheet {
     width: 100% !important;
     max-width: 100% !important;
     min-height: auto !important;
@@ -2823,12 +2823,12 @@ button {
     background: #ffffff !important;
   }
 
-  :global(body.contract-print-mode .contract-sheet__body) {
+  body.contract-print-mode .contract-sheet__body {
     padding: 10mm 12mm 12mm !important;
     border: 0 !important;
   }
 
-  :global(body.contract-print-mode .contract-brandbar) {
+  body.contract-print-mode .contract-brandbar {
     print-color-adjust: exact !important;
     -webkit-print-color-adjust: exact !important;
     min-height: 15rem !important;
@@ -2836,75 +2836,75 @@ button {
     border-radius: 0 !important;
   }
 
-  :global(body.contract-print-mode .contract-brandbar__banner) {
+  body.contract-print-mode .contract-brandbar__banner {
     display: block !important;
     width: 100% !important;
     height: auto !important;
   }
 
-  :global(body.contract-print-mode .contract-block),
-  :global(body.contract-print-mode .contract-summary),
-  :global(body.contract-print-mode .contract-footer),
-  :global(body.contract-print-mode .signature-card),
-  :global(body.contract-print-mode .account-card),
-  :global(body.contract-print-mode .annex-table),
-  :global(body.contract-print-mode .signatures-grid),
-  :global(body.contract-print-mode .accounts-grid) {
+  body.contract-print-mode .contract-block,
+  body.contract-print-mode .contract-summary,
+  body.contract-print-mode .contract-footer,
+  body.contract-print-mode .signature-card,
+  body.contract-print-mode .account-card,
+  body.contract-print-mode .annex-table,
+  body.contract-print-mode .signatures-grid,
+  body.contract-print-mode .accounts-grid {
     break-inside: avoid !important;
     page-break-inside: avoid !important;
   }
 
-  :global(body.contract-print-mode .signatures-grid),
-  :global(body.contract-print-mode .accounts-grid) {
+  body.contract-print-mode .signatures-grid,
+  body.contract-print-mode .accounts-grid {
     display: grid !important;
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     gap: 6mm !important;
   }
 
-  :global(body.contract-print-mode .signatures-grid) {
+  body.contract-print-mode .signatures-grid {
     grid-template-columns: minmax(0, 1fr) !important;
     justify-items: center !important;
   }
 
-  :global(body.contract-print-mode .signature-card.signature-block) {
+  body.contract-print-mode .signature-card.signature-block {
     width: min(100%, 160mm) !important;
     justify-items: center !important;
     text-align: center !important;
   }
 
-  :global(body.contract-print-mode .signature-line) {
+  body.contract-print-mode .signature-line {
     min-height: 18mm !important;
   }
 
-  :global(body.contract-print-mode .provider-signature-image),
-  :global(body.contract-print-mode .signature-uploaded__image) {
+  body.contract-print-mode .provider-signature-image,
+  body.contract-print-mode .signature-uploaded__image {
     max-width: 56mm !important;
     max-height: 18mm !important;
     object-fit: contain !important;
   }
 
-  :global(body.contract-print-mode .annex-table) {
+  body.contract-print-mode .annex-table {
     font-size: 10px !important;
     table-layout: fixed !important;
   }
 
-  :global(body.contract-print-mode .annex-table th),
-  :global(body.contract-print-mode .annex-table td) {
+  body.contract-print-mode .annex-table th,
+  body.contract-print-mode .annex-table td {
     padding: 6px 8px !important;
     word-break: normal !important;
     overflow-wrap: break-word !important;
   }
 
-  :global(body.contract-print-mode .contract-table),
-  :global(body.contract-print-mode .contract-table thead),
-  :global(body.contract-print-mode .contract-table tbody),
-  :global(body.contract-print-mode .contract-table tr),
-  :global(body.contract-print-mode .contract-table th),
-  :global(body.contract-print-mode .contract-table td) {
+  body.contract-print-mode .contract-table,
+  body.contract-print-mode .contract-table thead,
+  body.contract-print-mode .contract-table tbody,
+  body.contract-print-mode .contract-table tr,
+  body.contract-print-mode .contract-table th,
+  body.contract-print-mode .contract-table td {
     display: revert !important;
   }
 
-  :global(body.contract-print-mode .contract-watermark) {
+  body.contract-print-mode .contract-watermark {
     position: fixed !important;
     inset: 0 !important;
     display: flex !important;
@@ -2915,7 +2915,7 @@ button {
     z-index: 0 !important;
   }
 
-  :global(body.contract-print-mode .contract-watermark img) {
+  body.contract-print-mode .contract-watermark img {
     display: block !important;
     width: 72% !important;
     max-width: 34rem !important;
@@ -2923,13 +2923,13 @@ button {
     filter: grayscale(1) !important;
   }
 
-  :global(body.contract-print-mode .signature-panel),
-  :global(body.contract-print-mode .signature-actions),
-  :global(body.contract-print-mode .signature-input),
-  :global(body.contract-print-mode .signature-panel__submit),
-  :global(body.contract-print-mode .signature-note),
-  :global(body.contract-print-mode .signature-uploaded__meta),
-  :global(body.contract-print-mode .signature-ready-badge) {
+  body.contract-print-mode .signature-panel,
+  body.contract-print-mode .signature-actions,
+  body.contract-print-mode .signature-input,
+  body.contract-print-mode .signature-panel__submit,
+  body.contract-print-mode .signature-note,
+  body.contract-print-mode .signature-uploaded__meta,
+  body.contract-print-mode .signature-ready-badge {
     display: none !important;
   }
 }

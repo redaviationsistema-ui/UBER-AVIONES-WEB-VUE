@@ -155,4 +155,8 @@ describe('providerReview helpers', () => {
     expect(flow.summary.find((item) => item.label === 'Requisitos rechazados')?.value).toBe('1')
     expect(flow.checklist.find((item) => item.id === 'legal_documents_approved')?.rejected).toBe(true)
   })
+  
 })
+
+
+

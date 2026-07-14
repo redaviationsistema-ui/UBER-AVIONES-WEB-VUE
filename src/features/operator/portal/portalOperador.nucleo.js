@@ -2,7 +2,9 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { useRoute, useRouter } from 'vue-router'
 import { requestWithCandidates, pickCollection, pickRecord } from '../../../lib/backendCrud'
 import { api, resolveMediaUrl } from '../../../lib/api'
-import { resolveProviderIdForUser } from '../../../lib/providerContext'
+import {
+  resolveProviderIdForUser,
+} from '../../../lib/providerContext'
 import { resolveBestCompanyDisplayName } from '../../../lib/companyDisplay'
 import { normalizeOperatorValidationDocument } from '../../../lib/providerCompanyDocuments'
 import { resolveProviderStatusMeta } from '../../../lib/providerReview'
@@ -41,7 +43,6 @@ import {
   matchesOperatorRequestIdentifier,
   mergeRealtimeNotificationCollection,
   normalizeOperatorTrackingStatus,
-  normalizeRealtimeNotificationRecord as normalizeRealtimeNotificationRecordEntry,
   parseOperationalDate,
   resolveOperatorRequestQueue,
   shouldIgnoreOperatorRequestsRouteError,
@@ -76,7 +77,6 @@ import { createOperatorPortalAircraftDomain } from './portalOperador.aeronaves'
 import {
   aircraftMatchesOperationalTab,
   countAircraftByOperationalTab,
-  getAircraftOperationalStatusMeta,
   getAircraftOperationalTabKey,
   isAircraftOperationallyActive,
   obtenerEstadoOperativoAeronave,
@@ -301,7 +301,8 @@ let requestsRefreshPromise = null
 let notificationsRouteResolutionPromise = null
 
 const OPERATOR_REQUESTS_POLL_INTERVAL_MS = 10000
-const OPERATOR_AIRCRAFT_BILLING_POLL_INTERVAL_MS = 8000
+const OPERATOR_AIRCRAFT_BILLING_POLL_INTERVAL_MS = 5000
+const OPERATOR_AIRCRAFT_BILLING_POLL_MAX_MS = 60000
 
 const OPERATOR_BOOT_TIMEOUT_MS = 45000
 
@@ -538,12 +539,15 @@ const billingFocusAircraftId = ref(null)
 const activatingAircraftId = ref(null)
 
 const billingStatusRefreshAircraftId = ref(null)
+const aircraftBillingActionIds = ref([])
 const paymentsAircraftSyncKey = ref('')
 const billingStatusBackendCooldownUntil = ref(0)
+const aircraftBillingPollStartedAt = ref(0)
 
 const handledBillingReturnKey = ref('')
 
 const editingAircraftId = ref(null)
+const savingPricingAircraftId = ref(null)
 
 const selectedAvailabilityCalendarAircraftId = ref('all')
 
@@ -611,10 +615,17 @@ const documentForm = reactive({
   dragActive: false,
 })
 
+const documentLibrarySearch = ref('')
+const documentLibraryCategory = ref('all')
+const documentLibraryState = ref('all')
+const documentLibrarySort = ref('recent')
+const documentLibraryMenuId = ref(null)
+
 const documentPreview = reactive({
   open: false,
   file: null,
   url: '',
+  canPreview: false,
 })
 
 const companyDocumentDrawer = reactive({
@@ -924,6 +935,26 @@ const aircraftDocumentTypes = [
   { id: 'insurance_policy', label: 'Seguro', requiresExpiry: true, accepts: ['image', 'pdf'] },
   { id: 'maintenance_sticker', label: 'Sticker de mantenimiento', requiresExpiry: false, accepts: ['image', 'pdf'] },
   { id: 'flight_logbook', label: 'Bitacora de vuelo', requiresExpiry: false, accepts: ['image', 'pdf'] },
+]
+
+const AIRCRAFT_DOCUMENT_TYPE_LABELS = {
+  maintenance_sticker: 'Sticker de mantenimiento',
+  airworthiness_certificate: 'Certificado de aeronavegabilidad',
+  registration_certificate: 'Certificado de matricula',
+  matricula_aeronave: 'Matricula',
+  insurance_policy: 'Poliza de seguro',
+  operation_manual: 'Manual de operacion',
+  maintenance_manual: 'Manual de mantenimiento',
+  flight_logbook: 'Bitacora de vuelo',
+}
+
+const AIRCRAFT_DOCUMENT_CATEGORY_RULES = [
+  { id: 'maintenance', label: 'Mantenimiento', matchers: ['maintenance', 'bitacora', 'logbook', 'inspection', 'service'] },
+  { id: 'certificates', label: 'Certificados', matchers: ['certificate', 'certificado', 'airworthiness', 'matricula'] },
+  { id: 'operation', label: 'Operacion', matchers: ['operation', 'operacion', 'manual', 'dispatch', 'flight'] },
+  { id: 'legal', label: 'Legal', matchers: ['legal', 'permiso', 'licencia', 'compliance'] },
+  { id: 'insurance', label: 'Seguro', matchers: ['insurance', 'seguro', 'policy', 'poliza'] },
+  { id: 'commercial', label: 'Comercial', matchers: ['commercial', 'comercial', 'contract', 'invoice'] },
 ]
 
 const maxAircraftDocumentFiles = 12
@@ -2005,6 +2036,108 @@ const selectedDocumentType = computed(
   () => aircraftDocumentTypes.find((item) => item.id === documentForm.type) || aircraftDocumentTypes[0],
 )
 
+const documentLibraryCategoryOptions = [
+  { value: 'all', label: 'Todos' },
+  { value: 'maintenance', label: 'Mantenimiento' },
+  { value: 'certificates', label: 'Certificados' },
+  { value: 'operation', label: 'Operacion' },
+  { value: 'legal', label: 'Legal' },
+  { value: 'insurance', label: 'Seguro' },
+  { value: 'commercial', label: 'Comercial' },
+  { value: 'other', label: 'Otros' },
+]
+
+const documentLibraryStateOptions = [
+  { value: 'all', label: 'Todos' },
+  { value: 'valid', label: 'Vigente' },
+  { value: 'pending', label: 'Pendiente' },
+  { value: 'review', label: 'En revision' },
+  { value: 'expired', label: 'Vencido' },
+  { value: 'no_expiry', label: 'Sin vencimiento' },
+]
+
+const documentLibrarySortOptions = [
+  { value: 'recent', label: 'Mas recientes' },
+  { value: 'oldest', label: 'Mas antiguos' },
+  { value: 'name_asc', label: 'Nombre A-Z' },
+  { value: 'name_desc', label: 'Nombre Z-A' },
+  { value: 'expiry_soon', label: 'Proximos a vencer' },
+]
+
+const storedAircraftDocuments = computed(() =>
+  (selectedDocumentAircraft.value?.documents || []).map((document, index) =>
+    normalizeStoredDocument(document, index),
+  ),
+)
+
+const documentLibrarySummary = computed(() => {
+  const documents = storedAircraftDocuments.value
+  const valid = documents.filter((document) => document.stateMeta.key === 'valid').length
+  const pending = documents.filter((document) =>
+    ['pending', 'review'].includes(document.stateMeta.key),
+  ).length
+  const expired = documents.filter((document) => document.stateMeta.key === 'expired').length
+
+  return {
+    total: documents.length,
+    valid,
+    pending,
+    expired,
+  }
+})
+
+const filteredStoredAircraftDocuments = computed(() => {
+  const query = String(documentLibrarySearch.value || '').trim().toLowerCase()
+
+  return [...storedAircraftDocuments.value]
+    .filter((document) => {
+      const matchesQuery =
+        !query ||
+        [
+          document.name,
+          document.typeLabel,
+          document.categoryLabel,
+          document.fileExtension,
+          document.stateMeta.label,
+        ]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(query))
+
+      const matchesCategory =
+        documentLibraryCategory.value === 'all' || document.categoryId === documentLibraryCategory.value
+
+      const matchesState =
+        documentLibraryState.value === 'all' || document.stateMeta.key === documentLibraryState.value
+
+      return matchesQuery && matchesCategory && matchesState
+    })
+    .sort((left, right) => {
+      if (documentLibrarySort.value === 'oldest') {
+        return new Date(left.updatedAt || left.uploadedAt || 0).getTime() - new Date(right.updatedAt || right.uploadedAt || 0).getTime()
+      }
+
+      if (documentLibrarySort.value === 'name_asc') {
+        return String(left.name || '').localeCompare(String(right.name || ''), 'es', { sensitivity: 'base' })
+      }
+
+      if (documentLibrarySort.value === 'name_desc') {
+        return String(right.name || '').localeCompare(String(left.name || ''), 'es', { sensitivity: 'base' })
+      }
+
+      if (documentLibrarySort.value === 'expiry_soon') {
+        const leftHasExpiry = left.expiresAt ? 1 : 0
+        const rightHasExpiry = right.expiresAt ? 1 : 0
+        if (leftHasExpiry !== rightHasExpiry) return rightHasExpiry - leftHasExpiry
+
+        const leftExpiry = new Date(left.expiresAt || '2999-12-31').getTime()
+        const rightExpiry = new Date(right.expiresAt || '2999-12-31').getTime()
+        return leftExpiry - rightExpiry
+      }
+
+      return new Date(right.updatedAt || right.uploadedAt || 0).getTime() - new Date(left.updatedAt || left.uploadedAt || 0).getTime()
+    })
+})
+
 const crewBases = computed(() => {
   const uniqueBases = new Set([
     ...defaultCrewBases,
@@ -2181,7 +2314,14 @@ const aircraftCatalogCategoryOptions = computed(() => [
 function getAircraftCatalogStatusKey(item = {}) {
   const commercialState = getAircraftCommercialState(item)
 
-  if (commercialState.code === 'billing_blocked' || String(commercialState.code).startsWith('billing_')) {
+  if (
+    [
+      'billing_syncing',
+      'billing_sync_required',
+      'billing_pending',
+      'billing_blocked',
+    ].includes(String(commercialState.code || ''))
+  ) {
     return 'pending_payment'
   }
 
@@ -2415,7 +2555,7 @@ const aircraftWizardSnapshot = computed(() => [
     label: 'Facturacion',
     value: providerAircraftPlanAmount.value
       ? `${formatCurrency(providerAircraftPlanAmount.value)} / mes`
-      : 'Pendiente backend',
+      : 'Pendiente',
   },
 ])
 
@@ -2439,9 +2579,11 @@ const billingDomain = createOperatorPortalBillingDomain({
 })
 
 const {
+  getAircraftUiState,
   getAircraftRenewalMeta,
   getAircraftBillingStatusMeta,
-  hasExpiredAircraftSubscription,
+  isAircraftBillingActive,
+  shouldPollAircraftBillingStatus,
 } = billingDomain
 
 const providerCanRegisterAircraft = computed(() => company.canRegisterAircraft !== false)
@@ -3407,7 +3549,6 @@ const {
   getRequestStatusMeta,
   getRequestSuggestedAircraft,
   getRequestTripTypeLabel,
-  getRequestWorkflowOverrideKeys,
   isRequestAccepted,
   isRequestPendingValidation,
   isRequestRejected,
@@ -3499,7 +3640,7 @@ function applyLocalRequestWorkflowStageUpdate(id, workflowStage = '') {
     if (String(request.id) !== normalizedId) return request
 
     const nextRaw = {
-      ...(request.raw || {}),
+      ...request.raw,
       status: workflowPayload.status,
       workflow_status: workflowStage,
       workflow: workflowStage,
@@ -3769,7 +3910,6 @@ const releaseDomain = createOperatorPortalReleaseDomain({
 })
 
 const {
-  areProviderOperationalReleasesEquivalent,
   clearProviderOperationalReleaseAutosaveTimer,
   getActiveProviderReleaseRequest,
   getProviderOperationalReleaseAircraftLabel,
@@ -3783,7 +3923,6 @@ const {
   mergeRequestWithLocalWorkflow,
   normalizeProviderOperationalRelease,
   resetProviderOperationalReleaseForm,
-  resolveProviderOperationalReleaseSource,
   scheduleProviderOperationalReleaseAutosave,
   syncProviderOperationalDerivedStatuses,
 } = releaseDomain
@@ -4873,10 +5012,6 @@ function normalizeAircraft(raw = {}, index = 0) {
   }
 }
 
-function isAircraftBillingActive(item = {}) {
-  return getAircraftBillingStatusMeta(item).action !== 'activate'
-}
-
 function wait(ms = 0) {
   return new Promise((resolve) => {
     window.setTimeout(resolve, ms)
@@ -4908,9 +5043,8 @@ function clearAircraftBillingFocus() {
 
 function shouldAutoRefreshAircraftBilling() {
   if (props.section !== 'aeronaves') return false
-  if (!providerIsApproved.value) return false
 
-  return aircraft.value.some((item) => !isAircraftBillingActive(item))
+  return aircraft.value.some((item) => shouldPollAircraftBillingStatus(item))
 }
 
 async function loadProviderAircraftBillingPlan(options = {}) {
@@ -4968,9 +5102,15 @@ function applyAircraftBillingStatus(aircraftId, payload = {}) {
   const targetAircraft = aircraft.value.find((item) => Number(item.id) === Number(aircraftId))
   if (!targetAircraft) return null
 
+  const rawAircraftPayload = payload.aircraft && typeof payload.aircraft === 'object' ? payload.aircraft : null
+  if (!rawAircraftPayload) return null
+
   const statusPayload = {
-    ...targetAircraft,
-    ...(payload.aircraft && typeof payload.aircraft === 'object' ? payload.aircraft : {}),
+    ...rawAircraftPayload,
+    images: Array.isArray(rawAircraftPayload.images) ? rawAircraftPayload.images : targetAircraft.images,
+    documents: Array.isArray(rawAircraftPayload.documents)
+      ? rawAircraftPayload.documents
+      : targetAircraft.documents,
   }
 
   return upsertAircraftRecord({
@@ -5002,6 +5142,24 @@ function isAircraftBillingBackendUnavailable(error) {
 
 function shouldSkipAircraftBillingRefresh() {
   return billingStatusBackendCooldownUntil.value > Date.now()
+}
+
+function isAircraftBillingActionPending(aircraftId) {
+  return aircraftBillingActionIds.value.includes(Number(aircraftId || 0))
+}
+
+function setAircraftBillingActionPending(aircraftId, isPending) {
+  const normalizedId = Number(aircraftId || 0)
+  if (!normalizedId) return
+
+  if (isPending) {
+    if (!aircraftBillingActionIds.value.includes(normalizedId)) {
+      aircraftBillingActionIds.value = [...aircraftBillingActionIds.value, normalizedId]
+    }
+    return
+  }
+
+  aircraftBillingActionIds.value = aircraftBillingActionIds.value.filter((item) => item !== normalizedId)
 }
 
 async function refreshAircraftBillingStatus(aircraftId, options = {}) {
@@ -5075,7 +5233,16 @@ function buildAircraftBillingReturnUrl(state, aircraftId) {
 
 async function activateAircraftBilling(item = {}) {
   const aircraftId = Number(item?.id || 0)
-  if (!aircraftId || activatingAircraftId.value) return
+  if (!aircraftId) return
+  if (isAircraftBillingActionPending(aircraftId)) {
+    ui.pushToast({
+      tone: 'info',
+      title: 'Checkout en preparación',
+      message: 'Ya existe un intento de pago en curso para esta aeronave. Espera la redirección actual.',
+    })
+    return
+  }
+  if (activatingAircraftId.value && Number(activatingAircraftId.value) !== aircraftId) return
   if (!providerIsApproved.value) {
     showError(
       'Facturacion bloqueada',
@@ -5085,6 +5252,7 @@ async function activateAircraftBilling(item = {}) {
   }
 
   activatingAircraftId.value = aircraftId
+  setAircraftBillingActionPending(aircraftId, true)
 
   try {
     await loadProviderAircraftBillingPlan()
@@ -5122,6 +5290,7 @@ async function activateAircraftBilling(item = {}) {
       error.message || 'No fue posible redirigir a Stripe Checkout.',
     )
   } finally {
+    setAircraftBillingActionPending(aircraftId, false)
     activatingAircraftId.value = null
   }
 }
@@ -5257,7 +5426,7 @@ async function refreshPendingAircraftBillingStatuses() {
 
   try {
     const pendingAircraftIds = aircraft.value
-      .filter((item) => !isAircraftBillingActive(item))
+      .filter((item) => shouldPollAircraftBillingStatus(item))
       .map((item) => Number(item.id || 0))
       .filter(Boolean)
 
@@ -5276,7 +5445,7 @@ async function syncAircraftBillingPaymentsView() {
   const aircraftIds = selectedPaymentsAircraftId.value
     ? [Number(selectedPaymentsAircraftId.value)]
     : filteredAircraftPaymentRows.value
-        .filter((item) => item.action === 'activate' || !item.hasPaymentRecord)
+        .filter((item) => ['activate', 'sync'].includes(item.action) || !item.hasPaymentRecord)
         .map((item) => Number(item.aircraftId || 0))
         .filter(Boolean)
 
@@ -5313,6 +5482,8 @@ function clearAircraftBillingPolling() {
     clearInterval(aircraftBillingPollTimer)
     aircraftBillingPollTimer = null
   }
+
+  aircraftBillingPollStartedAt.value = 0
 }
 
 function startAircraftBillingPolling() {
@@ -5320,8 +5491,14 @@ function startAircraftBillingPolling() {
 
   if (!shouldAutoRefreshAircraftBilling()) return
 
+  aircraftBillingPollStartedAt.value = Date.now()
+
   aircraftBillingPollTimer = setInterval(() => {
     if (typeof document !== 'undefined' && document.hidden) return
+    if (Date.now() - aircraftBillingPollStartedAt.value >= OPERATOR_AIRCRAFT_BILLING_POLL_MAX_MS) {
+      clearAircraftBillingPolling()
+      return
+    }
     void refreshPendingAircraftBillingStatuses()
   }, OPERATOR_AIRCRAFT_BILLING_POLL_INTERVAL_MS)
 }
@@ -5618,20 +5795,6 @@ function syncRealtimeRequestsWithRequests() {
   pruneStaleRealtimeSignals()
 }
 
-function shouldShowRealtimeRequestBanner(request = {}) {
-  const requestId = String(request.requestId || request.request_id || request.id || '').trim()
-
-  if (requestId) {
-    const matchedRequest = findOperatorRequestByIdentifier(requests.value, requestId)
-
-    if (matchedRequest) {
-      return shouldShowRealtimeRequestInBanner(request, matchedRequest)
-    }
-  }
-
-  return shouldShowRealtimeRequestInBanner(request)
-}
-
 function shouldKeepOperatorRealtimeNotificationVisible(notification = {}, collection = requests.value) {
   const payload =
     notification?.payload && typeof notification.payload === 'object'
@@ -5659,13 +5822,6 @@ function pruneStaleRealtimeSignals() {
   realtimeNotifications.value = realtimeNotifications.value.filter((notification) =>
     shouldKeepOperatorRealtimeNotificationVisible(notification, requests.value),
   )
-}
-
-function normalizeRealtimeNotificationRecord(raw = {}) {
-  return normalizeRealtimeNotificationRecordEntry(raw, {
-    providerId: providerId.value,
-    buildRealtimePayload: (payload) => buildRealtimeRequestPayload(payload, providerId.value),
-  })
 }
 
 function mergeRealtimeNotifications(collection = []) {
@@ -6945,7 +7101,7 @@ async function openCompanyDocumentDrawer(document = null) {
   try {
     const versions = await getOperatorDocumentVersions(companyId.value, document.id, { role: 'provider' })
     companyDocumentDrawer.versions = Array.isArray(versions) ? versions : []
-  } catch (_error) {
+  } catch {
     companyDocumentDrawer.versions = document?.versions || []
   } finally {
     companyDocumentDrawer.loadingVersions = false
@@ -7140,6 +7296,8 @@ function resetImageForm() {
 
 function resetDocumentForm() {
   revokeDocumentPreviewUrls()
+  closeDocumentLibraryMenu()
+  clearDocumentLibraryFilters()
   Object.assign(documentForm, {
     aircraftId: aircraft.value[0]?.id || null,
     type: 'maintenance_sticker',
@@ -7456,7 +7614,6 @@ function getAircraftDocumentValidationState(item = {}) {
 function getAircraftCommercialState(item = {}, provider = companyStatusMeta.value, billingMeta = null) {
   const normalizedOperationalStatus = obtenerEstadoOperativoAeronave(item)
   const normalizedAvailability = String(item?.availability || normalizedOperationalStatus || item?.status || '').toLowerCase()
-  const normalizedBackendStatus = String(getAircraftOperationalStatusMeta(item).label || '').toLowerCase()
   const documentHealth = getAircraftDocumentValidationState(item)
   const resolvedBillingMeta = billingMeta || getAircraftBillingStatusMeta(item)
   const reasons = []
@@ -7535,7 +7692,13 @@ function getAircraftCommercialState(item = {}, provider = companyStatusMeta.valu
 }
 
 function getAircraftLiveStatus(item) {
-  return getAircraftOperationalStatusMeta(item)
+  const uiState = getAircraftUiState(item)
+
+  return {
+    code: uiState.key,
+    label: uiState.label,
+    tone: uiState.tone,
+  }
 }
 
 function hasAircraftCommercialImages(item) {
@@ -7812,6 +7975,158 @@ function getAircraftDocumentTypeMeta(type) {
   }
 }
 
+function titleCaseLabel(value = '') {
+  const normalized = String(value || '').trim()
+  if (!normalized) return ''
+
+  return normalized
+    .split(' ')
+    .filter(Boolean)
+    .map((token) => token.charAt(0).toUpperCase() + token.slice(1).toLowerCase())
+    .join(' ')
+}
+
+function formatDocumentType(value = '') {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (!normalized) return 'Documento'
+  if (AIRCRAFT_DOCUMENT_TYPE_LABELS[normalized]) return AIRCRAFT_DOCUMENT_TYPE_LABELS[normalized]
+
+  return titleCaseLabel(normalized.replace(/[_-]+/g, ' '))
+}
+
+function getDocumentFileExtension(name = '', mimeType = '') {
+  const normalizedName = String(name || '').trim().toLowerCase()
+  const explicitExtension = normalizedName.includes('.') ? normalizedName.split('.').pop() : ''
+  if (explicitExtension) return explicitExtension.toUpperCase()
+
+  const normalizedMimeType = String(mimeType || '').trim().toLowerCase()
+  if (normalizedMimeType.includes('pdf')) return 'PDF'
+  if (normalizedMimeType.includes('word')) return 'DOC'
+  if (normalizedMimeType.includes('sheet') || normalizedMimeType.includes('excel')) return 'XLS'
+  if (normalizedMimeType.startsWith('image/')) return 'IMG'
+
+  return 'FILE'
+}
+
+function getStoredDocumentKind(document) {
+  const mimeType = String(document?.fileType || '').toLowerCase()
+  const fileUrl = String(document?.fileUrl || '').toLowerCase()
+  const fileName = String(document?.name || '').toLowerCase()
+
+  if (
+    mimeType.startsWith('image/') ||
+    /\.(png|jpg|jpeg|webp|gif|bmp|svg|heic|heif)(\?|$)/i.test(fileUrl) ||
+    /\.(png|jpg|jpeg|webp|gif|bmp|svg|heic|heif)$/i.test(fileName)
+  ) {
+    return 'image'
+  }
+
+  if (mimeType.includes('pdf') || /\.pdf(\?|$)/i.test(fileUrl) || /\.pdf$/i.test(fileName)) {
+    return 'pdf'
+  }
+
+  if (
+    mimeType.includes('word') ||
+    /\.(doc|docx)(\?|$)/i.test(fileUrl) ||
+    /\.(doc|docx)$/i.test(fileName)
+  ) {
+    return 'word'
+  }
+
+  if (
+    mimeType.includes('sheet') ||
+    mimeType.includes('excel') ||
+    /\.(xls|xlsx|csv)(\?|$)/i.test(fileUrl) ||
+    /\.(xls|xlsx|csv)$/i.test(fileName)
+  ) {
+    return 'excel'
+  }
+
+  return 'other'
+}
+
+function getDocumentKindLabel(kind = '') {
+  if (kind === 'pdf') return 'PDF'
+  if (kind === 'image') return 'Imagen'
+  if (kind === 'word') return 'Word'
+  if (kind === 'excel') return 'Excel'
+  return 'Archivo'
+}
+
+function getDocumentKindIcon(kind = '') {
+  if (kind === 'pdf') return 'PDF'
+  if (kind === 'image') return 'IMG'
+  if (kind === 'word') return 'DOC'
+  if (kind === 'excel') return 'XLS'
+  return 'FILE'
+}
+
+function resolveDocumentCategory(type = '') {
+  const normalized = String(type || '').trim().toLowerCase()
+  const rule = AIRCRAFT_DOCUMENT_CATEGORY_RULES.find((entry) =>
+    entry.matchers.some((matcher) => normalized.includes(matcher)),
+  )
+
+  return rule || { id: 'other', label: 'Otros' }
+}
+
+function getDocumentStateMeta(document = {}) {
+  const normalizedState = String(document?.state || '').trim().toLowerCase()
+  const expiredByDate = Boolean(document?.expiresAt) && isDocumentExpiredAt(document.expiresAt)
+
+  if (expiredByDate || ['expired', 'vencido', 'vencida', 'rejected'].includes(normalizedState)) {
+    return { key: 'expired', label: 'Vencido', tone: 'danger', dot: 'danger' }
+  }
+
+  if (['approved', 'validado', 'validated', 'vigente', 'active'].includes(normalizedState)) {
+    return { key: 'valid', label: 'Vigente', tone: 'success', dot: 'success' }
+  }
+
+  if (['review', 'in_review', 'en_revision'].includes(normalizedState)) {
+    return { key: 'review', label: 'En revision', tone: 'info', dot: 'info' }
+  }
+
+  if (['pending', 'pendiente', 'draft', 'uploaded'].includes(normalizedState)) {
+    return { key: 'pending', label: 'Pendiente', tone: 'warning', dot: 'warning' }
+  }
+
+  if (!document?.expiresAt) {
+    return { key: 'no_expiry', label: 'Sin vencimiento', tone: 'neutral', dot: 'neutral' }
+  }
+
+  return { key: 'pending', label: 'Pendiente', tone: 'warning', dot: 'warning' }
+}
+
+function getDocumentUploadedAtLabel(document = {}) {
+  const source = document.updatedAt || document.uploadedAt || ''
+  if (!source) return 'Fecha no disponible'
+  return `Actualizado el ${formatDateCompact(source)}`
+}
+
+function normalizeStoredDocument(document = {}, index = 0) {
+  const kind = getStoredDocumentKind(document)
+  const category = resolveDocumentCategory(document.type)
+  const stateMeta = getDocumentStateMeta(document)
+  const typeLabel = formatDocumentType(document.typeLabel || document.type)
+  const fileExtension = getDocumentFileExtension(document.name, document.fileType)
+
+  return {
+    ...document,
+    id: document.id || `stored-${index + 1}`,
+    typeLabel,
+    categoryId: category.id,
+    categoryLabel: category.label,
+    kind,
+    kindLabel: getDocumentKindLabel(kind),
+    kindIcon: getDocumentKindIcon(kind),
+    stateMeta,
+    fileExtension,
+    uploadedAtLabel: getDocumentUploadedAtLabel(document),
+    expiryLabel: document.expiresAt ? formatDocumentExpiry(document.expiresAt) : 'Sin vencimiento',
+    previewSupported: ['image', 'pdf'].includes(kind),
+  }
+}
+
 function getDocumentKind(file = {}) {
   const type = String(file.type || '').toLowerCase()
   const name = String(file.name || '').toLowerCase()
@@ -7905,8 +8220,34 @@ function removeAircraftDocumentFile(id) {
   documentForm.fileName = documentForm.files.map((item) => item.name).join(', ')
 }
 
+function clearDocumentLibraryFilters() {
+  documentLibrarySearch.value = ''
+  documentLibraryCategory.value = 'all'
+  documentLibraryState.value = 'all'
+  documentLibrarySort.value = 'recent'
+}
+
+function toggleDocumentLibraryMenu(documentId) {
+  documentLibraryMenuId.value =
+    documentLibraryMenuId.value === documentId ? null : documentId
+}
+
+function closeDocumentLibraryMenu() {
+  documentLibraryMenuId.value = null
+}
+
 async function removeStoredAircraftDocument(aircraftId, documentId) {
   if (!aircraftId || !documentId) return
+
+  const documentRecord = storedAircraftDocuments.value.find(
+    (item) => Number(item.id) === Number(documentId),
+  )
+  const documentName = documentRecord?.name || `documento #${documentId}`
+  const confirmed = window.confirm(
+    `Deseas eliminar ${documentName}? Esta accion no se puede deshacer.`,
+  )
+
+  if (!confirmed) return
 
   if (documentPreview.file?.id === `stored-${documentId}`) {
     closeDocumentPreview()
@@ -7923,7 +8264,7 @@ async function removeStoredAircraftDocument(aircraftId, documentId) {
     ui.pushToast({
       tone: 'success',
       title: 'Documento eliminado',
-      message: `El documento #${documentId} ya fue eliminado de la biblioteca.`,
+      message: `${documentName} ya fue eliminado de la biblioteca.`,
     })
   } catch (error) {
     showError(
@@ -7938,30 +8279,59 @@ function openDocumentPreview(item) {
     URL.revokeObjectURL(documentPreview.url)
   }
 
-  documentPreview.file = item
+  const normalizedDocument = {
+    ...item,
+    typeLabel: formatDocumentType(item.typeLabel || item.type),
+    stateMeta: item.stateMeta || getDocumentStateMeta(item),
+    categoryLabel: item.categoryLabel || resolveDocumentCategory(item.type).label,
+    uploadedAtLabel: item.uploadedAtLabel || getDocumentUploadedAtLabel(item),
+    expiryLabel: item.expiresAt ? formatDocumentExpiry(item.expiresAt) : 'Sin vencimiento',
+    previewSupported:
+      item.previewSupported ?? ['image', 'pdf'].includes(item.kind),
+  }
+
+  documentPreview.file = normalizedDocument
   documentPreview.url = item.previewUrl || item.fileUrl || URL.createObjectURL(item.file)
+  documentPreview.canPreview = Boolean(normalizedDocument.previewSupported && documentPreview.url)
   documentPreview.open = true
+  closeDocumentLibraryMenu()
 }
 
 function openStoredDocumentPreview(document) {
   openDocumentPreview({
     id: `stored-${document.id}`,
     name: document.name,
-    typeLabel: document.typeLabel || getAircraftDocumentTypeMeta(document.type).label,
-    kind: getStoredDocumentKind(document),
+    type: document.type,
+    typeLabel: document.typeLabel || formatDocumentType(document.type),
+    kind: document.kind || getStoredDocumentKind(document),
     previewUrl: '',
     fileUrl: document.fileUrl || '',
+    fileType: document.fileType || '',
+    categoryLabel: document.categoryLabel,
+    stateMeta: document.stateMeta,
+    uploadedAt: document.uploadedAt,
+    updatedAt: document.updatedAt,
+    uploadedAtLabel: document.uploadedAtLabel,
+    expiresAt: document.expiresAt,
+    expiryLabel: document.expiryLabel,
+    previewSupported: document.previewSupported,
   })
 }
 
-function getStoredDocumentKind(document) {
-  const mimeType = String(document?.fileType || '').toLowerCase()
-  const fileUrl = String(document?.fileUrl || '').toLowerCase()
+function downloadDocumentFile(document = null) {
+  const targetUrl = document?.fileUrl || documentPreview.file?.fileUrl || documentPreview.url || ''
+  if (!targetUrl) return
 
-  if (mimeType.startsWith('image/')) return 'image'
-  if (mimeType.includes('pdf')) return 'pdf'
-  if (/\.(png|jpg|jpeg|webp|gif|bmp|svg)(\?|$)/i.test(fileUrl)) return 'image'
-  return 'pdf'
+  window.open(targetUrl, '_blank', 'noopener,noreferrer')
+}
+
+function showDocumentLibraryComingSoon(actionLabel = 'accion', document = null) {
+  ui.pushToast({
+    tone: 'info',
+    title: 'Accion en preparacion',
+    message: `${actionLabel} estara disponible pronto para ${document?.name || 'este documento'}.`,
+  })
+  closeDocumentLibraryMenu()
 }
 
 function closeDocumentPreview() {
@@ -7972,6 +8342,7 @@ function closeDocumentPreview() {
   documentPreview.open = false
   documentPreview.file = null
   documentPreview.url = ''
+  documentPreview.canPreview = false
 }
 
 function selectDocumentType(type) {
@@ -8956,7 +9327,6 @@ async function createAircraft() {
   }
 
   const payload = buildAircraftPayload(aircraftForm, {
-    providerId: providerId.value,
     inferredMinimumHours: inferredAircraftMinimumHours.value,
     inferAircraftEngineType,
     knotsToKmh,
@@ -9204,30 +9574,12 @@ async function uploadAircraftDocument() {
 }
 
 async function archiveAircraft(id) {
-  try {
-    await requestWithCandidates([
-      { method: 'put', path: `/proveedor/aeronaves/${id}`, body: { status: 'inactive' } },
-      { method: 'put', path: `/operator/aircraft/${id}`, body: { status: 'inactive' } },
-    ])
-  } catch (error) {
-    return showError(
-      'No se pudo archivar',
-      error.message || 'La aeronave no pudo actualizarse en la base de datos.',
-    )
-  }
-
-  aircraft.value = aircraft.value.map((item) =>
-    item.id === id ? { ...item, status: 'inactiva', availability: 'No disponible' } : item,
-  )
-  availability.value = availability.value.map((item) =>
-    item.aircraftId === id ? { ...item, status: 'No disponible' } : item,
-  )
-  pushHistory('Aeronaves', `Aeronave #${id} archivada`)
+  const target = aircraft.value.find((item) => Number(item.id) === Number(id))
+  pushHistory('Aeronaves', `Intento bloqueado de archivar aeronave #${id}`)
   ui.pushToast({
-    tone: 'success',
-    title: 'Aeronave desactivada',
-    message:
-      'El backend no maneja archivado directo; la aeronave quedó inactiva y fuera de operación.',
+    tone: 'warning',
+    title: 'Cambio operativo bloqueado',
+    message: `La aeronave ${target?.registration || target?.name || `#${id}`} ya no puede cambiarse por status desde el portal proveedor. Usa facturacion o soporte administrativo.`,
   })
 }
 
@@ -9297,14 +9649,12 @@ async function saveAircraftEdits(id) {
   }
 
   const payload = buildAircraftPayload(aircraftForm, {
-    providerId: providerId.value,
     inferredMinimumHours: inferredAircraftMinimumHours.value,
     inferAircraftEngineType,
     knotsToKmh,
     nullableText,
     resolveAircraftYearNumber,
   })
-  delete payload.provider_id
 
   try {
     const response = await requestWithCandidates([
@@ -9366,31 +9716,79 @@ function updatePricing(id, field, value) {
   )
 }
 
+const AIRCRAFT_PRICING_FIELD_MAP = [
+  ['hourly_rate', 'hourlyPrice'],
+  ['minimum_hours', 'minimumHours'],
+  ['repositioning_cost', 'repositioningCost'],
+  ['overnight_cost', 'overnightCost'],
+  ['waiting_cost', 'waitingCost'],
+  ['fbo_cost', 'fboCost'],
+  ['permits_cost', 'permitsCost'],
+  ['catering_base_cost', 'cateringBaseCost'],
+]
+
+function buildAircraftPricingPayload(row = {}) {
+  return AIRCRAFT_PRICING_FIELD_MAP.reduce((payload, [apiField, localField]) => {
+    payload[apiField] = Number(row?.[localField] || 0)
+    return payload
+  }, {})
+}
+
+function pricingFieldsSynced(row = {}, payload = {}) {
+  return AIRCRAFT_PRICING_FIELD_MAP.every(([apiField, localField]) => {
+    return Number(row?.[localField] || 0) === Number(payload?.[apiField] || 0)
+  })
+}
+
+function unsyncedPricingFieldLabels(row = {}, payload = {}) {
+  return AIRCRAFT_PRICING_FIELD_MAP
+    .filter(([apiField, localField]) => Number(row?.[localField] || 0) !== Number(payload?.[apiField] || 0))
+    .map(([apiField]) => {
+      const labels = {
+        hourly_rate: 'precio por hora',
+        minimum_hours: 'horas minimas',
+        repositioning_cost: 'repo',
+        overnight_cost: 'pernocta',
+        waiting_cost: 'espera',
+        fbo_cost: 'FBO',
+        permits_cost: 'permisos',
+        catering_base_cost: 'catering',
+      }
+      return labels[apiField] || apiField
+    })
+}
+
 async function savePricing(id) {
   const row = aircraft.value.find((item) => item.id === id)
   if (!row) return
 
-  const payload = {
-    hourly_rate: row.hourlyPrice,
-    minimum_hours: row.minimumHours,
-  }
+  const payload = buildAircraftPricingPayload(row)
 
   try {
+    savingPricingAircraftId.value = Number(id)
     await requestWithCandidates([
       { method: 'put', path: `/operator/aircraft/${id}`, body: payload },
       { method: 'put', path: `/proveedor/aeronaves/${id}`, body: payload },
     ])
+    await reloadAircraftList()
+    const refreshedRow = aircraft.value.find((item) => Number(item.id) === Number(id)) || row
+    const allFieldsSynced = pricingFieldsSynced(refreshedRow, payload)
+    const pendingLabels = unsyncedPricingFieldLabels(refreshedRow, payload)
     pushHistory('Costos y tarifas', `Tarifas actualizadas para aeronave #${id}`)
     ui.pushToast({
-      tone: 'info',
-      title: 'Tarifa sincronizada',
-      message: `La tarifa por hora y las horas minimas de la aeronave #${id} ya quedaron sincronizadas con backend. Los costos avanzados siguen pendientes de soporte del API.`,
+      tone: allFieldsSynced ? 'success' : 'warning',
+      title: allFieldsSynced ? 'Costos sincronizados' : 'Sincronizacion parcial',
+      message: allFieldsSynced
+        ? `La matriz de costos de la aeronave #${id} ya quedo sincronizada con backend.`
+        : `Se guardaron cambios para la aeronave #${id}, pero backend no reflejo todavia: ${pendingLabels.join(', ')}.`,
     })
   } catch (error) {
     showError(
       'No se pudo guardar',
       error.message || 'Las tarifas no pudieron guardarse en la base de datos.',
     )
+  } finally {
+    savingPricingAircraftId.value = null
   }
 }
 
@@ -9534,7 +9932,6 @@ async function createOrUpdateCrew() {
   }
 
   const payload = {
-    provider_id: providerId.value || undefined,
     name: crewForm.name,
     role: normalizeCrewRole(crewForm.role),
     position: normalizeCrewRole(crewForm.role),
@@ -10115,7 +10512,7 @@ async function saveProviderOperationalRelease(statusOverride = '', options = {})
   savingProviderOperationalRelease.value = !background
 
   try {
-    const response = await requestWithCandidates([
+    await requestWithCandidates([
       ...buildProviderReleaseCandidates(request, payload),
     ])
 
@@ -10899,6 +11296,11 @@ watch(
       aircraftForm,
       imageForm,
       documentForm,
+      documentLibrarySearch,
+      documentLibraryCategory,
+      documentLibraryState,
+      documentLibrarySort,
+      documentLibraryMenuId,
       documentPreview,
       incidentDetailModal,
       availabilityForm,
@@ -11010,6 +11412,11 @@ watch(
       selectedImageAircraft,
       selectedDocumentAircraft,
       selectedDocumentType,
+      documentLibraryCategoryOptions,
+      documentLibraryStateOptions,
+      documentLibrarySortOptions,
+      documentLibrarySummary,
+      filteredStoredAircraftDocuments,
       crewBases,
       assignableCrewOptions,
       crewLastSyncLabel,
@@ -11166,6 +11573,7 @@ watch(
       focusAircraftBilling,
       clearAircraftBillingFocus,
       loadProviderAircraftBillingPlan,
+      isAircraftBillingActionPending,
       refreshAircraftBillingStatus,
       activateAircraftBilling,
       runAircraftBillingPrimaryAction,
@@ -11263,6 +11671,7 @@ watch(
       syncAircraftScopedForms,
       setAircraftImageField,
       getAircraftDocumentTypeMeta,
+      formatDocumentType,
       getDocumentKind,
       formatFileSize,
       revokeDocumentPreviewUrls,
@@ -11271,10 +11680,15 @@ watch(
       setAircraftDocumentFiles,
       handleDocumentDrop,
       removeAircraftDocumentFile,
+      clearDocumentLibraryFilters,
       removeStoredAircraftDocument,
       openDocumentPreview,
       openStoredDocumentPreview,
       getStoredDocumentKind,
+      downloadDocumentFile,
+      toggleDocumentLibraryMenu,
+      closeDocumentLibraryMenu,
+      showDocumentLibraryComingSoon,
       getIncidentEvidenceKind,
       closeDocumentPreview,
       selectDocumentType,
@@ -11366,6 +11780,7 @@ watch(
       deleteAircraft,
       sendAircraftToReview,
       saveAircraftEdits,
+      savingPricingAircraftId,
       updatePricing,
       savePricing,
       reloadRequestsList,

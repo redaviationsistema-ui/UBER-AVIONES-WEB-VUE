@@ -85,4 +85,23 @@ describe('auth store role resolution', () => {
     expect(payload.login_context?.effective_role).toBe('sobrecargo')
     expect(resolveEffectiveRole(payload)).toBe('crew')
   })
+
+  it('does not infer admin from fallback user.role when explicit metadata is missing', () => {
+    const roles = normalizeRoles({
+      user: {
+        role: 'admin',
+      },
+    })
+
+    expect(roles).toContain('admin')
+    expect(
+      resolveAuthPayload({
+        token: 'admin-token',
+        user: {
+          id: 4,
+          role: 'admin',
+        },
+      }).login_context,
+    ).toBe(null)
+  })
 })

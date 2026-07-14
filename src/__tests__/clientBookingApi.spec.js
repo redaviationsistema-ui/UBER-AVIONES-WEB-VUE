@@ -20,13 +20,17 @@ vi.mock('../lib/api', async (importOriginal) => {
 
 import {
   buildFlightRequestPayload,
+  createClientCheckout,
   deriveClientWorkflowStatus,
   getClientTrips,
   inferDistanceUnit,
   inferEngineType,
+  markClientTripPaymentConfirmed,
   markClientTripReadyForPayment,
   normalizeTrip,
+  saveClientAssistedPayment,
   searchClientFlights,
+  uploadClientPaymentProof,
 } from '../features/client/clientBookingApi'
 import { api } from '../lib/api'
 import {
@@ -134,6 +138,56 @@ describe('buildFlightRequestPayload', () => {
   })
 })
 
+describe('createClientCheckout', () => {
+  it('reuses the same in-flight checkout request and sends an idempotency key', async () => {
+    let resolver = null
+    api.post.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolver = resolve
+        }),
+    )
+
+    const payload = {
+      reservation_id: 44,
+      hold_id: 'hold-77',
+      contact_email: 'CLIENTE@EMPRESA.COM',
+    }
+
+    const firstRequest = createClientCheckout(12, payload, { timeoutMs: 30000 })
+    const secondRequest = createClientCheckout(12, payload, { timeoutMs: 30000 })
+    await Promise.resolve()
+
+    expect(api.post).toHaveBeenCalledTimes(1)
+
+    expect(api.post.mock.calls[0][2].headers['Idempotency-Key']).toBe(
+      'client-checkout:12:44:hold-77:cliente@empresa.com',
+    )
+
+    resolver({
+      checkout_url: 'https://checkout.stripe.test/session_123',
+      checkout_session_id: 'cs_test_123',
+    })
+
+    await expect(firstRequest).resolves.toMatchObject({
+      checkout_session_id: 'cs_test_123',
+    })
+    await expect(secondRequest).resolves.toMatchObject({
+      checkout_session_id: 'cs_test_123',
+    })
+
+    api.post.mockResolvedValueOnce({
+      checkout_url: 'https://checkout.stripe.test/session_456',
+      checkout_session_id: 'cs_test_456',
+    })
+
+    await expect(createClientCheckout(12, payload, { timeoutMs: 30000 })).resolves.toMatchObject({
+      checkout_session_id: 'cs_test_456',
+    })
+    expect(api.post).toHaveBeenCalledTimes(2)
+  })
+})
+
 describe('searchClientFlights', () => {
   it('uses overnight_cost as the applied overnight charge when backend fee is only informational', async () => {
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
@@ -237,6 +291,129 @@ describe('searchClientFlights', () => {
     ).rejects.toThrow('backend unavailable')
 
     expect(api.get).not.toHaveBeenCalled()
+  })
+
+  it('rejects quotes that do not include the official backend pricing breakdown', async () => {
+    api.post.mockResolvedValue({
+      matches: [
+        {
+          id: 'match-without-breakdown',
+          aircraft_name: 'Learjet 31A',
+          total: 23780,
+        },
+      ],
+    })
+
+    await expect(
+      searchClientFlights({
+        trip_type: 'one_way',
+        passengers: 4,
+        legs: [
+          {
+            origin: 'TLC',
+            destination: 'CUN',
+            date: '2026-06-20',
+            time: '09:00',
+          },
+        ],
+      }),
+    ).rejects.toThrow('pricing_breakdown oficial')
+  })
+})
+
+describe('client payment payload hardening', () => {
+  it('does not send final-state fields when confirming a trip payment', async () => {
+    api.post.mockResolvedValueOnce({
+      reservation: {
+        id: 'res-1',
+        flight_request_id: 'fr-1',
+        payment_status: 'paid',
+      },
+    })
+
+    await markClientTripPaymentConfirmed('res-1', {
+      flight_request_id: 'fr-1',
+      payment_intent_id: 'pi_test_123',
+      brand: 'visa',
+    })
+
+    const [, body] = api.post.mock.calls[0]
+
+    expect(body).toMatchObject({
+      reservation_id: 'res-1',
+      flight_request_id: 'fr-1',
+      payment_intent_id: 'pi_test_123',
+      brand: 'visa',
+    })
+    expect(body.status).toBeUndefined()
+    expect(body.payment_status).toBeUndefined()
+    expect(body.booking_status).toBeUndefined()
+    expect(body.payment_order).toBeUndefined()
+    expect(body.confirmed).toBeUndefined()
+    expect(body.paid).toBeUndefined()
+    expect(body.approved).toBeUndefined()
+  })
+
+  it('does not send local price or workflow fields for assisted payment registration', async () => {
+    api.patch.mockResolvedValueOnce({
+      reservation: {
+        id: 'res-1',
+        flight_request_id: 'fr-1',
+      },
+    })
+
+    await saveClientAssistedPayment('res-1', {
+      flight_request_id: 'fr-1',
+      contact_email: 'cliente@test.dev',
+      total_amount: 15000,
+      payment_order: { status: 'pending_manual_payment' },
+    })
+
+    const [, body] = api.patch.mock.calls[0]
+
+    expect(body).toMatchObject({
+      reservation_id: 'res-1',
+      flight_request_id: 'fr-1',
+      payment_method: 'assisted_cash',
+      contact_email: 'cliente@test.dev',
+    })
+    expect(body.status).toBeUndefined()
+    expect(body.payment_status).toBeUndefined()
+    expect(body.booking_status).toBeUndefined()
+    expect(body.payment_order).toBeUndefined()
+    expect(body.total_amount).toBeUndefined()
+    expect(body.flight_cost).toBeUndefined()
+    expect(body.administrative_fee).toBeUndefined()
+  })
+
+  it('does not append final-state fields when uploading payment proof', async () => {
+    const proof = new File(['proof'], 'proof.pdf', { type: 'application/pdf' })
+
+    api.postForm.mockResolvedValueOnce({
+      reservation: {
+        id: 'res-1',
+        flight_request_id: 'fr-1',
+      },
+    })
+
+    await uploadClientPaymentProof(
+      'res-1',
+      {
+        flight_request_id: 'fr-1',
+        contact_email: 'cliente@test.dev',
+      },
+      proof,
+    )
+
+    const [, formData] = api.postForm.mock.calls[0]
+
+    expect(formData.get('reservation_id')).toBe('res-1')
+    expect(formData.get('flight_request_id')).toBe('fr-1')
+    expect(formData.get('contact_email')).toBe('cliente@test.dev')
+    expect(formData.get('status')).toBeNull()
+    expect(formData.get('payment_status')).toBeNull()
+    expect(formData.get('booking_status')).toBeNull()
+    expect(formData.get('payment_order')).toBeNull()
   })
 })
 
@@ -721,7 +898,7 @@ describe('getClientTrips', () => {
 })
 
 describe('markClientTripReadyForPayment', () => {
-  it('sends backend-compatible payment status fields when signing the contract', async () => {
+  it('sends only backend-owned identifiers when signing the contract', async () => {
     api.post.mockResolvedValue({
       reservation: {
         id: 2,
@@ -745,13 +922,16 @@ describe('markClientTripReadyForPayment', () => {
       expect.objectContaining({
         reservation_id: '2',
         flight_request_id: '111',
-        status: 'pending_payment',
-        workflow_status: 'pago pendiente',
-        contract_status: 'signed',
-        payment_status: 'pending',
+        reservation: '2',
+        booking_id: '2',
+        signature: { data_url: 'data:image/png;base64,firma' },
       }),
       {},
     )
+    expect(api.post.mock.calls[0][1].status).toBeUndefined()
+    expect(api.post.mock.calls[0][1].workflow_status).toBeUndefined()
+    expect(api.post.mock.calls[0][1].contract_status).toBeUndefined()
+    expect(api.post.mock.calls[0][1].payment_status).toBeUndefined()
     expect(resolveWorkflowState(trip.status).id).toBe('payment_pending')
   })
 

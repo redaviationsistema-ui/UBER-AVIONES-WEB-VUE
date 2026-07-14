@@ -165,17 +165,6 @@ function formatDateTime(value) {
   }).format(date)
 }
 
-function formatHistoryDate(value) {
-  const date = parseDate(value)
-  if (!date) return 'Sin fecha'
-  return new Intl.DateTimeFormat('es-MX', {
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date)
-}
-
 function normalizeAircraftOption(item = {}) {
   return {
     id: item.id || item.aircraft_id || null,
@@ -511,9 +500,7 @@ async function loadOperationalPanels() {
       {
         method: 'get',
         path: '/admin/operations/dashboard',
-        query: {
-          ...(companyId ? { company_id: companyId } : {}),
-        },
+        query: (companyId ? { company_id: companyId } : {}),
         timeoutMs: 20000,
       },
     ]),

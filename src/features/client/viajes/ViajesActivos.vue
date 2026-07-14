@@ -700,21 +700,6 @@ function reservationActionTargetId(reservation = {}) {
   return reservation.id || reservation.flight_request_id || reservation.request_id || ''
 }
 
-function conciergeEnabled(reservation = {}) {
-  return hasWorkflowIn(reservationWorkflowValue(reservation), [
-    'reserved',
-    'provider_pending',
-    'provider_accepted',
-    'contract_pending',
-    'contract_signed',
-    'payment_pending',
-    'payment_confirmed',
-    'flight_confirmed',
-    'tracking_live',
-    'completed',
-  ])
-}
-
 function reservationTab(reservation = {}) {
   const state = resolveWorkflowState(reservationWorkflowValue(reservation))
 

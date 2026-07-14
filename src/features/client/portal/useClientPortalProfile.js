@@ -45,9 +45,9 @@ export function useClientPortalProfile({ auth, hasActiveClientAccess, reservatio
   )
 
   const clientProfileRecord = computed(() => ({
-    ...(auth.access?.profile || {}),
-    ...(auth.user?.profile || {}),
-    ...(auth.user || {}),
+    ...auth.access?.profile,
+    ...auth.user?.profile,
+    ...auth.user,
   }))
 
   const profilePhone = computed(() =>

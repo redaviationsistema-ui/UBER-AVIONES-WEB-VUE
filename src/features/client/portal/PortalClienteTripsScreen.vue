@@ -1,10 +1,11 @@
 <script setup>
+import { ref, watch } from 'vue'
 import ActiveTrips from '../ActiveTrips.vue'
 import ClientContractPreview from '../ClientContractPreview.vue'
 
-defineProps({
+const props = defineProps({
+  activeAircraftHoldSummary: { type: Object, default: null },
   assistedPaymentProofFile: { type: Object, default: null },
-  assistedPaymentProofInput: { type: Object, default: null },
   assistedPaymentProofName: { type: String, default: '' },
   assistedPaymentProofUploaded: { type: Boolean, required: true },
   assistedPrimaryCtaLabel: { type: String, required: true },
@@ -67,6 +68,17 @@ defineEmits([
   'update:selected-payment-method',
   'upload-assisted-payment-proof',
 ])
+
+const assistedPaymentProofInputElement = ref(null)
+
+watch(
+  () => props.assistedPaymentProofName,
+  (name) => {
+    if (!name && assistedPaymentProofInputElement.value) {
+      assistedPaymentProofInputElement.value.value = ''
+    }
+  },
+)
 </script>
 
 <template>
@@ -139,6 +151,18 @@ defineEmits([
             <span>{{ item.label }}</span>
             <strong>{{ item.value }}</strong>
           </article>
+        </section>
+
+        <section v-if="activeAircraftHoldSummary && !commercialAccessCheckoutReturnMode" class="hold-banner" :class="{ 'hold-banner--warning': activeAircraftHoldSummary.isWarning }">
+          <strong>{{
+            activeAircraftHoldSummary.isWarning
+              ? 'Tu retencion esta por vencer'
+              : 'Aeronave apartada temporalmente'
+          }}</strong>
+          <p>
+            Apartamos esta aeronave durante 15 minutos mientras completas el pago.
+            Tiempo restante: <strong>{{ activeAircraftHoldSummary.countdownLabel }}</strong>
+          </p>
         </section>
 
         <section class="payment-section">
@@ -229,11 +253,7 @@ defineEmits([
             </button>
 
             <input
-              :ref="
-                (node) => {
-                  if (assistedPaymentProofInput) assistedPaymentProofInput.value = node
-                }
-              "
+              ref="assistedPaymentProofInputElement"
               type="file"
               accept=".pdf,image/*"
               class="payment-proof-input"
@@ -244,7 +264,7 @@ defineEmits([
               type="button"
               class="ghost-button"
               :disabled="!canUploadAssistedPaymentProof"
-              @click="$emit('trigger-assisted-payment-proof-upload')"
+              @click="assistedPaymentProofInputElement?.click()"
             >
               Seleccionar comprobante
             </button>
@@ -409,6 +429,10 @@ defineEmits([
         Ya puedes dar seguimiento desde Mis vuelos. En este momento la solicitud sigue su flujo
         operativo mientras recibimos la respuesta del proveedor asignado.
       </p>
+      <div v-if="activeAircraftHoldSummary" class="hold-banner" :class="{ 'hold-banner--warning': activeAircraftHoldSummary.isWarning }">
+        <strong>Aeronave apartada temporalmente</strong>
+        <p>Tiempo restante para completar el flujo: <strong>{{ activeAircraftHoldSummary.countdownLabel }}</strong></p>
+      </div>
       <div class="signature-box confirmation-box">
         <strong>Estado actual</strong>
         <span>Respuesta del proveedor.</span>
@@ -511,6 +535,27 @@ defineEmits([
 .payment-checkout__main {
   display: grid;
   gap: 1.35rem;
+}
+
+.hold-banner {
+  display: grid;
+  gap: 0.35rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid rgba(59, 130, 246, 0.16);
+  border-radius: 20px;
+  background: linear-gradient(180deg, rgba(239, 246, 255, 0.96), rgba(219, 234, 254, 0.92));
+  color: #0f3a6d;
+}
+
+.hold-banner strong,
+.hold-banner p {
+  margin: 0;
+}
+
+.hold-banner--warning {
+  border-color: rgba(217, 119, 6, 0.18);
+  background: linear-gradient(180deg, rgba(255, 247, 237, 0.96), rgba(254, 215, 170, 0.22));
+  color: #9a3412;
 }
 
 .payment-back {

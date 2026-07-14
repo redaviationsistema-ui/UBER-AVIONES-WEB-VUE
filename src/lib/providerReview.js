@@ -52,19 +52,6 @@ function normalizeDocumentCollection(provider = {}) {
   return []
 }
 
-function areLegalDocumentsApproved(provider = {}) {
-  const documents = normalizeDocumentCollection(provider)
-  if (!documents.length) return false
-
-  return documents.every((document) => {
-    const normalized = normalizeToken(
-      document.status || document.state || document.validation_status || document.review_status,
-    )
-
-    return ['approved', 'aprobado', 'aprobada', 'vigente', 'validado'].includes(normalized)
-  })
-}
-
 function resolveSatValidationStatus(provider = {}) {
   const normalized = normalizeToken(
     provider.sat_validation_status ||
@@ -246,7 +233,6 @@ function buildRequirementRecord(base, backendItem = {}, overrides = {}) {
 function resolveValidationRequirements(provider = {}, metrics = {}) {
   const backendRequirementMap = buildBackendRequirementMap(provider)
   const documents = normalizeReviewDocuments(provider)
-  const aircraft = toNumber(metrics.aircraft || provider.aircraft_count || 0)
   const active = toNumber(metrics.active || provider.active_aircraft_count || 0)
   const hasCompanyData = Boolean(
     provider.legal_name ||
@@ -475,7 +461,6 @@ export function buildProviderReviewFlow(provider = {}, metrics = {}) {
   const documentCount = countDocuments(provider)
   const aircraft = toNumber(metrics.aircraft || provider.aircraft_count || 0)
   const active = toNumber(metrics.active || provider.active_aircraft_count || 0)
-  const pending = toNumber(metrics.pending || provider.pending_aircraft_count || 0)
   const trial = toNumber(metrics.trial || provider.trial_aircraft_count || 0)
   const representative = resolveProviderRepresentativeName(provider)
   const base = provider.base_airport || provider.base || provider.location || 'Base pendiente'

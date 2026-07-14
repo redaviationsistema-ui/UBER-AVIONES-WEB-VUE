@@ -51,7 +51,7 @@ describe('VistaContratoCliente', () => {
   })
 
   it('emits the persisted backend contract payload without rebuilding the frontend document', async () => {
-    global.fetch = vi.fn()
+    globalThis.fetch = vi.fn()
 
     const wrapper = mount(VistaContratoCliente, {
       props: {
@@ -69,6 +69,6 @@ describe('VistaContratoCliente', () => {
     expect(emittedPayload.full_contract_text).toBe('Contrato backend en texto plano')
     expect(emittedPayload.document_source).toBe('backend_contract_snapshot_with_client_anchor')
     expect(emittedPayload.source_contract_path).toBe('/cliente/reservas/res-25/contrato')
-    expect(global.fetch).not.toHaveBeenCalled()
+    expect(globalThis.fetch).not.toHaveBeenCalled()
   })
 })

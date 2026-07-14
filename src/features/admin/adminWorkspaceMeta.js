@@ -3,10 +3,11 @@ const adminSectionDescriptions = {
   importaciones: 'Conectores, carga masiva y trazabilidad de sincronizaciones.',
   usuarios: 'Altas, accesos, auditoria y permisos operativos.',
   clientes: 'Cuentas activas, pagos, historial comercial y seguimiento VIP.',
+  cotizaciones: 'Ofertas, precios, estados comerciales y trazabilidad previa a reserva.',
   proveedores: 'Red de partners, SLA, documentacion y cumplimiento.',
   aeronaves: 'Flota disponible, estatus operativo, media y suscripciones.',
   'pagos-proveedor': 'Cobros, renovaciones y seguimiento financiero de proveedores.',
-  operadores: 'Coordinacion operativa, cobertura y desempeno del equipo interno.',
+  vuelos: 'Programacion, estados operativos, tripulacion y seguimiento por salida.',
   sobrecargos: 'Directorio, aprobaciones, certificados y estados operativos.',
   disponibilidad: 'Cobertura diaria, bloqueos y lectura de capacidad.',
   'sobrecargo-operaciones': 'Asignaciones, briefing y ejecucion operativa de cabina.',
@@ -18,6 +19,8 @@ const adminSectionDescriptions = {
   pagos: 'Cobros, conciliacion, reembolsos y lectura de margen.',
   incidencias: 'Alertas, escalaciones y cierre de eventos criticos.',
   documentos: 'Repositorio, vigencias y revision documental.',
+  auditoria: 'Bitacora persistente de acciones administrativas y resultados.',
+  reportes: 'Cortes operativos y financieros con filtros basados en backend.',
   configuracion: 'Reglas base del sistema, permisos e integraciones.',
 }
 

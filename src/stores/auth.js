@@ -1,7 +1,12 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { api, clearStoredToken, getStoredToken, setStoredToken } from '../lib/api'
-import { normalizeAuthRole, resolveDashboardPathByRole } from '../lib/authRouting'
+import {
+  extractExplicitRoles,
+  hasAdminAccess as resolveAdminAccess,
+  normalizeAuthRole,
+  resolveDashboardPathByRole,
+} from '../lib/authRouting'
 import { resolveBestCompanyDisplayName } from '../lib/companyDisplay'
 import { resolveProviderIdForUser } from '../lib/providerContext'
 
@@ -118,16 +123,43 @@ function writeStoredMeCache(payload) {
   )
 }
 
-export function normalizeRoles(payload = {}) {
-  const explicitRoles = [
-    payload.login_context?.effective_role,
-    payload.access?.effective_role,
-    ...(Array.isArray(payload.login_context?.roles) ? payload.login_context.roles : []),
-    ...(Array.isArray(payload.access?.roles) ? payload.access.roles : []),
-    ...(Array.isArray(payload.user?.roles)
-      ? payload.user.roles.map((role) => role?.code || role?.key || role?.name).filter(Boolean)
-      : []),
+export function extractPermissions(payload = {}) {
+  const permissionSources = [
+    payload.login_context?.permissions,
+    payload.access?.permissions,
+    payload.user?.permissions,
   ]
+
+  return Array.from(
+    new Set(
+      permissionSources
+        .flatMap((source) => {
+          if (Array.isArray(source)) {
+            return source.map((permission) => {
+              if (typeof permission === 'string') return permission.trim()
+              if (permission && typeof permission === 'object') {
+                return String(permission.code || permission.key || permission.name || '').trim()
+              }
+
+              return ''
+            })
+          }
+
+          if (source && typeof source === 'object') {
+            return Object.entries(source)
+              .filter(([, value]) => value === true)
+              .map(([key]) => String(key || '').trim())
+          }
+
+          return []
+        })
+        .filter(Boolean),
+    ),
+  )
+}
+
+export function normalizeRoles(payload = {}) {
+  const explicitRoles = extractExplicitRoles(payload)
 
   const fallbackRoles = [payload.user?.operational_role, payload.user?.role].filter(Boolean)
 
@@ -252,13 +284,23 @@ export const useAuthStore = defineStore('auth', () => {
   const access = ref(null)
   const loginContext = ref(null)
   const roles = ref([])
+  const loaded = ref(false)
   const initialized = ref(false)
   const loading = ref(false)
+  const error = ref('')
   let initializePromise = null
 
   const isAuthenticated = computed(() => Boolean(user.value))
   const effectiveRole = computed(() =>
     resolveEffectiveRole({
+      user: user.value,
+      access: access.value,
+      login_context: loginContext.value,
+    }),
+  )
+  const role = computed(() => effectiveRole.value)
+  const permissions = computed(() =>
+    extractPermissions({
       user: user.value,
       access: access.value,
       login_context: loginContext.value,
@@ -290,15 +332,9 @@ export const useAuthStore = defineStore('auth', () => {
     return companyName !== 'Empresa operadora' ? companyName : user.value?.name || 'Cuenta activa'
   })
   const providerId = computed(() => resolveProviderIdForUser(user.value))
-  let fetchMePromise = null
+  let currentUserRequestPromise = null
 
-  function applyAuth(payload, options = {}) {
-    const resolvedPayload = resolveAuthPayload(payload, options)
-    token.value = resolvedPayload.token
-    user.value = resolvedPayload.user
-    access.value = resolvedPayload.access
-    loginContext.value = resolvedPayload.login_context
-    roles.value = normalizeRoles(resolvedPayload)
+  function persistResolvedAuth(resolvedPayload) {
     setStoredToken(resolvedPayload.token)
     writeStoredAuthSnapshot({
       user: resolvedPayload.user,
@@ -311,10 +347,27 @@ export const useAuthStore = defineStore('auth', () => {
       access: resolvedPayload.access,
       login_context: resolvedPayload.login_context,
     })
+  }
 
-    if (resolvedPayload.user) {
+  function applyAuth(payload, options = {}) {
+    const resolvedPayload = resolveAuthPayload(payload, options)
+    token.value = resolvedPayload.token
+    user.value = resolvedPayload.user
+    access.value = resolvedPayload.access
+    loginContext.value = resolvedPayload.login_context
+    roles.value = normalizeRoles(resolvedPayload)
+    loaded.value = options.markLoaded === true
+    error.value = ''
+
+    if (options.persist !== false) {
+      persistResolvedAuth(resolvedPayload)
+    }
+
+    if (resolvedPayload.user || options.markInitialized === true) {
       initialized.value = true
     }
+
+    return resolvedPayload
   }
 
   function applyStoredAuthSnapshot(snapshot = {}) {
@@ -326,6 +379,8 @@ export const useAuthStore = defineStore('auth', () => {
       access: access.value,
       login_context: loginContext.value,
     })
+    loaded.value = false
+    error.value = ''
   }
 
   function clearAuth() {
@@ -334,6 +389,8 @@ export const useAuthStore = defineStore('auth', () => {
     access.value = null
     loginContext.value = null
     roles.value = []
+    loaded.value = false
+    error.value = ''
     clearStoredToken()
     writeStoredAuthSnapshot(null)
     clearStoredMeCache()
@@ -378,15 +435,40 @@ export const useAuthStore = defineStore('auth', () => {
       access: access.value,
       login_context: loginContext.value,
     })
+    writeStoredMeCache({
+      token: token.value,
+      user: user.value,
+      access: access.value,
+      login_context: loginContext.value,
+    })
   }
 
-  async function fetchMe(options = {}) {
+  async function loadCurrentUser(options = {}) {
     const force = options.force === true
-    const preferCache = options.preferCache !== false
+    const preferCache = options.preferCache === true
     const allowServerErrorFallback = options.allowServerErrorFallback !== false
     const cacheTtlMs = Number.isFinite(Number(options.cacheTtlMs))
       ? Number(options.cacheTtlMs)
       : AUTH_ME_CACHE_TTL_MS
+    const signal = options.signal
+
+    if (!initialized.value) {
+      await initialize()
+    }
+
+    if (!token.value) {
+      clearAuth()
+      initialized.value = true
+      return null
+    }
+
+    if (!force && loaded.value) {
+      return user.value
+    }
+
+    if (currentUserRequestPromise) {
+      return currentUserRequestPromise
+    }
 
     if (!force && preferCache) {
       const cached = readStoredMeCache()
@@ -399,26 +481,29 @@ export const useAuthStore = defineStore('auth', () => {
             access: access.value,
             login_context: loginContext.value,
           },
+          markLoaded: true,
         })
-        return cached.payload
+        return user.value
       }
     }
 
-    if (!force && fetchMePromise) {
-      return fetchMePromise
-    }
-
-    fetchMePromise = (async () => {
+    loading.value = true
+    error.value = ''
+    currentUserRequestPromise = (async () => {
       try {
-        const response = await api.get('/auth/me', { timeoutMs: AUTH_REQUEST_TIMEOUT_MS })
+        const response = await api.get('/auth/me', {
+          timeoutMs: AUTH_REQUEST_TIMEOUT_MS,
+          signal,
+        })
         applyAuth(response, {
           currentSnapshot: {
             user: user.value,
             access: access.value,
             login_context: loginContext.value,
           },
+          markLoaded: true,
         })
-        return response
+        return user.value
       } catch (error) {
         const status = Number(error?.status || 0)
         const canFallback =
@@ -435,22 +520,38 @@ export const useAuthStore = defineStore('auth', () => {
                 access: access.value,
                 login_context: loginContext.value,
               },
+              markLoaded: true,
             })
-            return cachedPayload
+            return user.value
           }
         }
 
+        if (isUnauthorizedError(error)) {
+          clearAuth()
+        }
+
+        error.value = error?.message || 'No se pudo cargar la sesion actual.'
         throw error
+      } finally {
+        loading.value = false
       }
     })().finally(() => {
-      fetchMePromise = null
+      currentUserRequestPromise = null
     })
 
-    return fetchMePromise
+    return currentUserRequestPromise
   }
 
   function hasRole(role) {
     return roles.value.includes(normalizeAuthRole(role))
+  }
+
+  function hasAdminAccess() {
+    return resolveAdminAccess({
+      user: user.value,
+      access: access.value,
+      login_context: loginContext.value,
+    })
   }
 
   async function initialize() {
@@ -459,33 +560,39 @@ export const useAuthStore = defineStore('auth', () => {
 
     initializePromise = (async () => {
       token.value = getStoredToken()
+      error.value = ''
+
       if (!token.value) {
         clearAuth()
         initialized.value = true
-        initializePromise = null
-        return
+        return null
+      }
+
+      const cachedPayload = resolveCachedAuthPayload()
+      if (cachedPayload?.user) {
+        applyAuth(cachedPayload, {
+          currentSnapshot: {
+            user: user.value,
+            access: access.value,
+            login_context: loginContext.value,
+          },
+          persist: false,
+          markLoaded: false,
+          markInitialized: true,
+        })
+        return user.value
       }
 
       const storedSnapshot = readStoredAuthSnapshot()
-
       if (storedSnapshot?.user) {
         applyStoredAuthSnapshot(storedSnapshot)
-        initialized.value = true
-        initializePromise = null
-        return
       }
 
-      try {
-        await fetchMe()
-      } catch (error) {
-        if (isUnauthorizedError(error)) {
-          clearAuth()
-        }
-      } finally {
-        initialized.value = true
-        initializePromise = null
-      }
-    })()
+      initialized.value = true
+      return user.value
+    })().finally(() => {
+      initializePromise = null
+    })
 
     return initializePromise
   }
@@ -554,12 +661,22 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function refreshSession(options = {}) {
     try {
-      return await fetchMe(options)
+      return await loadCurrentUser(options)
     } catch (error) {
-      if (isUnauthorizedError(error)) {
-        clearAuth()
-      }
       return null
+    }
+  }
+
+  async function revalidateSession(options = {}) {
+    try {
+      return await loadCurrentUser({
+        force: true,
+        preferCache: false,
+        allowServerErrorFallback: false,
+        ...options,
+      })
+    } catch (error) {
+      throw error
     }
   }
 
@@ -569,19 +686,26 @@ export const useAuthStore = defineStore('auth', () => {
     access,
     loginContext,
     roles,
+    role,
+    permissions,
+    loaded,
     initialized,
     loading,
+    error,
     isAuthenticated,
     effectiveRole,
     dashboardPath,
     userName,
     providerId,
     hasRole,
+    hasAdminAccess,
     initialize,
+    loadCurrentUser,
     login,
     register,
     logout,
     refreshSession,
+    revalidateSession,
     syncUserContext,
     clearAuth,
   }

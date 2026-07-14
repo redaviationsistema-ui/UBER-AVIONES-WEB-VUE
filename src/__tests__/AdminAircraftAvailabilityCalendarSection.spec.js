@@ -172,8 +172,8 @@ describe('AdminAircraftAvailabilityCalendarSection', () => {
     expect(wrapper.text()).toContain('Red Aviation')
     expect(wrapper.text()).toContain('XA-RED1')
     expect(wrapper.text()).toContain('Pagos pendientes')
-    expect(wrapper.text()).toContain('Bitacora operativa')
-    expect(wrapper.text()).toContain('Notificaciones admin')
+    expect(wrapper.text()).toContain('Resumen')
+    expect(wrapper.text()).toContain('Bloqueo administrativo')
 
     await wrapper.find('.calendar-event').trigger('click')
 

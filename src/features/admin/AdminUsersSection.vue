@@ -1134,10 +1134,6 @@ function paymentStatusLabel(user = {}) {
   return resolveRealPaymentState(user).label
 }
 
-function paymentStatusMeta(user = {}) {
-  return resolveRealPaymentState(user).meta
-}
-
 function paymentStatusTone(user = {}) {
   const label = paymentStatusLabel(user)
 

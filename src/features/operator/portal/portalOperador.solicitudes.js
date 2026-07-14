@@ -6,11 +6,9 @@ export function createOperatorPortalRequestsDomain(ctx = {}) {
   const {
     requests,
     aircraft,
-    filteredRequests,
     requestStatusUpdate,
     requestWorkflowLocalOverrides,
     selectedRequestId,
-    requestStatusFilter,
     buildWorkflowApiPayload,
     resolveSharedWorkflowStatus,
     resolveSharedVisualWorkflowStepId,
@@ -22,14 +20,11 @@ export function createOperatorPortalRequestsDomain(ctx = {}) {
     parseOperationalDate,
     isRequestSameOperationalDay,
     formatCurrency,
-    getRequestRouteLabel,
     resolveOperatorRequestQueue,
     findOperatorRequestByIdentifier,
     findLinkedOperationForRequest,
     getAircraftLiveStatus,
     parseRequestAmount,
-    emitWorkflowSync,
-    ui,
     OPERATOR_FLOW_STEPS,
   } = ctx
 

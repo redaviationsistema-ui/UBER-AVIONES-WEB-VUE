@@ -228,7 +228,7 @@ function isDocuSignRequestPath(path = '') {
   return String(path || '').toLowerCase().includes('docusign')
 }
 
-function logAircraftRequest(label, details = {}) {
+function logAircraftRequest(_label, _details = {}) {
   if (typeof console === 'undefined') return
   //console.log(`[aircraft-debug] ${label}`, details)
 }
@@ -387,17 +387,39 @@ function isUnauthorizedResponse(response, payload = {}) {
   return message === 'unauthenticated.' || message === 'unauthenticated'
 }
 
-function redirectToClientLogin() {
+function isForbiddenResponse(response, payload = {}) {
+  if (response?.status === 403) return true
+
+  const message = String(payload?.message || '')
+    .trim()
+    .toLowerCase()
+
+  return ['forbidden', 'forbidden.', 'this action is unauthorized.', 'access denied'].includes(message)
+}
+
+function buildAppPath(pathname = '') {
+  const normalizedBasePath =
+    APP_BASE_PATH === '/' ? '' : `/${APP_BASE_PATH.replace(/^\/+|\/+$/g, '')}`
+
+  return `${normalizedBasePath}${pathname.startsWith('/') ? pathname : `/${pathname}`}`
+}
+
+function getCurrentLocationPath() {
+  if (typeof window === 'undefined') return '/'
+
+  return `${window.location.pathname || '/'}${window.location.search || ''}${window.location.hash || ''}`
+}
+
+function redirectToLogin() {
   if (typeof window === 'undefined') return
 
-  const normalizedBasePath =
-    APP_BASE_PATH === '/' ? '/' : `/${APP_BASE_PATH.replace(/^\/+|\/+$/g, '')}/`
-  const currentPath = `${window.location.pathname || '/'}${window.location.search || ''}${window.location.hash || ''}`
-  const loginPath = `${normalizedBasePath === '/' ? '' : normalizedBasePath.slice(0, -1)}/login-cliente`
-  const isAlreadyOnClientLogin =
-    currentPath.startsWith(loginPath) ||
-    currentPath.startsWith(`${normalizedBasePath === '/' ? '' : normalizedBasePath.slice(0, -1)}/login`)
-  if (isAlreadyOnClientLogin) return
+  const currentPath = getCurrentLocationPath()
+  const isOperationalPath = /^\/(admin|operador|operator|crew|sobrecargo)(\/|$)/i.test(
+    window.location.pathname || '/',
+  )
+  const loginPath = buildAppPath(isOperationalPath ? '/login-operacion' : '/login-cliente')
+  const fallbackLoginPath = buildAppPath('/login')
+  if (currentPath.startsWith(loginPath) || currentPath.startsWith(fallbackLoginPath)) return
 
   const loginUrl = new URL(loginPath, window.location.origin)
   loginUrl.searchParams.set('session', 'expired')
@@ -406,6 +428,19 @@ function redirectToClientLogin() {
   }
 
   window.location.replace(loginUrl.toString())
+}
+
+function redirectToAccessDenied() {
+  if (typeof window === 'undefined') return
+
+  const currentPath = getCurrentLocationPath()
+  const accessDeniedPath = buildAppPath('/acceso-denegado')
+  if (currentPath.startsWith(accessDeniedPath)) return
+
+  const deniedUrl = new URL(accessDeniedPath, window.location.origin)
+  deniedUrl.searchParams.set('reason', 'backend-403')
+  deniedUrl.searchParams.set('from', currentPath)
+  window.location.replace(deniedUrl.toString())
 }
 
 export function getStoredToken() {
@@ -656,7 +691,11 @@ export async function apiRequest(path, options = {}) {
 
     if (isUnauthorizedResponse(response, payload) && !options.preserveAuthOnUnauthorized) {
       clearStoredToken()
-      redirectToClientLogin()
+      redirectToLogin()
+    }
+
+    if (isForbiddenResponse(response, payload) && options.redirectOnForbidden !== false) {
+      redirectToAccessDenied()
     }
 
     const error = new Error(extractApiErrorMessage(payload, response.status))

@@ -1,11 +1,17 @@
 <script setup>
 import { computed, defineComponent, h } from 'vue'
-import { roleSections, resolveRoleSectionPath } from '../../data/roleFlows'
+import { useRouter } from 'vue-router'
+import { roleSections, resolveRoleSectionPath, resolveRoleSectionRoute } from '../../data/roleFlows'
 
 const props = defineProps({
   kpis: { type: Array, required: true },
   analytics: { type: Array, required: true },
+  recentActivity: { type: Array, default: () => [] },
+  loading: { type: Boolean, default: false },
+  errorMessage: { type: String, default: '' },
 })
+
+const router = useRouter()
 
 const preferredSectionOrder = [
   'reservas',
@@ -92,6 +98,10 @@ const workflowItems = computed(() => {
 })
 
 const recentActivity = computed(() => {
+  if (props.recentActivity.length) {
+    return props.recentActivity.slice(0, 4)
+  }
+
   const activity = [
     leadKpi.value && {
       id: 'headline',
@@ -280,6 +290,17 @@ function recentActivityIcon(entryId = '') {
   if (entryId === 'headline') return 'chart'
   return 'pulse'
 }
+
+async function navigateToAdminSection(section, event) {
+  const targetPath = resolveRoleSectionPath('admin', section)
+  const targetRoute = resolveRoleSectionRoute('admin', section)
+  const currentPath = router.currentRoute.value.fullPath
+
+  if (!targetPath || currentPath === targetPath) return
+
+  event?.preventDefault?.()
+  await router.push(targetRoute)
+}
 </script>
 
 <template>
@@ -288,9 +309,9 @@ function recentActivityIcon(entryId = '') {
       <div class="section-head dashboard-hero-head">
         <div>
           <p class="eyebrow">Panel ejecutivo</p>
-          <h1>{{ leadKpi?.value || 'Sin dato' }}</h1>
+          <h1>{{ loading ? 'Cargando...' : leadKpi?.value || 'Sin dato' }}</h1>
           <p class="helper-copy">
-            {{ leadKpi?.label || 'Resumen estrategico del frente administrativo.' }}
+            {{ errorMessage || leadKpi?.label || 'Resumen estrategico del frente administrativo.' }}
           </p>
         </div>
       </div>
@@ -316,9 +337,10 @@ function recentActivityIcon(entryId = '') {
         <RouterLink
           v-for="section in quickSections"
           :key="section.id"
-          :to="resolveRoleSectionPath('admin', section)"
+          :to="resolveRoleSectionRoute('admin', section)"
           class="quick-action-card"
           :data-action="section.id"
+          @click="navigateToAdminSection(section, $event)"
         >
           <span class="quick-action-icon" aria-hidden="true">
             <AppIcon :name="sectionIcon(section.id)" :size="20" />
@@ -394,8 +416,9 @@ function recentActivityIcon(entryId = '') {
             <RouterLink
               v-for="section in operationalSections"
               :key="section.id"
-              :to="resolveRoleSectionPath('admin', section)"
+              :to="resolveRoleSectionRoute('admin', section)"
               class="module-card"
+              @click="navigateToAdminSection(section, $event)"
             >
               <span class="module-card__icon" aria-hidden="true">
                 <AppIcon :name="sectionIcon(section.id)" :size="20" />
@@ -408,15 +431,21 @@ function recentActivityIcon(entryId = '') {
       </div>
 
       <div class="dashboard-side-column">
-        <article v-if="recentActivity.length" class="surface dashboard-executive-feed">
+        <article v-if="recentActivity.length || errorMessage || loading" class="surface dashboard-executive-feed">
           <div class="section-head">
             <div>
               <p class="eyebrow">Bitacora</p>
-              <h2>Actividad reciente</h2>
+              <h2>{{ errorMessage ? 'Estado del dashboard' : loading ? 'Sincronizando dashboard' : 'Actividad reciente' }}</h2>
             </div>
           </div>
 
-          <div class="ops-timeline">
+          <p v-if="errorMessage" class="muted">
+            {{ errorMessage }}
+          </p>
+          <p v-else-if="loading && !recentActivity.length" class="muted">
+            Esperando la respuesta oficial de Laravel para poblar este panel.
+          </p>
+          <div v-else class="ops-timeline">
             <article
               v-for="entry in recentActivity"
               :key="entry.id"

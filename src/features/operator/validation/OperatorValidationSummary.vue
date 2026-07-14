@@ -1,5 +1,5 @@
 <script setup>
-const props = defineProps({
+defineProps({
   summary: { type: Array, default: () => [] },
   title: { type: String, default: 'Resumen de validacion' },
   badgeLabel: { type: String, default: '' },

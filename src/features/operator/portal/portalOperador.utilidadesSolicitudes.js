@@ -279,8 +279,8 @@ export function syncRealtimeRequestsWithRequestsCollection(realtimeRequests = []
       created_at: matchedRequest.createdAt || request.created_at,
       updated_at: matchedRequest.updatedAt || request.updated_at,
       raw: {
-        ...(request.raw || {}),
-        ...(matchedRequest.raw || {}),
+        ...request.raw,
+        ...matchedRequest.raw,
       },
     }
   })

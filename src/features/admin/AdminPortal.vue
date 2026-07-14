@@ -2,11 +2,15 @@
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { api } from '../../lib/api'
 import { pickCollection, requestWithCandidates } from '../../lib/backendCrud'
-import { fallbackAdminFlags, fallbackAdminKpis } from '../../data/platform'
 import { useUiStore } from '../../stores/ui'
 import { normalizeWorkflowLabel, resolveWorkflowState } from '../../utils/flightWorkflow'
 import { emitWorkflowSync, subscribeWorkflowSync } from '../../lib/workflowSync'
 import { resolveProviderRepresentativeName } from '../../lib/providerReview'
+import {
+  buildAdminDashboardEmptyState,
+  formatAdminCell,
+  normalizeAdminDashboardPayload,
+} from './adminDashboard'
 
 const AdminAlertsSection = defineAsyncComponent(() => import('./AdminAlertsSection.vue'))
 const AdminAircraftAvailabilityCalendarSection = defineAsyncComponent(() => import('./AdminAircraftAvailabilityCalendarSection.vue'))
@@ -15,13 +19,15 @@ const AdminCrewAvailabilitySection = defineAsyncComponent(() => import('./AdminC
 const AdminCrewDirectorySection = defineAsyncComponent(() => import('./AdminCrewDirectorySection.vue'))
 const AdminCrewOperationsSection = defineAsyncComponent(() => import('./AdminCrewOperationsSection.vue'))
 const AdminContractsSection = defineAsyncComponent(() => import('./AdminContractsSection.vue'))
-const AdminCrudSection = defineAsyncComponent(() => import('./AdminCrudSection.vue'))
 const AdminExecutiveSection = defineAsyncComponent(() => import('./AdminExecutiveSection.vue'))
 const AdminImportsSection = defineAsyncComponent(() => import('./AdminImportsSection.vue'))
 const AdminIncidenciasPage = defineAsyncComponent(() => import('./AdminIncidenciasPage.vue'))
 const AdminProvidersNetworkSection = defineAsyncComponent(() => import('./AdminProvidersNetworkSection.vue'))
+const AdminRecordsSection = defineAsyncComponent(() => import('./AdminRecordsSection.vue'))
 const AdminReleasesSection = defineAsyncComponent(() => import('./AdminReleasesSection.vue'))
+const AdminReportsSection = defineAsyncComponent(() => import('./AdminReportsSection.vue'))
 const AdminReservationsSection = defineAsyncComponent(() => import('./AdminReservationsSection.vue'))
+const AdminSettingsSection = defineAsyncComponent(() => import('./AdminSettingsSection.vue'))
 const AdminSubscriptionsSection = defineAsyncComponent(() => import('./AdminSubscriptionsSection.vue'))
 const AdminUsersSection = defineAsyncComponent(() => import('./AdminUsersSection.vue'))
 
@@ -33,7 +39,9 @@ const ui = useUiStore()
 const IS_LOCAL_ADMIN_DEV =
   typeof window !== 'undefined' &&
   /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname || '')
-const kpis = ref({})
+const dashboardData = ref(buildAdminDashboardEmptyState())
+const dashboardLoading = ref(false)
+const dashboardErrorMessage = ref('')
 const users = ref([])
 const clients = ref([])
 const clientSectionLoaded = ref(false)
@@ -44,17 +52,43 @@ const subscriptions = ref([])
 const accessPayments = ref([])
 const subscriptionPayments = ref([])
 const contracts = ref([])
+const quotes = ref([])
 const crewMembers = ref([])
 const crewAvailabilityStatuses = ref([])
 const operations = ref([])
+const reports = ref({})
+const settings = ref([])
+const flightOpsDashboard = ref({})
+const flightOpsHistory = ref([])
+const flightOpsNotifications = ref([])
+const auditLogEntries = ref([])
 const auditEntries = ref([])
 const reservationAuditEntries = ref([])
+const settingsSaving = ref(false)
+const settingsErrorMessage = ref('')
+const genericModuleLoading = reactive({
+  cotizaciones: false,
+  vuelos: false,
+  documentos: false,
+  auditoria: false,
+  reportes: false,
+  configuracion: false,
+})
+const genericModuleErrors = reactive({
+  cotizaciones: '',
+  vuelos: '',
+  documentos: '',
+  auditoria: '',
+  reportes: '',
+  configuracion: '',
+})
 const rawSectionRecords = reactive({
   usuarios: [],
   clientes: [],
   alertas: [],
   proveedores: [],
   aeronaves: [],
+  cotizaciones: [],
   suscripciones: [],
   pagos_acceso: [],
   pagos_suscripcion: [],
@@ -62,6 +96,11 @@ const rawSectionRecords = reactive({
   sobrecargos: [],
   reservas: [],
   liberaciones: [],
+  auditoria: [],
+  configuracion: [],
+  reportes: [],
+  vuelos: [],
+  documentos: [],
 })
 const reservationFlowLoading = ref(false)
 const reservationFlowLoadingLabel = ref('')
@@ -91,6 +130,7 @@ let reservationsRequestPromise = null
 let releasesRequestPromise = null
 let crewMembersRequestPromise = null
 const portalSectionRequestPromises = new Map()
+const portalSectionAbortControllers = new Map()
 const lastPortalSectionLoadAt = new Map()
 const adminPortalInstanceId = `admin-${Math.random().toString(16).slice(2, 10)}`
 let lastReservationsRefreshAt = 0
@@ -118,6 +158,32 @@ const clientUsers = computed(() =>
   }),
 )
 let adminReservationsModulePromise = null
+
+function isAbortLikeError(error) {
+  return (
+    error?.name === 'AbortError' ||
+    String(error?.message || '')
+      .trim()
+      .toLowerCase()
+      .includes('aborted')
+  )
+}
+
+function abortTrackedPortalSectionRequest(section) {
+  const controller = portalSectionAbortControllers.get(section)
+
+  if (controller) {
+    controller.abort()
+    portalSectionAbortControllers.delete(section)
+  }
+}
+
+function abortTrackedPortalSectionRequests(exceptSection = '') {
+  for (const section of portalSectionAbortControllers.keys()) {
+    if (section === exceptSection) continue
+    abortTrackedPortalSectionRequest(section)
+  }
+}
 
 async function loadAdminReservationsModule() {
   if (!adminReservationsModulePromise) {
@@ -483,18 +549,8 @@ function normalizeToken(value = '') {
     .replace(/[_-]+/g, ' ')
 }
 
-function toFiniteNumber(value) {
-  const parsed = Number.parseFloat(String(value ?? '').replace(/[^\d.]+/g, ''))
-  return Number.isFinite(parsed) ? parsed : 0
-}
-
 function formatCount(value) {
   return new Intl.NumberFormat('es-MX').format(Number(value || 0))
-}
-
-function formatPercent(value, digits = 0) {
-  const safe = Number.isFinite(value) ? value : 0
-  return `${safe.toFixed(digits)}%`
 }
 
 function formatCurrency(value) {
@@ -580,12 +636,6 @@ function extractClientPaginationMeta(response = {}, collection = [], query = {})
     to: Math.max(0, to || 0),
     serverPaginated,
   }
-}
-
-function average(values = []) {
-  const numeric = values.map(toFiniteNumber).filter((value) => value > 0)
-  if (!numeric.length) return 0
-  return numeric.reduce((sum, value) => sum + value, 0) / numeric.length
 }
 
 function sampleRecordKeys(records = [], limit = 10) {
@@ -704,72 +754,14 @@ const criticalIncidentsCount = computed(() =>
   }).length,
 )
 
-const executiveKpis = computed(() => [
-  {
-    label: 'Ventas del dia',
-    value: kpis.value.mrr || fallbackAdminKpis.mrr,
-    detail: 'Ingresos reportados por el dashboard administrativo.',
-  },
-  {
-    label: 'Conversion a pago',
-    value: kpis.value.conversion_a_pago || fallbackAdminKpis.conversion_a_pago,
-    detail: 'Tasa de avance comercial tomada del dashboard administrativo.',
-  },
-  {
-    label: 'Vuelos activos',
-    value: formatCount(activeReservationsCount.value),
-    detail: 'Reservas y operaciones que siguen en flujo activo.',
-  },
-  {
-    label: 'Reservas pendientes',
-    value: formatCount(pendingReservationsCount.value),
-    detail: 'Solicitudes que todavia requieren avance operativo.',
-  },
-  {
-    label: 'Pagos pendientes',
-    value: formatCount(paymentsPendingCount.value),
-    detail: 'Operaciones con estatus de pago pendiente en la data cargada.',
-  },
-  {
-    label: 'Incidencias criticas',
-    value: formatCount(criticalIncidentsCount.value),
-    detail: 'Casos escalados o con impacto alto detectados en la operacion.',
-  },
-  {
-    label: 'Proveedores activos',
-    value: formatCount(activeProvidersCount.value || providers.value.length),
-    detail: 'Partners sincronizados desde backend con acceso operativo.',
-  },
-  {
-    label: 'Sobrecargos disponibles',
-    value: formatCount(availableCrewCount.value),
-    detail: 'Tripulacion lista para recibir una nueva asignacion.',
-  },
-])
+const executiveKpis = computed(() => dashboardData.value.cards)
 
-const executiveAnalytics = computed(() => {
-  const contractsSigned = countByStates(contracts.value, ['firmado', 'signed'])
-  const conversionBase = operations.value.length || 1
-  const conversion = Math.round((contractsSigned / conversionBase) * 100)
-  const avgTicket = average(operations.value.map((item) => item.totalAmount || item.amount || item.price))
-  const avgMargin = average(operations.value.map((item) => item.margin || item.marginPercent))
-  const utilizationBase = aircraft.value.length || 1
-  const utilization = Math.round((activeReservationsCount.value / utilizationBase) * 100)
-  const assignmentTime = auditEntries.value.length ? Math.max(5, Math.round(auditEntries.value.length / 2)) : 0
-
-  return [
-    { label: 'Conversion rate', value: formatPercent(conversion), score: conversion },
-    { label: 'Ticket promedio', value: avgTicket ? formatCurrency(avgTicket) : 'Sin dato', score: Math.min(100, Math.round(avgTicket / 1000)) },
-    { label: 'Vuelos por mes', value: formatCount(operations.value.length), score: Math.min(100, operations.value.length * 5) },
-    { label: 'Margen por vuelo', value: avgMargin ? formatPercent(avgMargin) : 'Sin dato', score: Math.min(100, Math.round(avgMargin)) },
-    { label: 'Utilizacion de flota', value: formatPercent(utilization), score: Math.max(0, Math.min(100, utilization)) },
-    { label: 'Tiempo de asignacion', value: assignmentTime ? `${assignmentTime} min` : 'Sin dato', score: Math.max(0, 100 - assignmentTime) },
-  ]
-})
+const executiveAnalytics = computed(() => dashboardData.value.analytics)
 
 const normalizedSectionSources = computed(() => ({
   usuarios: users.value,
   alertas: flags.value,
+  cotizaciones: quotes.value,
   proveedores: providers.value,
   aeronaves: aircraft.value,
   suscripciones: subscriptions.value,
@@ -780,6 +772,9 @@ const normalizedSectionSources = computed(() => ({
   'sobrecargos-en-vuelo': crewMembers.value,
   reservas: operations.value,
   liberaciones: operations.value,
+  vuelos: operations.value,
+  auditoria: auditLogEntries.value,
+  configuracion: settings.value,
 }))
 
 const dynamicSectionHighlights = computed(() => ({
@@ -840,9 +835,165 @@ const dynamicSectionHighlights = computed(() => ({
   analytics: executiveAnalytics.value.map((item) => ({
     label: item.label,
     value: item.value,
-    detail: 'Indicador estrategico calculado con la data actual del portal.',
+    detail: 'Indicador estrategico devuelto por el dashboard oficial.',
   })),
 }))
+
+function normalizeQuoteRecord(item = {}) {
+  return {
+    id: item.id || item.quote_id || item.reservation_id || item.flight_request_id || `quote-${Math.random()}`,
+    folio: item.folio || item.code || item.reference || `COT-${item.id || 'N/D'}`,
+    status: item.status || 'Sin estado',
+    clientName: item.client?.name || item.user?.name || item.customer_name || 'Cliente por confirmar',
+    route:
+      item.route ||
+      [item.origin, item.destination].filter(Boolean).join(' - ') ||
+      item.flightRequest?.route ||
+      'Ruta pendiente',
+    aircraft: item.aircraft?.model || item.aircraft_model || 'Aeronave por definir',
+    provider: item.provider?.company_name || item.provider?.commercial_name || 'Proveedor por confirmar',
+    amount: item.total_estimated_price || item.total_amount || item.amount || item.price || 0,
+    currency: item.currency || 'MXN',
+    createdAt: item.created_at || item.updated_at || '',
+    reservationCode:
+      item.reservation?.code || item.reservation?.folio || item.reservation_id || 'Sin reserva ligada',
+    paymentCode:
+      item.payment?.id || item.payment_id || item.payment_reference || 'Sin pago ligado',
+    raw: item,
+  }
+}
+
+const quoteRecords = computed(() => quotes.value.map((item) => normalizeQuoteRecord(item)))
+
+const quoteSummaryCards = computed(() => [
+  {
+    label: 'Cotizaciones',
+    value: formatCount(quoteRecords.value.length),
+    detail: 'Registros recuperados desde Laravel.',
+  },
+  {
+    label: 'Aceptadas',
+    value: formatCount(
+      quoteRecords.value.filter((item) => normalizeToken(item.status).includes('accept')).length,
+    ),
+    detail: 'Cotizaciones con cierre comercial positivo.',
+  },
+  {
+    label: 'Pendientes',
+    value: formatCount(
+      quoteRecords.value.filter((item) => normalizeToken(item.status).includes('pend')).length,
+    ),
+    detail: 'Ofertas todavía en revisión o respuesta.',
+  },
+  {
+    label: 'Monto visible',
+    value: formatCurrency(quoteRecords.value.reduce((acc, item) => acc + Number(item.amount || 0), 0)),
+    detail: 'Suma mostrada solo como referencia de cotizaciones, no como ingreso real.',
+  },
+])
+
+const documentRecords = computed(() =>
+  (rawSectionRecords.documentos || []).map((document) => ({
+    id: document.id || document.document_id || `document-${Math.random()}`,
+    entityType: document.document_type || 'document',
+    entityId: document.owner_id || document.provider_id || document.aircraft_id || '',
+    entityName: document.owner_name || 'Entidad',
+    name: document.title || document.file_name || `Documento ${document.document_id || 'N/D'}`,
+    status: document.review_status || document.status || 'Pendiente',
+    createdAt: document.created_at || '',
+    expiresAt: document.expires_at || '',
+    kind: document.document_type || 'Documento',
+    downloadPath: document.download_path || `/admin/documents/${document.id}/download`,
+    raw: document,
+  })),
+)
+
+const documentSummaryCards = computed(() => [
+  {
+    label: 'Documentos visibles',
+    value: formatCount(documentRecords.value.length),
+    detail: 'Proveedor y aeronave agregados desde endpoints Laravel.',
+  },
+  {
+    label: 'Aprobados',
+    value: formatCount(
+      documentRecords.value.filter((item) => normalizeToken(item.status).includes('aprob')).length,
+    ),
+    detail: 'Archivos marcados como aprobados en payload admin.',
+  },
+  {
+    label: 'Pendientes',
+    value: formatCount(
+      documentRecords.value.filter((item) => normalizeToken(item.status).includes('pend')).length,
+    ),
+    detail: 'Casos que todavía requieren revisión.',
+  },
+  {
+    label: 'Por vencer',
+    value: formatCount(
+      documentRecords.value.filter((item) => Boolean(item.expiresAt)).length,
+    ),
+    detail: 'Registros con fecha de vencimiento visible.',
+  },
+])
+
+const auditRecords = computed(() =>
+  auditLogEntries.value.map((item) => ({
+    id: item.id || `audit-${Math.random()}`,
+    action: item.action || 'Sin accion',
+    module: item.module || 'Sin modulo',
+    actor: item.user?.name || item.user_id || 'Admin',
+    result: item.result || item.description || 'Sin detalle',
+    createdAt: item.created_at || '',
+    entity: item.entity || item.module || 'N/D',
+    before: item.before ? JSON.stringify(item.before) : item.old_values ? JSON.stringify(item.old_values) : 'Sin before',
+    after: item.after ? JSON.stringify(item.after) : item.new_values ? JSON.stringify(item.new_values) : 'Sin after',
+  })),
+)
+
+const auditSummaryCards = computed(() => [
+  { label: 'Eventos', value: formatCount(auditRecords.value.length), detail: 'Entradas de auditoría recuperadas.' },
+  { label: 'Modulos', value: formatCount(new Set(auditRecords.value.map((item) => item.module)).size), detail: 'Cobertura de módulos presente en la bitácora.' },
+  { label: 'Acciones', value: formatCount(new Set(auditRecords.value.map((item) => item.action)).size), detail: 'Tipos de acción detectados en el histórico.' },
+  { label: 'Actores', value: formatCount(new Set(auditRecords.value.map((item) => item.actor)).size), detail: 'Usuarios administrativos visibles en el log.' },
+])
+
+const flightRecords = computed(() =>
+  (rawSectionRecords.vuelos || []).map((item) => ({
+    id: item.id || item.request_id || item.reservation_id,
+    folio: item.request_id ? `FL-${item.request_id}` : `FL-${item.id || 'N/D'}`,
+    route: [item.origin, item.destination].filter(Boolean).join(' - ') || 'Ruta pendiente',
+    status: item.status || 'Sin estado',
+    departure: item.departure_at || '',
+    aircraft: item.aircraft?.name || item.aircraft?.model || 'Por asignar',
+    crew: Array.isArray(item.crew) && item.crew.length ? item.crew.map((member) => member.name).join(', ') : 'Sin tripulación',
+    paymentStatus: item.payment?.status || 'Sin pago',
+    contractStatus: item.reservation_id ? 'Ligado a reserva' : 'Sin contrato',
+  })),
+)
+
+const flightSummaryCards = computed(() => [
+  { label: 'Vuelos / operaciones', value: formatCount(flightRecords.value.length), detail: 'Registros operativos visibles para admin.' },
+  { label: 'Historial', value: formatCount(flightOpsHistory.value.length), detail: 'Eventos cronológicos devueltos por backend.' },
+  { label: 'Notificaciones', value: formatCount(flightOpsNotifications.value.length), detail: 'Alertas operativas cargadas.' },
+  { label: 'Proximos vuelos', value: formatCount(flightOpsDashboard.value.upcoming_flights || 0), detail: 'Valor reportado por operations dashboard.' },
+])
+
+function normalizeSettingsRecord(item = {}) {
+  return {
+    key: String(item.key || '').trim(),
+    value: item.value ?? '',
+    group: item.group || 'general',
+  }
+}
+
+watch(
+  settings,
+  (records) => {
+    rawSectionRecords.configuracion = records.map((item) => normalizeSettingsRecord(item))
+  },
+  { deep: true },
+)
 
 const resolvedAdminSectionConfig = computed(() => {
   const base = adminSections[props.section] || {}
@@ -1376,56 +1527,232 @@ function upsertCrewMember(member) {
   return crewMembers.value[0]
 }
 
-async function loadDashboardKpis() {
+function setModuleLoading(section, value) {
+  genericModuleLoading[section] = value
+}
+
+function setModuleError(section, message = '') {
+  genericModuleErrors[section] = String(message || '')
+}
+
+async function loadDashboardKpis(options = {}) {
+  dashboardLoading.value = true
+  dashboardErrorMessage.value = ''
+
   try {
-    const dashboard = await api.get('/admin/dashboard')
-    kpis.value = {
-      ...(dashboard.kpis || fallbackAdminKpis),
-      aeronaves_catalogo: aircraft.value.length,
-      proveedores_catalogo: providers.value.length,
-      suscripciones_aeronave: subscriptions.value.length,
-    }
-  } catch {
-    kpis.value = {
-      ...fallbackAdminKpis,
-      aeronaves_catalogo: aircraft.value.length,
-      proveedores_catalogo: providers.value.length,
-      suscripciones_aeronave: subscriptions.value.length,
-    }
+    const dashboard = await api.get('/admin/dashboard', { signal: options.signal })
+    dashboardData.value = normalizeAdminDashboardPayload(dashboard)
+  } catch (error) {
+    if (isAbortLikeError(error)) return
+    dashboardData.value = buildAdminDashboardEmptyState()
+    dashboardErrorMessage.value =
+      error?.message || 'Laravel no devolvio el dashboard administrativo esperado.'
+  } finally {
+    dashboardLoading.value = false
+  }
+}
+
+async function loadQuotes(options = {}) {
+  setModuleLoading('cotizaciones', true)
+  setModuleError('cotizaciones')
+
+  try {
+    const response = await requestWithCandidates(
+      [{ method: 'get', path: '/admin/quotes' }],
+      { signal: options.signal },
+    )
+    const collection = pickCollection(response, ['quotes'])
+    rawSectionRecords.cotizaciones = collection
+    quotes.value = collection
+  } catch (error) {
+    if (isAbortLikeError(error)) return
+    rawSectionRecords.cotizaciones = []
+    quotes.value = []
+    setModuleError('cotizaciones', error?.message || 'No fue posible cargar las cotizaciones admin.')
+  } finally {
+    setModuleLoading('cotizaciones', false)
+  }
+}
+
+async function loadAuditLogs(options = {}) {
+  setModuleLoading('auditoria', true)
+  setModuleError('auditoria')
+
+  try {
+    const response = await requestWithCandidates(
+      [{ method: 'get', path: '/admin/audit-logs' }],
+      { signal: options.signal },
+    )
+    const collection = pickCollection(response, ['audit_logs', 'logs'])
+    rawSectionRecords.auditoria = collection
+    auditLogEntries.value = collection
+  } catch (error) {
+    if (isAbortLikeError(error)) return
+    rawSectionRecords.auditoria = []
+    auditLogEntries.value = []
+    setModuleError('auditoria', error?.message || 'No fue posible cargar la auditoria.')
+  } finally {
+    setModuleLoading('auditoria', false)
+  }
+}
+
+async function loadSettings(options = {}) {
+  setModuleLoading('configuracion', true)
+  setModuleError('configuracion')
+  settingsErrorMessage.value = ''
+
+  try {
+    const response = await requestWithCandidates(
+      [{ method: 'get', path: '/admin/settings' }],
+      { signal: options.signal },
+    )
+    const collection = pickCollection(response, ['settings'])
+    rawSectionRecords.configuracion = collection
+    settings.value = collection
+  } catch (error) {
+    if (isAbortLikeError(error)) return
+    rawSectionRecords.configuracion = []
+    settings.value = []
+    const message = error?.message || 'No fue posible cargar la configuracion administrativa.'
+    setModuleError('configuracion', message)
+    settingsErrorMessage.value = message
+  } finally {
+    setModuleLoading('configuracion', false)
+  }
+}
+
+async function saveSettings({ settings: payload, reason = '' } = {}) {
+  settingsSaving.value = true
+  settingsErrorMessage.value = ''
+
+  try {
+    await requestWithCandidates([
+      {
+        method: 'put',
+        path: '/admin/settings',
+        body: {
+          settings: payload,
+          reason,
+        },
+      },
+    ])
+    await loadSettings()
+    ui.pushToast({
+      tone: 'success',
+      title: 'Configuracion actualizada',
+      message: 'Laravel confirmo la actualizacion de los parametros visibles.',
+    })
+  } catch (error) {
+    settingsErrorMessage.value =
+      error?.message || 'No fue posible guardar la configuracion administrativa.'
+  } finally {
+    settingsSaving.value = false
+  }
+}
+
+async function loadReports(options = {}) {
+  setModuleLoading('reportes', true)
+  setModuleError('reportes')
+
+  try {
+    const response = await requestWithCandidates(
+      [{ method: 'get', path: '/admin/reports' }],
+      { signal: options.signal },
+    )
+    rawSectionRecords.reportes = [response]
+    reports.value = response
+  } catch (error) {
+    if (isAbortLikeError(error)) return
+    rawSectionRecords.reportes = []
+    reports.value = {}
+    setModuleError('reportes', error?.message || 'No fue posible cargar los reportes administrativos.')
+  } finally {
+    setModuleLoading('reportes', false)
+  }
+}
+
+async function loadFlightOps(options = {}) {
+  setModuleLoading('vuelos', true)
+  setModuleError('vuelos')
+
+  try {
+    const [dashboardResponse, flightsResponse] = await Promise.all([
+      requestWithCandidates([{ method: 'get', path: '/admin/dashboard' }], { signal: options.signal }),
+      requestWithCandidates([{ method: 'get', path: '/admin/flights' }], { signal: options.signal }),
+    ])
+
+    flightOpsDashboard.value = dashboardResponse?.summary || {}
+    flightOpsHistory.value = []
+    flightOpsNotifications.value = []
+    rawSectionRecords.vuelos = pickCollection(flightsResponse, ['flights'])
+  } catch (error) {
+    if (isAbortLikeError(error)) return
+    flightOpsDashboard.value = {}
+    flightOpsHistory.value = []
+    flightOpsNotifications.value = []
+    rawSectionRecords.vuelos = []
+    setModuleError('vuelos', error?.message || 'No fue posible cargar la operacion de vuelos.')
+  } finally {
+    setModuleLoading('vuelos', false)
+  }
+}
+
+async function loadDocumentsModule(options = {}) {
+  setModuleLoading('documentos', true)
+  setModuleError('documentos')
+
+  try {
+    const response = await requestWithCandidates(
+      [{ method: 'get', path: '/admin/documents' }],
+      { signal: options.signal },
+    )
+    rawSectionRecords.documentos = pickCollection(response, ['documents'])
+  } catch (error) {
+    if (isAbortLikeError(error)) return
+    rawSectionRecords.documentos = []
+    setModuleError('documentos', error?.message || 'No fue posible preparar el modulo documental.')
+  } finally {
+    setModuleLoading('documentos', false)
   }
 }
 
 
-async function loadUsers() {
+async function loadUsers(options = {}) {
   try {
-    const response = await requestWithCandidates([
-      { method: 'get', path: '/admin/users', timeoutMs: ADMIN_USERS_TIMEOUT_MS },
-    ])
+    const response = await requestWithCandidates(
+      [{ method: 'get', path: '/admin/users', timeoutMs: ADMIN_USERS_TIMEOUT_MS }],
+      { signal: options.signal },
+    )
     const collection = pickCollection(response, ['users', 'usuarios'])
     rawSectionRecords.usuarios = collection
     users.value = collection
-  } catch {
+  } catch (error) {
+    if (isAbortLikeError(error)) return
     rawSectionRecords.usuarios = []
     users.value = []
   }
 }
 
-async function loadClients(query = clientTableQuery) {
+async function loadClients(query = clientTableQuery, options = {}) {
   const normalizedQuery = sanitizeClientQuery(query)
 
   try {
     const requestQuery = buildClientRequestQuery(normalizedQuery)
-    const response = await requestWithCandidates([
-      { method: 'get', path: '/admin/clientes', query: requestQuery, timeoutMs: ADMIN_USERS_TIMEOUT_MS },
-      { method: 'get', path: '/admin/users', query: requestQuery, timeoutMs: ADMIN_USERS_TIMEOUT_MS },
-    ])
+    const response = await requestWithCandidates(
+      [
+        { method: 'get', path: '/admin/clientes', query: requestQuery, timeoutMs: ADMIN_USERS_TIMEOUT_MS },
+        { method: 'get', path: '/admin/users', query: requestQuery, timeoutMs: ADMIN_USERS_TIMEOUT_MS },
+      ],
+      { signal: options.signal },
+    )
     const collection = pickCollection(response, ['clients', 'clientes', 'users', 'usuarios'])
     rawSectionRecords.clientes = collection
     clients.value = collection
     clientSectionLoaded.value = true
     Object.assign(clientTableQuery, normalizedQuery)
     Object.assign(clientTablePagination, extractClientPaginationMeta(response, collection, normalizedQuery))
-  } catch {
+  } catch (error) {
+    if (isAbortLikeError(error)) return
     rawSectionRecords.clientes = []
     clients.value = []
     clientSectionLoaded.value = true
@@ -1442,62 +1769,78 @@ async function loadClients(query = clientTableQuery) {
   }
 }
 
-async function loadFlags() {
+async function loadFlags(options = {}) {
   try {
-    const response = await api.get('/admin/anti-broker-flags')
-    const collection = response.flags?.data || response.flags || fallbackAdminFlags
+    const response = await api.get('/admin/anti-broker-flags', { signal: options.signal })
+    const collection = response.flags?.data || response.flags || []
     rawSectionRecords.alertas = Array.isArray(collection) ? collection : []
     flags.value = collection
-  } catch {
-    rawSectionRecords.alertas = fallbackAdminFlags
-    flags.value = fallbackAdminFlags
+  } catch (error) {
+    if (isAbortLikeError(error)) return
+    rawSectionRecords.alertas = []
+    flags.value = []
   }
 }
 
-async function loadAircraft() {
+async function loadAircraft(options = {}) {
   try {
-    const response = await requestWithCandidates([
-      { method: 'get', path: '/admin/fleet/aircraft' },
-      { method: 'get', path: '/admin/aeronaves' },
-    ])
+    const response = await requestWithCandidates(
+      [
+        { method: 'get', path: '/admin/fleet/aircraft' },
+        { method: 'get', path: '/admin/aeronaves' },
+      ],
+      { signal: options.signal },
+    )
     const collection = pickCollection(response, ['aircraft'])
     rawSectionRecords.aeronaves = collection
     aircraft.value = collection.map(normalizeAdminAircraft)
-  } catch {
+  } catch (error) {
+    if (isAbortLikeError(error)) return
     rawSectionRecords.aeronaves = []
     aircraft.value = []
   }
 }
 
-async function loadSubscriptions() {
+async function loadSubscriptions(options = {}) {
   try {
-    const response = await requestWithCandidates([{ method: 'get', path: '/admin/fleet/aircraft-subscriptions' }])
+    const response = await requestWithCandidates(
+      [{ method: 'get', path: '/admin/fleet/aircraft-subscriptions' }],
+      { signal: options.signal },
+    )
     const collection = pickCollection(response, ['aircraft_subscriptions'])
     rawSectionRecords.suscripciones = collection
     subscriptions.value = collection
-  } catch {
+  } catch (error) {
+    if (isAbortLikeError(error)) return
     rawSectionRecords.suscripciones = []
     subscriptions.value = []
   }
 }
 
-async function loadAccessPayments() {
+async function loadAccessPayments(options = {}) {
   try {
-    const response = await requestWithCandidates([{ method: 'get', path: '/admin/client-access-payments' }])
+    const response = await requestWithCandidates(
+      [{ method: 'get', path: '/admin/client-access-payments' }],
+      { signal: options.signal },
+    )
     const collection = pickCollection(response, ['access_payments'])
     rawSectionRecords.pagos_acceso = collection
     accessPayments.value = collection
-  } catch {
+  } catch (error) {
+    if (isAbortLikeError(error)) return
     rawSectionRecords.pagos_acceso = []
     accessPayments.value = []
   }
 }
 
-async function reconcilePendingClientAccessPayments({ silent = true } = {}) {
+async function reconcilePendingClientAccessPayments({ silent = true, signal } = {}) {
   try {
-    const response = await requestWithCandidates([
-      { method: 'post', path: '/admin/client-access-payments/reconcile-pending', body: {}, timeoutMs: 30000 },
-    ])
+    const response = await requestWithCandidates(
+      [
+        { method: 'post', path: '/admin/client-access-payments/reconcile-pending', body: {}, timeoutMs: 30000 },
+      ],
+      { signal },
+    )
 
     const reconciled = Number(response?.reconciled || 0)
     if (!silent && reconciled > 0) {
@@ -1508,6 +1851,7 @@ async function reconcilePendingClientAccessPayments({ silent = true } = {}) {
       })
     }
   } catch (error) {
+    if (isAbortLikeError(error)) return
     if (!silent) {
       ui.pushToast({
         tone: 'warning',
@@ -1518,13 +1862,17 @@ async function reconcilePendingClientAccessPayments({ silent = true } = {}) {
   }
 }
 
-async function loadSubscriptionPayments() {
+async function loadSubscriptionPayments(options = {}) {
   try {
-    const response = await requestWithCandidates([{ method: 'get', path: '/admin/subscription-payments' }])
+    const response = await requestWithCandidates(
+      [{ method: 'get', path: '/admin/subscription-payments' }],
+      { signal: options.signal },
+    )
     const collection = pickCollection(response, ['subscription_payments'])
     rawSectionRecords.pagos_suscripcion = collection
     subscriptionPayments.value = collection
-  } catch {
+  } catch (error) {
+    if (isAbortLikeError(error)) return
     rawSectionRecords.pagos_suscripcion = []
     subscriptionPayments.value = []
   }
@@ -1532,14 +1880,16 @@ async function loadSubscriptionPayments() {
 
 async function loadProviders(options = {}) {
   try {
-    const response = await requestWithCandidates([
-      { method: 'get', path: '/admin/operators', timeoutMs: options.timeoutMs || ADMIN_PROVIDERS_TIMEOUT_MS },
-      { method: 'get', path: '/admin/providers', timeoutMs: options.timeoutMs || ADMIN_PROVIDERS_TIMEOUT_MS },
-      { method: 'get', path: '/admin/proveedores', timeoutMs: options.timeoutMs || ADMIN_PROVIDERS_TIMEOUT_MS },
-    ])
-    const collection = pickCollection(response, ['operators', 'proveedores', 'providers'])
+    const response = await requestWithCandidates(
+      [
+        { method: 'get', path: '/admin/providers', timeoutMs: options.timeoutMs || ADMIN_PROVIDERS_TIMEOUT_MS },
+      ],
+      { signal: options.signal },
+    )
+    const collection = pickCollection(response, ['providers'])
     return applyProvidersDataset(collection)
-  } catch {
+  } catch (error) {
+    if (isAbortLikeError(error)) return providers.value
     if (aircraft.value.length) {
       return applyFallbackProvidersFromAircraft(aircraft.value)
     }
@@ -1560,7 +1910,7 @@ async function loadProviders(options = {}) {
   }
 }
 
-async function loadProvidersSectionData() {
+async function loadProvidersSectionData(options = {}) {
   if (!providers.value.length) {
     const cachedProviders = readProvidersCache()
     if (cachedProviders.length) {
@@ -1571,8 +1921,9 @@ async function loadProvidersSectionData() {
   const providersRequest = loadProviders({
     preserveExisting: true,
     timeoutMs: ADMIN_PROVIDERS_TIMEOUT_MS,
+    signal: options.signal,
   })
-  const aircraftRequest = loadAircraft()
+  const aircraftRequest = loadAircraft({ signal: options.signal })
     .then(() => {
       if (!providers.value.length && aircraft.value.length) {
         applyFallbackProvidersFromAircraft(aircraft.value)
@@ -1613,13 +1964,17 @@ async function loadProvidersSectionData() {
   }
 }
 
-async function loadContracts() {
+async function loadContracts(options = {}) {
   try {
-    const response = await requestWithCandidates([{ method: 'get', path: '/admin/contracts' }])
+    const response = await requestWithCandidates(
+      [{ method: 'get', path: '/admin/contracts' }],
+      { signal: options.signal },
+    )
     const collection = pickCollection(response, ['contracts'])
     rawSectionRecords.contratos = collection
     contracts.value = collection
-  } catch {
+  } catch (error) {
+    if (isAbortLikeError(error)) return
     rawSectionRecords.contratos = []
     contracts.value = []
   }
@@ -1630,10 +1985,13 @@ async function loadCrewMembers(options = {}) {
 
   const timeoutMs = options.timeoutMs || ADMIN_CREW_TIMEOUT_MS
   crewMembersRequestPromise = (async () => {
-    const crewResult = await requestWithCandidates([
-      { method: 'get', path: '/admin/sobrecargos', timeoutMs },
-      { method: 'get', path: '/admin/crew', timeoutMs },
-    ])
+    const crewResult = await requestWithCandidates(
+      [
+        { method: 'get', path: '/admin/sobrecargos', timeoutMs },
+        { method: 'get', path: '/admin/crew', timeoutMs },
+      ],
+      { signal: options.signal },
+    )
 
     const directCrewCollection = pickCollection(crewResult, ['sobrecargos', 'crew', 'data'])
     const usersCollection = users.value.filter((item) => normalizeAdminCrewMember(item))
@@ -1648,6 +2006,9 @@ async function loadCrewMembers(options = {}) {
 
   try {
     await crewMembersRequestPromise
+  } catch (error) {
+    if (isAbortLikeError(error)) return
+    throw error
   } finally {
     crewMembersRequestPromise = null
   }
@@ -1672,6 +2033,7 @@ async function loadOperations(options = {}) {
       const { getAdminReservations } = await loadAdminReservationsModule()
       const nextOperations = await getAdminReservations({
         timeoutMs: options.timeoutMs || ADMIN_RESERVATIONS_TIMEOUT_MS,
+        signal: options.signal,
       })
 
       if (
@@ -1688,6 +2050,7 @@ async function loadOperations(options = {}) {
       markReservationRefresh('reservas')
       adminReservationsLoadWarningShown.value = false
     } catch (error) {
+      if (isAbortLikeError(error)) return
       if (!preserveExistingOnEmpty) {
         rawSectionRecords.reservas = []
         operations.value = []
@@ -1721,6 +2084,7 @@ async function loadReleases(options = {}) {
       const { getAdminReservations } = await loadAdminReservationsModule()
       const nextOperations = await getAdminReservations({
         timeoutMs: options.timeoutMs || ADMIN_RESERVATIONS_TIMEOUT_MS,
+        signal: options.signal,
       })
 
       if (
@@ -1737,6 +2101,7 @@ async function loadReleases(options = {}) {
       markReservationRefresh('liberaciones')
       adminReservationsLoadWarningShown.value = false
     } catch (error) {
+      if (isAbortLikeError(error)) return
       if (!preserveExistingOnEmpty) {
         rawSectionRecords.liberaciones = []
         operations.value = []
@@ -1776,10 +2141,12 @@ async function loadCrewSection(options = {}) {
     loadCrewMembers({
       timeoutMs: options.timeoutMs || ADMIN_CREW_TIMEOUT_MS,
       allowUsersFallback: options.allowUsersFallback !== false,
+      signal: options.signal,
     }),
     loadOperations({
       silent: options.silentOperations !== false,
       preserveExistingOnEmpty,
+      signal: options.signal,
     }),
   ])
 
@@ -1792,65 +2159,99 @@ function loadCrewSectionBackground(options = {}) {
   void loadCrewSection(options)
 }
 
-async function loadExecutiveSection() {
+async function loadExecutiveSection(options = {}) {
   await Promise.allSettled([
-    loadFlags(),
-    loadProviders(),
-    loadAircraft(),
-    loadSubscriptions(),
-    loadContracts(),
+    loadFlags({ signal: options.signal }),
+    loadProviders({ signal: options.signal }),
+    loadAircraft({ signal: options.signal }),
+    loadSubscriptions({ signal: options.signal }),
+    loadContracts({ signal: options.signal }),
+    loadQuotes({ signal: options.signal }),
   ])
 
   await Promise.allSettled([
-    loadCrewMembers({ timeoutMs: ADMIN_CREW_TIMEOUT_MS, allowUsersFallback: true }),
-    loadOperations({ silent: false, timeoutMs: ADMIN_RESERVATIONS_TIMEOUT_MS }),
+    loadCrewMembers({
+      timeoutMs: ADMIN_CREW_TIMEOUT_MS,
+      allowUsersFallback: true,
+      signal: options.signal,
+    }),
+    loadOperations({
+      silent: false,
+      timeoutMs: ADMIN_RESERVATIONS_TIMEOUT_MS,
+      signal: options.signal,
+    }),
   ])
 
-  await loadDashboardKpis()
+  await loadDashboardKpis({ signal: options.signal })
 }
 
-async function loadPortalSection(section) {
+async function loadPortalSection(section, options = {}) {
   if (section === 'usuarios') {
-    await loadUsers()
+    await loadUsers({ signal: options.signal })
     return
   }
 
   if (section === 'clientes') {
-    await loadClients(clientTableQuery)
-    void loadAccessPayments()
-    void reconcilePendingClientAccessPayments({ silent: true })
+    await loadClients(clientTableQuery, { signal: options.signal })
+    void loadAccessPayments({ signal: options.signal })
+    void reconcilePendingClientAccessPayments({ silent: true, signal: options.signal })
+    return
+  }
+
+  if (section === 'cotizaciones') {
+    await loadQuotes({ signal: options.signal })
     return
   }
 
   if (section === 'alertas') {
-    await loadFlags()
+    await loadFlags({ signal: options.signal })
     return
   }
 
   if (section === 'proveedores') {
-    await loadProvidersSectionData()
+    await loadProvidersSectionData({ signal: options.signal })
     return
   }
 
   if (section === 'aeronaves') {
-    await loadAircraft()
+    await loadAircraft({ signal: options.signal })
     return
   }
 
   if (section === 'disponibilidad-aeronaves') {
-    await Promise.all([loadAircraft(), loadProviders({ preserveExisting: true })])
+    await Promise.all([
+      loadAircraft({ signal: options.signal }),
+      loadProviders({ preserveExisting: true, signal: options.signal }),
+    ])
+    return
+  }
+
+  if (section === 'vuelos') {
+    await loadFlightOps({ signal: options.signal })
     return
   }
 
   if (section === 'suscripciones') {
-    await reconcilePendingClientAccessPayments({ silent: true })
-    await Promise.all([loadAircraft(), loadSubscriptions(), loadClients(clientTableQuery), loadAccessPayments(), loadSubscriptionPayments()])
+    await reconcilePendingClientAccessPayments({ silent: true, signal: options.signal })
+    await Promise.all([
+      loadAircraft({ signal: options.signal }),
+      loadSubscriptions({ signal: options.signal }),
+      loadClients(clientTableQuery, { signal: options.signal }),
+      loadAccessPayments({ signal: options.signal }),
+      loadSubscriptionPayments({ signal: options.signal }),
+    ])
     return
   }
 
   if (section === 'pagos' || section === 'pagos-proveedor') {
-    await reconcilePendingClientAccessPayments({ silent: true })
-    await Promise.all([loadAircraft(), loadSubscriptions(), loadClients(clientTableQuery), loadAccessPayments(), loadSubscriptionPayments()])
+    await reconcilePendingClientAccessPayments({ silent: true, signal: options.signal })
+    await Promise.all([
+      loadAircraft({ signal: options.signal }),
+      loadSubscriptions({ signal: options.signal }),
+      loadClients(clientTableQuery, { signal: options.signal }),
+      loadAccessPayments({ signal: options.signal }),
+      loadSubscriptionPayments({ signal: options.signal }),
+    ])
     return
   }
 
@@ -1859,6 +2260,7 @@ async function loadPortalSection(section) {
       await loadOperations({
         silent: true,
         preserveExistingOnEmpty: true,
+        signal: options.signal,
       })
     } else {
       await loadCrewSection({
@@ -1866,28 +2268,49 @@ async function loadPortalSection(section) {
         shouldReuseWarmCache: false,
         preserveExistingOnEmpty: true,
         silentOperations: true,
+        signal: options.signal,
       })
     }
     return
   }
 
   if (section === 'reservas') {
-    await loadOperations({ silent: false })
+    await loadOperations({ silent: false, signal: options.signal })
     return
   }
 
   if (section === 'contratos') {
-    await loadContracts()
+    await loadContracts({ signal: options.signal })
+    return
+  }
+
+  if (section === 'documentos') {
+    await loadDocumentsModule({ signal: options.signal })
     return
   }
 
   if (section === 'liberaciones') {
-    await loadReleases({ silent: false })
+    await loadReleases({ silent: false, signal: options.signal })
+    return
+  }
+
+  if (section === 'auditoria') {
+    await loadAuditLogs({ signal: options.signal })
+    return
+  }
+
+  if (section === 'reportes') {
+    await loadReports({ signal: options.signal })
+    return
+  }
+
+  if (section === 'configuracion') {
+    await loadSettings({ signal: options.signal })
     return
   }
 
   if (section === 'ejecutivo') {
-    await loadExecutiveSection()
+    await loadExecutiveSection({ signal: options.signal })
   }
 }
 
@@ -1906,12 +2329,18 @@ function shouldWarmCrewSection(section = props.section) {
     'ejecutivo',
     'proveedores',
     'aeronaves',
+    'cotizaciones',
+    'vuelos',
     'sobrecargos',
     'disponibilidad',
     'sobrecargo-operaciones',
     'sobrecargos-en-vuelo',
     'reservas',
     'liberaciones',
+    'documentos',
+    'auditoria',
+    'reportes',
+    'configuracion',
   ].includes(section)
 }
 
@@ -1923,7 +2352,7 @@ function shouldThrottlePortalSectionLoad(section = props.section, force = false)
 }
 
 function requestPortalSectionLoad(section = props.section, options = {}) {
-  const { force = false } = options
+  const { force = false, abortOtherSections = section === props.section } = options
 
   if (!section) return Promise.resolve()
 
@@ -1931,14 +2360,28 @@ function requestPortalSectionLoad(section = props.section, options = {}) {
   if (existingRequest) return existingRequest
   if (shouldThrottlePortalSectionLoad(section, force)) return Promise.resolve()
 
+  if (abortOtherSections) {
+    abortTrackedPortalSectionRequests(section)
+  }
+
+  abortTrackedPortalSectionRequest(section)
+  const controller = new AbortController()
+  portalSectionAbortControllers.set(section, controller)
+
   lastPortalSectionLoadAt.set(section, Date.now())
 
   const requestPromise = (async () => {
     try {
-      await loadPortalSection(section)
+      await loadPortalSection(section, { signal: controller.signal })
+    } catch (error) {
+      if (isAbortLikeError(error)) return
+      throw error
     } finally {
       if (portalSectionRequestPromises.get(section) === requestPromise) {
         portalSectionRequestPromises.delete(section)
+      }
+      if (portalSectionAbortControllers.get(section) === controller) {
+        portalSectionAbortControllers.delete(section)
       }
     }
   })()
@@ -2364,8 +2807,8 @@ async function refreshNetworkState(title, message) {
 
 async function refreshAircraftAndProvidersState(title, message) {
   await Promise.all([
-    requestPortalSectionLoad('aeronaves', { force: true }),
-    requestPortalSectionLoad('proveedores', { force: true }),
+    requestPortalSectionLoad('aeronaves', { force: true, abortOtherSections: false }),
+    requestPortalSectionLoad('proveedores', { force: true, abortOtherSections: false }),
   ])
   ui.pushToast({ tone: 'success', title, message })
 }
@@ -2706,7 +3149,7 @@ async function handleMarkManualReservationPaid({ reservationId }) {
         payment_method: currentReservation.paymentMethod || 'assisted_cash',
         admin_note: 'Pago asistido validado manualmente por administracion.',
         payment_order: {
-          ...(currentReservation.paymentOrder || {}),
+          ...currentReservation.paymentOrder,
           status: 'paid',
           method: currentReservation.paymentMethod || 'assisted_cash',
           payment_method: currentReservation.paymentMethod || 'assisted_cash',
@@ -2819,6 +3262,36 @@ async function handleSuspendAircraft(aircraftId) {
   await handleRejectAircraft(aircraftId)
 }
 
+function downloadBlob(blob, fileName = 'archivo.bin') {
+  const objectUrl = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = objectUrl
+  link.download = fileName
+  document.body.append(link)
+  link.click()
+  link.remove()
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
+}
+
+async function downloadDocumentRecord(record) {
+  try {
+    const response = await requestWithCandidates([{ method: 'download', path: record.downloadPath }])
+    downloadBlob(response.blob, response.fileName || record.name || 'documento')
+  } catch (error) {
+    ui.pushToast({
+      tone: 'error',
+      title: 'No se pudo descargar el documento',
+      message: error?.message || 'Laravel no confirmo la descarga del archivo solicitado.',
+    })
+  }
+}
+
+function handleRecordsSectionAction({ actionId, record }) {
+  if (actionId === 'download-document') {
+    void downloadDocumentRecord(record)
+  }
+}
+
 onMounted(() => {
   void requestPortalSectionLoad(props.section, { force: true })
   if (shouldWarmCrewSection(props.section)) {
@@ -2843,6 +3316,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   clearReservationsPolling()
+  abortTrackedPortalSectionRequests()
   if (removeWorkflowSyncSubscription) {
     removeWorkflowSyncSubscription()
     removeWorkflowSyncSubscription = null
@@ -2872,6 +3346,9 @@ watch(
     v-if="section === 'ejecutivo'"
     :kpis="executiveKpis"
     :analytics="executiveAnalytics"
+    :recent-activity="dashboardData.recentActivity"
+    :loading="dashboardLoading"
+    :error-message="dashboardErrorMessage"
   />
   <AdminImportsSection v-else-if="section === 'importaciones'" />
   <AdminUsersSection v-else-if="section === 'usuarios'" :users="users" @audit-user="auditUser" />
@@ -2888,6 +3365,39 @@ watch(
     @audit-user="auditUser"
     @refresh="refreshClientsTable"
     @query-change="handleClientsQueryChange"
+  />
+  <AdminRecordsSection
+    v-else-if="section === 'cotizaciones'"
+    title="Cotizaciones administrativas"
+    description="Listado y detalle de ofertas emitidas desde Laravel, con referencia de cliente, aeronave, reserva y pago vinculado."
+    :records="quoteRecords"
+    :summary-cards="quoteSummaryCards"
+    :loading="genericModuleLoading.cotizaciones"
+    :error-message="genericModuleErrors.cotizaciones"
+    empty-title="Sin cotizaciones visibles."
+    empty-description="Laravel no devolvió cotizaciones para esta vista."
+    search-placeholder="Buscar folio, cliente, ruta o aeronave"
+    :columns="[
+      { key: 'folio', label: 'Folio' },
+      { key: 'status', label: 'Estado' },
+      { key: 'clientName', label: 'Cliente' },
+      { key: 'route', label: 'Ruta' },
+      { key: 'aircraft', label: 'Aeronave' },
+      { key: 'amount', label: 'Monto', format: (value, record) => formatAdminCell(value, { kind: 'currency', currency: record.currency }) },
+    ]"
+    :detail-fields="[
+      { key: 'folio', label: 'Folio' },
+      { key: 'status', label: 'Estado' },
+      { key: 'clientName', label: 'Cliente' },
+      { key: 'provider', label: 'Proveedor' },
+      { key: 'route', label: 'Ruta' },
+      { key: 'aircraft', label: 'Aeronave' },
+      { key: 'amount', label: 'Monto', format: (value, record) => formatAdminCell(value, { kind: 'currency', currency: record.currency }) },
+      { key: 'createdAt', label: 'Fecha', format: (value) => formatAdminCell(value, { kind: 'date', withTime: true }) },
+      { key: 'reservationCode', label: 'Reserva vinculada' },
+      { key: 'paymentCode', label: 'Pago vinculado' },
+    ]"
+    @refresh="loadQuotes"
   />
   <AdminAlertsSection v-else-if="section === 'alertas'" :flags="flags" />
   <AdminProvidersNetworkSection
@@ -2982,6 +3492,37 @@ watch(
     :providers="providers"
     :aircraft="aircraft"
   />
+  <AdminRecordsSection
+    v-else-if="section === 'vuelos'"
+    title="Vuelos y operación"
+    description="Mesa operativa conectada a requests, history, notifications y dashboard de operaciones para seguir programación, estados y tripulación."
+    :records="flightRecords"
+    :summary-cards="flightSummaryCards"
+    :loading="genericModuleLoading.vuelos"
+    :error-message="genericModuleErrors.vuelos"
+    empty-title="Sin vuelos operativos visibles."
+    empty-description="El backend todavía no devolvió operaciones o historial para esta vista."
+    search-placeholder="Buscar folio, ruta, aeronave o tripulación"
+    :columns="[
+      { key: 'folio', label: 'Folio' },
+      { key: 'status', label: 'Estado' },
+      { key: 'route', label: 'Ruta' },
+      { key: 'departure', label: 'Salida', format: (value) => formatAdminCell(value, { kind: 'date', withTime: true }) },
+      { key: 'aircraft', label: 'Aeronave' },
+      { key: 'crew', label: 'Tripulación' },
+    ]"
+    :detail-fields="[
+      { key: 'folio', label: 'Folio' },
+      { key: 'status', label: 'Estado' },
+      { key: 'route', label: 'Ruta' },
+      { key: 'departure', label: 'Salida', format: (value) => formatAdminCell(value, { kind: 'date', withTime: true }) },
+      { key: 'aircraft', label: 'Aeronave' },
+      { key: 'crew', label: 'Tripulación' },
+      { key: 'paymentStatus', label: 'Pago' },
+      { key: 'contractStatus', label: 'Contrato' },
+    ]"
+    @refresh="loadFlightOps"
+  />
   <AdminReservationsSection
     v-else-if="section === 'reservas'"
     :reservations="reservationRecords"
@@ -3015,22 +3556,91 @@ watch(
     :contracts="contracts"
   />
   <AdminIncidenciasPage v-else-if="section === 'incidencias'" />
-  <AdminCrudSection
-    v-else
-    :eyebrow="resolvedAdminSectionConfig.eyebrow"
-    :title="resolvedAdminSectionConfig.title"
-    :description="resolvedAdminSectionConfig.description"
-    :highlights="resolvedAdminSectionConfig.highlights"
-    :actions="resolvedAdminSectionConfig.actions"
-    :fields="resolvedAdminSectionConfig.fields"
-    :details="resolvedAdminSectionConfig.details"
-    :edits="resolvedAdminSectionConfig.edits"
-    :deactivation="resolvedAdminSectionConfig.deactivation"
-    :states="resolvedAdminSectionConfig.states"
-    :frontend-fields="resolvedAdminSectionConfig.frontendFields"
-    :backend-fields="resolvedAdminSectionConfig.backendFields"
-    :database-fields="resolvedAdminSectionConfig.databaseFields"
+  <AdminRecordsSection
+    v-else-if="section === 'documentos'"
+    title="Repositorio documental"
+    description="Vista consolidada de documentos de proveedor y aeronave con origen Laravel, descarga autenticada y trazabilidad de estatus."
+    :records="documentRecords"
+    :summary-cards="documentSummaryCards"
+    :loading="genericModuleLoading.documentos"
+    :error-message="genericModuleErrors.documentos"
+    empty-title="Sin documentos visibles."
+    empty-description="Aún no hay documentos cargados en los endpoints administrativos consultados."
+    search-placeholder="Buscar entidad, archivo o estatus"
+    :columns="[
+      { key: 'entityType', label: 'Entidad' },
+      { key: 'entityName', label: 'Nombre' },
+      { key: 'kind', label: 'Tipo' },
+      { key: 'status', label: 'Estado' },
+      { key: 'expiresAt', label: 'Vence', format: (value) => formatAdminCell(value, { kind: 'date' }) },
+      { key: 'name', label: 'Archivo' },
+    ]"
+    :detail-fields="[
+      { key: 'entityType', label: 'Entidad' },
+      { key: 'entityName', label: 'Nombre relacionado' },
+      { key: 'kind', label: 'Tipo' },
+      { key: 'status', label: 'Estado' },
+      { key: 'createdAt', label: 'Cargado', format: (value) => formatAdminCell(value, { kind: 'date', withTime: true }) },
+      { key: 'expiresAt', label: 'Vence', format: (value) => formatAdminCell(value, { kind: 'date' }) },
+      { key: 'name', label: 'Archivo' },
+    ]"
+    :action-buttons="[{ id: 'download-document', label: 'Descargar' }]"
+    @refresh="loadDocumentsModule"
+    @action="handleRecordsSectionAction"
   />
+  <AdminRecordsSection
+    v-else-if="section === 'auditoria'"
+    title="Auditoría administrativa"
+    description="Bitácora persistente del backend con módulo, acción, actor y before/after cuando el payload lo expone."
+    :records="auditRecords"
+    :summary-cards="auditSummaryCards"
+    :loading="genericModuleLoading.auditoria"
+    :error-message="genericModuleErrors.auditoria"
+    empty-title="Sin eventos de auditoría."
+    empty-description="Laravel no devolvió entradas en `/admin/audit-logs`."
+    search-placeholder="Buscar acción, módulo, actor o resultado"
+    :columns="[
+      { key: 'createdAt', label: 'Fecha', format: (value) => formatAdminCell(value, { kind: 'date', withTime: true }) },
+      { key: 'module', label: 'Módulo' },
+      { key: 'action', label: 'Acción' },
+      { key: 'actor', label: 'Actor' },
+      { key: 'result', label: 'Resultado' },
+    ]"
+    :detail-fields="[
+      { key: 'createdAt', label: 'Fecha', format: (value) => formatAdminCell(value, { kind: 'date', withTime: true }) },
+      { key: 'module', label: 'Módulo' },
+      { key: 'action', label: 'Acción' },
+      { key: 'actor', label: 'Actor' },
+      { key: 'entity', label: 'Entidad' },
+      { key: 'before', label: 'Before' },
+      { key: 'after', label: 'After' },
+      { key: 'result', label: 'Resultado' },
+    ]"
+    @refresh="loadAuditLogs"
+  />
+  <AdminReportsSection
+    v-else-if="section === 'reportes'"
+    :reports="reports"
+    :loading="genericModuleLoading.reportes"
+    :error-message="genericModuleErrors.reportes"
+    @refresh="loadReports"
+  />
+  <AdminSettingsSection
+    v-else-if="section === 'configuracion'"
+    :settings="settings"
+    :loading="genericModuleLoading.configuracion"
+    :saving="settingsSaving"
+    :error-message="settingsErrorMessage || genericModuleErrors.configuracion"
+    @refresh="loadSettings"
+    @save="saveSettings"
+  />
+  <section v-else class="admin-unknown-state surface">
+    <p class="eyebrow dark-eyebrow">Sección no disponible</p>
+    <h2>{{ resolvedAdminSectionConfig.title || 'Modulo administrativo no soportado' }}</h2>
+    <p>
+      Esta sección no tiene contrato Laravel oficial activo dentro del panel administrador.
+    </p>
+  </section>
 </template>
 
 <style scoped>

@@ -1,5 +1,5 @@
 <script setup>
-const props = defineProps({
+defineProps({
   progress: { type: Object, default: () => ({ completed: 0, total: 0, percent: 0 }) },
   checklist: { type: Array, default: () => [] },
   alerts: { type: Array, default: () => [] },

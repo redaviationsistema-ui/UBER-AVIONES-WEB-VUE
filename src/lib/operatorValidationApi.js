@@ -430,7 +430,7 @@ export async function cancelOperatorDocument(documentId, options = {}) {
   ])
 }
 
-export async function replaceOperatorDocument(documentId, formData, options = {}) {
+export async function replaceOperatorDocument(documentId, formData) {
   return runActionCandidates([
     { method: 'postForm', path: `/operator-documents/${documentId}/replace`, formData },
     { method: 'postForm', path: '/proveedor/empresa/documentos', formData },

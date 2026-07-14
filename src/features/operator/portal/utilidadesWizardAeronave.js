@@ -1,3 +1,5 @@
+import { sanitizeProviderAircraftMutationPayload } from '../../../lib/providerContext'
+
 ///--------------------------------------------------------------------------------------------
 /// VISTA DE UTILIDADES PARA EL ASISTENTE DE AERONAVES
 ///--------------------------------------------------------------------------------------------
@@ -71,7 +73,6 @@ export function buildAircraftWizardStepErrors(
 export function buildAircraftPayload(
   form,
   {
-    providerId,
     inferredMinimumHours,
     inferAircraftEngineType,
     knotsToKmh,
@@ -87,8 +88,7 @@ export function buildAircraftPayload(
       engineType: form.engineType,
     })
 
-  return {
-    provider_id: providerId || undefined,
+  return sanitizeProviderAircraftMutationPayload({
     model: form.name,
     manufacturer: form.manufacturer,
     category: form.category,
@@ -116,5 +116,5 @@ export function buildAircraftPayload(
     crew_rate: Number(form.crewRate || 0),
     repositioning_fee: Number(form.repositioningFee || 0),
     overnight_fee: Number(form.overnightFee || 0),
-  }
+  })
 }

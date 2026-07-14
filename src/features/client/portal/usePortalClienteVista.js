@@ -12,6 +12,7 @@ import {
 import { resolveWorkflowState } from '../../../utils/flightWorkflow'
 import {
   cancelClientAccessPayment,
+  createClientAircraftHold,
   createClientAccessCheckout,
   createClientCheckout,
   createClientFlightRequest,
@@ -19,18 +20,18 @@ import {
   getClientReservationCheckoutSuccess,
   getClientAccessStatus,
   ensureClientReservation,
-  createClientPaymentIntent,
   getClientDestinations,
   getClientFlightPackages,
   getClientReservation,
   getClientTrip,
-  markClientTripPaymentConfirmed,
   markClientTripReadyForPayment,
+  releaseClientAircraftHold,
   saveClientAssistedPayment,
   getClientTrips,
   normalizeTrip,
   searchClientFlights,
   uploadClientPaymentProof,
+  validateClientAircraftHold,
 } from '../clientBookingApi'
 import { useAuthStore } from '../../../stores/auth'
 import { useUiStore } from '../../../stores/ui'
@@ -49,6 +50,7 @@ export function usePortalClienteVista(props) {
 
 const CLIENT_QUOTES_CACHE_KEY = 'red_aviation_client_quotes_preview_v1'
 const CLIENT_RESERVATION_CHECKOUT_CONTEXT_KEY = 'red_aviation_client_reservation_checkout_context_v1'
+const CLIENT_AIRCRAFT_HOLD_CONTEXT_KEY = 'red_aviation_client_aircraft_hold_context_v1'
 
 const route = useRoute()
 const router = useRouter()
@@ -72,6 +74,7 @@ const hasBootstrappedReservations = ref(false)
 const refreshingReservations = ref(false)
 const signingContract = ref(false)
 const submittedItinerary = ref(null)
+const submittedQuotePayload = ref(null)
 const quoteResultsVisible = ref(false)
 const activeResultFilter = ref('best_value')
 const aircraftSidebarFilters = reactive({
@@ -84,6 +87,8 @@ const aircraftSidebarFilters = reactive({
 })
 const technicalSheetOpen = ref(false)
 const technicalAircraft = ref(null)
+const aircraftHold = ref(null)
+const holdCountdownNow = ref(Date.now())
 let removeWorkflowSyncSubscription = null
 let workflowSyncRefreshTimer = null
 let reservationsRequestPromise = null
@@ -97,6 +102,7 @@ const appliedReservationCheckoutKey = ref('')
 const activeContractReservationBootstrapKey = ref('')
 const lastContractReservationBootstrapKey = ref('')
 let commercialAccessStatusRequestPromise = null
+let aircraftHoldCountdownTimer = null
 const CLIENT_TRIPS_TIMEOUT_MS = Number(import.meta.env.VITE_CLIENT_TRIPS_TIMEOUT_MS || 45000)
 const CLIENT_QUOTES_TIMEOUT_MS = Number(import.meta.env.VITE_CLIENT_QUOTES_TIMEOUT_MS || 45000)
 const externalContractFlowEnabled = String(
@@ -313,6 +319,32 @@ const timeline = computed(() => [])
 const selectedAircraft = computed(
   () => aircraftOptions.value.find((item) => String(item.id) === String(route.params.id)) || null,
 )
+const holdExpiresAtDate = computed(() => parsedHoldExpiry(aircraftHold.value?.hold_expires_at))
+const holdRemainingMs = computed(() => {
+  const expiresAt = holdExpiresAtDate.value
+  if (!expiresAt) return 0
+  return Math.max(expiresAt.getTime() - holdCountdownNow.value, 0)
+})
+const holdHasExpired = computed(() => holdRemainingMs.value <= 0 && Boolean(aircraftHold.value?.hold_id))
+const holdWarningState = computed(() => holdRemainingMs.value > 0 && holdRemainingMs.value <= 120000)
+const holdCountdownLabel = computed(() => {
+  if (!holdRemainingMs.value) return ''
+  const totalSeconds = Math.ceil(holdRemainingMs.value / 1000)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+})
+const activeAircraftHoldSummary = computed(() => {
+  if (!aircraftHold.value?.hold_id || holdHasExpired.value) return null
+
+  return {
+    holdId: aircraftHold.value.hold_id,
+    aircraftId: aircraftHold.value.aircraft_id,
+    expiresAt: aircraftHold.value.hold_expires_at,
+    countdownLabel: holdCountdownLabel.value,
+    isWarning: holdWarningState.value,
+  }
+})
 const itineraryLegs = computed(() => {
   if (tripType.value === 'Ida') {
     return [
@@ -469,11 +501,6 @@ const reservationCheckoutReturnPending = computed(
   () =>
     reservationCheckoutReturnMode.value &&
     Boolean(normalizeRouteQueryValue(route.query.checkout)),
-)
-const reservationWorkflowStageId = computed(() =>
-  resolveWorkflowState(
-    selectedReservation.value?.workflow_status || selectedReservation.value?.status || '',
-  ).id,
 )
 const reservationAllowsDirectPaymentAccess = computed(() => {
   return reservationQualifiesForCheckout(selectedReservation.value || {})
@@ -769,21 +796,6 @@ const paymentLastReference = ref('')
 const assistedPaymentOrderReady = ref(false)
 const assistedPaymentProofFile = ref(null)
 const assistedPaymentProofName = ref('')
-const assistedPaymentProofInput = ref(null)
-const paymentCardNumberHost = ref(null)
-const paymentCardExpiryHost = ref(null)
-const paymentCardCvcHost = ref(null)
-const paymentElementReady = ref(false)
-const paymentElementLoading = ref(false)
-const paymentCardComplete = ref(false)
-
-let stripeClient = null
-let stripeElements = null
-let stripeCardNumberElement = null
-let stripeCardExpiryElement = null
-let stripeCardCvcElement = null
-let stripeIntentSecret = ''
-let stripePublishableKey = ''
 let stripeViewContext = ''
 
 const isStripeReservationPayment = computed(() => selectedPaymentMethod.value === 'stripe')
@@ -864,10 +876,6 @@ function formatAccessLongDate(value = '') {
   }).format(parsed)
 }
 
-function svgDataUri(svg) {
-  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`
-}
-
 function resolveReservationPaymentMethod(reservation = null) {
   return String(
     reservation?.payment_method ||
@@ -880,34 +888,6 @@ function resolveReservationPaymentMethod(reservation = null) {
     .toLowerCase()
 }
 
-const CARD_BRAND_LOGOS = {
-  Visa: svgDataUri(
-    '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="32" viewBox="0 0 96 32"><rect width="96" height="32" rx="8" fill="#1A4FB8"/><path fill="#fff" d="M35.8 21h-3.7l2.3-14h3.7l-2.3 14Zm15.4-13.6a9.2 9.2 0 0 0-3.3-.6c-3.7 0-6.3 1.9-6.3 4.8 0 2.1 1.9 3.2 3.3 3.9 1.5.7 2 1.2 2 1.9 0 1-.9 1.5-2 1.5a7.2 7.2 0 0 1-3.5-.8l-.5-.2-.5 3.1a11.5 11.5 0 0 0 4.2.8c4 0 6.6-1.9 6.7-5 0-1.6-1-2.9-3.1-3.9-1.3-.6-2.1-1-2.1-1.7 0-.6.7-1.2 2-1.2a6.5 6.5 0 0 1 2.7.5l.3.1.5-3ZM61 7h-2.8c-.9 0-1.5.2-1.9 1.2l-5.4 12.8h4l.8-2.3h4.8l.5 2.3h3.6L61 7Zm-3.5 8.9 2-5.4 1.2 5.4h-3.2ZM28.7 7l-3.6 9.6-.4-2c-.7-2.2-2.8-4.6-5.2-5.7l3.3 12h4l6-14h-3.9Z"/><path fill="#F7B600" d="M24.4 7H18c-.2 0-.4 0-.5.2-.2.1-.2.3-.2.5l.1.2c5 1.2 8.4 4.2 9.8 7.8L25.8 8c-.2-.8-.8-1-1.4-1Z"/></svg>',
-  ),
-  Mastercard: svgDataUri(
-    '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="32" viewBox="0 0 96 32"><rect width="96" height="32" rx="8" fill="#111111"/><circle cx="39" cy="16" r="8" fill="#EB001B"/><circle cx="49" cy="16" r="8" fill="#F79E1B"/><path fill="#FF5F00" d="M44 9.8a10 10 0 0 0 0 12.4 10 10 0 0 0 0-12.4Z"/></svg>',
-  ),
-  'American Express': svgDataUri(
-    '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="32" viewBox="0 0 96 32"><rect width="96" height="32" rx="8" fill="#2A8DBF"/><path fill="#fff" d="M19 21V11h16v2h-6v2h6v2h-6v2h6v2H19Zm18 0 4.2-10h4L49 21h-3.6l-.7-1.8h-4.1L40 21h-3Zm6.9-4.3-1.2-3.2-1.2 3.2h2.4ZM50 21V11h4.2l2.7 5 2.7-5H64v10h-3v-6.2L58 20h-2.2l-3-5.1V21h-2.8Zm15 0V11h11v2h-8v1.8h7.8v2H68v2h8v2H65Z"/></svg>',
-  ),
-  Discover: svgDataUri(
-    '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="32" viewBox="0 0 96 32"><rect width="96" height="32" rx="8" fill="#fff"/><rect x=".5" y=".5" width="95" height="31" rx="7.5" fill="none" stroke="rgba(17,17,17,.12)"/><path fill="#222" d="M18 21V11h4.8c3.7 0 5.9 1.9 5.9 5s-2.2 5-5.9 5H18Zm3-2.4h1.7c1.9 0 3-1 3-2.6s-1.1-2.6-3-2.6H21v5.2ZM30 21V11h3v10h-3Zm4.8-1.3 1.1-2a6.8 6.8 0 0 0 3.3.9c1.2 0 1.7-.3 1.7-.8 0-1.7-5.9-.5-5.9-4.1 0-1.9 1.6-3.5 4.7-3.5 1.4 0 2.9.3 4 .8l-1 2.1a6.4 6.4 0 0 0-3-.7c-1.2 0-1.7.4-1.7.9 0 1.6 5.9.4 5.9 4 0 1.8-1.6 3.4-4.7 3.4-1.8 0-3.5-.4-4.4-1Zm14.8 1.5c-3.2 0-5.6-2.2-5.6-5.2s2.4-5.2 5.6-5.2c1.9 0 3.5.7 4.5 2l-1.9 1.7c-.6-.8-1.4-1.2-2.4-1.2-1.6 0-2.7 1.1-2.7 2.7s1.1 2.7 2.7 2.7c1 0 1.8-.4 2.4-1.2l1.9 1.7c-1 1.3-2.6 2-4.5 2Zm10.8 0c-3.3 0-5.7-2.2-5.7-5.2s2.4-5.2 5.7-5.2 5.7 2.2 5.7 5.2-2.4 5.2-5.7 5.2Zm0-2.5c1.5 0 2.7-1.1 2.7-2.7s-1.2-2.7-2.7-2.7-2.7 1.1-2.7 2.7 1.2 2.7 2.7 2.7Z"/><path fill="#F58220" d="M71 18.8c4.5 0 8.6-1.6 11.7-4.2-2.5-2.2-6.1-3.6-10-3.6-4.5 0-8.6 1.6-11.7 4.2 2.5 2.2 6.1 3.6 10 3.6Z"/></svg>',
-  ),
-}
-
-const paymentCardVisualLabel = computed(() => {
-  if (!isStripeReservationPayment.value) return ''
-
-  const persistedBrand =
-    normalizeCardBrand(selectedReservation.value?.payment_order?.brand) ||
-    normalizeCardBrand(selectedReservation.value?.payment_order?.card_brand) ||
-    normalizeCardBrand(selectedReservation.value?.payment_brand) ||
-    normalizeCardBrand(selectedReservation.value?.card_brand)
-
-  return normalizeCardBrand(paymentCardBrand.value) || persistedBrand || 'Tarjeta'
-})
-
-const paymentCardVisualLogo = computed(() => CARD_BRAND_LOGOS[paymentCardVisualLabel.value] || '')
 const activeReservationPaymentMethod = computed(() => {
   const persistedMethod = resolveReservationPaymentMethod(selectedReservation.value)
   if (persistedMethod === 'assisted_cash') return 'assisted'
@@ -1145,13 +1125,6 @@ function resolveCommercialAccessBillingIdentifiers(source = null) {
     subscriptionId: '',
     customerId: '',
   }
-}
-
-function formatCompactBillingReference(value = '') {
-  const normalized = String(value || '').trim()
-  if (!normalized) return 'No visible'
-  if (normalized.length <= 18) return normalized
-  return `${normalized.slice(0, 10)}...${normalized.slice(-6)}`
 }
 
 function getDaysBetweenTodayAnd(value = '') {
@@ -2367,6 +2340,95 @@ function canUseCheckoutContextStorage() {
   return typeof window !== 'undefined' && typeof window.sessionStorage !== 'undefined'
 }
 
+function canUseAircraftHoldStorage() {
+  return typeof window !== 'undefined' && typeof window.sessionStorage !== 'undefined'
+}
+
+function normalizeAircraftHold(payload = null) {
+  if (!payload || typeof payload !== 'object') return null
+
+  const holdId = String(
+    payload.hold_id || payload.holdId || payload.id || payload.data?.hold_id || payload.data?.id || '',
+  ).trim()
+  const expiresAt = String(
+    payload.hold_expires_at ||
+      payload.holdExpiresAt ||
+      payload.expires_at ||
+      payload.expiresAt ||
+      payload.data?.hold_expires_at ||
+      payload.data?.expires_at ||
+      '',
+  ).trim()
+
+  if (!holdId || !expiresAt) return null
+
+  return {
+    hold_id: holdId,
+    hold_expires_at: expiresAt,
+    aircraft_id: String(
+      payload.aircraft_id || payload.aircraftId || payload.aircraft?.id || payload.data?.aircraft_id || '',
+    ).trim(),
+    provider_id: String(
+      payload.provider_id || payload.providerId || payload.provider?.id || payload.data?.provider_id || '',
+    ).trim(),
+    reservation_id: String(
+      payload.reservation_id || payload.reservationId || payload.data?.reservation_id || '',
+    ).trim(),
+    flight_request_id: String(
+      payload.flight_request_id || payload.flightRequestId || payload.data?.flight_request_id || '',
+    ).trim(),
+    quote_key: String(payload.quote_key || payload.quoteKey || '').trim(),
+    status: String(payload.status || payload.hold_status || payload.data?.status || 'active').trim(),
+    source: payload.source || 'backend',
+  }
+}
+
+function persistAircraftHoldContext(context = null) {
+  if (!canUseAircraftHoldStorage()) return
+
+  if (!context) {
+    window.sessionStorage.removeItem(CLIENT_AIRCRAFT_HOLD_CONTEXT_KEY)
+    return
+  }
+
+  window.sessionStorage.setItem(
+    CLIENT_AIRCRAFT_HOLD_CONTEXT_KEY,
+    JSON.stringify({
+      ...context,
+      savedAt: new Date().toISOString(),
+    }),
+  )
+}
+
+function readAircraftHoldContext() {
+  if (!canUseAircraftHoldStorage()) return null
+
+  const rawSnapshot = window.sessionStorage.getItem(CLIENT_AIRCRAFT_HOLD_CONTEXT_KEY)
+  if (!rawSnapshot) return null
+
+  try {
+    const snapshot = JSON.parse(rawSnapshot)
+    return snapshot && typeof snapshot === 'object' ? snapshot : null
+  } catch {
+    window.sessionStorage.removeItem(CLIENT_AIRCRAFT_HOLD_CONTEXT_KEY)
+    return null
+  }
+}
+
+function setAircraftHold(nextHold = null) {
+  aircraftHold.value = normalizeAircraftHold(nextHold)
+  persistAircraftHoldContext(aircraftHold.value)
+}
+
+function parsedHoldExpiry(value = '') {
+  const normalized = String(value || '').trim()
+  if (!normalized) return null
+
+  const isoValue = normalized.includes('T') ? normalized : normalized.replace(' ', 'T')
+  const parsed = new Date(isoValue)
+  return Number.isFinite(parsed.getTime()) ? parsed : null
+}
+
 function persistReservationCheckoutContext(context = {}) {
   if (!canUseCheckoutContextStorage()) return
 
@@ -2377,6 +2439,10 @@ function persistReservationCheckoutContext(context = {}) {
       reservationId: String(context.reservationId || '').trim(),
       flightRequestId: String(context.flightRequestId || '').trim(),
       checkoutSessionId: String(context.checkoutSessionId || '').trim(),
+      aircraftHold:
+        context.aircraftHold && typeof context.aircraftHold === 'object'
+          ? context.aircraftHold
+          : null,
       reservation:
         context.reservation && typeof context.reservation === 'object' ? context.reservation : null,
       savedAt: new Date().toISOString(),
@@ -2404,10 +2470,30 @@ function clearReservationCheckoutContext() {
   window.sessionStorage.removeItem(CLIENT_RESERVATION_CHECKOUT_CONTEXT_KEY)
 }
 
+function buildQuoteQueryKey(payload = {}) {
+  const legs = Array.isArray(payload?.legs)
+    ? payload.legs.map((leg) => ({
+        origin: String(leg?.origin || '').trim(),
+        destination: String(leg?.destination || '').trim(),
+        date: String(leg?.date || '').trim(),
+        time: String(leg?.time || '').trim(),
+      }))
+    : []
+
+  return JSON.stringify({
+    trip_type: String(payload?.trip_type || '').trim(),
+    trip_label: String(payload?.trip_label || '').trim(),
+    passengers: Number(payload?.passengers || 0),
+    priority_type: String(payload?.priority_type || '').trim(),
+    flight_package: String(payload?.flight_package || '').trim(),
+    legs,
+  })
+}
+
 function persistQuotePreview() {
   if (!canUseQuoteStorage()) return
 
-  if (!submittedItinerary.value || !aircraftOptions.value.length) {
+  if (!submittedItinerary.value || !submittedQuotePayload.value) {
     window.sessionStorage.removeItem(CLIENT_QUOTES_CACHE_KEY)
     return
   }
@@ -2418,7 +2504,9 @@ function persistQuotePreview() {
       tripType: tripType.value,
       selectedPriorityType: selectedPriorityType.value,
       submittedItinerary: submittedItinerary.value,
-      aircraftOptions: aircraftOptions.value,
+      submittedQuotePayload: submittedQuotePayload.value,
+      queryKey: buildQuoteQueryKey(submittedQuotePayload.value),
+      savedAt: new Date().toISOString(),
     }),
   )
 }
@@ -2426,6 +2514,7 @@ function persistQuotePreview() {
 function clearQuotePreviewState() {
   quoteResultsVisible.value = false
   submittedItinerary.value = null
+  submittedQuotePayload.value = null
   aircraftOptions.value = []
   serverSearchError.value = ''
   clearAircraftSidebarFilters()
@@ -2437,7 +2526,7 @@ function clearQuotePreviewState() {
 
 function restoreQuotePreview() {
   if (!canUseQuoteStorage()) return
-  if (submittedItinerary.value || aircraftOptions.value.length) return
+  if (submittedItinerary.value || submittedQuotePayload.value || aircraftOptions.value.length) return
 
   const rawSnapshot = window.sessionStorage.getItem(CLIENT_QUOTES_CACHE_KEY)
   if (!rawSnapshot) return
@@ -2459,8 +2548,8 @@ function restoreQuotePreview() {
       submittedItinerary.value = snapshot.submittedItinerary
     }
 
-    if (Array.isArray(snapshot.aircraftOptions) && snapshot.aircraftOptions.length) {
-      aircraftOptions.value = snapshot.aircraftOptions
+    if (snapshot.submittedQuotePayload && typeof snapshot.submittedQuotePayload === 'object') {
+      submittedQuotePayload.value = snapshot.submittedQuotePayload
     }
   } catch {
     window.sessionStorage.removeItem(CLIENT_QUOTES_CACHE_KEY)
@@ -2514,10 +2603,6 @@ function formatCurrency(value) {
   }).format(Number(value || 0))
 }
 
-function formatCurrencyByCode(value, currency = 'USD') {
-  return formatDetailedCurrencyByCode(value, currency, 0)
-}
-
 function formatDetailedCurrencyByCode(value, currency = 'USD', maximumFractionDigits = 2) {
   return new Intl.NumberFormat('es-MX', {
     style: 'currency',
@@ -2530,7 +2615,6 @@ function formatDetailedCurrencyByCode(value, currency = 'USD', maximumFractionDi
 async function sendPaymentInvoiceNotification({
   reservationId = '',
   paymentIntentId = '',
-  paymentStatus = '',
 } = {}) {
   const endpoint = 'https://redskyg.com/renta/send_payment_invoice.php'
   const formData = new FormData()
@@ -2542,7 +2626,6 @@ async function sendPaymentInvoiceNotification({
     String(flightRequestContextId.value || reservationId || '').trim(),
   )
   formData.append('payment_intent_id', String(paymentIntentId || paymentLastReference.value || '').trim())
-  formData.append('payment_status', String(paymentStatus || '').trim())
   formData.append('email', paymentForm.contactEmail.trim() || customerEmail.value)
   formData.append('customer_email', paymentForm.contactEmail.trim() || customerEmail.value)
   formData.append('customer_name', customerDisplayName.value)
@@ -2572,177 +2655,9 @@ async function sendPaymentInvoiceNotification({
   return payload || response
 }
 
-function resolveStripePublishableKey(preferredKey = '') {
-  return (
-    String(preferredKey || '').trim() ||
-    String(stripePublishableKey || '').trim() ||
-    String(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '').trim()
-  )
-}
-
-function cacheStripePaymentIntent(payload = {}) {
-  const nextClientSecret = String(payload?.client_secret || '').trim()
-  const nextPublishableKey = resolveStripePublishableKey(payload?.publishable_key)
-  const nextPaymentIntentId = String(payload?.payment_intent_id || '').trim()
-
-  if (!nextClientSecret || !nextPaymentIntentId) {
-    throw new Error('El backend no devolvio un PaymentIntent valido para este flujo.')
-  }
-
-  if (nextClientSecret) {
-    stripeIntentSecret = nextClientSecret
-  }
-
-  if (nextPublishableKey) {
-    stripePublishableKey = nextPublishableKey
-  }
-
-  if (nextPaymentIntentId) {
-    paymentLastReference.value = nextPaymentIntentId
-  }
-
-}
-
-async function ensureStripePaymentElement(publishableKeyOverride = '') {
-  const flightRequestId = reservationContextId.value
-
-  if (
-    selectedPaymentMethod.value !== 'stripe' ||
-    props.section !== 'pago' ||
-    (!flightRequestId && !commercialAccessCheckoutReturnMode.value) ||
-    !paymentCardNumberHost.value ||
-    !paymentCardExpiryHost.value ||
-    !paymentCardCvcHost.value
-  ) {
-    return
-  }
-
-  if (paymentElementLoading.value || paymentElementReady.value) {
-    return
-  }
-
-  paymentElementLoading.value = true
-  paymentInlineError.value = ''
-
-  try {
-    const { loadStripe } = await import('@stripe/stripe-js')
-    const publishableKey = resolveStripePublishableKey(publishableKeyOverride)
-
-    if (!publishableKey) {
-      throw new Error(
-        'No encontramos la llave publica de Stripe para renderizar el formulario de tarjeta.',
-      )
-    }
-
-    if (stripeClient && paymentElementReady.value && stripePublishableKey === publishableKey) {
-      return
-    }
-
-    if (stripePublishableKey && stripePublishableKey !== publishableKey) {
-      destroyStripePaymentElement()
-    }
-
-    stripeClient = await loadStripe(publishableKey)
-
-    if (!stripeClient) {
-      throw new Error('No se pudo inicializar Stripe en esta vista.')
-    }
-
-    stripePublishableKey = publishableKey
-
-    stripeElements = stripeClient.elements({
-      locale: 'es',
-    })
-
-    const stripeFieldStyle = {
-      base: {
-        color: '#141414',
-        fontFamily: 'Manrope, ui-sans-serif, system-ui, sans-serif',
-        fontSize: '18px',
-        fontWeight: '600',
-        '::placeholder': {
-          color: '#8e8a83',
-        },
-      },
-      invalid: {
-        color: '#b73838',
-        iconColor: '#b73838',
-      },
-    }
-
-    const secureFieldOptions = {
-      style: stripeFieldStyle,
-      disabled: false,
-    }
-
-    const cardNumberOptions = {
-      ...secureFieldOptions,
-      disableLink: true,
-    }
-
-    const fieldState = {
-      number: false,
-      expiry: false,
-      cvc: false,
-    }
-
-    const syncFieldState = () => {
-      paymentCardComplete.value = fieldState.number && fieldState.expiry && fieldState.cvc
-    }
-
-    const handleStripeFieldChange = (field) => (event) => {
-      fieldState[field] = Boolean(event?.complete)
-
-      if (field === 'number') {
-        paymentCardBrand.value = normalizeCardBrand(event?.brand)
-      }
-
-      if (event?.empty && !event?.error) {
-        paymentInlineError.value = ''
-      } else {
-        paymentInlineError.value = event?.error?.message || ''
-      }
-
-      syncFieldState()
-    }
-
-    stripeCardNumberElement = stripeElements.create('cardNumber', cardNumberOptions)
-    stripeCardExpiryElement = stripeElements.create('cardExpiry', secureFieldOptions)
-    stripeCardCvcElement = stripeElements.create('cardCvc', secureFieldOptions)
-
-    stripeCardNumberElement.on('change', handleStripeFieldChange('number'))
-    stripeCardExpiryElement.on('change', handleStripeFieldChange('expiry'))
-    stripeCardCvcElement.on('change', handleStripeFieldChange('cvc'))
-
-    stripeCardNumberElement.mount(paymentCardNumberHost.value)
-    stripeCardExpiryElement.mount(paymentCardExpiryHost.value)
-    stripeCardCvcElement.mount(paymentCardCvcHost.value)
-    paymentElementReady.value = true
-  } catch (error) {
-    paymentInlineError.value =
-      error?.message || 'No se pudo cargar el formulario seguro de tarjeta.'
-  } finally {
-    paymentElementLoading.value = false
-  }
-}
-
 function destroyStripePaymentElement() {
-  if (stripeCardNumberElement) stripeCardNumberElement.destroy()
-  if (stripeCardExpiryElement) stripeCardExpiryElement.destroy()
-  if (stripeCardCvcElement) stripeCardCvcElement.destroy()
-
-  stripeCardNumberElement = null
-  stripeCardExpiryElement = null
-  stripeCardCvcElement = null
-  stripeElements = null
-  stripeClient = null
-  stripeIntentSecret = ''
-  stripePublishableKey = ''
   stripeViewContext = ''
   paymentCardBrand.value = ''
-  paymentCardComplete.value = false
-  paymentElementReady.value = false
-  paymentElementLoading.value = false
 }
 
 function resultDisplayPrice(value = 0) {
@@ -3629,6 +3544,14 @@ function goToCommercialAccessPayment() {
 
 function reservationActionLabel(aircraft = null) {
   if (aircraft && isReservingAircraft(aircraft)) return 'Reservando...'
+  if (
+    aircraft &&
+    activeAircraftHoldSummary.value?.aircraftId &&
+    String(activeAircraftHoldSummary.value.aircraftId) ===
+      String(aircraft.aircraft_id || aircraft.id || '')
+  ) {
+    return 'Apartada para ti'
+  }
   return canReserveFlights.value ? 'Reservar' : commercialAccessCtaLabel.value
 }
 
@@ -4193,14 +4116,6 @@ function handleSendAssistedPaymentOrderEmail() {
   window.location.href = buildAssistedOrderEmailUrl()
 }
 
-function handleBackToReservation() {
-  go('viajes', reservationContextId.value)
-}
-
-function triggerAssistedPaymentProofUpload() {
-  assistedPaymentProofInput.value?.click()
-}
-
 function handleAssistedPaymentProofSelection(event) {
   const file = event?.target?.files?.[0] || null
   assistedPaymentProofFile.value = file
@@ -4211,6 +4126,49 @@ function delay(ms = 1000) {
   return new Promise((resolve) => {
     window.setTimeout(resolve, ms)
   })
+}
+
+function startAircraftHoldCountdown() {
+  if (aircraftHoldCountdownTimer || typeof window === 'undefined') return
+
+  aircraftHoldCountdownTimer = window.setInterval(() => {
+    holdCountdownNow.value = Date.now()
+  }, 1000)
+}
+
+function clearAircraftHoldCountdown() {
+  if (!aircraftHoldCountdownTimer || typeof window === 'undefined') return
+  window.clearInterval(aircraftHoldCountdownTimer)
+  aircraftHoldCountdownTimer = null
+}
+
+async function handleAircraftHoldExpiration() {
+  if (!aircraftHold.value?.hold_id) return
+
+  const expiredHold = aircraftHold.value
+  setAircraftHold(null)
+  clearReservationCheckoutContext()
+
+  if (expiredHold.hold_id) {
+    await releaseClientAircraftHold(expiredHold.hold_id, {
+      reservation_id: expiredHold.reservation_id || undefined,
+      flight_request_id: expiredHold.flight_request_id || undefined,
+      reason: 'expired',
+    }).catch(() => null)
+  }
+
+  serverSearchError.value =
+    'La retencion expiro. Verificaremos nuevamente la disponibilidad para mostrarte opciones vigentes.'
+  ui.pushToast({
+    tone: 'warning',
+    title: 'Retencion vencida',
+    message: serverSearchError.value,
+  })
+
+  if (submittedQuotePayload.value) {
+    await refreshSearchResults({ silent: true }).catch(() => null)
+    go('resultados')
+  }
 }
 
 function clearReservationConfirmedRedirectTimer() {
@@ -4342,11 +4300,6 @@ async function applySignedContractReturnState() {
       : {}),
     id: String(currentReservation.id || reservationId).trim(),
     is_reservation: true,
-    status: 'payment_pending',
-    workflow_status: 'contrato firmado',
-    contract_status: 'signed',
-    payment_status:
-      currentReservation.payment_status === 'Pagado' ? currentReservation.payment_status : 'Pendiente de pago',
     updated_at: new Date().toISOString(),
     contract:
       currentReservation.contract || contractId
@@ -4660,11 +4613,9 @@ async function finalizeReservationCheckoutReturn() {
           resolveEntityIdentifier(successFlightRequest?.id) ||
           flightRequestContextId.value,
         is_reservation: true,
-        status: 'payment_confirmed',
-        workflow_status: 'payment_confirmed',
-        payment_status: 'Pagado',
         updated_at: new Date().toISOString(),
       })
+      setAircraftHold(null)
 
       ui.pushToast({
         tone: 'success',
@@ -4716,12 +4667,8 @@ async function finalizeReservationCheckoutReturn() {
 
     if (paidReservation) {
       clearReservationCheckoutContext()
-      mergeReservationUpdate({
-        ...paidReservation,
-        status: 'payment_confirmed',
-        workflow_status: 'payment_confirmed',
-        payment_status: 'Pagado',
-      })
+      mergeReservationUpdate(paidReservation)
+      setAircraftHold(null)
 
       ui.pushToast({
         tone: 'success',
@@ -4753,37 +4700,39 @@ async function finalizeReservationCheckoutReturn() {
     ).trim()
 
     if (fallbackReservation && (fallbackReservationId || fallbackFlightRequestId)) {
-      const resolvedTargetId = fallbackReservationId || fallbackFlightRequestId
-
       mergeReservationUpdate({
         ...fallbackReservation,
         id: fallbackReservationId || fallbackFlightRequestId,
         flight_request_id: fallbackFlightRequestId || fallbackReservationId,
         is_reservation: true,
-        status: 'payment_confirmed',
-        workflow_status: 'payment_confirmed',
+        status: 'pending_payment',
+        workflow_status: 'payment_pending',
         payment_method: 'stripe',
-        payment_status: 'Pagado',
+        payment_status: 'pending_verification',
         frontend_state: {
           ...(fallbackReservation.frontend_state &&
           typeof fallbackReservation.frontend_state === 'object'
             ? fallbackReservation.frontend_state
             : {}),
-          ready_for_payment: true,
+          ready_for_payment: false,
+          payment_verification_pending: true,
+          next_action: 'sync_payment',
+          status_message:
+            'Pago en verificacion. Estamos esperando la confirmacion final del backend antes de cerrar la reserva.',
         },
         updated_at: new Date().toISOString(),
       })
 
       ui.pushToast({
-        tone: 'warning',
-        title: 'Pago recibido',
+        tone: 'info',
+        title: 'Pago en verificacion',
         message:
-          'Stripe confirmo el pago, pero el backend sigue sincronizando la reserva. Mostramos el resultado con respaldo local mientras termina.',
+          'Stripe recibio el pago. Estamos esperando la confirmacion final del backend antes de marcar el vuelo como confirmado.',
       })
 
       await router.replace({
         name: 'cliente-detalle',
-        params: { section: 'reserva-confirmada', id: resolvedTargetId },
+        params: { section: 'pago', id: fallbackReservationId || fallbackFlightRequestId },
       })
       return
     }
@@ -4838,22 +4787,8 @@ async function handleAssistedPaymentProofUpload() {
     )
 
     mergeReservationUpdate({
-      ...(persistedReservation || {}),
+      ...persistedReservation,
       id: reservationId,
-      status: 'pending_payment',
-      booking_status: 'pending_payment',
-      workflow_status: 'pago pendiente',
-      payment_method: 'assisted_cash',
-      payment_status: 'pending_manual_validation',
-      payment_order: {
-        ...selectedReservation.value?.payment_order,
-        ...persistedReservation?.payment_order,
-        status: 'pending_manual_validation',
-        method: 'assisted_cash',
-        payment_method: 'assisted_cash',
-        proof_name: assistedPaymentProofName.value,
-        proof_uploaded_at: new Date().toISOString(),
-      },
       updated_at: new Date().toISOString(),
     })
 
@@ -4865,9 +4800,6 @@ async function handleAssistedPaymentProofUpload() {
 
     assistedPaymentProofFile.value = null
     assistedPaymentProofName.value = ''
-    if (assistedPaymentProofInput.value) {
-      assistedPaymentProofInput.value.value = ''
-    }
   } catch (error) {
     paymentInlineError.value =
       error?.message || 'No pudimos subir el comprobante del pago asistido.'
@@ -5121,6 +5053,8 @@ async function handleContractConfirm(contractPayload = {}) {
 }
 
 async function handlePaymentSubmit() {
+  if (paymentSubmitting.value) return
+
   if (commercialAccessCheckoutReturnPending.value) {
     await finalizeCommercialAccessCheckoutReturn()
     return
@@ -5224,9 +5158,6 @@ async function handlePaymentSubmit() {
           flight_request_id: flightRequestId,
           contact_email: paymentForm.contactEmail.trim(),
           payment_method: 'assisted_cash',
-          flight_cost: paymentBreakdownAmountMap.value.flight_cost || 0,
-          administrative_fee: paymentBreakdownAmountMap.value.administrative_fee || 0,
-          total_amount: paymentBreakdownTotalValue.value || 0,
         },
         { timeoutMs: 30000 },
       )
@@ -5241,24 +5172,9 @@ async function handlePaymentSubmit() {
       assistedPaymentOrderReady.value = true
 
       mergeReservationUpdate({
-        ...(persistedReservation || {}),
+        ...persistedReservation,
         id: reservationId || flightRequestId,
-        status: 'pending_payment',
-        booking_status: 'pending_payment',
-        workflow_status: 'pago pendiente',
         payment_method: 'assisted_cash',
-        stripe_fee: 0,
-        total_amount:
-          paymentBreakdownAmountMap.value.flight_cost +
-            paymentBreakdownAmountMap.value.administrative_fee || paymentBreakdownTotalValue.value,
-        payment_status: 'pending_manual_payment',
-        payment_order: {
-          ...selectedReservation.value?.payment_order,
-          ...persistedReservation?.payment_order,
-          status: 'pending_manual_payment',
-          method: 'assisted_cash',
-          payment_method: 'assisted_cash',
-        },
         updated_at: new Date().toISOString(),
       })
 
@@ -5268,7 +5184,6 @@ async function handlePaymentSubmit() {
         await sendPaymentInvoiceNotification({
           reservationId: reservationId || flightRequestId,
           paymentIntentId: paymentLastReference.value,
-          paymentStatus: 'pending_manual_payment',
         })
       } catch (notificationError) {
         paymentInvoiceNotificationError =
@@ -5293,6 +5208,34 @@ async function handlePaymentSubmit() {
 
     destroyStripePaymentElement()
 
+    const reservationHold =
+      normalizeAircraftHold(selectedReservation.value?.frontend_state?.aircraft_hold) ||
+      normalizeAircraftHold(readReservationCheckoutContext()?.aircraftHold) ||
+      aircraftHold.value
+
+    if (!reservationHold?.hold_id || !reservationHold?.hold_expires_at) {
+      throw new Error(
+        'La retencion de esta aeronave ya no esta disponible. Verificaremos nuevamente la disponibilidad.',
+      )
+    }
+
+    if (parsedHoldExpiry(reservationHold.hold_expires_at)?.getTime() <= Date.now()) {
+      throw new Error(
+        'La retencion expiro. Verificaremos nuevamente la disponibilidad para mostrarte opciones vigentes.',
+      )
+    }
+
+    await validateClientAircraftHold(
+      reservationHold.hold_id,
+      {
+        reservation_id: reservationId || undefined,
+        flight_request_id: flightRequestId || undefined,
+        aircraft_id: reservationHold.aircraft_id || undefined,
+        quote_key: reservationHold.quote_key || undefined,
+      },
+      { timeoutMs: 30000 },
+    )
+
     const successUrl = buildReservationCheckoutReturnUrl('success', reservationId || flightRequestId)
     const cancelUrl = buildReservationCheckoutReturnUrl('cancelled', reservationId || flightRequestId)
     const payload = await createClientCheckout(
@@ -5301,6 +5244,7 @@ async function handlePaymentSubmit() {
         reservation_id: reservationId || undefined,
         reservation: reservationId || undefined,
         booking_id: reservationId || flightRequestId,
+        hold_id: reservationHold.hold_id,
         contact_email: paymentForm.contactEmail.trim() || customerEmail.value,
         success_url: successUrl,
         cancel_url: cancelUrl,
@@ -5327,14 +5271,9 @@ async function handlePaymentSubmit() {
       id: reservationId || flightRequestId,
       flight_request_id:
         resolveEntityIdentifier(selectedReservation.value?.flight_request_id) || flightRequestId,
-      status: 'pending_payment',
-      booking_status: 'pending_payment',
-      workflow_status: 'pago pendiente',
       payment_method: 'stripe',
-      payment_status: 'pending',
       payment_order: {
         ...selectedReservation.value?.payment_order,
-        status: 'pending',
         method: 'stripe',
         payment_method: 'stripe',
         checkout_session_id: checkoutSessionId || undefined,
@@ -5348,6 +5287,7 @@ async function handlePaymentSubmit() {
       reservationId,
       flightRequestId,
       checkoutSessionId,
+      aircraftHold: reservationHold,
       reservation: {
         ...(selectedReservation.value && typeof selectedReservation.value === 'object'
           ? selectedReservation.value
@@ -5376,6 +5316,21 @@ async function handlePaymentSubmit() {
     window.location.assign(redirectUrl)
     return
   } catch (error) {
+    if (
+      Number(error?.status || 0) === 409 ||
+      String(error?.payload?.code || '').trim() === 'AIRCRAFT_NOT_AVAILABLE' ||
+      String(error?.message || '').toLowerCase().includes('retencion')
+    ) {
+      await handleAircraftAvailabilityConflict({
+        message:
+          error?.message ||
+          'La retencion expiro. Verificaremos nuevamente la disponibilidad para mostrarte opciones vigentes.',
+        title: 'Disponibilidad actualizada',
+      })
+      paymentInlineError.value = serverSearchError.value
+      return
+    }
+
     paymentInlineError.value =
       error?.message || 'No fue posible iniciar el flujo de pago. Intenta de nuevo.'
     ui.pushToast({
@@ -5597,6 +5552,7 @@ watch(
 )
 
   const portalBindings = {
+    activeAircraftHoldSummary,
     props,
     activeItinerarySummary,
     activePaymentBadge,
@@ -5620,7 +5576,6 @@ watch(
     aircraftSpeedLine,
     aircraftVisualStyle,
     assistedPaymentProofFile,
-    assistedPaymentProofInput,
     assistedPaymentProofName,
     assistedPaymentProofUploaded,
     assistedPrimaryCtaLabel,
@@ -5713,7 +5668,6 @@ watch(
     timeline,
     topNavItems,
     topNavNotificationCount,
-    triggerAssistedPaymentProofUpload,
     tripType,
     tripsInitialTab,
     updateAircraftSidebarFilter,
@@ -5964,6 +5918,51 @@ function validateSearchForm() {
   return true
 }
 
+async function refreshSearchResults({ silent = false } = {}) {
+  if (!submittedQuotePayload.value) return []
+
+  if (!silent) {
+    searching.value = true
+  }
+
+  try {
+    const results = await searchClientFlights(submittedQuotePayload.value, {
+      timeoutMs: CLIENT_QUOTES_TIMEOUT_MS,
+    })
+    aircraftOptions.value = Array.isArray(results) ? results : []
+    persistQuotePreview()
+    return aircraftOptions.value
+  } finally {
+    if (!silent) {
+      searching.value = false
+    }
+  }
+}
+
+async function handleAircraftAvailabilityConflict({
+  message = 'Esta aeronave acaba de dejar de estar disponible para el horario seleccionado. Te mostramos otras opciones.',
+  title = 'Aeronave no disponible',
+} = {}) {
+  serverSearchError.value = message
+  setAircraftHold(null)
+  clearReservationCheckoutContext()
+
+  try {
+    if (submittedQuotePayload.value) {
+      await refreshSearchResults({ silent: true })
+      go('resultados')
+    }
+  } catch {
+    // Mantener el mensaje original si el refresco falla.
+  }
+
+  ui.pushToast({
+    tone: 'error',
+    title,
+    message,
+  })
+}
+
 async function submitSearch() {
   serverSearchError.value = ''
   await refreshCommercialAccessStatus({ forceSessionRefresh: false }).catch(() => null)
@@ -6013,6 +6012,7 @@ async function submitSearch() {
       repositioningRequired: pendingMultiDestinationLegs ? true : undefined,
     }
     submittedItinerary.value = buildItinerarySummary(quotePayload)
+    submittedQuotePayload.value = quotePayload
     go('resultados')
     aircraftOptions.value = await searchClientFlights(quotePayload, {
       timeoutMs: CLIENT_QUOTES_TIMEOUT_MS,
@@ -6069,14 +6069,7 @@ async function requestReservation(aircraft = selectedAircraft.value) {
   if (!aircraft || reservingAircraftId.value) return
 
   if (aircraft?.is_available === false) {
-    const unavailableMessage =
-      'La aeronave ya no está disponible para ese horario. Por favor selecciona otra opción.'
-    serverSearchError.value = unavailableMessage
-    ui.pushToast({
-      tone: 'error',
-      title: 'Aeronave no disponible',
-      message: unavailableMessage,
-    })
+    await handleAircraftAvailabilityConflict()
     return
   }
 
@@ -6102,6 +6095,31 @@ async function requestReservation(aircraft = selectedAircraft.value) {
       Number(activeItinerarySummary.value.passengers || searchForm.passengers || 0) || 1
     const pricing = aircraftPricingForType(aircraft, selectedPriorityType.value)
     const selectedCardPrice = Number((pricing.finalPrice + RESULTS_SURCHARGE_USD).toFixed(2))
+    const quoteKey = submittedQuotePayload.value ? buildQuoteQueryKey(submittedQuotePayload.value) : ''
+    const holdPayload = {
+      aircraft_id: aircraft.aircraft_id || aircraft.id || null,
+      provider_id: aircraft.provider_id || aircraft.provider?.id || null,
+      match_id: aircraft.match_id || aircraft.matched_option_id || aircraft.id || null,
+      matched_option_id: aircraft.matched_option_id || aircraft.match_id || aircraft.id || null,
+      trip_type: tripTypeKey.value,
+      trip_label: tripType.value,
+      passengers: normalizedPassengers,
+      quote_key: quoteKey || undefined,
+      legs: activeItinerarySummary.value.legs.map((leg) => ({ ...leg })),
+    }
+    const holdResponse = await createClientAircraftHold(holdPayload, { timeoutMs: 30000 })
+    const normalizedHold = normalizeAircraftHold({
+      ...holdResponse,
+      aircraft_id: holdPayload.aircraft_id,
+      provider_id: holdPayload.provider_id,
+      quote_key: quoteKey,
+    })
+
+    if (!normalizedHold?.hold_id || !normalizedHold?.hold_expires_at) {
+      throw new Error('El backend no devolvio una retencion valida para esta aeronave.')
+    }
+
+    setAircraftHold(normalizedHold)
     const reservationPayload = {
       trip_type: tripTypeKey.value,
       trip_label: tripType.value,
@@ -6122,6 +6140,8 @@ async function requestReservation(aircraft = selectedAircraft.value) {
       priority_multiplier: pricing.priorityMultiplier,
       source_database: aircraft.source_database || null,
       source_table: aircraft.source_table || null,
+      hold_id: normalizedHold.hold_id,
+      hold_expires_at: normalizedHold.hold_expires_at,
       legs: activeItinerarySummary.value.legs.map((leg) => ({ ...leg })),
     }
     const previousCommercialState = buildCommercialAccessUiState(auth.access?.commercial_access || auth.access)
@@ -6186,6 +6206,10 @@ async function requestReservation(aircraft = selectedAircraft.value) {
       reservations.value = [
         {
           ...normalizedCreatedReservation,
+          frontend_state: {
+            ...normalizedCreatedReservation.frontend_state,
+            aircraft_hold: normalizedHold,
+          },
           summary_only: false,
         },
         ...reservations.value.filter(
@@ -6204,8 +6228,8 @@ async function requestReservation(aircraft = selectedAircraft.value) {
       matchedReservation?.id || reservations.value[0]?.id || createdFlightRequestId || ''
     ui.pushToast({
       tone: 'success',
-      title: 'Tu vuelo esta siendo confirmado',
-      message: 'Tu reserva ya entro al flujo comercial y operativo.',
+      title: 'Aeronave apartada temporalmente',
+      message: 'Apartamos esta aeronave mientras completas el contrato y el pago.',
     })
     if (
       !previousCommercialState.hasPaidAccess &&
@@ -6219,6 +6243,7 @@ async function requestReservation(aircraft = selectedAircraft.value) {
       })
     }
     go('reserva-confirmada', targetReservationId)
+    await refreshSearchResults({ silent: true }).catch(() => null)
   } catch (error) {
     if (error?.payload?.access) {
       syncCommercialAccessState(error.payload.access?.commercial_access || error.payload.access)
@@ -6234,7 +6259,7 @@ async function requestReservation(aircraft = selectedAircraft.value) {
       Number(error?.status || 0) === 402
         ? buildCommercialAccessMessage(error?.payload?.access?.commercial_access || error?.payload?.access)
         : isAircraftUnavailableConflict
-          ? 'La aeronave ya no está disponible para ese horario. Por favor selecciona otra opción.'
+          ? 'Esta aeronave acaba de dejar de estar disponible para el horario seleccionado. Te mostramos otras opciones.'
           : error?.message || 'Intenta de nuevo o contacta a tu asesor privado.'
     serverSearchError.value = message
     console.log('[error-reserva-cliente]', {
@@ -6244,11 +6269,18 @@ async function requestReservation(aircraft = selectedAircraft.value) {
       access: auth.access,
       user: auth.user,
     })
-    ui.pushToast({
-      tone: 'error',
-      title: 'No se pudo solicitar la reserva',
-      message,
-    })
+    if (isAircraftUnavailableConflict) {
+      await handleAircraftAvailabilityConflict({
+        message,
+        title: 'Disponibilidad actualizada',
+      })
+    } else {
+      ui.pushToast({
+        tone: 'error',
+        title: 'No se pudo solicitar la reserva',
+        message,
+      })
+    }
     if (Number(error?.status || 0) === 402) {
       goToCommercialAccessPayment()
     }
@@ -6499,6 +6531,8 @@ async function loadReservationsAfterPaint({ silent = false } = {}) {
 onMounted(async () => {
   redirectLegacyInProgressSection()
   restoreQuotePreview()
+  setAircraftHold(readAircraftHoldContext())
+  startAircraftHoldCountdown()
   if (!auth.user?.id) {
     await auth.refreshSession({ preferCache: true })
   }
@@ -6507,6 +6541,8 @@ onMounted(async () => {
 
   if (activeSection.value === 'reservar') {
     await loadCatalogData({ silent: false })
+  } else if (activeSection.value === 'resultados' && submittedQuotePayload.value) {
+    await refreshSearchResults({ silent: false }).catch(() => null)
   } else if (shouldLoadReservationsForCurrentSection()) {
     void loadReservationsAfterPaint({ silent: false })
   }
@@ -6576,9 +6612,30 @@ watch(
   { immediate: true },
 )
 
+watch(
+  () => selectedReservation.value?.frontend_state?.aircraft_hold,
+  (nextHold) => {
+    const normalizedHold = normalizeAircraftHold(nextHold)
+    if (normalizedHold?.hold_id) {
+      setAircraftHold(normalizedHold)
+    }
+  },
+  { immediate: true },
+)
+
 watch([submittedItinerary, aircraftOptions], () => {
   persistQuotePreview()
 })
+
+watch(
+  () => [aircraftHold.value?.hold_id || '', holdHasExpired.value],
+  ([holdId, expired]) => {
+    if (holdId && expired) {
+      void handleAircraftHoldExpiration()
+    }
+  },
+  { immediate: true },
+)
 
 watch(
   () => props.section,
@@ -6615,6 +6672,7 @@ onBeforeUnmount(() => {
   clearWorkflowSyncRefreshTimer()
   clearSignedContractSyncTimer()
   clearReservationConfirmedRedirectTimer()
+  clearAircraftHoldCountdown()
   destroyStripePaymentElement()
 
   if (removeWorkflowSyncSubscription) {
@@ -6666,6 +6724,9 @@ watch(
     startReservationsPolling()
     if (shouldAutoRefreshTrips()) {
       void refreshReservations({ silent: true })
+    }
+    if (activeSection.value === 'resultados' && submittedQuotePayload.value && !aircraftOptions.value.length) {
+      void refreshSearchResults({ silent: true })
     }
     if (activeSection.value === 'reservar' && !flightPackages.value.length) {
       void loadCatalogData({ silent: true })

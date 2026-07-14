@@ -65,7 +65,6 @@ describe('aircraft wizard utils', () => {
 
   it('builds a normalized aircraft payload for create/update requests', () => {
     const payload = buildAircraftPayload(baseForm, {
-      providerId: 44,
       inferredMinimumHours: 2,
       inferAircraftEngineType: () => 'turbofan',
       knotsToKmh: (value) => Math.round(Number(value) * 1.852),
@@ -74,7 +73,6 @@ describe('aircraft wizard utils', () => {
     })
 
     expect(payload).toMatchObject({
-      provider_id: 44,
       model: 'LEGACY 600',
       engine_type: 'turbofan',
       motor_tipo: 'TURBOFAN',
@@ -84,6 +82,10 @@ describe('aircraft wizard utils', () => {
       hourly_rate: 6500,
       base_airport: 'TOLUCA',
     })
+    expect(payload).not.toHaveProperty('provider_id')
+    expect(payload).not.toHaveProperty('status')
+    expect(payload).not.toHaveProperty('stripe_customer_id')
+    expect(payload).not.toHaveProperty('checkout_session_id')
     expect(payload.amenities).toEqual(['WiFi', 'Galley'])
   })
 })

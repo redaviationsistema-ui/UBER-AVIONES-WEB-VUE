@@ -9,6 +9,24 @@ export function normalizeAuthRole(role) {
   return ''
 }
 
+export function extractExplicitRoles(payload = {}) {
+  return [
+    payload.login_context?.effective_role,
+    payload.access?.effective_role,
+    ...(Array.isArray(payload.login_context?.roles) ? payload.login_context.roles : []),
+    ...(Array.isArray(payload.access?.roles) ? payload.access.roles : []),
+    ...(Array.isArray(payload.user?.roles)
+      ? payload.user.roles.map((role) => role?.code || role?.key || role?.name).filter(Boolean)
+      : []),
+  ]
+    .map((role) => normalizeAuthRole(role))
+    .filter(Boolean)
+}
+
+export function hasAdminAccess(payload = {}) {
+  return extractExplicitRoles(payload).includes('admin')
+}
+
 export function resolveDashboardPathByRole(role) {
   const normalizedRole = normalizeAuthRole(role)
 

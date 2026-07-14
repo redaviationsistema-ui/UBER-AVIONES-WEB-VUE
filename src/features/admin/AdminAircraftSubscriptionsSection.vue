@@ -834,10 +834,6 @@ function hasPendingPayment(item = {}) {
   return ['pending_payment', 'pending', 'inactive'].includes(status) && isApproved(item) && !hasActiveBilling(item)
 }
 
-function hasValidDocuments(item) {
-  return resolveAircraftDocumentValidation(item).allApproved
-}
-
 function documentsState(item) {
   const validation = resolveAircraftDocumentValidation(item)
   if (validation.status === 'approved') return 'Validos'
@@ -1105,7 +1101,7 @@ const companyFilteredAircraft = computed(() => {
   })
 })
 
-//REVISAMELO QUE SON LOS CAMBIOS 
+
 
 const filteredAircraft = computed(() => {
   const items = companyFilteredAircraft.value.filter((item) => {

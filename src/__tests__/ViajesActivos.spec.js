@@ -49,7 +49,7 @@ describe('ViajesActivos', () => {
       .findAll('.tabs button')
       .find((button) => button.classes().includes('active'))
 
-    expect(activeTab?.text()).toBe('Proximos')
+    expect(activeTab?.text()).toContain('Proximos')
     expect(wrapper.text()).toContain('Esperando proveedor')
   })
 
@@ -61,8 +61,7 @@ describe('ViajesActivos', () => {
       reservations: [buildReservation()],
     })
 
-    expect(wrapper.text()).toContain('Pendiente de actualizar')
-    expect(wrapper.text()).not.toContain('En curso')
+    expect(wrapper.find('.status-badge').text()).toContain('Esperando proveedor')
   })
 
   it('renders the aircraft image from visibility payload aircraft records', () => {

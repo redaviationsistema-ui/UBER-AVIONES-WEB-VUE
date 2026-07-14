@@ -1,12 +1,11 @@
 <script setup>
-import { computed, onBeforeUnmount, ref, watchEffect } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { pickRecord, requestWithCandidates } from '../../lib/backendCrud'
 import { resolveRoleSectionPath } from '../../data/roleFlows'
 import CompanyCommercialCard from '../operator/validation/CompanyCommercialCard.vue'
 import CompanyProfileCard from '../operator/validation/CompanyProfileCard.vue'
 import FleetSummary from '../operator/validation/FleetSummary.vue'
-import OperatorActivityTimeline from '../operator/validation/OperatorActivityTimeline.vue'
 import OperatorDocumentDrawer from '../operator/validation/OperatorDocumentDrawer.vue'
 import OperatorDocumentList from '../operator/validation/OperatorDocumentList.vue'
 import OperatorValidationSummary from '../operator/validation/OperatorValidationSummary.vue'
@@ -39,7 +38,6 @@ const selectedProvider = ref(null)
 const activeDocumentActionKey = ref('')
 const activeValidationActionKey = ref('')
 const activeRequirementActionKey = ref('')
-const selectedAdminActionKey = ref('')
 const loadingProviderDetail = ref(false)
 const selectedProviderActivity = ref([])
 const loadingSelectedProviderActivity = ref(false)
@@ -228,17 +226,6 @@ function formatDateTime(value) {
   }).format(parsed)
 }
 
-function resolveActivityTone(eventType = '') {
-  const normalized = String(eventType || '').trim().toLowerCase()
-  if (normalized.includes('rejected') || normalized.includes('changes')) return 'warning'
-  if (normalized.includes('approved') || normalized.includes('validated')) return 'success'
-  return 'info'
-}
-
-function isAdminActionSelected(action) {
-  return selectedAdminActionKey.value === action
-}
-
 function isAnyValidationActionLoading() {
   return Boolean(activeValidationActionKey.value || activeRequirementActionKey.value)
 }
@@ -284,37 +271,6 @@ function nextProviderRequestToken() {
   activeProviderRequestToken.value += 1
   return activeProviderRequestToken.value
 }
-
-async function handleCorporateAdminAction(action) {
-  if (!selectedProvider.value) return
-
-  selectedAdminActionKey.value = action
-
-  if (action === 'validate') {
-    await validateSelectedProvider()
-    return
-  }
-
-  if (action === 'request_changes') {
-    await requestChangesSelectedProvider()
-    return
-  }
-
-  if (action === 'reject') {
-    await rejectSelectedProvider()
-    return
-  }
-
-  if (action === 'aircraft') {
-    await openProviderAircraft(selectedProvider.value)
-    return
-  }
-
-  if (action === 'close') {
-    closeProviderDetail()
-  }
-}
-
 
 function providerLabel(provider = {}) {
   return resolveProviderCompanyName(provider)
@@ -796,88 +752,6 @@ const estadoExpediente = computed(() => {
   }
 })
 
-watchEffect(() => {
-  if (!selectedProvider.value || !estadoExpediente.value.providerId) return
-
-  console.table([
-    {
-      boton: 'Validar operador',
-      adminValidationStatus: estadoExpediente.value.camposSupabase.admin_validation_status,
-      reviewStatus: estadoExpediente.value.camposSupabase.review_status,
-      approvalStatus: estadoExpediente.value.camposSupabase.approval_status,
-      operatorStatus: estadoExpediente.value.camposSupabase.operator_status,
-      accessEnabled: estadoExpediente.value.camposSupabase.access_enabled,
-      loadingTerminado: estadoExpediente.value.loading.terminado,
-      expedienteCargado: estadoExpediente.value.expedienteCargado,
-      requisitosAprobados: estadoExpediente.value.todosRequisitosObligatoriosAprobados,
-      validacionIniciada: estadoExpediente.value.validacionIniciada,
-      operadorValido: estadoExpediente.value.operadorValido,
-      accionEnCurso: estadoExpediente.value.loading.accionEnCurso,
-      enabled: estadoExpediente.value.botones.validarOperador.enabled,
-    },
-    {
-      boton: 'Solicitar cambios',
-      adminValidationStatus: estadoExpediente.value.camposSupabase.admin_validation_status,
-      reviewStatus: estadoExpediente.value.camposSupabase.review_status,
-      approvalStatus: estadoExpediente.value.camposSupabase.approval_status,
-      operatorStatus: estadoExpediente.value.camposSupabase.operator_status,
-      accessEnabled: estadoExpediente.value.camposSupabase.access_enabled,
-      loadingTerminado: estadoExpediente.value.loading.terminado,
-      expedienteCargado: estadoExpediente.value.expedienteCargado,
-      requisitosAprobados: estadoExpediente.value.todosRequisitosObligatoriosAprobados,
-      validacionIniciada: estadoExpediente.value.validacionIniciada,
-      operadorValido: estadoExpediente.value.operadorValido,
-      accionEnCurso: estadoExpediente.value.loading.accionEnCurso,
-      enabled: estadoExpediente.value.botones.solicitarCambios.enabled,
-    },
-    {
-      boton: 'Cancelar validación',
-      adminValidationStatus: estadoExpediente.value.camposSupabase.admin_validation_status,
-      reviewStatus: estadoExpediente.value.camposSupabase.review_status,
-      approvalStatus: estadoExpediente.value.camposSupabase.approval_status,
-      operatorStatus: estadoExpediente.value.camposSupabase.operator_status,
-      accessEnabled: estadoExpediente.value.camposSupabase.access_enabled,
-      loadingTerminado: estadoExpediente.value.loading.terminado,
-      expedienteCargado: estadoExpediente.value.expedienteCargado,
-      requisitosAprobados: estadoExpediente.value.todosRequisitosObligatoriosAprobados,
-      validacionIniciada: estadoExpediente.value.validacionIniciada,
-      operadorValido: estadoExpediente.value.operadorValido,
-      accionEnCurso: estadoExpediente.value.loading.accionEnCurso,
-      enabled: estadoExpediente.value.botones.cancelarValidacion.enabled,
-    },
-    {
-      boton: 'Revisar aeronaves',
-      adminValidationStatus: estadoExpediente.value.camposSupabase.admin_validation_status,
-      reviewStatus: estadoExpediente.value.camposSupabase.review_status,
-      approvalStatus: estadoExpediente.value.camposSupabase.approval_status,
-      operatorStatus: estadoExpediente.value.camposSupabase.operator_status,
-      accessEnabled: estadoExpediente.value.camposSupabase.access_enabled,
-      loadingTerminado: estadoExpediente.value.loading.terminado,
-      expedienteCargado: estadoExpediente.value.expedienteCargado,
-      requisitosAprobados: estadoExpediente.value.todosRequisitosObligatoriosAprobados,
-      validacionIniciada: estadoExpediente.value.validacionIniciada,
-      operadorValido: estadoExpediente.value.operadorValido,
-      accionEnCurso: estadoExpediente.value.loading.accionEnCurso,
-      enabled: estadoExpediente.value.botones.revisarAeronaves.enabled,
-    },
-    {
-      boton: 'Continuar después',
-      adminValidationStatus: estadoExpediente.value.camposSupabase.admin_validation_status,
-      reviewStatus: estadoExpediente.value.camposSupabase.review_status,
-      approvalStatus: estadoExpediente.value.camposSupabase.approval_status,
-      operatorStatus: estadoExpediente.value.camposSupabase.operator_status,
-      accessEnabled: estadoExpediente.value.camposSupabase.access_enabled,
-      loadingTerminado: estadoExpediente.value.loading.terminado,
-      expedienteCargado: estadoExpediente.value.expedienteCargado,
-      requisitosAprobados: estadoExpediente.value.todosRequisitosObligatoriosAprobados,
-      validacionIniciada: estadoExpediente.value.validacionIniciada,
-      operadorValido: estadoExpediente.value.operadorValido,
-      accionEnCurso: estadoExpediente.value.loading.accionEnCurso,
-      enabled: estadoExpediente.value.botones.continuarDespues.enabled,
-    },
-  ])
-})
-
 const providerProgressStyle = computed(() => ({
   '--provider-progress': `${selectedProviderReview.value?.progress.percent || 0}%`,
 }))
@@ -986,7 +860,7 @@ async function openProviderDocumentDrawer(provider, documentRecord) {
       timeoutMs: ADMIN_PROVIDER_DOCUMENT_VERSIONS_TIMEOUT_MS,
     })
     selectedDocumentVersions.value = Array.isArray(versions) ? versions : []
-  } catch (_error) {
+  } catch {
     selectedDocumentVersions.value = documentRecord?.versions || []
   } finally {
     providerDocumentVersionsAbortController = null
@@ -1010,19 +884,19 @@ function mergeProviderDetailIntoSelection(baseProvider = {}, detailRecord = {}) 
     ...detailRecord,
     user:
       detailRecord.user && typeof detailRecord.user === 'object'
-        ? { ...(baseProvider.user || {}), ...detailRecord.user }
+        ? { ...baseProvider.user, ...detailRecord.user }
         : baseProvider.user,
     profile:
       detailRecord.profile && typeof detailRecord.profile === 'object'
-        ? { ...(baseProvider.profile || {}), ...detailRecord.profile }
+        ? { ...baseProvider.profile, ...detailRecord.profile }
         : baseProvider.profile,
     company:
       detailRecord.company && typeof detailRecord.company === 'object'
-        ? { ...(baseProvider.company || {}), ...detailRecord.company }
+        ? { ...baseProvider.company, ...detailRecord.company }
         : baseProvider.company,
     empresa:
       detailRecord.empresa && typeof detailRecord.empresa === 'object'
-        ? { ...(baseProvider.empresa || {}), ...detailRecord.empresa }
+        ? { ...baseProvider.empresa, ...detailRecord.empresa }
         : baseProvider.empresa,
     documents: detailDocuments.length ? detailDocuments : baseDocuments,
     legal_documents:
@@ -1070,8 +944,8 @@ async function loadProviderDetail(provider = {}, options = {}) {
       documentsResponse.status === 'fulfilled' ? documentsResponse.value : null,
     )
     const mergedRecord = {
-      ...(detailRecord || {}),
-      ...(documentsRecord || {}),
+      ...detailRecord,
+      ...documentsRecord,
     }
 
     if (Object.keys(mergedRecord).length) {
@@ -1109,10 +983,6 @@ async function openProviderDetail(provider) {
 
 function documentActionKey(providerId, documentId, action) {
   return `${providerId || 'provider'}:${documentId || 'document'}:${action}`
-}
-
-function isDocumentActionLoading(providerId, documentId, action) {
-  return activeDocumentActionKey.value === documentActionKey(providerId, documentId, action)
 }
 
 function validationActionKey(providerId, action) {
@@ -1193,39 +1063,6 @@ function syncProviderRecord(updatedProvider = {}) {
   if (localRecord) Object.assign(localRecord, updatedProvider)
   if (selectedProvider.value && String(selectedProvider.value.id || selectedProvider.value.provider_id || '') === String(providerId)) {
     selectedProvider.value = mergeProviderDetailIntoSelection(selectedProvider.value, updatedProvider)
-  }
-}
-
-async function previewProviderDocument(provider, documentRecord) {
-  const providerId = provider?.id || provider?.provider_id
-  const documentId = documentRecord?.id
-  const directUrl = documentRecord?.url || documentRecord?.downloadUrl
-
-  if (directUrl && typeof window !== 'undefined') {
-    window.open(directUrl, '_blank', 'noopener,noreferrer')
-    return
-  }
-
-  try {
-    activeDocumentActionKey.value = documentActionKey(providerId, documentId, 'preview')
-    const response = await requestWithCandidates([
-      { method: 'download', path: `/admin/providers/${providerId}/documents/${documentId}/download` },
-      { method: 'download', path: `/admin/proveedores/${providerId}/documentos/${documentId}/download` },
-      { method: 'download', path: `/admin/company-documents/${documentId}/download` },
-    ])
-    const url = URL.createObjectURL(response.blob)
-    if (typeof window !== 'undefined') {
-      window.open(url, '_blank', 'noopener,noreferrer')
-      window.setTimeout(() => URL.revokeObjectURL(url), 60000)
-    }
-  } catch (error) {
-    ui.pushToast({
-      tone: 'error',
-      title: 'No se pudo abrir el documento',
-      message: error?.message || 'El backend no devolvio el archivo solicitado.',
-    })
-  } finally {
-    activeDocumentActionKey.value = ''
   }
 }
 
@@ -1900,9 +1737,41 @@ onBeforeUnmount(() => {
     </div>
   </section>
 
-        
+  <div class="admin-validation-actions">
+    <button
+      type="button"
+      class="admin-validation-actions__button admin-validation-actions__button--primary"
+      :disabled="!estadoExpediente.botones.validarOperador.enabled"
+      @click="validateSelectedProvider"
+    >
+      {{ isValidationActionLoading(selectedProvider.id || selectedProvider.provider_id, 'validate') ? 'Validando operador...' : 'Validar operador' }}
+    </button>
+    <button
+      type="button"
+      class="admin-validation-actions__button admin-validation-actions__button--warning"
+      :disabled="!estadoExpediente.botones.solicitarCambios.enabled"
+      @click="requestChangesSelectedProvider"
+    >
+      {{ isValidationActionLoading(selectedProvider.id || selectedProvider.provider_id, 'request_changes') ? 'Guardando...' : 'Solicitar cambios' }}
+    </button>
+    <button
+      type="button"
+      class="admin-validation-actions__button admin-validation-actions__button--danger"
+      :disabled="!estadoExpediente.botones.cancelarValidacion.enabled"
+      @click="rejectSelectedProvider"
+    >
+      {{ isValidationActionLoading(selectedProvider.id || selectedProvider.provider_id, 'reject') ? 'Cancelando...' : 'Cancelar validacion' }}
+    </button>
+    <button
+      type="button"
+      class="admin-validation-actions__button admin-validation-actions__button--ghost"
+      :disabled="!estadoExpediente.botones.revisarAeronaves.enabled"
+      @click="openProviderAircraft(selectedProvider)"
+    >
+      Revisar aeronaves
+    </button>
+  </div>
 
-  
 </section>
 
           <section class="provider-detail-panel">
@@ -3135,6 +3004,69 @@ onBeforeUnmount(() => {
   border-color: rgba(207, 102, 91, 0.48);
   background: linear-gradient(180deg, rgba(254, 232, 228, 0.98), rgba(251, 220, 214, 0.98));
   box-shadow: inset 0 0 0 1px rgba(207, 102, 91, 0.08);
+}
+
+.admin-validation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.admin-validation-actions__button {
+  appearance: none;
+  border: 1px solid rgba(132, 151, 177, 0.18);
+  border-radius: 0.85rem;
+  padding: 0.7rem 0.95rem;
+  font-size: 0.76rem;
+  font-weight: 800;
+  line-height: 1.2;
+  cursor: pointer;
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    border-color 0.18s ease,
+    background 0.18s ease,
+    color 0.18s ease;
+}
+
+.admin-validation-actions__button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 22px rgba(20, 44, 67, 0.08);
+}
+
+.admin-validation-actions__button:focus-visible {
+  outline: 3px solid rgba(215, 166, 77, 0.3);
+  outline-offset: 2px;
+}
+
+.admin-validation-actions__button:disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+  box-shadow: none;
+}
+
+.admin-validation-actions__button--primary {
+  border-color: rgba(47, 143, 104, 0.28);
+  background: linear-gradient(180deg, rgba(240, 250, 245, 0.98), rgba(227, 245, 236, 0.94));
+  color: #0f5b39;
+}
+
+.admin-validation-actions__button--warning {
+  border-color: rgba(198, 134, 32, 0.28);
+  background: linear-gradient(180deg, rgba(255, 247, 231, 0.98), rgba(255, 239, 208, 0.94));
+  color: #8f5a05;
+}
+
+.admin-validation-actions__button--danger {
+  border-color: rgba(207, 102, 91, 0.28);
+  background: linear-gradient(180deg, rgba(253, 239, 236, 0.98), rgba(251, 225, 219, 0.94));
+  color: #8e3328;
+}
+
+.admin-validation-actions__button--ghost {
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--providers-ink);
 }
 
 .admin-validation-check__note {

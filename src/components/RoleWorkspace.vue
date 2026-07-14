@@ -5,6 +5,7 @@ import BrandLogo from './BrandLogo.vue'
 import {
   buildMenuGroups,
   findMenuGroupBySection,
+  resolveRoleSectionRoute,
   resolveRoleSectionPath,
   roleSections,
 } from '../data/roleFlows'
@@ -347,19 +348,39 @@ function clearWorkspaceLoading() {
   }
 }
 
-function handleWorkspaceNavigation(item) {
-  if (props.activeRole !== 'operator') return
-  if (!item?.id || item.id === props.section) return
+async function handleWorkspaceNavigation(item, event) {
+  if (!item?.id) return
 
-  workspaceLoadingTarget.value = item.id
-  workspaceLoading.value = true
+  const targetPath = resolveRoleSectionPath(props.activeRole, item)
+  const targetRoute = resolveRoleSectionRoute(props.activeRole, item)
+  const currentPath = router.currentRoute.value.fullPath
+  const isSameSection = item.id === props.section
+
   desktopMenuOpen.value = false
   mobileMenuOpen.value = false
 
-  if (workspaceLoadingResetTimer) clearTimeout(workspaceLoadingResetTimer)
-  workspaceLoadingResetTimer = setTimeout(() => {
+  if (props.activeRole === 'operator' || props.activeRole === 'admin') {
+    workspaceLoadingTarget.value = item.id
+    workspaceLoading.value = !isSameSection
+
+    if (workspaceLoadingResetTimer) clearTimeout(workspaceLoadingResetTimer)
+    workspaceLoadingResetTimer = setTimeout(() => {
+      clearWorkspaceLoading()
+    }, 9000)
+  }
+
+  if (!targetPath || currentPath === targetPath || isSameSection) {
     clearWorkspaceLoading()
-  }, 9000)
+    return
+  }
+
+  event?.preventDefault?.()
+
+  try {
+    await router.push(targetRoute)
+  } catch {
+    clearWorkspaceLoading()
+  }
 }
 
 async function handleLogout() {
@@ -480,10 +501,10 @@ onBeforeUnmount(() => {
               <RouterLink
                 v-for="item in currentGroup.items"
                 :key="item.id"
-                :to="resolveRoleSectionPath(activeRole, item)"
+                :to="resolveRoleSectionRoute(activeRole, item)"
                 class="workspace-submenu-link"
                 :class="{ 'workspace-submenu-link--active': section === item.id }"
-                @click="handleWorkspaceNavigation(item)"
+                @click="handleWorkspaceNavigation(item, $event)"
               >
                 <span
                   class="workspace-submenu-icon"
@@ -557,10 +578,10 @@ onBeforeUnmount(() => {
                 <RouterLink
                   v-for="item in group.items"
                   :key="`mobile-link-${item.id}`"
-                  :to="resolveRoleSectionPath(activeRole, item)"
+                  :to="resolveRoleSectionRoute(activeRole, item)"
                   class="workspace-mobile-link"
                   :class="{ 'workspace-mobile-link--active': section === item.id }"
-                  @click="handleWorkspaceNavigation(item)"
+                  @click="handleWorkspaceNavigation(item, $event)"
                 >
                   <span
                     class="workspace-submenu-icon workspace-mobile-link__icon"

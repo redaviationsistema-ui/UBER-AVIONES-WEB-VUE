@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  extractExplicitRoles,
+  hasAdminAccess,
   normalizeAuthRole,
   resolveDashboardPathByRole,
   resolvePostRegistrationDashboard,
@@ -33,5 +35,36 @@ describe('authRouting helpers', () => {
 
   it('keeps client redirects away from auth pages', () => {
     expect(sanitizePostLoginRedirect('/registro', '/operador/dashboard')).toBe('/operador/dashboard')
+  })
+
+  it('requires explicit admin metadata before allowing admin access', () => {
+    expect(
+      hasAdminAccess({
+        login_context: {
+          effective_role: 'admin',
+        },
+      }),
+    ).toBe(true)
+
+    expect(
+      hasAdminAccess({
+        user: {
+          role: 'admin',
+        },
+      }),
+    ).toBe(false)
+  })
+
+  it('extracts explicit roles without falling back to ambiguous user fields', () => {
+    expect(
+      extractExplicitRoles({
+        access: {
+          roles: ['admin', 'provider'],
+        },
+        user: {
+          role: 'client',
+        },
+      }),
+    ).toEqual(['admin', 'operator'])
   })
 })

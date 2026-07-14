@@ -13,6 +13,8 @@ describe('roleFlows helpers', () => {
 
     expect(groups.map((group) => group.label)).toContain('Cliente y Comercial')
     expect(groups.flatMap((group) => group.items.map((item) => item.id))).toContain('reservas')
+    expect(groups.flatMap((group) => group.items.map((item) => item.id))).toContain('cotizaciones')
+    expect(groups.flatMap((group) => group.items.map((item) => item.id))).toContain('auditoria')
   })
 
   it('finds the group that owns a section', () => {
@@ -32,6 +34,12 @@ describe('roleFlows helpers', () => {
 
     expect(result.valid).toBe(true)
     expect(result.errors).toEqual([])
+  })
+
+  it('removes the legacy operadores placeholder from the admin menu', () => {
+    const groups = buildMenuGroups('admin')
+
+    expect(groups.flatMap((group) => group.items.map((item) => item.id))).not.toContain('operadores')
   })
 
   it('reports broken group references in invalid configs', () => {
