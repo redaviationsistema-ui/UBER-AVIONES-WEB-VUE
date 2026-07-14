@@ -1,3 +1,5 @@
+import { getAircraftOperationalStatusMeta } from './portalOperador.estados'
+
 ///--------------------------------------------------------------------------------------------
 /// VISTA DE ASIGNACIONES DE MISION OPERATIVA PARA TRIPULACIO
 ///--------------------------------------------------------------------------------------------
@@ -61,18 +63,7 @@ export function createOperatorPortalAircraftDomain(ctx = {}) {
   }
 
   function humanizeAircraftStatus(status = '') {
-    const normalized = String(status).toLowerCase()
-
-    if (['blocked', 'bloqueada'].includes(normalized)) return 'Bloqueada'
-    if (['active', 'aprobada', 'trial_active'].includes(normalized)) return 'Aprobada'
-    if (['pending_review', 'pendiente_revision'].includes(normalized)) return 'Pendiente revision'
-    if (['draft', 'borrador'].includes(normalized)) return 'Borrador'
-    if (['archived', 'archivada'].includes(normalized)) return 'Archivada'
-    if (['suspended', 'suspendida'].includes(normalized)) return 'Suspendida'
-    if (['rejected', 'rechazada'].includes(normalized)) return 'Rechazada'
-    if (['inactive', 'inactiva'].includes(normalized)) return 'Inactiva'
-
-    return status || 'Sin estado'
+    return getAircraftOperationalStatusMeta({ status }).label
   }
 
   function getAvailabilityStatusMeta(status = '') {

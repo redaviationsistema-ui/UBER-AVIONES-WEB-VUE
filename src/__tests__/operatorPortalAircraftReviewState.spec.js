@@ -11,6 +11,15 @@ import {
   deriveAircraftWizardReviewState,
   normalizeAircraftValidationStatus,
 } from '../features/operator/portal/portalOperador.nucleo.js'
+import { createOperatorPortalBillingDomain } from '../features/operator/portal/portalOperador.facturacion.js'
+import {
+  aircraftMatchesOperationalTab,
+  countAircraftByOperationalTab,
+  getAircraftOperationalStatusMeta,
+  isAircraftOperationallyActive,
+  obtenerEstadoOperativoAeronave,
+  resolveAircraftOperationalStatus,
+} from '../features/operator/portal/portalOperador.estados.js'
 
 describe('operator aircraft review state', () => {
   it('normalizes aircraft validation statuses explicitly', () => {
@@ -71,5 +80,51 @@ describe('operator aircraft review state', () => {
         changesRequestedNotes: 'Corrige la matricula y vuelve a cargar el expediente.',
       }).key,
     ).toBe(AIRCRAFT_REVIEW_WIZARD_STATES.CAMBIOS_SOLICITADOS)
+  })
+
+  it('derives the operational active state from backend status when is_active is missing', () => {
+    expect(
+      resolveAircraftOperationalStatus({
+        status: 'active',
+      }),
+    ).toBe('active')
+
+    expect(
+      isAircraftOperationallyActive({
+        status: 'active',
+      }),
+    ).toBe(true)
+
+    expect(
+      isAircraftOperationallyActive({
+        status: 'inactive',
+      }),
+    ).toBe(false)
+  })
+
+  it('uses aircraft.status for badge, active counter, active filter and keeps billing active', () => {
+    const aircraft = {
+      id: 35,
+      model: 'LEAR JET 31*',
+      status: 'active',
+      billing_status: 'active',
+      subscription_status: 'active',
+      approved: true,
+      review_status: 'approved',
+    }
+
+    const billingDomain = createOperatorPortalBillingDomain({
+      formatCurrency: (value) => `$${value}`,
+      formatDateTimeRange: (value) => String(value || ''),
+      providerAircraftPlanAmount: { value: 100 },
+      isProviderApproved: { value: true },
+    })
+
+    expect(obtenerEstadoOperativoAeronave(aircraft)).toBe('active')
+    expect(getAircraftOperationalStatusMeta(aircraft).label).toBe('Activa')
+    expect(countAircraftByOperationalTab([aircraft], 'active')).toBe(1)
+    expect(countAircraftByOperationalTab([aircraft], 'inactive')).toBe(0)
+    expect(aircraftMatchesOperationalTab(aircraft, 'active')).toBe(true)
+    expect(billingDomain.getAircraftBillingStatusMeta(aircraft).label).toBe('Activa')
   })
 })

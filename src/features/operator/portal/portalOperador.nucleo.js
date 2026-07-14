@@ -73,6 +73,15 @@ import {
 import { createIncidentUtils } from './portalOperador.utilidadesIncidencias'
 import { createOperatorPortalBillingDomain } from './portalOperador.facturacion'
 import { createOperatorPortalAircraftDomain } from './portalOperador.aeronaves'
+import {
+  aircraftMatchesOperationalTab,
+  countAircraftByOperationalTab,
+  getAircraftOperationalStatusMeta,
+  getAircraftOperationalTabKey,
+  isAircraftOperationallyActive,
+  obtenerEstadoOperativoAeronave,
+  resolveAircraftOperationalStatus,
+} from './portalOperador.estados'
 import { createOperatorPortalRequestsDomain } from './portalOperador.solicitudes'
 import { createOperatorPortalReleaseDomain } from './portalOperador.dominioLiberacion'
 import {
@@ -1011,9 +1020,7 @@ const operatorIdentity = computed(() => {
 const providerName = computed(() => resolveOperatorCompanyName(operatorIdentity.value))
 
 const activeAircraft = computed(
-  () =>
-    aircraft.value.filter((item) => ['aprobada', 'trial_active', 'active'].includes(item.status))
-      .length,
+  () => countAircraftByOperationalTab(aircraft.value, 'active'),
 )
 
 const billingFocusedAircraft = computed(() =>
@@ -2031,17 +2038,10 @@ const crewBackendStatus = computed(() => (loading.value ? 'Sincronizando backend
 const crewConnectedUsers = computed(() => Math.max(assignableCrewOptions.value.length, 1))
 
 const fleetGroupedByStatus = computed(() => ({
-  aprobadas: aircraft.value.filter((item) => Boolean(item.approved)).length,
-  revision: aircraft.value.filter(
-    (item) => !item.approved && humanizeAircraftStatus(item.status) === 'Pendiente revision',
-  ).length,
-  bloqueadas: aircraft.value.filter((item) => humanizeAircraftStatus(item.status) === 'Bloqueada')
-    .length,
-  archivo: aircraft.value.filter((item) =>
-    ['Archivada', 'Suspendida', 'Inactiva', 'Rechazada'].includes(
-      humanizeAircraftStatus(item.status),
-    ),
-  ).length,
+  aprobadas: countAircraftByOperationalTab(aircraft.value, 'active'),
+  revision: countAircraftByOperationalTab(aircraft.value, 'review'),
+  bloqueadas: countAircraftByOperationalTab(aircraft.value, 'inactive'),
+  archivo: countAircraftByOperationalTab(aircraft.value, 'hidden'),
 }))
 
 const aircraftPricingRows = computed(() =>
@@ -2134,7 +2134,7 @@ const aircraftDueDocuments = computed(() =>
 )
 
 const aircraftAvailableToday = computed(
-  () => aircraft.value.filter((item) => getAircraftLiveStatus(item).label === 'Disponible').length,
+  () => countAircraftByOperationalTab(aircraft.value, 'active'),
 )
 
 const aircraftOperationalKpis = computed(() => [
@@ -2179,17 +2179,13 @@ const aircraftCatalogCategoryOptions = computed(() => [
 ])
 
 function getAircraftCatalogStatusKey(item = {}) {
-  const backendStatus = humanizeAircraftStatus(item.status)
   const commercialState = getAircraftCommercialState(item)
 
-  if (['Bloqueada', 'Archivada', 'Suspendida', 'Inactiva', 'Rechazada'].includes(backendStatus)) return 'inactive'
-  if (commercialState.code === 'provider_pending' || commercialState.code === 'aircraft_pending') return 'review'
-  if (commercialState.code === 'billing_blocked' || String(commercialState.code).startsWith('billing_')) return 'pending_payment'
-  if (backendStatus === 'Pendiente revision') return 'review'
-  if (!commercialState.isAvailable && commercialState.isActive) return 'active'
-  if (!commercialState.isAvailable) return 'inactive'
-  if (commercialState.isAvailable) return 'active'
-  return 'all'
+  if (commercialState.code === 'billing_blocked' || String(commercialState.code).startsWith('billing_')) {
+    return 'pending_payment'
+  }
+
+  return getAircraftOperationalTabKey(item)
 }
 
 const aircraftCatalogStatusTabs = computed(() => {
@@ -2205,9 +2201,9 @@ const aircraftCatalogStatusTabs = computed(() => {
   return definitions.map((tab) => ({
     ...tab,
     count:
-      tab.id === 'all'
-        ? aircraft.value.length
-        : aircraft.value.filter((item) => getAircraftCatalogStatusKey(item) === tab.id).length,
+      tab.id === 'pending_payment'
+        ? aircraft.value.filter((item) => getAircraftCatalogStatusKey(item) === tab.id).length
+        : countAircraftByOperationalTab(aircraft.value, tab.id),
   }))
 })
 
@@ -2230,8 +2226,9 @@ const filteredAircraftCatalog = computed(() => {
           .some((value) => String(value).toLowerCase().includes(query))
 
       const matchesStatus =
-        aircraftCatalogStatus.value === 'all' ||
-        getAircraftCatalogStatusKey(item) === aircraftCatalogStatus.value
+        aircraftCatalogStatus.value === 'pending_payment'
+          ? getAircraftCatalogStatusKey(item) === 'pending_payment'
+          : aircraftMatchesOperationalTab(item, aircraftCatalogStatus.value)
 
       const matchesBase =
         aircraftCatalogBase.value === 'all' || String(item.base || '') === aircraftCatalogBase.value
@@ -3307,7 +3304,7 @@ const requestDerivedState = computed(() => {
 })
 
 const requestKpis = computed(() => {
-  const readyAircraft = aircraft.value.filter((item) => getAircraftLiveStatus(item).label === 'Disponible').length
+  const readyAircraft = aircraft.value.filter((item) => getAircraftCommercialState(item).isAvailable).length
 
   return [
     {
@@ -4732,19 +4729,10 @@ function aircraftYearValidationMessage() {
 }
 
 function normalizeAircraft(raw = {}, index = 0) {
-  const statusRaw = String(raw.status || raw.aircraft_status || 'draft').toLowerCase()
+  const statusRaw = resolveAircraftOperationalStatus(raw)
   const validationStatusRaw = String(
     raw.validation_status || raw.validationStatus || raw.review_status || raw.reviewStatus || '',
   ).toLowerCase()
-  const statusMap = {
-    draft: 'borrador',
-    pending_review: 'pendiente_revision',
-    rejected: 'rechazada',
-    archived: 'archivada',
-    active: 'aprobada',
-    trial_active: 'aprobada',
-    suspended: 'suspendida',
-  }
   const normalizedImages = Array.isArray(raw.images)
     ? raw.images
         .map((image, imageIndex) => normalizeAircraftImage(image, imageIndex))
@@ -4757,8 +4745,9 @@ function normalizeAircraft(raw = {}, index = 0) {
     : []
   const trialEndsAt = raw.trial_ends_at || raw.trialEndsAt || null
   const trialStartsAt = raw.trial_starts_at || raw.trialStartsAt || null
-  const status = statusMap[statusRaw] || statusRaw || 'borrador'
+  const status = statusRaw || ''
   const validationStatus = normalizeAircraftValidationStatus(validationStatusRaw || statusRaw)
+  const derivedOperationallyActive = isAircraftOperationallyActive(raw)
   const billingStatus = String(
     raw.billing_status || raw.billingStatus || raw.subscription_status || raw.subscriptionStatus || '',
   )
@@ -4821,6 +4810,7 @@ function normalizeAircraft(raw = {}, index = 0) {
     cateringBaseCost: Number(raw.catering_base_cost || 0),
     operationalCost: Number(raw.operational_cost || raw.cost || 0),
     status,
+    operationalStatus: statusRaw,
     validationStatus,
     reviewStatus: validationStatus,
     availability: raw.availability_status || raw.availability || 'Pendiente de confirmacion',
@@ -4854,6 +4844,8 @@ function normalizeAircraft(raw = {}, index = 0) {
       raw.hasDefaultPaymentMethod ??
       null,
     lastPaymentAt: raw.last_payment_at || raw.lastPaymentAt || null,
+    isActive: Boolean(derivedOperationallyActive),
+    is_active: Boolean(derivedOperationallyActive),
     approved: derivedApproved,
     approvedAt: raw.approved_at || raw.approvedAt || null,
     mainImage,
@@ -7462,22 +7454,31 @@ function getAircraftDocumentValidationState(item = {}) {
 }
 
 function getAircraftCommercialState(item = {}, provider = companyStatusMeta.value, billingMeta = null) {
-  const normalizedAvailability = String(item?.availability || item?.status || '').toLowerCase()
-  const normalizedBackendStatus = String(humanizeAircraftStatus(item?.status) || '').toLowerCase()
+  const normalizedOperationalStatus = obtenerEstadoOperativoAeronave(item)
+  const normalizedAvailability = String(item?.availability || normalizedOperationalStatus || item?.status || '').toLowerCase()
+  const normalizedBackendStatus = String(getAircraftOperationalStatusMeta(item).label || '').toLowerCase()
   const documentHealth = getAircraftDocumentValidationState(item)
   const resolvedBillingMeta = billingMeta || getAircraftBillingStatusMeta(item)
   const reasons = []
   const providerApproved = provider?.tone === 'success'
   const aircraftApproved = Boolean(item?.approved)
-  const aircraftIsActive = Boolean(item?.is_active ?? item?.isActive ?? false)
+  const aircraftIsActive = isAircraftOperationallyActive(item)
   const hasRange = Number(item?.rangeKm || 0) > 0
   const hasValidPrice = Number(item?.hourlyPrice || 0) > 0
   const matchingEnabled = Boolean(item?.matching_visible ?? item?.matchingVisible ?? item?.marketplace_visible ?? item?.visible_for_matching ?? false)
   const billingReady = resolvedBillingMeta?.ready === true
 
-  if (normalizedAvailability.includes('bloque') || normalizedAvailability.includes('suspend') || normalizedAvailability.includes('archiv') || normalizedBackendStatus.includes('rechazada')) {
+  if (normalizedOperationalStatus === 'hidden') {
+    reasons.push('Aeronave oculta manualmente')
+    return { code: 'aircraft_hidden', label: 'Oculta', tone: 'info', isAvailable: false, isActive: false, canQuote: false, canReserve: false, canMatch: false, reasons }
+  }
+  if (normalizedOperationalStatus === 'under_review') {
+    reasons.push('Aeronave pendiente de revision administrativa')
+    return { code: 'aircraft_pending', label: 'En revision', tone: 'warning', isAvailable: false, isActive: false, canQuote: false, canReserve: false, canMatch: false, reasons }
+  }
+  if (normalizedAvailability.includes('bloque') || normalizedAvailability.includes('suspend')) {
     reasons.push('Aeronave suspendida o bloqueada manualmente')
-    return { code: 'aircraft_blocked', label: 'Bloqueada', tone: 'danger', isAvailable: false, isActive: false, canQuote: false, canReserve: false, canMatch: false, reasons }
+    return { code: 'aircraft_blocked', label: 'Inactiva', tone: 'danger', isAvailable: false, isActive: false, canQuote: false, canReserve: false, canMatch: false, reasons }
   }
   if (!providerApproved) {
     reasons.push('Proveedor pendiente de aprobacion administrativa')
@@ -7534,8 +7535,7 @@ function getAircraftCommercialState(item = {}, provider = companyStatusMeta.valu
 }
 
 function getAircraftLiveStatus(item) {
-  const commercialState = getAircraftCommercialState(item)
-  return { label: commercialState.label, tone: commercialState.tone }
+  return getAircraftOperationalStatusMeta(item)
 }
 
 function hasAircraftCommercialImages(item) {
@@ -7591,7 +7591,7 @@ function getAircraftReadinessSummary(item = {}) {
 function getAircraftApprovalMeta(item = {}) {
   if (!providerIsApproved.value) return { label: 'Proveedor pendiente', tone: 'warning' }
   if (item.approved) return { label: 'Aprobada', tone: 'success' }
-  if (humanizeAircraftStatus(item.status) === 'Pendiente revision') return { label: 'En revision', tone: 'warning' }
+  if (obtenerEstadoOperativoAeronave(item) === 'under_review') return { label: 'En revision', tone: 'warning' }
   return { label: 'Pendiente admin', tone: 'warning' }
 }
 
@@ -8348,12 +8348,12 @@ function computeAircraftCompatibilityScore(request = {}, plane = {}) {
   const capacity = Number(plane.capacity || 0)
   const base = String(plane.base || '').trim().toUpperCase()
   const origin = String(request.origin || '').trim().toUpperCase()
-  const liveStatus = getAircraftLiveStatus(plane).label
+  const isCommerciallyAvailable = getAircraftCommercialState(plane).isAvailable
 
   if (capacity && requestPax && capacity >= requestPax) score += 12
   if (capacity && requestPax && capacity === requestPax) score += 4
   if (base && origin && base === origin) score += 8
-  if (liveStatus === 'Disponible') score += 10
+  if (isCommerciallyAvailable) score += 10
   if (plane.documentsValid) score += 4
   if (Number(plane.minimumHours || 0) <= 2) score += 2
 
@@ -8389,9 +8389,9 @@ function getOperationalRiskLabel(request = {}, plane = {}) {
 }
 
 function getAvailabilitySymbol(plane = {}) {
-  const label = getAircraftLiveStatus(plane).label
-  if (label === 'Disponible') return 'Si'
-  if (label === 'Pendiente de confirmacion') return 'Revisar'
+  const commercialState = getAircraftCommercialState(plane)
+  if (commercialState.isAvailable) return 'Si'
+  if (commercialState.code === 'aircraft_pending' || commercialState.code === 'provider_pending') return 'Revisar'
   return 'No'
 }
 

@@ -1105,6 +1105,8 @@ const companyFilteredAircraft = computed(() => {
   })
 })
 
+//REVISAMELO QUE SON LOS CAMBIOS 
+
 const filteredAircraft = computed(() => {
   const items = companyFilteredAircraft.value.filter((item) => {
     const approvalMatches = approvalFilter.value === 'Todas' || approvalState(item) === approvalFilter.value
