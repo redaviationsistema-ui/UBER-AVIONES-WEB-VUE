@@ -998,3 +998,19 @@
 .operator-dashboard-luxury .ops-timeline-time {
   color: #e8c98f;
 }
+
+.operator-blocked-state {
+  align-items: start;
+}
+
+.operator-blocked-state__card {
+  width: min(100%, 920px);
+  margin: 0 auto;
+}
+
+.operator-blocked-state__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}

@@ -443,7 +443,7 @@ async function navigateToAdminSection(section, event) {
             {{ errorMessage }}
           </p>
           <p v-else-if="loading && !recentActivity.length" class="muted">
-            Esperando la respuesta oficial de Laravel para poblar este panel.
+            Esperando la respuesta oficial de sistema para poblar este panel.
           </p>
           <div v-else class="ops-timeline">
             <article

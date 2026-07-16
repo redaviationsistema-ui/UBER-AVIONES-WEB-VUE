@@ -81,9 +81,9 @@ const IS_LOCAL_CREW_WORKSPACE =
   typeof window !== 'undefined' &&
   /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname || '')
 
-window.addEventListener('resize', () => {
+function handleResize() {
   isMobile.value = window.innerWidth <= MOBILE_WORKSPACE_BREAKPOINT
-})
+}
 
 const usesMobileDrawer = computed(() => {
   return isMobile.value && ['client', 'operator', 'crew', 'admin'].includes(activeRole.value)
@@ -294,12 +294,14 @@ async function handleLogout() {
 }
 
 onMounted(() => {
+  window.addEventListener('resize', handleResize)
   document.addEventListener('click', handleDocumentClick)
   document.addEventListener('keydown', handleDocumentKeydown)
   startCrewStatusRefresh()
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('resize', handleResize)
   document.removeEventListener('click', handleDocumentClick)
   document.removeEventListener('keydown', handleDocumentKeydown)
   clearCrewStatusRefresh()

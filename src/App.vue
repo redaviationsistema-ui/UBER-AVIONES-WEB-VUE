@@ -36,7 +36,7 @@ const usesLightShell = computed(() =>
 )
 const shouldHoldInitialRender = computed(
   () =>
-    !auth.initialized &&
+    auth.sessionState === 'initializing' &&
     Boolean(route.meta.requiresAuth || route.meta.guestOnly || route.meta.redirectAuthenticated),
 )
 

@@ -83,7 +83,7 @@ export function normalizeAdminDashboardPayload(payload = {}) {
     {
       label: 'Cotizaciones emitidas',
       value: formatNumber(quotesIssued),
-      detail: 'Total de cotizaciones devueltas por Laravel.',
+      detail: 'Total de cotizaciones devueltas por el sistemas.',
     },
     {
       label: 'Reservas confirmadas',

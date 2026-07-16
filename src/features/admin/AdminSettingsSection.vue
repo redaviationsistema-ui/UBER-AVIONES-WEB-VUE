@@ -43,7 +43,7 @@ const summaryCards = computed(() => [
   {
     label: 'Claves visibles',
     value: String(props.settings.length),
-    detail: 'Solo se muestran configuraciones expuestas por Laravel.',
+    detail: 'Solo se muestran configuraciones expuestas por Sistema.',
   },
   {
     label: 'Grupos',
@@ -85,7 +85,7 @@ function submitChanges() {
     <section class="dashboard-hero">
       <div class="hero-center">
         <p class="eyebrow dark-eyebrow">Configuracion real</p>
-        <h1>Parámetros administrativos conectados a Laravel.</h1>
+        <h1>Parámetros administrativos conectados a sistema.</h1>
         <p class="hero-subtitle">
           Esta vista deja fuera secretos y solo opera sobre claves que el backend ya expone como configurables.
         </p>
@@ -126,7 +126,7 @@ function submitChanges() {
 
       <div v-if="!groupedSettings.length && !loading" class="empty-state">
         <strong>Sin configuraciones expuestas.</strong>
-        <p>Laravel todavía no devolvió claves configurables para este módulo.</p>
+        <p>No contamos con claves configurables para este módulo.</p>
       </div>
 
       <div v-else class="settings-groups">

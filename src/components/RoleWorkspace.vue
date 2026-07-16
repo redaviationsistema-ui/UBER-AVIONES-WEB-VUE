@@ -394,12 +394,10 @@ async function handleLogout() {
 }
 
 watch(
-  () => [auth.initialized, auth.isAuthenticated],
-  ([initialized, isAuthenticated]) => {
-    if (initialized && !isAuthenticated) {
-      router.replace({
-        name: props.activeRole === 'client' ? 'login-cliente' : 'home',
-      })
+  () => [auth.initialized, auth.initializing, auth.isAuthenticated],
+  ([initialized, initializing, isAuthenticated]) => {
+    if (initialized && !initializing && !isAuthenticated) {
+      router.replace(auth.getLoginRouteByRole(props.activeRole))
     }
   },
   { immediate: true },

@@ -59,7 +59,7 @@ describe('auth current user loading', () => {
     setActivePinia(createPinia())
   })
 
-  it('deduplicates concurrent /auth/me requests through a shared promise', async () => {
+  it('deduplicates concurrent session bootstrap requests through a shared promise', async () => {
     const payload = buildAuthPayload()
     let resolveRequest
 
@@ -71,9 +71,7 @@ describe('auth current user loading', () => {
     )
 
     const auth = useAuthStore()
-    await auth.initialize()
-
-    const firstRequest = auth.loadCurrentUser({ preferCache: false })
+    const firstRequest = auth.initialize()
     const secondRequest = auth.loadCurrentUser({ preferCache: false, force: true })
 
     resolveRequest()
@@ -103,5 +101,65 @@ describe('auth current user loading', () => {
 
     expect(api.get).toHaveBeenCalledTimes(1)
     expect(loadedUser?.email).toBe('admin@example.com')
+  })
+
+  it('tracks an explicit session state across bootstrap and login', async () => {
+    api.post.mockResolvedValue(buildAuthPayload())
+
+    const auth = useAuthStore()
+
+    expect(auth.sessionState).toBe('initializing')
+
+    await auth.initialize()
+
+    expect(auth.sessionState).toBe('authenticated')
+
+    auth.clearAuth()
+    expect(auth.sessionState).toBe('unauthenticated')
+
+    await auth.login({ email: 'admin@example.com', password: 'secret', role: 'admin' })
+
+    expect(auth.initialized).toBe(true)
+    expect(auth.loaded).toBe(true)
+    expect(auth.sessionState).toBe('authenticated')
+  })
+
+  it('derives provider operational access from the shared auth session state', async () => {
+    api.get.mockResolvedValue({
+      token: 'session-token',
+      user: {
+        id: 21,
+        name: 'Proveedor Test',
+        email: 'proveedor@example.com',
+        role: 'client',
+        operational_role: 'provider',
+        provider_id: 88,
+        ownedProvider: {
+          id: 88,
+          company_name: 'Sky Group Ops',
+          approval_status: 'approved',
+          admin_validation_status: 'approved',
+          operator_status: 'validated',
+          access_enabled: true,
+        },
+        roles: [{ code: 'provider', name: 'Proveedor' }],
+      },
+      access: {
+        effective_role: 'provider',
+      },
+      login_context: {
+        effective_role: 'provider',
+        roles: ['provider'],
+      },
+    })
+
+    const auth = useAuthStore()
+    await auth.initialize()
+    await auth.loadCurrentUser({ preferCache: false })
+
+    expect(auth.providerId).toBe(88)
+    expect(auth.providerOperationalAccess.providerId).toBe(88)
+    expect(auth.providerOperationalAccess.isOperationalReady).toBe(true)
+    expect(auth.hasOperationalProviderAccess).toBe(true)
   })
 })

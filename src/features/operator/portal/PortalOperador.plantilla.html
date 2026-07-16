@@ -743,7 +743,8 @@
           <button
             type="button"
             class="primary-action"
-            :disabled="savingCompany || sendingCompanyToReview"
+            v-if="companyCanSendForReview"
+            :disabled="savingCompany || sendingCompanyToReview || !companyCanSendForReview"
             @click="sendCompanyToReview"
           >
             {{ sendingCompanyToReview ? 'Enviando a revision...' : 'Enviar empresa a revision' }}
@@ -764,8 +765,8 @@
 
         <OperatorReadinessCard
           :progress="companyOnboardingProgress"
-          :checklist="companyOnboardingSteps"
-          :alerts="companyAlerts"
+          :checklist="companyReadinessChecklist"
+          :alerts="companyReviewFlow.alerts"
           title="Readiness del expediente"
           subtitle="Vista compacta del avance real del operador"
         />
@@ -1060,15 +1061,36 @@
                 </div>
 
                 <div v-if="aircraftCatalogMenuId === item.id" class="fleet-card-menu" @click.stop>
-                  <button type="button" @click="goToSection('disponibilidad', { aircraft_id: String(item.id) }); closeAircraftCatalogMenu()">Configurar disponibilidad</button>
-                  <button type="button" @click="openAircraftWizardAtStep(item, 2, 'edit')">Actualizar tarifas</button>
-                  <button type="button" :disabled="getAircraftBillingStatusMeta(item).action === 'blocked'" @click="runAircraftBillingPrimaryAction(item); closeAircraftCatalogMenu()">
-                    {{ getAircraftBillingStatusMeta(item).cta }}
+                  <button
+                    v-if="shouldShowAircraftOperationalMenuActions(item)"
+                    type="button"
+                    @click="goToSection('disponibilidad', { aircraft_id: String(item.id) }); closeAircraftCatalogMenu()"
+                  >
+                    Configurar disponibilidad
                   </button>
-                  <button type="button" @click="archiveAircraft(item.id); closeAircraftCatalogMenu()">Pausar visibilidad</button>
-                  <button type="button" @click="openAircraftWizardAtStep(item, 4, 'edit')">Subir documentos</button>
+                  <button
+                    v-if="shouldShowAircraftOperationalMenuActions(item)"
+                    type="button"
+                    @click="openAircraftWizardAtStep(item, 2, 'edit')"
+                  >
+                    Actualizar tarifas
+                  </button>
+                  <button
+                    v-if="shouldShowAircraftBillingMenuAction(item)"
+                    type="button"
+                    :disabled="isAircraftBillingMenuActionDisabled(item)"
+                    @click="runAircraftBillingPrimaryAction(item); closeAircraftCatalogMenu()"
+                  >
+                    {{ getAircraftBillingMenuLabel(item) }}
+                  </button>
+                  <button
+                    v-if="shouldShowAircraftDocumentMenuAction(item)"
+                    type="button"
+                    @click="openAircraftWizardAtStep(item, 4, 'edit')"
+                  >
+                    {{ getAircraftDocumentMenuLabel(item) }}
+                  </button>
                   <button type="button" @click="focusAircraftBilling(item.id); openAircraftBillingPayments(); closeAircraftCatalogMenu()">Ver historial</button>
-                  <button type="button" @click="archiveAircraft(item.id); closeAircraftCatalogMenu()">Desactivar</button>
                 </div>
               </div>
             </article>
@@ -2292,6 +2314,33 @@
   
         </div>
       </div>
+    </section>
+
+    <section
+      v-else-if="currentOperationalBlockNotice && isOperationalSection(section)"
+      class="page-grid operator-blocked-state"
+    >
+      <article class="surface operator-blocked-state__card">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Acceso operativo</p>
+            <h2>{{ currentOperationalBlockNotice.title }}</h2>
+            <p class="muted">{{ currentOperationalBlockNotice.detail }}</p>
+          </div>
+          <span class="status-pill" :data-tone="currentOperationalBlockNotice.tone">
+            {{ providerOperationalAccess.companyStatus === 'unknown' ? 'Revision' : companyStatusMeta.label }}
+          </span>
+        </div>
+
+        <div class="operator-blocked-state__actions">
+          <button type="button" class="primary-action" @click="goToSection('empresa')">
+            Revisar mi empresa
+          </button>
+          <button type="button" class="ghost-button" @click="goToSection('aeronaves')">
+            Revisar aeronaves
+          </button>
+        </div>
+      </article>
     </section>
 
     <section v-else-if="section === 'solicitudes'" class="page-grid flight-ops-command-luxury">
@@ -4210,7 +4259,7 @@
               <div class="inline-actions">
                 <button type="button" class="ghost-button" @click="focusAircraftBilling(payment.aircraftId)">Ver</button>
                 <button
-                  v-if="payment.action === 'sync' || payment.canRenewNow"
+                  v-if="payment.action === 'sync' || payment.action === 'pay' || payment.canRenewNow"
                   type="button"
                   class="primary-action"
                   :disabled="isAircraftBillingActionPending(payment.aircraftId)"
@@ -4218,9 +4267,9 @@
                 >
                   {{
                     payment.action === 'sync'
-                      ? 'Sincronizar'
-                      : payment.action === 'activate'
-                        ? 'Pagar'
+                      ? 'Verificar pago'
+                      : payment.action === 'pay'
+                        ? 'Activar aeronave'
                         : 'Renovar'
                   }}
                 </button>
@@ -4297,7 +4346,7 @@
                   Ver historial
                 </button>
                 <button
-                  v-if="payment.action === 'sync' || payment.action === 'activate' || payment.canRenewNow"
+                  v-if="payment.action === 'sync' || payment.action === 'pay' || payment.canRenewNow"
                   type="button"
                   class="primary-action"
                   :disabled="isAircraftBillingActionPending(payment.aircraftId)"
@@ -4305,9 +4354,9 @@
                 >
                   {{
                     payment.action === 'sync'
-                      ? 'Sincronizar pago'
-                      : payment.action === 'activate'
-                        ? 'Pagar y activar'
+                      ? 'Verificar pago'
+                      : payment.action === 'pay'
+                        ? 'Activar aeronave'
                         : 'Renovar antes de vencer'
                   }}
                 </button>

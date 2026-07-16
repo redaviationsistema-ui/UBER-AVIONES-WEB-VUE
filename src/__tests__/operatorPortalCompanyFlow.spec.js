@@ -107,6 +107,8 @@ describe('operator portal company flow helpers', () => {
       legal_name: 'Operadora del Norte',
       commercial_name: 'Sky Norte',
       rfc: 'AAA010101AAA',
+      representative_name: 'Laura Gomez',
+      legal_representative: 'Laura Gomez',
       jet_a_price: 21.5,
       margin_percent: 0,
       fixed_fee: 0,
@@ -138,9 +140,11 @@ describe('operator portal company flow helpers', () => {
 
   it('builds review form data and fallback routes for review submission', () => {
     const file = new File(['legal'], 'acta.pdf', { type: 'application/pdf' })
+    const submittedAt = '2026-07-15T10:00:00.000Z'
     const formData = buildCompanyReviewFormData({
       selectedFile: file,
       selectedFileName: 'Acta constitutiva.pdf',
+      submittedAt,
     })
     const entries = Array.from(formData.entries())
     const reviewCandidates = buildCompanyReviewCandidates(formData)
@@ -152,6 +156,7 @@ describe('operator portal company flow helpers', () => {
         ['status', 'pending_review'],
         ['admin_validation_status', 'pending_review'],
         ['approval_status', 'pending_review'],
+        ['admin_review_submitted_at', submittedAt],
         ['document_name', 'Acta constitutiva.pdf'],
       ]),
     )
@@ -167,7 +172,7 @@ describe('operator portal company flow helpers', () => {
   })
 
   it('builds an explicit pending validation patch for resilient provider onboarding saves', () => {
-    expect(buildCompanyPendingValidationPatch()).toEqual({
+    expect(buildCompanyPendingValidationPatch({ submittedAt: '2026-07-15T10:00:00.000Z' })).toEqual({
       review_status: 'pending_review',
       validation_status: 'pending_validation',
       status: 'pending_review',
@@ -175,6 +180,7 @@ describe('operator portal company flow helpers', () => {
       approval_status: 'pending_review',
       operator_status: 'pending_validation',
       access_enabled: false,
+      admin_review_submitted_at: '2026-07-15T10:00:00.000Z',
     })
   })
 })

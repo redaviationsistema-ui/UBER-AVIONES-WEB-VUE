@@ -108,6 +108,7 @@ export function buildCompanyPayload(companyForm = {}, normalizedRfc = '') {
     address: companyForm.address,
     base: companyForm.operationalBase,
     base_airport: companyForm.operationalBase,
+    representative_name: companyForm.legalRepresentative,
     legal_representative: companyForm.legalRepresentative,
     jet_a_price: normalizeCompanyNumericValue(companyForm.jetAPrice),
     margin_percent: normalizeCompanyNumericValue(companyForm.marginPercent),
@@ -118,8 +119,9 @@ export function buildCompanyPayload(companyForm = {}, normalizedRfc = '') {
 export function buildCompanyPendingValidationPatch({
   reviewStatus = 'pending_review',
   validationStatus = 'pending_validation',
+  submittedAt = '',
 } = {}) {
-  return {
+  const patch = {
     review_status: reviewStatus,
     validation_status: validationStatus,
     status: reviewStatus,
@@ -128,6 +130,12 @@ export function buildCompanyPendingValidationPatch({
     operator_status: validationStatus,
     access_enabled: false,
   }
+
+  if (String(submittedAt || '').trim()) {
+    patch.admin_review_submitted_at = submittedAt
+  }
+
+  return patch
 }
 
 export function sanitizeCompanyPayloadForSave(payload = {}) {
@@ -161,11 +169,13 @@ export function buildCompanyReviewFormData({
   selectedFileName = '',
   reviewStatus = 'pending_review',
   validationStatus = 'pending_validation',
+  submittedAt = '',
 } = {}) {
   const formData = new FormData()
   const reviewPatch = buildCompanyPendingValidationPatch({
     reviewStatus,
     validationStatus,
+    submittedAt,
   })
 
   Object.entries(reviewPatch).forEach(([key, value]) => {

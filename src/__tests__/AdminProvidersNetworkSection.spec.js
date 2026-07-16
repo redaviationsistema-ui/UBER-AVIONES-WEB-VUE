@@ -9,6 +9,8 @@ const { pushToast, routerPush, requestWithCandidates } = vi.hoisted(() => ({
   requestWithCandidates: vi.fn(),
 }))
 
+vi.stubGlobal('confirm', vi.fn(() => true))
+
 vi.mock('../stores/ui', () => ({
   useUiStore: () => ({
     pushToast,
@@ -41,6 +43,11 @@ function buildProvider(id, companyName) {
     company_phone: `555000000${id}`,
     rfc: `RFC000${id}`,
     documents: [],
+    user: {
+      id: id + 1000,
+      role: 'provider',
+      operational_role: 'operator',
+    },
   }
 }
 
@@ -189,6 +196,8 @@ describe('AdminProvidersNetworkSection', () => {
           id: 26,
           company_name: 'SAE',
           user: {
+            role: 'provider',
+            operational_role: 'operator',
             profile: {
               address: 'Direccion demo',
               tax_data: {
@@ -223,6 +232,79 @@ describe('AdminProvidersNetworkSection', () => {
     expect(modal.text()).toContain('aprobado')
   })
 
+  it('shows the stored representative in admin detail even when it matches the company name', async () => {
+    pushToast.mockReset()
+    requestWithCandidates.mockReset()
+
+    const wrapper = stubbedMount({
+      providers: [
+        {
+          id: 31,
+          company_name: 'SW SUPPORT GROUP',
+          legal_name: 'SW SUPPORT GROUP',
+          representative_name: 'SW SUPPORT GROUP',
+          company_email: 'saeempresa@gmail.com',
+          company_phone: '1234567891',
+          user: {
+            role: 'provider',
+            operational_role: 'operator',
+          },
+        },
+      ],
+    })
+
+    await wrapper.find('button.provider-link-secondary').trigger('click')
+    await Promise.resolve()
+
+    const modal = wrapper.get('[aria-label="Detalle de proveedor"]')
+
+    expect(modal.text()).toContain('Representante SW SUPPORT GROUP')
+    expect(modal.text()).not.toContain('Representante Sin representante')
+  })
+
+  it('groups providers by the new expediente states', () => {
+    const wrapper = stubbedMount({
+      providers: [
+        { id: 1, company_name: 'Draft Uno', user: { role: 'provider', operational_role: '' } },
+        { ...buildProvider(2, 'Revision Dos'), admin_validation_status: 'pending_review', admin_review_submitted_at: '2026-07-15T10:00:00Z' },
+        { ...buildProvider(3, 'Aprobado Tres'), admin_validation_status: 'approved', approval_status: 'approved', access_enabled: true },
+        { ...buildProvider(4, 'Suspendido Cuatro'), admin_validation_status: 'suspended', approval_status: 'suspended' },
+      ],
+    })
+
+    const text = wrapper.text()
+
+    expect(text).toContain('Registro iniciado')
+    expect(text).toContain('En revision')
+    expect(text).toContain('Aprobados')
+    expect(text).toContain('Suspendidos')
+  })
+
+  it('filters out clients and crew members even if they look provider-like', () => {
+    const wrapper = stubbedMount({
+      providers: [
+        {
+          ...buildProvider(10, 'Cliente Prueba'),
+          user: { role: 'client', operational_role: '' },
+        },
+        {
+          ...buildProvider(11, 'Sobrecargo Demo'),
+          user: { role: 'provider', operational_role: 'sobrecargo' },
+        },
+        {
+          ...buildProvider(12, 'Proveedor Operador'),
+          user: { role: 'provider', operational_role: 'operador' },
+        },
+      ],
+    })
+
+    const text = wrapper.text()
+
+    expect(text).toContain('Proveedor Operador')
+    expect(text).not.toContain('Cliente Prueba')
+    expect(text).not.toContain('Sobrecargo Demo')
+  })
+
   it('enables admin actions from backend validation requirements even when auxiliary columns are null', async () => {
     pushToast.mockReset()
     requestWithCandidates.mockReset()
@@ -238,20 +320,22 @@ describe('AdminProvidersNetworkSection', () => {
           company_phone: '5551112233',
           rfc: 'OPV770101AAA',
           base_airport: 'MMMX',
+          admin_review_submitted_at: '2026-07-09T10:00:00Z',
           admin_validation_status: null,
           review_status: null,
           approval_status: null,
           operator_status: null,
           access_enabled: false,
+          user: { role: 'provider', operational_role: 'operator' },
           validation_requirements: [
             { key: 'company_identity', label: 'Datos de empresa completos', complete: true, response_status: 'approved' },
             { key: 'rfc_valid', label: 'RFC valido', complete: true, response_status: 'approved' },
             { key: 'sat_validation', label: 'Validacion SAT', complete: true, response_status: 'aprobado' },
             { key: 'legal_documents_approved', label: 'Documentacion legal aprobada', complete: true, response_status: 'approved' },
             { key: 'base_operativa', label: 'Base operativa definida', complete: true, response_status: 'aprobado' },
-            { key: 'aircraft_active', label: 'Aeronave activa o aprobada', complete: true, response_status: 'approved' },
             { key: 'contact_complete', label: 'Datos de contacto completos', complete: true, response_status: 'approved' },
             { key: 'legal_representative_complete', label: 'Representante legal completo', complete: true, response_status: 'approved' },
+            { key: 'review_submitted', label: 'Expediente enviado a revision', complete: true, response_status: 'approved' },
           ],
           documents: [
             buildApprovedDocument('sat_certificate', 'sat-1'),
@@ -271,6 +355,7 @@ describe('AdminProvidersNetworkSection', () => {
           rfc: 'REV780101AAA',
           base_airport: 'MMGL',
           review_status: 'pending_review',
+          user: { role: 'provider', operational_role: 'operator' },
           validation_requirements: [
             { key: 'sat_validation', label: 'Validacion SAT', complete: true, response_status: 'approved' },
           ],
@@ -285,6 +370,7 @@ describe('AdminProvidersNetworkSection', () => {
           base_airport: 'MMTO',
           approval_status: 'approved',
           access_enabled: true,
+          user: { role: 'provider', operational_role: 'operator' },
           validation_requirements: [
             { key: 'sat_validation', label: 'Validacion SAT', complete: true, response_status: 'approved' },
           ],
@@ -321,6 +407,7 @@ describe('AdminProvidersNetworkSection', () => {
           id: 91,
           company_name: 'Operador Consistente',
           rfc: 'RFC910101AAA',
+          user: { role: 'provider', operational_role: 'operator' },
           validation_requirements: [
             {
               key: 'rfc_valid',
@@ -356,6 +443,7 @@ describe('AdminProvidersNetworkSection', () => {
         {
           id: 105,
           company_name: 'Operador Legal',
+          user: { role: 'provider', operational_role: 'operator' },
           documents: [
             buildApprovedDocument('articles_of_incorporation', 'legal-1'),
             buildApprovedDocument('legal_representative_power', 'legal-2'),

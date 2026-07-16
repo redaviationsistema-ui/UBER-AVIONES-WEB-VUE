@@ -397,52 +397,6 @@ function isForbiddenResponse(response, payload = {}) {
   return ['forbidden', 'forbidden.', 'this action is unauthorized.', 'access denied'].includes(message)
 }
 
-function buildAppPath(pathname = '') {
-  const normalizedBasePath =
-    APP_BASE_PATH === '/' ? '' : `/${APP_BASE_PATH.replace(/^\/+|\/+$/g, '')}`
-
-  return `${normalizedBasePath}${pathname.startsWith('/') ? pathname : `/${pathname}`}`
-}
-
-function getCurrentLocationPath() {
-  if (typeof window === 'undefined') return '/'
-
-  return `${window.location.pathname || '/'}${window.location.search || ''}${window.location.hash || ''}`
-}
-
-function redirectToLogin() {
-  if (typeof window === 'undefined') return
-
-  const currentPath = getCurrentLocationPath()
-  const isOperationalPath = /^\/(admin|operador|operator|crew|sobrecargo)(\/|$)/i.test(
-    window.location.pathname || '/',
-  )
-  const loginPath = buildAppPath(isOperationalPath ? '/login-operacion' : '/login-cliente')
-  const fallbackLoginPath = buildAppPath('/login')
-  if (currentPath.startsWith(loginPath) || currentPath.startsWith(fallbackLoginPath)) return
-
-  const loginUrl = new URL(loginPath, window.location.origin)
-  loginUrl.searchParams.set('session', 'expired')
-  if (currentPath && currentPath !== '/') {
-    loginUrl.searchParams.set('redirect', currentPath)
-  }
-
-  window.location.replace(loginUrl.toString())
-}
-
-function redirectToAccessDenied() {
-  if (typeof window === 'undefined') return
-
-  const currentPath = getCurrentLocationPath()
-  const accessDeniedPath = buildAppPath('/acceso-denegado')
-  if (currentPath.startsWith(accessDeniedPath)) return
-
-  const deniedUrl = new URL(accessDeniedPath, window.location.origin)
-  deniedUrl.searchParams.set('reason', 'backend-403')
-  deniedUrl.searchParams.set('from', currentPath)
-  window.location.replace(deniedUrl.toString())
-}
-
 export function getStoredToken() {
   const sessionStorage = getSessionStorage()
   if (!memoryToken && sessionStorage) {
@@ -689,18 +643,12 @@ export async function apiRequest(path, options = {}) {
       })
     }
 
-    if (isUnauthorizedResponse(response, payload) && !options.preserveAuthOnUnauthorized) {
-      clearStoredToken()
-      redirectToLogin()
-    }
-
-    if (isForbiddenResponse(response, payload) && options.redirectOnForbidden !== false) {
-      redirectToAccessDenied()
-    }
-
     const error = new Error(extractApiErrorMessage(payload, response.status))
     error.status = response.status
     error.payload = payload
+    if (isUnauthorizedResponse(response, payload)) {
+      error.code = 'UNAUTHORIZED'
+    }
     throw error
   }
 

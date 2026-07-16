@@ -23,6 +23,7 @@ export function createEmptyCompany() {
     adminNotes: '',
     changesNotes: '',
     rejectionReason: '',
+    statusSummary: null,
     validationRequirements: [],
     documents: [],
   }

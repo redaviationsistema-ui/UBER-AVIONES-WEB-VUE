@@ -6,6 +6,21 @@ import { sanitizePostLoginRedirect } from '../lib/authRouting'
 import { useAuthStore } from '../stores/auth'
 import { useUiStore } from '../stores/ui'
 
+const props = defineProps({
+  loginRole: {
+    type: String,
+    default: 'client',
+  },
+  registrationRole: {
+    type: String,
+    default: 'client',
+  },
+  postLoginRedirect: {
+    type: String,
+    default: '',
+  },
+})
+
 const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
@@ -64,12 +79,13 @@ async function submit() {
   try {
     await auth.login({
       ...form,
-      role: 'client',
+      role: props.loginRole,
     })
 
-    const redirect = sanitizePostLoginRedirect(route.query.redirect, auth.dashboardPath)
+    const fallbackRedirect = props.postLoginRedirect || auth.dashboardPath
+    const redirect = sanitizePostLoginRedirect(route.query.redirect, fallbackRedirect)
 
-    router.push(redirect)
+    await router.replace(redirect)
   } catch (error) {
     errorMessage.value = error.message || 'No fue posible iniciar sesion.'
   }
@@ -210,7 +226,7 @@ async function submit() {
 
           <div class="helper-links">
             <span>¿No tienes cuenta?</span>
-            <RouterLink :to="{ name: 'registro', query: { role: 'client' } }">
+            <RouterLink :to="{ name: 'registro', query: { role: props.registrationRole } }">
               Crear usuario nuevo
             </RouterLink>
           </div>

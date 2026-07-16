@@ -19,6 +19,18 @@ const reasonMessage = computed(() => {
     return 'No fue posible validar la sesion administrativa contra el backend. El acceso queda bloqueado por seguridad.'
   }
 
+  if (reason === 'insufficient-role') {
+    return 'La cuenta inicio sesion correctamente, pero no trae el rol necesario para esta vista.'
+  }
+
+  if (reason === 'provider-not-linked') {
+    return 'La cuenta no esta ligada a un proveedor valido. Revisa el vínculo user-provider en administracion.'
+  }
+
+  if (reason === 'provider-pending-review') {
+    return 'El proveedor sigue en revision administrativa y todavia no puede usar esta seccion operativa.'
+  }
+
   return 'No tienes permisos suficientes para entrar a esta seccion.'
 })
 </script>

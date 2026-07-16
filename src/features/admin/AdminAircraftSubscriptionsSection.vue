@@ -193,6 +193,18 @@ function formatList(value) {
 }
 
 function documentCompletion(item = {}) {
+  const validation = resolveAircraftDocumentValidation(item)
+  const backendTotal = Number(validation.totalRequired || 0)
+  const backendCompleted = Number(validation.approved || 0)
+
+  if (backendTotal > 0) {
+    return {
+      completed: backendCompleted,
+      total: backendTotal,
+      percent: Math.round((backendCompleted / backendTotal) * 100),
+    }
+  }
+
   const summary = documentSummaryItems(item)
   const completed = summary.filter((entry) => entry.complete).length
   const total = summary.length || 1
@@ -327,7 +339,7 @@ function isPrivateStorageUrl(url = '') {
 function cleanDownloadError(error) {
   const status = Number(error?.status || 0)
   if (status === 404 || /Rutas probadas|could not be found|route .* could not be found/i.test(error?.message || '')) {
-    return 'El backend todavia no tiene registrada la ruta para abrir documentos privados. Agrega la ruta de descarga autenticada en Laravel y vuelve a intentar.'
+    return 'El backend todavia no tiene registrada la ruta para abrir documentos privados. Agrega la ruta de descarga autenticada en sistema y vuelve a intentar.'
   }
 
   if (status === 403) {
@@ -448,6 +460,81 @@ async function openAircraftDocument(documentRecord) {
 
 function normalizeStatus(value) {
   return String(value || '').toLowerCase()
+}
+
+function adminAircraftSnapshot(item = {}) {
+  if (item?.admin_state_snapshot && typeof item.admin_state_snapshot === 'object') {
+    return item.admin_state_snapshot
+  }
+
+  if (item?.aircraft_state && typeof item.aircraft_state === 'object') {
+    return item.aircraft_state
+  }
+
+  return {}
+}
+
+function adminAircraftReviewState(item = {}) {
+  const snapshot = adminAircraftSnapshot(item)
+  return snapshot.review && typeof snapshot.review === 'object' ? snapshot.review : {}
+}
+
+function adminAircraftBillingState(item = {}) {
+  const snapshot = adminAircraftSnapshot(item)
+  if (snapshot.billing && typeof snapshot.billing === 'object') return snapshot.billing
+  if (item?.billing_state && typeof item.billing_state === 'object') return item.billing_state
+  return {}
+}
+
+function adminAircraftDocumentsState(item = {}) {
+  const snapshot = adminAircraftSnapshot(item)
+  return snapshot.documents && typeof snapshot.documents === 'object' ? snapshot.documents : {}
+}
+
+function adminAircraftOperationState(item = {}) {
+  const snapshot = adminAircraftSnapshot(item)
+  return snapshot.operation && typeof snapshot.operation === 'object' ? snapshot.operation : {}
+}
+
+function adminAircraftPricingState(item = {}) {
+  const snapshot = adminAircraftSnapshot(item)
+  return snapshot.pricing && typeof snapshot.pricing === 'object' ? snapshot.pricing : {}
+}
+
+function adminAircraftMatchingState(item = {}) {
+  const snapshot = adminAircraftSnapshot(item)
+  return snapshot.matching && typeof snapshot.matching === 'object' ? snapshot.matching : {}
+}
+
+function adminAircraftActivationState(item = {}) {
+  const snapshot = adminAircraftSnapshot(item)
+  return snapshot.activation && typeof snapshot.activation === 'object' ? snapshot.activation : {}
+}
+
+function normalizeMissingRequirement(value = '') {
+  const normalized = normalizeStatus(value).trim().replace(/[\s-]+/g, '_')
+  const aliases = {
+    documents: 'documentacion',
+    documentation: 'documentacion',
+    documents_required: 'documentacion',
+    pricing: 'tarifa',
+    hourly_rate: 'tarifa',
+    minimum_hours: 'minimo',
+    range: 'rango',
+    range_nm: 'rango',
+    range_km: 'rango',
+    base: 'base',
+    base_registered: 'base',
+    capacity: 'capacidad',
+    capacity_configured: 'capacidad',
+    registration: 'matricula',
+    tail_number: 'matricula',
+    matching: 'matching',
+    photos: 'fotografias',
+    images: 'fotografias',
+  }
+
+  return aliases[normalized] || normalized
 }
 
 function normalizeDocumentReviewStatus(value = '') {
@@ -675,6 +762,77 @@ function aircraftRequirementSummary(item = {}) {
 }
 
 function getAircraftDocumentValidation(item = {}) {
+  const documentsState = adminAircraftDocumentsState(item)
+  const backendRequired = Number(
+    documentsState.required ?? documentsState.total_required ?? documentsState.total ?? 0,
+  )
+  const backendUploaded = Number(
+    documentsState.uploaded ?? documentsState.total_uploaded ?? documentsState.documents_uploaded ?? 0,
+  )
+  const backendApproved = Number(
+    documentsState.approved ?? documentsState.valid ?? documentsState.documents_approved ?? 0,
+  )
+  const backendPending = Number(documentsState.pending ?? documentsState.documents_pending ?? 0)
+  const backendRejected = Number(documentsState.rejected ?? documentsState.documents_rejected ?? 0)
+  const backendExpired = Number(documentsState.expired ?? documentsState.documents_expired ?? 0)
+  const backendMissing = Number(
+    documentsState.missing ??
+      Math.max(backendRequired - backendApproved - backendPending - backendRejected - backendExpired, 0),
+  )
+  const backendComplete =
+    documentsState.complete ??
+    documentsState.valid ??
+    (backendRequired > 0 &&
+      backendApproved === backendRequired &&
+      backendPending === 0 &&
+      backendRejected === 0 &&
+      backendExpired === 0 &&
+      backendMissing === 0)
+
+  if (
+    backendRequired > 0 ||
+    backendUploaded > 0 ||
+    backendApproved > 0 ||
+    backendPending > 0 ||
+    backendRejected > 0 ||
+    backendExpired > 0
+  ) {
+    let status = 'incomplete'
+    let label = 'Documentacion incompleta'
+
+    if (backendComplete) {
+      status = 'approved'
+      label = 'Docs validos'
+    } else if (backendExpired > 0) {
+      status = 'expired'
+      label = 'Documentacion vencida'
+    } else if (backendRejected > 0) {
+      status = 'rejected'
+      label = 'Documentacion rechazada'
+    } else if (backendUploaded > 0 && backendApproved === 0 && backendPending > 0) {
+      status = 'pending'
+      label = 'Documentacion pendiente'
+    } else if (backendPending > 0) {
+      status = 'pending'
+      label = 'Documentacion pendiente'
+    }
+
+    return {
+      requirements: aircraftRequirementSummary(item),
+      totalRequired: backendRequired,
+      approved: backendApproved,
+      pending: backendPending,
+      rejected: backendRejected,
+      expired: backendExpired,
+      missing: backendMissing,
+      uploaded: backendUploaded,
+      allApproved: Boolean(backendComplete),
+      hasDocuments: backendUploaded > 0,
+      status,
+      label,
+    }
+  }
+
   const requirements = aircraftRequirementSummary(item)
   const totals = requirements.reduce(
     (accumulator, requirement) => {
@@ -771,6 +929,8 @@ function numericValue(value) {
 }
 
 function hasRegisteredBase(item) {
+  const operationState = adminAircraftOperationState(item)
+  if (operationState.base_registered != null) return Boolean(operationState.base_registered)
   return hasTextValue(item.base_airport || item.base || item.airport || item.location || item.base_airport_code)
 }
 
@@ -779,19 +939,29 @@ function hasRegistration(item) {
 }
 
 function hasCapacityValue(item) {
+  const operationState = adminAircraftOperationState(item)
+  if (operationState.capacity_configured != null) return Boolean(operationState.capacity_configured)
   return numericValue(item.capacity || item.passenger_capacity || item.pax) > 0
 }
 
 function hasHourlyRateValue(item) {
+  const pricingState = adminAircraftPricingState(item)
+  if (pricingState.complete != null && numericValue(item.hourly_rate || item.hourlyPrice || item.hourly_price || item.price_per_hour) > 0) {
+    return Boolean(pricingState.complete)
+  }
   return numericValue(item.hourly_rate || item.hourlyPrice || item.hourly_price || item.price_per_hour) > 0
 }
 
 function hasRangeValue(item) {
+  const operationState = adminAircraftOperationState(item)
+  if (operationState.range_configured != null) return Boolean(operationState.range_configured)
+  if (numericValue(operationState.range_nm || operationState.range_km) > 0) return true
   return numericValue(item.range_km || item.rangeKm || item.range || item.max_range_km) > 0
 }
 
 function normalizedAircraftReviewStatus(item = {}) {
-  return normalizeStatus(item.review_status || item.validation_status || item.approval_status || '')
+  const reviewState = adminAircraftReviewState(item)
+  return normalizeStatus(reviewState.status || item.review_status || item.validation_status || item.approval_status || '')
 }
 
 function hasApprovedMarker(item = {}) {
@@ -799,6 +969,8 @@ function hasApprovedMarker(item = {}) {
 }
 
 function isApproved(item) {
+  const reviewState = adminAircraftReviewState(item)
+  if (reviewState.approved != null) return Boolean(reviewState.approved)
   const status = normalizeStatus(item.status || '')
   const reviewStatus = normalizedAircraftReviewStatus(item)
   return (
@@ -809,6 +981,9 @@ function isApproved(item) {
 }
 
 function isSuspended(item) {
+  const activationState = adminAircraftActivationState(item)
+  const commercialStatus = normalizeStatus(activationState.commercial_status || '')
+  if (['suspended', 'blocked', 'rejected'].includes(commercialStatus)) return true
   const status = normalizeStatus(item.status || '')
   const reviewStatus = normalizedAircraftReviewStatus(item)
   return (
@@ -821,15 +996,33 @@ function isSuspended(item) {
 }
 
 function billingStatusKey(item = {}) {
-  return normalizeStatus(item.billing_status || item.billingStatus || item.subscription_status || item.subscriptionStatus || '')
+  const billingState = adminAircraftBillingState(item)
+  return normalizeStatus(
+    billingState.status ||
+      billingState.billing_status ||
+      billingState.subscription_status ||
+      item.billing_status ||
+      item.billingStatus ||
+      item.subscription_status ||
+      item.subscriptionStatus ||
+      '',
+  )
 }
 
 function hasActiveBilling(item = {}) {
+  const billingState = adminAircraftBillingState(item)
+  if (billingState.payment_confirmed === true || billingState.subscription_active === true) return true
   const status = billingStatusKey(item)
   return ['active', 'trialing', 'paid', 'vigente'].includes(status)
 }
 
 function hasPendingPayment(item = {}) {
+  const billingState = adminAircraftBillingState(item)
+  const activationState = adminAircraftActivationState(item)
+  if (billingState.payment_confirmed === false && normalizeStatus(billingState.status).includes('pending')) {
+    return true
+  }
+  if (normalizeStatus(activationState.commercial_status) === 'pending_payment') return true
   const status = billingStatusKey(item)
   return ['pending_payment', 'pending', 'inactive'].includes(status) && isApproved(item) && !hasActiveBilling(item)
 }
@@ -874,6 +1067,8 @@ function aircraftSubscriptionStatusLabel(item = {}) {
 }
 
 function matchingVisibilityFlag(item) {
+  const matchingState = adminAircraftMatchingState(item)
+  if (matchingState.enabled != null) return Boolean(matchingState.enabled)
   const candidate = item.matching_visible ?? item.matchingVisible ?? item.marketplace_visible ?? item.visible_for_matching
   if (candidate == null) return null
   if (typeof candidate === 'boolean') return candidate
@@ -893,6 +1088,12 @@ function matchingVisible(item) {
 }
 
 function aircraftMissingFields(item) {
+  const activationState = adminAircraftActivationState(item)
+  const backendMissing = Array.isArray(activationState.missing_requirements)
+    ? activationState.missing_requirements.map((entry) => normalizeMissingRequirement(entry)).filter(Boolean)
+    : []
+  if (backendMissing.length) return [...new Set(backendMissing)]
+
   const missing = []
   const documentValidation = resolveAircraftDocumentValidation(item)
 
@@ -908,17 +1109,25 @@ function aircraftMissingFields(item) {
 }
 
 function aircraftReadiness(item) {
+  const snapshot = adminAircraftSnapshot(item)
+  const matchingState = adminAircraftMatchingState(item)
+  const activationState = adminAircraftActivationState(item)
   const missing = aircraftMissingFields(item)
   const approved = isApproved(item)
   const suspended = isSuspended(item)
   const documentValidation = resolveAircraftDocumentValidation(item)
   const documented = documentValidation.allApproved
   const baseRegistered = hasRegisteredBase(item)
-  const visibleForMatching = matchingVisible(item)
+  const visibleForMatching =
+    matchingState.enabled != null ? Boolean(matchingState.enabled) : matchingVisible(item)
   const billingPending = hasPendingPayment(item)
   const billingActive = hasActiveBilling(item)
-  const quoteReady = approved && !suspended && documented && baseRegistered && hasCapacityValue(item) && hasHourlyRateValue(item)
-  const reservationReady = quoteReady && visibleForMatching && hasRegistration(item)
+  const quoteReady =
+    snapshot.ready_to_quote ??
+    (approved && !suspended && documented && baseRegistered && hasCapacityValue(item) && hasHourlyRateValue(item))
+  const reservationReady =
+    snapshot.ready_to_book ??
+    (quoteReady && visibleForMatching && hasRegistration(item))
 
   return {
     approved,
@@ -956,10 +1165,18 @@ function readinessHeadline(item) {
 function readinessDescription(item) {
   const readiness = aircraftReadiness(item)
   const documentValidation = resolveAircraftDocumentValidation(item)
+  const activationState = adminAircraftActivationState(item)
+  const matchingState = adminAircraftMatchingState(item)
   if (readiness.suspended) return 'La aeronave esta bloqueada y no debe mostrarse en matching.'
   if (readiness.reservationReady) return 'Cumple aprobacion, base, documentos y datos comerciales para reservas.'
   if (readiness.billingPending) return 'La aeronave ya fue aprobada por administracion, pero no se activa hasta reflejar el pago mensual.'
   if (readiness.quoteReady) return 'Puede entrar a cotizaciones, pero aun requiere visibilidad final o ajuste operativo.'
+  if (Array.isArray(matchingState.blocked_reasons) && matchingState.blocked_reasons.length) {
+    return `Matching bloqueado por: ${matchingState.blocked_reasons.map((entry) => missingFieldLabel(normalizeMissingRequirement(entry))).join(', ')}.`
+  }
+  if (Array.isArray(activationState.missing_requirements) && activationState.missing_requirements.length) {
+    return `Faltan ${activationState.missing_requirements.map((entry) => missingFieldLabel(normalizeMissingRequirement(entry))).join(', ')}.`
+  }
   if (!documentValidation.allApproved) return `${documentValidation.label}.`
   if (readiness.missing.length) return `Faltan ${readiness.missing.slice(0, 3).join(', ')}${readiness.missing.length > 3 ? '...' : ''}.`
   return 'Requiere revision administrativa antes de habilitarla comercialmente.'
@@ -982,9 +1199,11 @@ function missingFieldLabel(field) {
     base: 'Sin base',
     capacidad: 'Sin capacidad',
     tarifa: 'Sin tarifa',
+    minimo: 'Sin minimo',
     rango: 'Sin rango',
     documentacion: 'Sin documentacion',
     fotografias: 'Sin fotos',
+    matching: 'Matching bloqueado',
   }
   return labels[field] || field
 }

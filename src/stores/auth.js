@@ -9,6 +9,10 @@ import {
 } from '../lib/authRouting'
 import { resolveBestCompanyDisplayName } from '../lib/companyDisplay'
 import { resolveProviderIdForUser } from '../lib/providerContext'
+import {
+  buildProviderAccessCompanyFromSession,
+  resolveProviderOperationalAccessState,
+} from '../lib/providerAccess'
 
 const AUTH_SNAPSHOT_KEY = 'red_aviation_auth_snapshot'
 const AUTH_ME_CACHE_KEY = 'red_aviation_auth_me_cache'
@@ -286,11 +290,18 @@ export const useAuthStore = defineStore('auth', () => {
   const roles = ref([])
   const loaded = ref(false)
   const initialized = ref(false)
+  const initializing = ref(false)
   const loading = ref(false)
   const error = ref('')
   let initializePromise = null
 
-  const isAuthenticated = computed(() => Boolean(user.value))
+  const isAuthenticated = computed(() => initialized.value && Boolean(user.value))
+  const sessionState = computed(() => {
+    if (initializing.value) return 'initializing'
+    if (!initialized.value) return 'initializing'
+    if (user.value) return 'authenticated'
+    return 'unauthenticated'
+  })
   const effectiveRole = computed(() =>
     resolveEffectiveRole({
       user: user.value,
@@ -332,7 +343,21 @@ export const useAuthStore = defineStore('auth', () => {
     return companyName !== 'Empresa operadora' ? companyName : user.value?.name || 'Cuenta activa'
   })
   const providerId = computed(() => resolveProviderIdForUser(user.value))
+  const providerOperationalAccess = computed(() =>
+    resolveProviderOperationalAccessState({
+      user: user.value,
+      access: access.value,
+      loginContext: loginContext.value,
+      company: buildProviderAccessCompanyFromSession(user.value),
+      fallbackProviderId: providerId.value,
+    }),
+  )
+  const hasOperationalProviderAccess = computed(() => providerOperationalAccess.value.isOperationalReady)
   let currentUserRequestPromise = null
+
+  function getLoginRouteByRole(role = '') {
+    return normalizeAuthRole(role) === 'client' ? { name: 'login-cliente' } : { name: 'login' }
+  }
 
   function persistResolvedAuth(resolvedPayload) {
     setStoredToken(resolvedPayload.token)
@@ -396,6 +421,76 @@ export const useAuthStore = defineStore('auth', () => {
     clearStoredMeCache()
   }
 
+  async function requestCurrentUser(options = {}) {
+    const allowServerErrorFallback = options.allowServerErrorFallback !== false
+    const signal = options.signal
+
+    if (!token.value) {
+      clearAuth()
+      return null
+    }
+
+    if (currentUserRequestPromise) {
+      return currentUserRequestPromise
+    }
+
+    loading.value = true
+    error.value = ''
+    currentUserRequestPromise = (async () => {
+      try {
+        const response = await api.get('/auth/me', {
+          timeoutMs: AUTH_REQUEST_TIMEOUT_MS,
+          signal,
+        })
+        applyAuth(response, {
+          currentSnapshot: {
+            user: user.value,
+            access: access.value,
+            login_context: loginContext.value,
+          },
+          markLoaded: true,
+          markInitialized: true,
+        })
+        return user.value
+      } catch (error) {
+        const status = Number(error?.status || 0)
+        const canFallback =
+          allowServerErrorFallback &&
+          !isUnauthorizedError(error) &&
+          (status >= 500 || status === 0)
+
+        if (canFallback) {
+          const cachedPayload = resolveCachedAuthPayload()
+          if (cachedPayload?.user) {
+            applyAuth(cachedPayload, {
+              currentSnapshot: {
+                user: user.value,
+                access: access.value,
+                login_context: loginContext.value,
+              },
+              markLoaded: true,
+              markInitialized: true,
+            })
+            return user.value
+          }
+        }
+
+        if (isUnauthorizedError(error)) {
+          clearAuth()
+        }
+
+        error.value = error?.message || 'No se pudo cargar la sesion actual.'
+        throw error
+      } finally {
+        loading.value = false
+      }
+    })().finally(() => {
+      currentUserRequestPromise = null
+    })
+
+    return currentUserRequestPromise
+  }
+
   function syncUserContext({ userPatch = null, profilePatch = null, accessPatch = null, loginContextPatch = null } = {}) {
     if (user.value) {
       user.value = {
@@ -452,7 +547,11 @@ export const useAuthStore = defineStore('auth', () => {
       : AUTH_ME_CACHE_TTL_MS
     const signal = options.signal
 
-    if (!initialized.value) {
+    if (initializing.value && initializePromise) {
+      return initializePromise
+    }
+
+    if (!initialized.value || initializing.value) {
       await initialize()
     }
 
@@ -487,59 +586,7 @@ export const useAuthStore = defineStore('auth', () => {
       }
     }
 
-    loading.value = true
-    error.value = ''
-    currentUserRequestPromise = (async () => {
-      try {
-        const response = await api.get('/auth/me', {
-          timeoutMs: AUTH_REQUEST_TIMEOUT_MS,
-          signal,
-        })
-        applyAuth(response, {
-          currentSnapshot: {
-            user: user.value,
-            access: access.value,
-            login_context: loginContext.value,
-          },
-          markLoaded: true,
-        })
-        return user.value
-      } catch (error) {
-        const status = Number(error?.status || 0)
-        const canFallback =
-          allowServerErrorFallback &&
-          !isUnauthorizedError(error) &&
-          (status >= 500 || status === 0)
-
-        if (canFallback) {
-          const cachedPayload = resolveCachedAuthPayload()
-          if (cachedPayload?.user) {
-            applyAuth(cachedPayload, {
-              currentSnapshot: {
-                user: user.value,
-                access: access.value,
-                login_context: loginContext.value,
-              },
-              markLoaded: true,
-            })
-            return user.value
-          }
-        }
-
-        if (isUnauthorizedError(error)) {
-          clearAuth()
-        }
-
-        error.value = error?.message || 'No se pudo cargar la sesion actual.'
-        throw error
-      } finally {
-        loading.value = false
-      }
-    })().finally(() => {
-      currentUserRequestPromise = null
-    })
-
-    return currentUserRequestPromise
+    return requestCurrentUser({ allowServerErrorFallback, signal })
   }
 
   function hasRole(role) {
@@ -555,16 +602,16 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function initialize() {
-    if (initialized.value) return
+    if (initialized.value) return user.value
     if (initializePromise) return initializePromise
 
+    initializing.value = true
     initializePromise = (async () => {
       token.value = getStoredToken()
       error.value = ''
 
       if (!token.value) {
         clearAuth()
-        initialized.value = true
         return null
       }
 
@@ -577,7 +624,7 @@ export const useAuthStore = defineStore('auth', () => {
             login_context: loginContext.value,
           },
           persist: false,
-          markLoaded: false,
+          markLoaded: true,
           markInitialized: true,
         })
         return user.value
@@ -588,11 +635,23 @@ export const useAuthStore = defineStore('auth', () => {
         applyStoredAuthSnapshot(storedSnapshot)
       }
 
-      initialized.value = true
+      if (!loaded.value) {
+        try {
+          await requestCurrentUser()
+        } catch (error) {
+          if (!isUnauthorizedError(error)) {
+            throw error
+          }
+        }
+      }
+
       return user.value
-    })().finally(() => {
-      initializePromise = null
-    })
+    })()
+      .finally(() => {
+        initializing.value = false
+        initialized.value = true
+        initializePromise = null
+      })
 
     return initializePromise
   }
@@ -606,6 +665,8 @@ export const useAuthStore = defineStore('auth', () => {
       })
       applyAuth(response, {
         intendedRole: credentials?.role,
+        markLoaded: true,
+        markInitialized: true,
       })
       return response
     } finally {
@@ -690,13 +751,18 @@ export const useAuthStore = defineStore('auth', () => {
     permissions,
     loaded,
     initialized,
+    initializing,
     loading,
     error,
     isAuthenticated,
+    sessionState,
     effectiveRole,
     dashboardPath,
     userName,
     providerId,
+    providerOperationalAccess,
+    hasOperationalProviderAccess,
+    getLoginRouteByRole,
     hasRole,
     hasAdminAccess,
     initialize,

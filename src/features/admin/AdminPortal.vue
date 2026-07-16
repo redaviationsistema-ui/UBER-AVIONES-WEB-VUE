@@ -6,6 +6,7 @@ import { useUiStore } from '../../stores/ui'
 import { normalizeWorkflowLabel, resolveWorkflowState } from '../../utils/flightWorkflow'
 import { emitWorkflowSync, subscribeWorkflowSync } from '../../lib/workflowSync'
 import { resolveProviderRepresentativeName } from '../../lib/providerReview'
+import { isCrewUser, isOperatorProvider } from '../../utils/adminUserClassification'
 import {
   buildAdminDashboardEmptyState,
   formatAdminCell,
@@ -869,7 +870,7 @@ const quoteSummaryCards = computed(() => [
   {
     label: 'Cotizaciones',
     value: formatCount(quoteRecords.value.length),
-    detail: 'Registros recuperados desde Laravel.',
+    detail: 'Registros recuperados desde el sistema.',
   },
   {
     label: 'Aceptadas',
@@ -912,7 +913,7 @@ const documentSummaryCards = computed(() => [
   {
     label: 'Documentos visibles',
     value: formatCount(documentRecords.value.length),
-    detail: 'Proveedor y aeronave agregados desde endpoints Laravel.',
+    detail: 'Proveedor y aeronave agregados desde endpoints .',
   },
   {
     label: 'Aprobados',
@@ -1020,10 +1021,137 @@ const resolvedAdminSectionConfig = computed(() => {
 })
 
 function normalizeAdminAircraft(item = {}) {
+  const aircraftId = Number(item?.id || item?.aircraft_id || 0)
+  const embeddedDocuments = pickCollection(item, [
+    'documents',
+    'aircraft_documents',
+    'aircraftDocuments',
+    'documentos',
+    'files',
+    'attachments',
+  ])
+  const relatedDocuments = aircraftId
+    ? pickCollection({ documents: rawSectionRecords.documentos }, ['documents']).filter(
+        (document) => Number(document?.aircraft_id || document?.owner_id || 0) === aircraftId,
+      )
+    : []
+  const mergedDocuments = [...embeddedDocuments, ...relatedDocuments]
+  const normalizedDocuments = mergedDocuments.map((document, index) =>
+    normalizeAdminProviderDocument(document, index),
+  )
+  const relatedSubscription =
+    (rawSectionRecords.suscripciones || []).find(
+      (subscription) =>
+        Number(
+          subscription?.aircraft_id ||
+            subscription?.aircraft?.id ||
+            subscription?.aircraft_subscription?.aircraft_id ||
+            0,
+        ) === aircraftId,
+    ) || null
+  const embeddedBillingState =
+    item?.billing_state && typeof item.billing_state === 'object' ? item.billing_state : null
+  const relatedBillingState =
+    relatedSubscription?.billing_state && typeof relatedSubscription.billing_state === 'object'
+      ? relatedSubscription.billing_state
+      : null
+  const billingState = {
+    ...(relatedBillingState || {}),
+    ...(embeddedBillingState || {}),
+  }
+  const reviewState =
+    item?.review && typeof item.review === 'object'
+      ? item.review
+      : item?.aircraft_state?.review && typeof item.aircraft_state.review === 'object'
+        ? item.aircraft_state.review
+        : {}
+  const documentsState =
+    item?.documents_state && typeof item.documents_state === 'object'
+      ? item.documents_state
+      : item?.aircraft_state?.documents && typeof item.aircraft_state.documents === 'object'
+        ? item.aircraft_state.documents
+        : {}
+  const operationState =
+    item?.operation && typeof item.operation === 'object'
+      ? item.operation
+      : item?.aircraft_state?.operation && typeof item.aircraft_state.operation === 'object'
+        ? item.aircraft_state.operation
+        : {}
+  const pricingState =
+    item?.pricing && typeof item.pricing === 'object'
+      ? item.pricing
+      : item?.aircraft_state?.pricing && typeof item.aircraft_state.pricing === 'object'
+        ? item.aircraft_state.pricing
+        : {}
+  const matchingState =
+    item?.matching && typeof item.matching === 'object'
+      ? item.matching
+      : item?.aircraft_state?.matching && typeof item.aircraft_state.matching === 'object'
+        ? item.aircraft_state.matching
+        : {}
+  const activationState =
+    item?.activation && typeof item.activation === 'object'
+      ? item.activation
+      : item?.aircraft_state?.activation && typeof item.aircraft_state.activation === 'object'
+        ? item.aircraft_state.activation
+        : {}
+  const stateSnapshot = {
+    review: reviewState,
+    billing: billingState,
+    documents: documentsState,
+    operation: operationState,
+    pricing: pricingState,
+    matching: matchingState,
+    activation: activationState,
+    ready_to_quote:
+      item?.ready_to_quote ??
+      item?.aircraft_state?.ready_to_quote ??
+      item?.quote_ready ??
+      null,
+    ready_to_book:
+      item?.ready_to_book ??
+      item?.aircraft_state?.ready_to_book ??
+      item?.reservation_ready ??
+      null,
+  }
+
   return {
     ...item,
     provider: item.provider || null,
-    approved: item.status === 'active',
+    documents: normalizedDocuments,
+    documents_count:
+      Number(item.documents_count || item.document_count || 0) || normalizedDocuments.length,
+    approved: reviewState.approved ?? (item.approved === true || item.status === 'active'),
+    review_status:
+      reviewState.status ||
+      item.review_status ||
+      item.validation_status ||
+      item.approval_status ||
+      '',
+    billing_state: billingState,
+    billing_status:
+      billingState.status ||
+      item.billing_status ||
+      item.subscription_status ||
+      relatedSubscription?.status ||
+      '',
+    subscription_status:
+      billingState.subscription_status ||
+      item.subscription_status ||
+      relatedSubscription?.status ||
+      '',
+    matching_visible:
+      matchingState.enabled ??
+      item.matching_visible ??
+      item.matchingVisible ??
+      item.marketplace_visible ??
+      item.visible_for_matching ??
+      null,
+    ready_to_quote: stateSnapshot.ready_to_quote,
+    ready_to_book: stateSnapshot.ready_to_book,
+    aircraft_state: item.aircraft_state && typeof item.aircraft_state === 'object' ? item.aircraft_state : stateSnapshot,
+    admin_state_snapshot: stateSnapshot,
+    current_subscription: relatedSubscription,
     trial_ends_at: item.trial_ends_at || null,
   }
 }
@@ -1062,6 +1190,14 @@ function normalizeAdminProvider(item = {}) {
     provider.aircraft_metrics && typeof provider.aircraft_metrics === 'object'
       ? provider.aircraft_metrics
       : null
+  const storedRepresentativeName =
+    provider.representative_name ||
+    provider.legal_representative ||
+    provider.representante_legal ||
+    profile.legal_representative ||
+    profile.tax_data?.legal_representative ||
+    user.legal_representative ||
+    ''
 
   const representativeName = resolveProviderRepresentativeName({
     ...provider,
@@ -1103,9 +1239,9 @@ function normalizeAdminProvider(item = {}) {
       profile.company_name ||
       '',
     representative_name:
-      representativeName === 'Sin representante' ? '' : representativeName,
+      storedRepresentativeName || (representativeName === 'Sin representante' ? '' : representativeName),
     contact_name:
-      representativeName === 'Sin representante' ? 'Sin contacto' : representativeName,
+      storedRepresentativeName || (representativeName === 'Sin representante' ? 'Sin contacto' : representativeName),
     company_phone:
       provider.company_phone ||
       provider.phone ||
@@ -1157,29 +1293,7 @@ function normalizeAdminProvider(item = {}) {
 }
 
 function isProviderRecord(item = {}) {
-  const roleCandidates = resolveRoleCandidates(item)
-  const providerLikeRole = roleCandidates.some((roleValue) => {
-    const roleKey = normalizeToken(roleValue)
-    return roleKey.includes('provider') || roleKey.includes('proveedor') || roleKey.includes('operador')
-  })
-
-  const providerObjectPresent =
-    (item.provider && typeof item.provider === 'object') ||
-    (item.proveedor && typeof item.proveedor === 'object') ||
-    (item.ownedProvider && typeof item.ownedProvider === 'object') ||
-    (item.owned_provider && typeof item.owned_provider === 'object')
-
-  const hasProviderMarkers = Boolean(
-    item.provider_id ||
-    item.proveedor_id ||
-    item.company_name ||
-    item.commercial_name ||
-    item.trade_name ||
-    item.nombre_comercial ||
-    item.base_airport,
-  )
-
-  return providerLikeRole || providerObjectPresent || hasProviderMarkers
+  return isOperatorProvider(item)
 }
 
 function providerCatalogKey(item = {}) {
@@ -1383,16 +1497,7 @@ function normalizeAdminCrewMember(item = {}) {
     item.document_status ||
     profile.document_status ||
     (documentsArray.length ? `${documentsArray.length} documento(s)` : '')
-  const roleCandidates = resolveRoleCandidates(item)
-  const isCrew = roleCandidates.some((roleValue) => {
-    const roleKey = String(roleValue || '').toLowerCase()
-    return (
-      roleKey.includes('sobrecargo') ||
-      roleKey.includes('crew') ||
-      roleKey.includes('cabin') ||
-      roleKey.includes('cabina')
-    )
-  })
+  const isCrew = isCrewUser(item)
 
   if (!isCrew) return null
 
@@ -1546,7 +1651,7 @@ async function loadDashboardKpis(options = {}) {
     if (isAbortLikeError(error)) return
     dashboardData.value = buildAdminDashboardEmptyState()
     dashboardErrorMessage.value =
-      error?.message || 'Laravel no devolvio el dashboard administrativo esperado.'
+      error?.message || 'Sistema no devolvio el dashboard administrativo esperado.'
   } finally {
     dashboardLoading.value = false
   }
@@ -1640,7 +1745,7 @@ async function saveSettings({ settings: payload, reason = '' } = {}) {
     ui.pushToast({
       tone: 'success',
       title: 'Configuracion actualizada',
-      message: 'Laravel confirmo la actualizacion de los parametros visibles.',
+      message: 'Sistema confirmo la actualizacion de los parametros visibles.',
     })
   } catch (error) {
     settingsErrorMessage.value =
@@ -1707,6 +1812,9 @@ async function loadDocumentsModule(options = {}) {
       { signal: options.signal },
     )
     rawSectionRecords.documentos = pickCollection(response, ['documents'])
+    if (rawSectionRecords.aeronaves.length) {
+      aircraft.value = rawSectionRecords.aeronaves.map(normalizeAdminAircraft)
+    }
   } catch (error) {
     if (isAbortLikeError(error)) return
     rawSectionRecords.documentos = []
@@ -1810,6 +1918,9 @@ async function loadSubscriptions(options = {}) {
     const collection = pickCollection(response, ['aircraft_subscriptions'])
     rawSectionRecords.suscripciones = collection
     subscriptions.value = collection
+    if (rawSectionRecords.aeronaves.length) {
+      aircraft.value = rawSectionRecords.aeronaves.map(normalizeAdminAircraft)
+    }
   } catch (error) {
     if (isAbortLikeError(error)) return
     rawSectionRecords.suscripciones = []
@@ -2214,7 +2325,11 @@ async function loadPortalSection(section, options = {}) {
   }
 
   if (section === 'aeronaves') {
-    await loadAircraft({ signal: options.signal })
+    await Promise.all([
+      loadAircraft({ signal: options.signal }),
+      loadSubscriptions({ signal: options.signal }),
+      loadDocumentsModule({ signal: options.signal }),
+    ])
     return
   }
 
@@ -3281,7 +3396,7 @@ async function downloadDocumentRecord(record) {
     ui.pushToast({
       tone: 'error',
       title: 'No se pudo descargar el documento',
-      message: error?.message || 'Laravel no confirmo la descarga del archivo solicitado.',
+      message: error?.message || 'Sistema no confirmo la descarga del archivo solicitado.',
     })
   }
 }
@@ -3369,13 +3484,13 @@ watch(
   <AdminRecordsSection
     v-else-if="section === 'cotizaciones'"
     title="Cotizaciones administrativas"
-    description="Listado y detalle de ofertas emitidas desde Laravel, con referencia de cliente, aeronave, reserva y pago vinculado."
+    description="Listado y detalle de ofertas emitidas desde el sistema, con referencia de cliente, aeronave, reserva y pago vinculado."
     :records="quoteRecords"
     :summary-cards="quoteSummaryCards"
     :loading="genericModuleLoading.cotizaciones"
     :error-message="genericModuleErrors.cotizaciones"
     empty-title="Sin cotizaciones visibles."
-    empty-description="Laravel no devolvió cotizaciones para esta vista."
+    empty-description="Sistema no devolvió cotizaciones para esta vista."
     search-placeholder="Buscar folio, cliente, ruta o aeronave"
     :columns="[
       { key: 'folio', label: 'Folio' },
@@ -3559,7 +3674,7 @@ watch(
   <AdminRecordsSection
     v-else-if="section === 'documentos'"
     title="Repositorio documental"
-    description="Vista consolidada de documentos de proveedor y aeronave con origen Laravel, descarga autenticada y trazabilidad de estatus."
+    description="Vista consolidada de documentos de proveedor y aeronave con origen sistema, descarga autenticada y trazabilidad de estatus."
     :records="documentRecords"
     :summary-cards="documentSummaryCards"
     :loading="genericModuleLoading.documentos"
@@ -3597,7 +3712,7 @@ watch(
     :loading="genericModuleLoading.auditoria"
     :error-message="genericModuleErrors.auditoria"
     empty-title="Sin eventos de auditoría."
-    empty-description="Laravel no devolvió entradas en `/admin/audit-logs`."
+    empty-description="Sistema no devolvió entradas en `/admin/audit-logs`."
     search-placeholder="Buscar acción, módulo, actor o resultado"
     :columns="[
       { key: 'createdAt', label: 'Fecha', format: (value) => formatAdminCell(value, { kind: 'date', withTime: true }) },
@@ -3638,7 +3753,7 @@ watch(
     <p class="eyebrow dark-eyebrow">Sección no disponible</p>
     <h2>{{ resolvedAdminSectionConfig.title || 'Modulo administrativo no soportado' }}</h2>
     <p>
-      Esta sección no tiene contrato Laravel oficial activo dentro del panel administrador.
+      Esta sección no tiene contrato sistema oficial activo dentro del panel administrador.
     </p>
   </section>
 </template>

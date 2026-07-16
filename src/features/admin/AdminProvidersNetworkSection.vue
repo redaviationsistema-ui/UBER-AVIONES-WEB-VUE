@@ -21,9 +21,10 @@ import {
   buildProviderReviewFlow,
   resolveProviderCompanyName,
   resolveProviderRepresentativeName,
-  resolveProviderStatusMeta,
 } from '../../lib/providerReview'
 import { normalizeOperatorValidationDocument } from '../../lib/providerCompanyDocuments'
+import { buildProviderStatusSummary, PROVIDER_PENDING_STATUS_KEYS, PROVIDER_STATUS_GROUPS } from '../../utils/providerStatus'
+import { isOperatorProvider } from '../../utils/adminUserClassification'
 
 const props = defineProps({
   providers: { type: Array, required: true },
@@ -81,7 +82,7 @@ function getValidationPanelDetail() {
     return 'La validacion del operador ya fue aprobada manualmente y el acceso operativo quedo habilitado.'
   }
   if (estadoExpediente.value.requisitosCompletosParaValidar) {
-    return 'El backend ya considera completo el expediente obligatorio. Ya puedes validar formalmente al operador.'
+    return 'El backend ya considera completo el expediente obligatorio. Ya puedes aprobar formalmente al proveedor.'
   }
   return 'Cada requisito debe aprobarse o cancelarse por separado. Validar el operador completo solo se habilita cuando todos esten aprobados.'
 }
@@ -144,10 +145,10 @@ function normalizeWorkflowStatus(value) {
   const normalized = normalizeExpedienteToken(value)
 
   if (!normalized || ['null', 'undefined'].includes(normalized)) return 'draft'
-  if (['approved', 'aprobado', 'aprobada', 'validated', 'validado', 'validada'].includes(normalized)) return 'approved'
+  if (['approved', 'aprobado', 'aprobada', 'validated', 'validado', 'validada', 'active', 'activo', 'activa'].includes(normalized)) return 'approved'
   if (['pending review', 'under review', 'en revision'].includes(normalized)) return 'pending_review'
   if (['pending validation'].includes(normalized)) return 'pending_validation'
-  if (['changes required', 'suspended', 'suspendido'].includes(normalized)) return 'changes_required'
+  if (['changes requested', 'changes required', 'suspended', 'suspendido', 'cambios solicitados'].includes(normalized)) return 'changes_required'
   if (['rejected', 'rechazado', 'rechazada'].includes(normalized)) return 'rejected'
   if (['cancelled', 'canceled', 'cancelado', 'cancelada'].includes(normalized)) return 'cancelled'
   if (['draft', 'expediente incompleto', 'incomplete', 'incompleto', 'incompleta'].includes(normalized)) return 'draft'
@@ -226,6 +227,16 @@ function formatDateTime(value) {
   }).format(parsed)
 }
 
+function workflowLabel(value) {
+  const normalized = normalizeWorkflowStatus(value)
+  if (normalized === 'approved') return 'Aprobado'
+  if (normalized === 'pending_review' || normalized === 'pending_validation') return 'En revision'
+  if (normalized === 'changes_required') return 'Cambios solicitados'
+  if (normalized === 'rejected') return 'Rechazado'
+  if (normalized === 'cancelled') return 'Cancelado'
+  return 'Pendiente'
+}
+
 function isAnyValidationActionLoading() {
   return Boolean(activeValidationActionKey.value || activeRequirementActionKey.value)
 }
@@ -277,12 +288,11 @@ function providerLabel(provider = {}) {
 }
 
 function providerStatusMeta(provider = {}) {
-  const meta = resolveProviderStatusMeta(provider)
-  if (meta.key === 'approved') return { ...meta, icon: '●' }
-  if (meta.key === 'changes_required') return { ...meta, key: 'changes_required', icon: '●' }
-  if (meta.key === 'rejected') return { ...meta, key: 'rejected', icon: '●' }
-  if (meta.key === 'pending') return { ...meta, key: 'pending', icon: '●' }
-  return { ...meta, key: 'draft', icon: '●' }
+  return buildProviderStatusSummary(provider, providerMetrics(provider)).statusMeta
+}
+
+function providerOverview(provider = {}) {
+  return buildProviderStatusSummary(provider, providerMetrics(provider))
 }
 
 function providerBase(provider = {}) {
@@ -290,7 +300,16 @@ function providerBase(provider = {}) {
 }
 
 function providerResponsible(provider = {}) {
-  return resolveProviderRepresentativeName(provider)
+  return (
+    readProviderCandidateValue(provider, [
+      'representative_name',
+      'legal_representative',
+      'representante_legal',
+      'representative',
+      'contact_name',
+      'contact',
+    ]) || resolveProviderRepresentativeName(provider)
+  )
 }
 
 function findFirstDocumentCollection(sources = []) {
@@ -560,44 +579,43 @@ function matchesSearch(provider = {}) {
 }
 
 const filteredProviders = computed(() =>
-  props.providers.filter((provider) => matchesSearch(provider)),
+  props.providers.filter((provider) => isOperatorProvider(provider)).filter((provider) => matchesSearch(provider)),
 )
 
 const dashboardKpis = computed(() => {
   const totals = filteredProviders.value.reduce(
     (acc, provider) => {
       const metrics = providerMetrics(provider)
-      const status = providerStatusMeta(provider).key
+      const summary = buildProviderStatusSummary(provider, metrics)
+      const status = summary.status
 
       acc.providers += 1
       acc.aircraft += metrics.aircraft
       if (status === 'approved') acc.approved += 1
-      else if (status === 'pending' || status === 'draft') acc.pending += 1
-      else if (status === 'changes_required' || status === 'rejected') acc.suspended += 1
+      else if (status === 'under_review') acc.underReview += 1
+      else if (status === 'suspended') acc.suspended += 1
+      if (PROVIDER_PENDING_STATUS_KEYS.has(status)) acc.pending += 1
       return acc
     },
-    { providers: 0, approved: 0, pending: 0, suspended: 0, aircraft: 0 },
+    { providers: 0, approved: 0, pending: 0, underReview: 0, suspended: 0, aircraft: 0 },
   )
 
   return [
     { label: 'Proveedores totales', value: totals.providers, tone: 'default' },
     { label: 'Aprobados', value: totals.approved, tone: 'success' },
     { label: 'Pendientes', value: totals.pending, tone: 'warning' },
+    { label: 'En revision', value: totals.underReview, tone: 'info' },
+    { label: 'Suspendidos', value: totals.suspended, tone: 'neutral' },
     { label: 'Aeronaves totales', value: totals.aircraft, tone: 'info' },
   ]
 })
 
 const providerGroups = computed(() => {
-  const baseGroups = [
-    { key: 'approved', title: 'Aprobados', providers: [] },
-    { key: 'pending', title: 'Pendientes de revision', providers: [] },
-    { key: 'changes_required', title: 'Cambios requeridos', providers: [] },
-    { key: 'rejected', title: 'Validaciones canceladas', providers: [] },
-    { key: 'draft', title: 'Expediente incompleto', providers: [] },
-  ]
+  const baseGroups = PROVIDER_STATUS_GROUPS.map((group) => ({ ...group, providers: [] }))
 
   filteredProviders.value.forEach((provider) => {
-    const target = baseGroups.find((group) => group.key === providerStatusMeta(provider).key)
+    const summary = buildProviderStatusSummary(provider, providerMetrics(provider))
+    const target = baseGroups.find((group) => group.key === summary.status)
     if (target) target.providers.push(provider)
   })
 
@@ -765,7 +783,7 @@ const selectedProviderHeader = computed(() => {
 
   return {
     companyName: selectedProviderReview.value.companyName,
-    representative: selectedProviderReview.value.representative,
+    representative: providerResponsible(selectedProviderSnapshot.value || selectedProvider.value),
     base: selectedProviderReview.value.base,
     email: selectedProviderSnapshot.value?.company_email || 'Sin correo registrado',
     phone: selectedProviderSnapshot.value?.company_phone || 'Sin telefono registrado',
@@ -815,6 +833,37 @@ const selectedProviderFleetSummary = computed(() =>
 const selectedProviderSharedActivity = computed(() =>
   selectedProviderActivity.value.map((entry, index) => normalizeValidationActivityEntry(entry, index)),
 )
+
+const selectedProviderAuditSummary = computed(() => {
+  const snapshot = selectedProviderSnapshot.value || {}
+  const latestReviewEntry = selectedProviderSharedActivity.value.find((entry) =>
+    ['admin_operator_approved', 'admin_changes_requested', 'admin_operator_rejected'].includes(String(entry.actionType || '')),
+  )
+
+  return [
+    { label: 'Estado general', value: workflowLabel(snapshot.approval_status || snapshot.status) },
+    { label: 'Estado administrativo', value: workflowLabel(snapshot.admin_validation_status || snapshot.review_status) },
+    { label: 'Estado operativo', value: workflowLabel(snapshot.operator_status) },
+    { label: 'Acceso operativo', value: snapshot.access_enabled ? 'Habilitado' : 'Bloqueado' },
+    {
+      label: 'Admin responsable',
+      value: latestReviewEntry?.createdBy || snapshot.validated_by || snapshot.rejected_by || snapshot.changes_requested_by || 'Sin registro',
+    },
+    {
+      label: 'Fecha de revision',
+      value: formatDateTime(
+        snapshot.validated_at ||
+          snapshot.rejected_at ||
+          snapshot.changes_requested_at ||
+          snapshot.admin_review_submitted_at,
+      ),
+    },
+    {
+      label: 'Observaciones',
+      value: snapshot.changes_notes || snapshot.rejection_reason || snapshot.admin_validation_notes || snapshot.admin_notes || 'Sin observaciones',
+    },
+  ]
+})
 
 const selectedProviderDocumentLoadingState = computed(() => {
   const map = {}
@@ -1280,6 +1329,13 @@ async function validateSelectedProvider() {
     return
   }
 
+  if (typeof window !== 'undefined') {
+    const confirmed = window.confirm(
+      'Al aprobar este proveedor se habilitara:\n\n• Registro de aeronaves\n• Disponibilidad\n• Gestion de solicitudes\n• Operacion completa dentro del sistema.\n\n¿Deseas continuar?',
+    )
+    if (!confirmed) return
+  }
+
   await updateProviderValidation(selectedProvider.value, 'validate')
 }
 
@@ -1468,11 +1524,28 @@ onBeforeUnmount(() => {
             </div>
 
             <div class="provider-main-kpi">
-              <strong>{{ providerMetrics(provider).aircraft }}</strong>
-              <span>Aeronaves</span>
+              <strong>{{ providerOverview(provider).progress }}%</strong>
+              <span>Progreso del expediente</span>
+            </div>
+
+            <div class="provider-summary-inline">
+              <div class="provider-summary-inline__item">
+                <span>Documentacion</span>
+                <strong>
+                  {{ providerOverview(provider).documentSummary.approved }}/{{ providerOverview(provider).documentSummary.total }} aprobados
+                </strong>
+              </div>
+              <div class="provider-summary-inline__item">
+                <span>Estado operativo</span>
+                <strong>{{ providerOverview(provider).fleetSummary.label }}</strong>
+              </div>
             </div>
 
             <div class="provider-stats-inline">
+              <div class="provider-stat-card">
+                <span>Total</span>
+                <strong>{{ providerMetrics(provider).aircraft }}</strong>
+              </div>
               <div class="provider-stat-card">
                 <span>Activas</span>
                 <strong>{{ providerMetrics(provider).active }}</strong>
@@ -1500,7 +1573,7 @@ onBeforeUnmount(() => {
 
             <div class="provider-card-actions">
               <button type="button" class="provider-link provider-link-secondary" @click="openProviderDetail(provider)">
-                Revisar expediente
+                {{ ['approved', 'rejected', 'suspended'].includes(providerOverview(provider).status) ? 'Ver expediente' : 'Revisar expediente' }}
               </button>
               <button type="button" class="provider-link" @click="openProviderAircraft(provider)">
                 Ver aeronaves
@@ -1638,6 +1711,24 @@ onBeforeUnmount(() => {
               :badge-label="selectedProviderHeader.statusMeta.label"
             />
           </section>
+
+          <section class="provider-detail-panel">
+            <div class="provider-detail-panel-head">
+              <span class="eyebrow">Revision</span>
+              <strong>Estado y responsable</strong>
+            </div>
+
+            <div class="provider-review-meta">
+              <article
+                v-for="item in selectedProviderAuditSummary"
+                :key="item.label"
+                class="provider-review-meta__item"
+              >
+                <span>{{ item.label }}</span>
+                <strong>{{ item.value }}</strong>
+              </article>
+            </div>
+          </section>
 <section class="provider-detail-panel provider-admin-decision-panel">
   <div class="provider-admin-decision-head">
     <div>
@@ -1668,7 +1759,7 @@ onBeforeUnmount(() => {
 
   <div v-else-if="selectedProviderReview.statusMeta.key !== 'approved'" class="admin-decision-ready-note">
     <strong>Listo para validación administrativa</strong>
-    <span>Todos los requisitos del checklist ya fueron aprobados individualmente.</span>
+    <span>El expediente obligatorio ya está completo y listo para aprobación administrativa.</span>
   </div>
 
   <section class="admin-validation-checklist">
@@ -1789,6 +1880,13 @@ onBeforeUnmount(() => {
                 {{ alert.title }}
               </article>
             </div>
+          </section>
+
+          <section class="provider-detail-panel">
+            <OperatorActivityTimeline
+              title="Historial administrativo"
+              :activity="selectedProviderSharedActivity"
+            />
           </section>
 
       
@@ -1956,6 +2054,13 @@ onBeforeUnmount(() => {
     var(--providers-surface);
 }
 
+.tone-neutral {
+  border-color: rgba(126, 138, 156, 0.18);
+  background:
+    radial-gradient(circle at top right, rgba(126, 138, 156, 0.08), transparent 30%),
+    var(--providers-surface);
+}
+
 .filters-shell {
   border-radius: 1.4rem;
   border: 1px solid rgba(132, 151, 177, 0.14);
@@ -2097,8 +2202,16 @@ onBeforeUnmount(() => {
   color: #ffc85c;
 }
 
+.provider-dot-info {
+  color: #79a8f2;
+}
+
 .provider-dot-danger {
   color: #ff8d82;
+}
+
+.provider-dot-neutral {
+  color: #8a98aa;
 }
 
 .status-pill {
@@ -2119,9 +2232,19 @@ onBeforeUnmount(() => {
   background: var(--providers-warning-soft);
 }
 
+.status-pill-info {
+  color: #29548d;
+  background: rgba(121, 168, 242, 0.18);
+}
+
 .status-pill-danger {
   color: #8e3328;
   background: var(--providers-danger-soft);
+}
+
+.status-pill-neutral {
+  color: #475467;
+  background: rgba(138, 152, 170, 0.18);
 }
 
 .provider-main-kpi strong {
@@ -2132,21 +2255,43 @@ onBeforeUnmount(() => {
 
 .provider-main-kpi span,
 .provider-stats-inline span,
+.provider-summary-inline span,
 .provider-meta-row span {
   color: #8091a6;
 }
 
 .provider-main-kpi span,
-.provider-stats-inline span {
+.provider-stats-inline span,
+.provider-summary-inline span {
   font-size: 0.78rem;
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
 
+.provider-summary-inline {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.provider-summary-inline__item {
+  display: grid;
+  gap: 0.28rem;
+  border: 1px solid rgba(132, 151, 177, 0.12);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.72);
+  padding: 0.72rem 0.8rem;
+}
+
+.provider-summary-inline__item strong {
+  font-size: 0.98rem;
+  line-height: 1.2;
+}
+
 .provider-stats-inline {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.75rem;
 }
 
@@ -3347,6 +3492,7 @@ onBeforeUnmount(() => {
 @media (max-width: 760px) {
   .kpi-grid,
   .provider-grid,
+  .provider-summary-inline,
   .provider-stats-inline,
   .provider-detail-grid,
   .provider-detail-kpis,

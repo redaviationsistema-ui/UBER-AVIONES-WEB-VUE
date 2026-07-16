@@ -54,7 +54,7 @@ export const roleSections = {
     { id: 'usuarios', label: 'Usuarios y Roles', icon: 'crew' },
     { id: 'clientes', label: 'Clientes', icon: 'account' },
     { id: 'cotizaciones', label: 'Cotizaciones', icon: 'chart' },
-    { id: 'proveedores', label: 'Proveedores', icon: 'shield' },
+    { id: 'proveedores', label: 'Panel de proveedores', icon: 'shield' },
     { id: 'aeronaves', label: 'Aeronaves', icon: 'jet' },
     { id: 'disponibilidad-aeronaves', label: 'Disponibilidad de Aeronaves', icon: 'calendar' },
     { id: 'pagos-proveedor', label: 'Pagos proveedor', icon: 'wallet' },

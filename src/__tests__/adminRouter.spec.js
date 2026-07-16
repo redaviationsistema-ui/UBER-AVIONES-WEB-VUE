@@ -48,7 +48,7 @@ describe('admin router policy', () => {
     expect(crewAvailabilityRoute.meta.role).toBe('admin')
   })
 
-  it('loads /me only once for the admin guard and reuses the store on section changes', async () => {
+  it('reuses the initialized admin session on section changes without refetching auth', async () => {
     const authStore = {
       token: 'session-token',
       loaded: false,
@@ -70,8 +70,35 @@ describe('admin router policy', () => {
     await router.push('/admin/ejecutivo')
     await router.push('/admin/proveedores')
 
-    expect(authStore.loadCurrentUser).toHaveBeenCalledTimes(1)
+    expect(authStore.initialize).not.toHaveBeenCalled()
+    expect(authStore.loadCurrentUser).not.toHaveBeenCalled()
     expect(router.currentRoute.value.name).toBe('admin')
     expect(router.currentRoute.value.params.section).toBe('proveedores')
+  })
+
+  it('waits for a single bootstrap on protected admin routes before resolving access', async () => {
+    const authStore = {
+      token: 'session-token',
+      loaded: true,
+      initialized: false,
+      isAuthenticated: true,
+      user: { id: 7, role: 'admin' },
+      dashboardPath: '/admin/ejecutivo',
+      initialize: vi.fn(async () => {
+        authStore.initialized = true
+        return authStore.user
+      }),
+      loadCurrentUser: vi.fn(),
+      hasAdminAccess: vi.fn(() => true),
+      hasRole: vi.fn(() => true),
+    }
+
+    const router = await loadRouterWithAuthStore(authStore)
+
+    await router.push('/admin/ejecutivo')
+
+    expect(authStore.initialize).toHaveBeenCalledTimes(1)
+    expect(authStore.loadCurrentUser).not.toHaveBeenCalled()
+    expect(router.currentRoute.value.name).toBe('admin')
   })
 })

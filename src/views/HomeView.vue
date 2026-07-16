@@ -1,17 +1,11 @@
 <script setup>
 import { computed } from 'vue'
-import { useRouter } from 'vue-router'
 import LandingPage from '../components/LandingPage.vue'
 import SiteFooter from '../components/SiteFooter.vue'
 import { useAuthStore } from '../stores/auth'
 
-const router = useRouter()
 const auth = useAuthStore()
-const shouldRenderPublicHome = computed(() => !auth.isAuthenticated)
-
-if (auth.isAuthenticated) {
-  router.replace(auth.dashboardPath)
-}
+const shouldRenderPublicHome = computed(() => auth.initialized && !auth.isAuthenticated)
 </script>
 
 <template>

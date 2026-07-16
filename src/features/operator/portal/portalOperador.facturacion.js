@@ -13,11 +13,13 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
 
   const ACTIVE_SUBSCRIPTION_STATUSES = ['active', 'trialing']
   const PENDING_SUBSCRIPTION_STATUSES = ['pending_payment', 'incomplete']
+  const FAILED_SUBSCRIPTION_STATUSES = ['failed', 'rejected']
   const EXPIRED_SUBSCRIPTION_STATUSES = ['past_due', 'unpaid', 'expired', 'incomplete_expired']
   const CANCELLED_SUBSCRIPTION_STATUSES = ['cancelled', 'canceled', 'paused']
   const ACTIVE_BILLING_STATUSES = ['active']
-  const PENDING_BILLING_STATUSES = ['pending_payment', 'payment_pending']
-  const EXPIRED_BILLING_STATUSES = ['past_due', 'expired']
+  const PENDING_BILLING_STATUSES = ['pending_payment', 'payment_pending', 'pending', 'processing', 'open', 'requires_action']
+  const FAILED_BILLING_STATUSES = ['failed', 'rejected']
+  const EXPIRED_BILLING_STATUSES = ['past_due', 'expired', 'unpaid']
 
   function normalizeStatus(value = '') {
     return String(value || '')
@@ -117,6 +119,17 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
     }
   }
 
+  function hasReusableCheckout(item = {}) {
+    return Boolean(
+      item.hasPendingCheckout ||
+      item.canContinueCheckout ||
+      item.providerCheckoutId ||
+      item.provider_checkout_id ||
+      item.checkoutSessionId ||
+      item.checkout_session_id,
+    )
+  }
+
   function hasExpiredAircraftSubscription(item = {}) {
     const rawEndsAt = getSubscriptionEndsAt(item)
 
@@ -133,6 +146,7 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
   }
 
   function getAircraftUiState(item = {}) {
+    const primaryBillingAction = normalizeStatus(item.primaryBillingAction || item.primary_action)
     const operationalStatus = getOperationalStatus(item)
     const billingStatus = getBillingStatus(item)
     const subscriptionStatus = getSubscriptionStatus(item)
@@ -140,11 +154,69 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
     const hasPendingSubscription =
       PENDING_SUBSCRIPTION_STATUSES.includes(subscriptionStatus) ||
       PENDING_BILLING_STATUSES.includes(billingStatus)
+    const hasFailedSubscription =
+      FAILED_SUBSCRIPTION_STATUSES.includes(subscriptionStatus) ||
+      FAILED_BILLING_STATUSES.includes(billingStatus)
     const hasExpiredSubscription =
       EXPIRED_SUBSCRIPTION_STATUSES.includes(subscriptionStatus) ||
       EXPIRED_BILLING_STATUSES.includes(billingStatus)
     const hasCancelledSubscription = CANCELLED_SUBSCRIPTION_STATUSES.includes(subscriptionStatus)
     const hasActiveBilling = ACTIVE_BILLING_STATUSES.includes(billingStatus)
+
+    if (item.canOperate === true && operationalStatus === 'active') {
+      return {
+        key: 'active',
+        label: 'Activa',
+        tone: 'success',
+        action: 'payments',
+        operationalEnabled: true,
+        reasonMessage: 'Aeronave activa y con suscripcion vigente.',
+      }
+    }
+
+    if (primaryBillingAction === 'continue_payment') {
+      return {
+        key: 'pending_payment',
+        label: 'Pago pendiente',
+        tone: 'warning',
+        action: 'pay',
+        operationalEnabled: false,
+        reasonMessage: 'Existe un checkout pendiente para esta aeronave.',
+      }
+    }
+
+    if (primaryBillingAction === 'verify_payment') {
+      return {
+        key: 'sync_required',
+        label: 'Pago en verificacion',
+        tone: 'info',
+        action: 'sync',
+        operationalEnabled: false,
+        reasonMessage: 'Stripe ya devolvio actividad y falta conciliar el estado oficial.',
+      }
+    }
+
+    if (primaryBillingAction === 'regularize_payment') {
+      return {
+        key: hasExpiredSubscription ? 'expired' : 'payment_failed',
+        label: hasExpiredSubscription ? 'Pago vencido' : 'Pago pendiente',
+        tone: 'danger',
+        action: 'pay',
+        operationalEnabled: false,
+        reasonMessage: 'La aeronave necesita regularizar su pago para volver a operar.',
+      }
+    }
+
+    if (primaryBillingAction === 'activate') {
+      return {
+        key: 'inactive',
+        label: 'Inactiva',
+        tone: 'warning',
+        action: 'pay',
+        operationalEnabled: false,
+        reasonMessage: 'La aeronave todavia no ha iniciado su pago de activacion.',
+      }
+    }
 
     if (isHiddenOperationalStatus(operationalStatus)) {
       return {
@@ -162,7 +234,7 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
         key: 'under_review',
         label: 'En revision',
         tone: 'warning',
-        action: 'payments',
+        action: 'none',
         operationalEnabled: false,
         reasonMessage: 'Aeronave pendiente de revision administrativa.',
       }
@@ -204,8 +276,8 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
       logInconsistentAircraftState(item, 'inactive_with_active_subscription')
       return {
         key: 'sync_required',
-        label: 'Sincronizacion requerida',
-        tone: 'warning',
+        label: 'Pago confirmado',
+        tone: 'info',
         action: 'sync',
         operationalEnabled: false,
         reasonMessage: 'La suscripcion figura activa, pero la aeronave no fue reactivada en el backend.',
@@ -217,9 +289,22 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
         key: 'pending_payment',
         label: 'Pago pendiente',
         tone: 'warning',
-        action: 'sync',
+        action: hasReusableCheckout(item) ? 'pay' : 'sync',
         operationalEnabled: false,
-        reasonMessage: 'Esta aeronave esta deshabilitada porque su suscripcion no esta vigente.',
+        reasonMessage: hasReusableCheckout(item)
+          ? 'Existe un checkout pendiente para esta aeronave.'
+          : 'El pago sigue pendiente de confirmacion.',
+      }
+    }
+
+    if (hasFailedSubscription) {
+      return {
+        key: 'payment_failed',
+        label: 'Pago fallido',
+        tone: 'danger',
+        action: 'pay',
+        operationalEnabled: false,
+        reasonMessage: 'El pago no pudo confirmarse. Puedes intentarlo nuevamente.',
       }
     }
 
@@ -228,7 +313,7 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
         key: 'expired',
         label: 'Pago vencido',
         tone: 'danger',
-        action: 'activate',
+        action: 'pay',
         operationalEnabled: false,
         reasonMessage: 'Tu mensualidad vencio. Realiza el pago para volver a activar la aeronave.',
       }
@@ -239,7 +324,7 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
         key: 'cancelled',
         label: 'Suscripcion cancelada',
         tone: 'neutral',
-        action: 'activate',
+        action: 'pay',
         operationalEnabled: false,
         reasonMessage: 'Esta aeronave esta deshabilitada porque su suscripcion no esta vigente.',
       }
@@ -249,7 +334,7 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
       key: 'inactive',
       label: 'Inactiva',
       tone: 'warning',
-      action: 'activate',
+      action: 'pay',
       operationalEnabled: false,
       reasonMessage: 'Esta aeronave esta deshabilitada porque su suscripcion no esta vigente.',
     }
@@ -463,7 +548,7 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
         detail: hasStripeTrace
           ? 'Stripe ya devolvio actividad para esta aeronave. Estamos esperando que el backend confirme la activacion final.'
           : 'La mensualidad se esta sincronizando. Actualiza el estado en unos segundos.',
-        cta: 'Sincronizar pago',
+        cta: uiState.action === 'pay' ? 'Continuar con el pago' : 'Verificar pago',
         action: uiState.action,
         ready: false,
         code: 'billing_syncing',
@@ -478,9 +563,7 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
         detail: formattedEndsAt
           ? `Vencio el: ${formattedEndsAt}`
           : 'La aeronave no esta visible actualmente. Renueva la mensualidad para reactivarla.',
-        cta: providerAircraftPlanAmount.value
-          ? `Pagar mensualidad por ${formatCurrency(providerAircraftPlanAmount.value)}`
-          : 'Pagar mensualidad',
+        cta: 'Regularizar pago',
         action: uiState.action,
         ready: false,
         code: 'billing_expired',
@@ -493,12 +576,23 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
         label: uiState.label,
         tone: 'neutral',
         detail: 'La suscripcion fue cancelada. Necesita un nuevo cobro para reactivarse.',
-        cta: providerAircraftPlanAmount.value
-          ? `Reactivar por ${formatCurrency(providerAircraftPlanAmount.value)}`
-          : 'Reactivar',
+        cta: 'Regularizar pago',
         action: uiState.action,
         ready: false,
         code: 'billing_cancelled',
+        reasonMessage: uiState.reasonMessage,
+      }
+    }
+
+    if (uiState.key === 'payment_failed') {
+      return {
+        label: uiState.label,
+        tone: uiState.tone,
+        detail: 'El cobro anterior no se pudo completar o fue rechazado.',
+        cta: 'Regularizar pago',
+        action: uiState.action,
+        ready: false,
+        code: 'billing_failed',
         reasonMessage: uiState.reasonMessage,
       }
     }
@@ -507,8 +601,8 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
       return {
         label: uiState.label,
         tone: uiState.tone,
-        detail: 'La informacion de facturacion y estado operativo no coincide. Sincroniza la aeronave antes de operar.',
-        cta: 'Sincronizar',
+        detail: 'Pago confirmado. El backend esta actualizando la activacion de la aeronave.',
+        cta: 'Verificar pago',
         action: uiState.action,
         ready: false,
         code: 'billing_sync_required',
@@ -534,7 +628,7 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
         label: uiState.label,
         tone: uiState.tone,
         detail: 'La aeronave sigue en revision administrativa y no esta habilitada comercialmente.',
-        cta: 'Ver pagos',
+        cta: 'Pendiente de validacion',
         action: uiState.action,
         ready: false,
         code: 'billing_under_review',
@@ -547,10 +641,8 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
         label: uiState.label,
         tone: uiState.tone,
         detail: 'La aeronave fue registrada correctamente y queda pendiente de activacion mensual.',
-        cta: providerAircraftPlanAmount.value
-          ? `Activar por ${formatCurrency(providerAircraftPlanAmount.value)}`
-          : 'Activar',
-        action: uiState.action,
+        cta: 'Activar aeronave',
+        action: 'pay',
         ready: false,
         code: 'billing_missing_state',
         reasonMessage: uiState.reasonMessage,
@@ -561,10 +653,8 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
       label: uiState.label,
       tone: uiState.tone,
       detail: 'Esta aeronave esta deshabilitada porque su suscripcion no esta vigente.',
-      cta: providerAircraftPlanAmount.value
-        ? `Activar por ${formatCurrency(providerAircraftPlanAmount.value)}`
-        : 'Activar',
-      action: uiState.action,
+      cta: 'Activar aeronave',
+      action: 'pay',
       ready: false,
       code: 'billing_inactive',
       reasonMessage: uiState.reasonMessage,

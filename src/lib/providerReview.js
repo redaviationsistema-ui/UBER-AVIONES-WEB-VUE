@@ -1,5 +1,14 @@
 import { looksLikePlaceholderCompany, resolveBestCompanyDisplayName } from './companyDisplay'
 import { resolveCompanyDocumentDefinition } from './providerCompanyDocuments'
+import {
+  areLegalDocumentsApproved,
+  buildProviderDocumentSummary,
+  buildProviderStatusSummary,
+  isProviderReviewSubmitted,
+  isProviderRequirementApproved,
+  isProviderRequirementRejected,
+  resolveProviderRepresentativeName as resolveProviderRepresentativeNameFromStatus,
+} from '../utils/providerStatus'
 
 function normalizeToken(value = '') {
   return String(value || '')
@@ -16,6 +25,15 @@ function normalizeText(value = '') {
   return String(value || '')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+function isValidMexicanRfc(value = '') {
+  const normalized = String(value || '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '')
+
+  return /^([A-Z&Ñ]{3,4})\d{6}[A-Z0-9]{3}$/.test(normalized)
 }
 
 function sameNormalizedValue(left = '', right = '') {
@@ -97,6 +115,21 @@ function normalizeRequirementComplete(item = {}) {
   return false
 }
 
+function hasOperationalBase(provider = {}) {
+  const candidates = [
+    provider.base_airport,
+    provider.base,
+    provider.location,
+    provider.user?.profile?.base_airport,
+    provider.user?.profile?.base,
+  ]
+
+  return candidates.some((value) => {
+    const normalized = normalizeText(value).toLowerCase()
+    return normalized && !['base pendiente', 'sin base operativa', 'pendiente', 'n/a', 'na'].includes(normalized)
+  })
+}
+
 function requirementResponseApproved(item = {}) {
   return normalizeRequirementDecisionStatus(item.responseStatus || item.response_status) === 'approved'
 }
@@ -127,8 +160,6 @@ function normalizeReviewDocuments(provider = {}) {
     }
   })
 }
-
-const APPROVED_AIRCRAFT_STATUSES = ['active', 'trial_active', 'inactive', 'approved', 'aprobado', 'aprobada']
 
 const LEGAL_REQUIREMENT_DOCUMENT_KEYS = [
   'articles_of_incorporation',
@@ -231,9 +262,9 @@ function buildRequirementRecord(base, backendItem = {}, overrides = {}) {
 }
 
 function resolveValidationRequirements(provider = {}, metrics = {}) {
+  const providerStatus = buildProviderStatusSummary(provider, metrics)
   const backendRequirementMap = buildBackendRequirementMap(provider)
   const documents = normalizeReviewDocuments(provider)
-  const active = toNumber(metrics.active || provider.active_aircraft_count || 0)
   const hasCompanyData = Boolean(
     provider.legal_name ||
       provider.razon_social ||
@@ -242,9 +273,10 @@ function resolveValidationRequirements(provider = {}, metrics = {}) {
       provider.nombre_empresa
   )
   const hasContact = Boolean(provider.company_phone || provider.phone) && Boolean(provider.company_email || provider.email)
-  const hasFiscal = Boolean(provider.rfc)
-  const representative = resolveProviderRepresentativeName(provider)
-  const base = provider.base_airport || provider.base || provider.location || ''
+  const hasFiscal = isValidMexicanRfc(provider.rfc || provider.tax_id)
+  const representative = providerStatus.representative || resolveProviderRepresentativeNameFromStatus(provider)
+  const base = provider.base_airport || provider.base || provider.location || provider.user?.profile?.base_airport || ''
+  const documentSummary = providerStatus.documentSummary || buildProviderDocumentSummary(provider)
   const satDocuments = documents.filter((document) => document._definitionKey === 'sat_certificate')
   const legalDocuments = documents.filter(
     (document) =>
@@ -256,18 +288,35 @@ function resolveValidationRequirements(provider = {}, metrics = {}) {
   const latestSatDocument = latestReviewedDocument(satDocuments)
   const latestLegalDocument = latestReviewedDocument(legalDocuments)
   const satFallbackStatus = normalizeRequirementDecisionStatus(resolveSatValidationStatus(provider))
-  const satRequirementStatus =
-    satDocuments.length > 0 || satDocumentState.complete
-      ? satDocumentState.responseStatus
-      : satFallbackStatus
+  const satRequirementApproved = isProviderRequirementApproved(
+    provider,
+    ['sat_validation', 'sat_validated'],
+    providerStatus.requirementsByKey?.sat_validated === true,
+  )
+  const satRequirementRejected = isProviderRequirementRejected(provider, ['sat_validation', 'sat_validated'])
+  const satRequirementStatus = satRequirementApproved
+    ? 'approved'
+    : satRequirementRejected
+      ? 'rejected'
+      : satDocuments.length > 0 || satDocumentState.complete
+        ? satDocumentState.responseStatus
+        : satFallbackStatus
   const satRequirementComplete = satRequirementStatus === 'approved'
-  const legalRequirementComplete = legalDocumentState.responseStatus === 'approved'
-  const providerAircraft = Array.isArray(provider.aircraft) ? provider.aircraft : []
-  const approvedAircraftCount = providerAircraft.filter((item) =>
-    APPROVED_AIRCRAFT_STATUSES.includes(normalizeToken(item?.status)),
-  ).length
-  const aircraftRequirementComplete = approvedAircraftCount > 0 || active > 0
-
+  const legalRequirementApproved = isProviderRequirementApproved(
+    provider,
+    'legal_documents_approved',
+    providerStatus.requirementsByKey?.legal_documents_approved === true || areLegalDocumentsApproved(documentSummary),
+  )
+  const legalRequirementRejected =
+    isProviderRequirementRejected(provider, 'legal_documents_approved') ||
+    legalDocumentState.responseStatus === 'rejected' ||
+    documentSummary.rejected > 0
+  const legalRequirementStatus = legalRequirementApproved
+    ? 'approved'
+    : legalRequirementRejected
+      ? 'rejected'
+      : 'pending'
+  const legalRequirementComplete = legalRequirementStatus === 'approved'
   const requirements = [
     buildRequirementRecord(
       { key: 'company_identity', label: 'Datos de empresa completos', message: 'Faltan datos corporativos del operador.' },
@@ -300,7 +349,7 @@ function resolveValidationRequirements(provider = {}, metrics = {}) {
       backendRequirementMap.get('legal_documents_approved'),
       {
         complete: legalRequirementComplete,
-        responseStatus: legalDocumentState.responseStatus,
+        responseStatus: legalRequirementStatus,
         respondedAt: latestLegalDocument?._reviewedAt,
         actorName: latestLegalDocument?._reviewedBy,
         adminNote:
@@ -313,14 +362,7 @@ function resolveValidationRequirements(provider = {}, metrics = {}) {
       { key: 'base_operativa', label: 'Base operativa definida', message: 'Falta base operativa definida.' },
       backendRequirementMap.get('base_operativa'),
       {
-        complete: Boolean(base),
-      },
-    ),
-    buildRequirementRecord(
-      { key: 'aircraft_active', label: 'Aeronave activa o aprobada', message: 'Se requiere al menos una aeronave activa o aprobada.' },
-      backendRequirementMap.get('aircraft_active'),
-      {
-        complete: aircraftRequirementComplete,
+        complete: hasOperationalBase(provider),
       },
     ),
     buildRequirementRecord(
@@ -335,6 +377,13 @@ function resolveValidationRequirements(provider = {}, metrics = {}) {
       backendRequirementMap.get('legal_representative_complete'),
       {
         complete: representative !== 'Sin representante',
+      },
+    ),
+    buildRequirementRecord(
+      { key: 'review_submitted', label: 'Expediente enviado a revision', message: 'El proveedor aun no envia el expediente a revision administrativa.' },
+      backendRequirementMap.get('review_submitted'),
+      {
+        complete: isProviderReviewSubmitted(provider),
       },
     ),
   ]
@@ -366,23 +415,7 @@ export function resolveProviderCompanyName(provider = {}) {
 }
 
 export function resolveProviderRepresentativeName(provider = {}) {
-  const companyName = resolveProviderCompanyName(provider)
-  const candidates = [
-    provider.representative_name,
-    provider.legal_representative,
-    provider.representante_legal,
-    provider.contact_name,
-    provider.contact,
-    provider.owner_name,
-    provider.user?.profile?.legal_representative,
-    provider.user?.name,
-  ]
-
-  const realRepresentative = candidates
-    .map((candidate) => normalizeText(candidate))
-    .find((candidate) => candidate && !isPlaceholderIdentity(candidate) && !sameNormalizedValue(candidate, companyName))
-
-  return realRepresentative || 'Sin representante'
+  return resolveProviderRepresentativeNameFromStatus(provider)
 }
 
 export function resolveProviderAdminValidationStatus(provider = {}) {
@@ -402,68 +435,46 @@ export function resolveProviderAdminValidationStatus(provider = {}) {
   const accessEnabled = Boolean(provider.access_enabled ?? provider.accessEnabled)
   const operatorStatus = normalizeToken(provider.operator_status || provider.operatorStatus)
   const approval = normalizeToken(provider.approval_status || provider.validation_status || provider.status || provider.state)
-  if (accessEnabled && (operatorStatus === 'validated' || approval === 'approved')) return 'approved'
+  if (accessEnabled && ['active', 'validated'].includes(operatorStatus)) return 'approved'
+  if (accessEnabled && approval === 'approved') return 'approved'
   if (approval === 'rejected') return 'rejected'
-  if (approval === 'suspended') return 'changes_required'
+  if (['changes_requested', 'changes_required', 'suspended'].includes(approval)) return 'changes_required'
+  if (['changes_requested', 'changes_required'].includes(explicit)) return 'changes_required'
   if (provider.admin_review_submitted_at || provider.adminReviewSubmittedAt) return 'pending_review'
   return 'draft'
 }
 
 export function resolveProviderStatusMeta(provider = {}) {
-  const normalized = resolveProviderAdminValidationStatus(provider)
-
-  if (normalized === 'approved') {
-    return {
-      key: 'approved',
-      label: 'Aprobado',
-      tone: 'success',
-      headline: 'Operador validado por administracion',
-    }
-  }
-
-  if (normalized === 'changes_required') {
-    return {
-      key: 'changes_required',
-      label: 'Cambios requeridos',
-      tone: 'danger',
-      headline: 'Cambios solicitados por administracion',
-    }
-  }
-
-  if (normalized === 'rejected' || normalized === 'cancelled') {
-    return {
-      key: 'rejected',
-      label: 'Validacion cancelada',
-      tone: 'danger',
-      headline: 'Expediente rechazado por administracion',
-    }
-  }
-
-  if (normalized === 'pending_review' || normalized === 'pending_validation') {
-    return {
-      key: 'pending',
-      label: 'En revision',
-      tone: 'warning',
-      headline: 'Expediente enviado a revision administrativa',
-    }
+  const summary = buildProviderStatusSummary(provider)
+  const headlineMap = {
+    draft: 'Expediente pendiente de validacion administrativa',
+    incomplete: 'Expediente pendiente de validacion administrativa',
+    submitted: 'Expediente enviado a revision administrativa',
+    under_review: 'Operador en revision administrativa',
+    observations: 'Cambios solicitados por administracion',
+    approved: 'Operador validado por administracion',
+    rejected: 'Expediente rechazado por administracion',
+    suspended: 'Operador suspendido administrativamente',
   }
 
   return {
-    key: 'draft',
-    label: 'Expediente incompleto',
-    tone: 'neutral',
-    headline: 'Expediente pendiente de validacion administrativa',
+    ...summary.statusMeta,
+    headline: headlineMap[summary.status] || headlineMap.draft,
   }
 }
 
 export function buildProviderReviewFlow(provider = {}, metrics = {}) {
-  const baseStatusMeta = resolveProviderStatusMeta(provider)
+  const providerStatus = buildProviderStatusSummary(provider, metrics)
+  const baseStatusMeta = {
+    ...providerStatus.statusMeta,
+    headline: resolveProviderStatusMeta(provider).headline,
+  }
   const documentCount = countDocuments(provider)
-  const aircraft = toNumber(metrics.aircraft || provider.aircraft_count || 0)
-  const active = toNumber(metrics.active || provider.active_aircraft_count || 0)
-  const trial = toNumber(metrics.trial || provider.trial_aircraft_count || 0)
-  const representative = resolveProviderRepresentativeName(provider)
-  const base = provider.base_airport || provider.base || provider.location || 'Base pendiente'
+  const aircraft = providerStatus.fleetSummary.total
+  const active = providerStatus.fleetSummary.active
+  const trial = providerStatus.fleetSummary.trial
+  const representative = providerStatus.representative
+  const base = providerStatus.base
   const validationRequirements = resolveValidationRequirements(provider, metrics)
   const approvedValidationItems = validationRequirements.filter((item) => requirementResponseApproved(item))
   const rejectedValidationItems = validationRequirements.filter((item) => requirementResponseRejected(item))
@@ -487,41 +498,21 @@ export function buildProviderReviewFlow(provider = {}, metrics = {}) {
   const progress = {
     completed,
     total: checklist.length,
-    percent: checklist.length ? Math.round((completed / checklist.length) * 100) : 0,
+    percent: providerStatus.progress,
   }
-  const statusMeta =
-    baseStatusMeta.key === 'draft' && allRequirementsApproved
-      ? {
-          key: 'pending',
-          label: 'Listo para validar',
-          tone: 'info',
-          headline: 'Expediente listo para validacion administrativa',
-        }
-      : baseStatusMeta
+  const statusMeta = baseStatusMeta
 
   const summary = [
-    { label: 'Estado empresa', value: statusMeta.label, tone: statusMeta.tone },
+    { label: 'Estado del proveedor', value: statusMeta.label, tone: statusMeta.tone },
     {
-      label: 'Expediente',
-      value: allRequirementsApproved ? 'Completo' : rejectedValidationItems.length ? 'Con observaciones' : 'Incompleto',
-      tone: allRequirementsApproved ? 'success' : rejectedValidationItems.length ? 'danger' : 'warning',
+      label: 'Documentacion',
+      value: `${providerStatus.documentSummary.approved}/${providerStatus.documentSummary.total} aprobados`,
+      tone: providerStatus.documentSummary.approved === providerStatus.documentSummary.total ? 'success' : providerStatus.documentSummary.rejected ? 'danger' : 'warning',
     },
     {
-      label: 'Documentacion legal',
-      value: (() => {
-        const legalRequirement = validationRequirements.find((item) => item.key === 'legal_documents_approved')
-        if (!legalRequirement) return documentCount ? `${documentCount} documento(s)` : 'Sin documentos'
-        if (requirementResponseApproved(legalRequirement)) return 'Aprobada'
-        if (requirementResponseRejected(legalRequirement)) return 'Rechazada'
-        return legalRequirement.complete ? 'Pendiente de decision' : 'Incompleta'
-      })(),
-      tone: (() => {
-        const legalRequirement = validationRequirements.find((item) => item.key === 'legal_documents_approved')
-        if (!legalRequirement) return documentCount ? 'warning' : 'warning'
-        if (requirementResponseApproved(legalRequirement)) return 'success'
-        if (requirementResponseRejected(legalRequirement)) return 'danger'
-        return legalRequirement.complete ? 'warning' : 'warning'
-      })(),
+      label: 'Pendientes documentales',
+      value: `${providerStatus.documentSummary.pending}`,
+      tone: providerStatus.documentSummary.pending ? 'warning' : 'success',
     },
     {
       label: 'Requisitos admin aprobados',
@@ -539,9 +530,9 @@ export function buildProviderReviewFlow(provider = {}, metrics = {}) {
       tone: rejectedValidationItems.length ? 'danger' : 'neutral',
     },
     {
-      label: 'Aeronaves activas',
-      value: active ? `${active} activas` : aircraft ? `${aircraft} registradas` : '0 registradas',
-      tone: active ? 'success' : aircraft ? 'info' : 'neutral',
+      label: 'Estado operativo',
+      value: providerStatus.fleetSummary.label,
+      tone: providerStatus.fleetSummary.status === 'active_fleet' ? 'success' : providerStatus.fleetSummary.status === 'mixed_fleet' ? 'info' : 'warning',
     },
     {
       label: 'Trial',
@@ -569,7 +560,7 @@ export function buildProviderReviewFlow(provider = {}, metrics = {}) {
     })),
   ]
 
-  if (statusMeta.key === 'changes_required') {
+  if (statusMeta.key === 'observations') {
     alerts.unshift({
       tone: 'danger',
       title:
@@ -596,10 +587,11 @@ export function buildProviderReviewFlow(provider = {}, metrics = {}) {
   if (!alerts.length && statusMeta.key === 'approved') {
     alerts.push({ tone: 'success', title: 'Operador validado por administracion. Acceso operativo habilitado.' })
   } else if (!alerts.length) {
-    alerts.push({ tone: 'info', title: 'Expediente pendiente de validacion administrativa.' })
+    alerts.push({ tone: 'info', title: statusMeta.description || 'Expediente pendiente de validacion administrativa.' })
   }
 
   return {
+    status: providerStatus.status,
     statusMeta,
     progress,
     checklist,
@@ -608,8 +600,14 @@ export function buildProviderReviewFlow(provider = {}, metrics = {}) {
     alerts: alerts.slice(0, 4),
     canValidate,
     missingValidationItems,
+    missingRequirements: providerStatus.missingRequirements,
+    requirementsByKey: providerStatus.requirementsByKey,
+    canSubmit: providerStatus.canSubmit,
+    submitted: providerStatus.submitted,
     accessEnabled: Boolean(provider.access_enabled ?? provider.accessEnabled ?? false),
     documentCount,
+    documentSummary: providerStatus.documentSummary,
+    fleetSummary: providerStatus.fleetSummary,
     representative,
     base,
     companyName: resolveProviderCompanyName(provider),

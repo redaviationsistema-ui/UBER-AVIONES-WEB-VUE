@@ -17,6 +17,15 @@ function shouldTryNextCandidate(error) {
   return false
 }
 
+function resolveRetryStatuses(candidate = {}, requestOptions = {}) {
+  const statuses = [
+    ...(Array.isArray(requestOptions.retryOnStatuses) ? requestOptions.retryOnStatuses : []),
+    ...(Array.isArray(candidate.retryOnStatuses) ? candidate.retryOnStatuses : []),
+  ]
+
+  return [...new Set(statuses.map((status) => Number(status)).filter((status) => Number.isInteger(status) && status > 0))]
+}
+
 function buildAttemptSummary(attempts = []) {
   return attempts
     .map((attempt) => {
@@ -46,6 +55,7 @@ export async function requestWithCandidates(candidates, requestOptions = {}) {
         headers: candidate.headers,
         timeoutMs: candidate.timeoutMs,
         signal: requestOptions.signal,
+        redirectOnForbidden: candidate.redirectOnForbidden,
       }
 
       if (method === 'get') {
@@ -77,11 +87,18 @@ export async function requestWithCandidates(candidates, requestOptions = {}) {
       }
     } catch (error) {
       lastError = error
+      const retryStatuses = resolveRetryStatuses(candidate, requestOptions)
+      const currentStatus = Number(error?.status || 0)
+
       attempts.push({
         method: candidate.method || 'get',
         path: candidate.path,
-        status: Number(error?.status || 0),
+        status: currentStatus,
       })
+
+      if (retryStatuses.includes(currentStatus)) {
+        continue
+      }
 
       if (!shouldTryNextCandidate(error)) {
         throw error

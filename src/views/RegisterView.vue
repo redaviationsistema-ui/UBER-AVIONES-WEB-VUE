@@ -9,7 +9,6 @@ import {
   roleLabels,
 } from '../features/register/registrationSteps'
 import '../features/register/registerWizard.css'
-import { resolveDashboardPathByRole, resolvePostRegistrationDashboard } from '../lib/authRouting'
 import { useAuthStore } from '../stores/auth'
 
 const RegisterClientStep = defineAsyncComponent(
@@ -606,20 +605,19 @@ async function submit() {
       intendedRole: form.role,
       path: registerPath,
     })
-    await auth.refreshSession()
     const providerStatus = String(response?.provider_status || '').trim().toLowerCase()
-    const targetDashboard = resolvePostRegistrationDashboard(form.role, response, auth.dashboardPath)
 
     successMessage.value =
       form.role === 'client'
-        ? 'Usuario cliente creado. Entrando a su portal correspondiente.'
+        ? 'Usuario cliente creado. Redirigiendo al acceso de clientes.'
         : form.role === 'provider'
           ? providerStatus === 'pending_validation'
-            ? 'Proveedor creado correctamente. Tu cuenta quedo pendiente de validacion administrativa.'
-            : 'Operador creado correctamente. Entrando a su panel operativo.'
-          : 'Sobrecargo creado correctamente. Entrando a su panel correspondiente.'
+            ? 'Proveedor creado correctamente. Redirigiendo al acceso de clientes.'
+            : 'Operador creado correctamente. Redirigiendo al acceso de clientes.'
+          : 'Sobrecargo creado correctamente. Redirigiendo al acceso de clientes.'
 
-    router.push(targetDashboard || resolveDashboardPathByRole(form.role) || auth.dashboardPath)
+    auth.clearAuth()
+    router.push({ name: 'login-cliente' })
   } catch (error) {
     errorMessage.value = error.message || 'No fue posible crear el usuario.'
     openErrorModal(error)

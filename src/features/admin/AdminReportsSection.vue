@@ -24,7 +24,7 @@ const summaryCards = computed(() => {
   return [
     { label: 'Registros de pago', value: String(totalPayments), detail: 'Conteo devuelto por el reporte backend.' },
     { label: 'Monto consolidado', value: new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }).format(totalPaid), detail: 'Suma reportada por tipo y estatus.' },
-    { label: 'Reservas trazadas', value: String(totalReservations), detail: 'Estados de reserva entregados por Laravel.' },
+    { label: 'Reservas trazadas', value: String(totalReservations), detail: 'Estados de reserva entregados por Sistema.' },
     { label: 'Cotizaciones trazadas', value: String(totalQuotes), detail: 'Estados de cotización presentes en el reporte.' },
   ]
 })
@@ -58,7 +58,7 @@ const reportBlocks = computed(() => [
         <p class="eyebrow dark-eyebrow">Reportes backend</p>
         <h1>Lectura consolidada de pagos, reservas y cotizaciones.</h1>
         <p class="hero-subtitle">
-          Esta vista solo muestra agrupaciones devueltas por Laravel. No inventa series locales ni exportaciones inseguras.
+          Esta vista solo muestra agrupaciones devueltas por Sistema. No inventa series locales ni exportaciones inseguras.
         </p>
       </div>
     </section>
@@ -83,7 +83,7 @@ const reportBlocks = computed(() => [
 
       <div v-if="reportBlocks.every((block) => !block.rows.length) && !loading" class="empty-state">
         <strong>Sin reporte disponible.</strong>
-        <p>Laravel todavía no devolvió datos para estos cortes administrativos.</p>
+        <p>Sistema todavía no devolvió datos para estos cortes administrativos.</p>
       </div>
 
       <div v-else class="reports-grid">

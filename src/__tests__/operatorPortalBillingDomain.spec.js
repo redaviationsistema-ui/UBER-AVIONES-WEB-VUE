@@ -60,7 +60,7 @@ describe('operator portal billing domain', () => {
     })
 
     expect(meta.label).toBe('Pago vencido')
-    expect(meta.action).toBe('activate')
+    expect(meta.action).toBe('pay')
     expect(meta.ready).toBe(false)
     expect(meta.code).toBe('billing_expired')
     expect(meta.detail).toContain('Vencio el:')
@@ -76,7 +76,7 @@ describe('operator portal billing domain', () => {
     })
 
     expect(meta.label).toBe('Pago vencido')
-    expect(meta.action).toBe('activate')
+    expect(meta.action).toBe('pay')
     expect(meta.code).toBe('billing_expired')
   })
 
@@ -90,12 +90,12 @@ describe('operator portal billing domain', () => {
     })
 
     expect(meta.label).toBe('Suscripcion cancelada')
-    expect(meta.action).toBe('activate')
+    expect(meta.action).toBe('pay')
     expect(meta.ready).toBe(false)
     expect(meta.code).toBe('billing_cancelled')
   })
 
-  it('shows pending payment aircraft as pago pendiente and asks to sync', () => {
+  it('keeps reusable checkout aircraft as pago pendiente and allows returning to payment', () => {
     const domain = buildDomain(true)
     const meta = domain.getAircraftBillingStatusMeta({
       id: 30,
@@ -103,10 +103,13 @@ describe('operator portal billing domain', () => {
       billingStatus: 'pending_payment',
       subscriptionStatus: 'pending_payment',
       providerCheckoutId: 'cs_test_aircraft_001',
+      gatewayResponse: {
+        checkout_url: 'https://checkout.stripe.test/session/cs_test_aircraft_001',
+      },
     })
 
     expect(meta.label).toBe('Pago pendiente')
-    expect(meta.action).toBe('sync')
+    expect(meta.action).toBe('pay')
     expect(meta.ready).toBe(false)
     expect(meta.code).toBe('billing_syncing')
     expect(domain.shouldPollAircraftBillingStatus({ subscriptionStatus: 'pending_payment' })).toBe(true)
@@ -122,9 +125,24 @@ describe('operator portal billing domain', () => {
     })
 
     expect(meta.label).toBe('Inactiva')
-    expect(meta.action).toBe('activate')
+    expect(meta.action).toBe('pay')
     expect(meta.ready).toBe(false)
     expect(meta.code).toBe('billing_inactive')
+  })
+
+  it('marks failed aircraft billing as retryable payment instead of manual activation', () => {
+    const domain = buildDomain(true)
+    const meta = domain.getAircraftBillingStatusMeta({
+      id: 33,
+      status: 'inactive',
+      billingStatus: 'failed',
+      subscriptionStatus: 'failed',
+    })
+
+    expect(meta.label).toBe('Pago fallido')
+    expect(meta.action).toBe('pay')
+    expect(meta.code).toBe('billing_failed')
+    expect(meta.cta).toBe('Regularizar pago')
   })
 
   it('does not mix provider approval with billing state', () => {

@@ -242,18 +242,8 @@ router.beforeEach(async (to) => {
   }
 
   if (!auth.initialized) {
-    if (shouldResolveAuthBeforeEnter) {
+    if (shouldResolveAuthBeforeEnter || auth.token) {
       await auth.initialize()
-    } else {
-      void auth.initialize()
-    }
-  }
-
-  if (shouldResolveAuthBeforeEnter && auth.token && !auth.loaded) {
-    try {
-      await auth.loadCurrentUser({ preferCache: false })
-    } catch {
-      // Dejamos que las validaciones siguientes decidan con el mejor estado local disponible.
     }
   }
 
