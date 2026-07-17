@@ -597,7 +597,7 @@
 .document-preview-grid {
   display: grid;
   gap: 0.85rem;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   margin-top: 1rem;
 }
 
@@ -639,6 +639,73 @@
 .document-preview-card span {
   color: #6d665c;
   line-height: 1.45;
+}
+
+.document-record-count {
+  white-space: nowrap;
+}
+
+.document-category-card {
+  min-width: 0;
+  min-height: 190px;
+  padding: 22px 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  text-align: center;
+  overflow: hidden;
+}
+
+.document-category-icon {
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  border-radius: 18px;
+  border: 1px solid rgba(143, 105, 25, 0.16);
+  background: rgba(255, 255, 255, 0.72);
+  color: #10233f;
+  font-size: 0.86rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.document-category-title {
+  margin: 0;
+  max-width: 100%;
+  font-size: 17px;
+  line-height: 1.3;
+  font-weight: 700;
+  color: #10233f;
+  overflow-wrap: anywhere;
+}
+
+.document-category-formats {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+
+.document-category-formats span {
+  padding: 4px 9px;
+  border: 1px solid #dbe4ef;
+  border-radius: 999px;
+  background: #f8fafc;
+  font-size: 12px;
+  font-weight: 600;
+  color: #526781;
+  line-height: 1;
+}
+
+.document-category-status,
+.document-category-expiration {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.35;
+  color: #64748b;
 }
 
 .document-upload-grid {
@@ -807,6 +874,7 @@
 
 .stored-documents-list.document-library {
   gap: 0.9rem;
+  isolation: isolate;
 }
 
 .stored-document-card {
@@ -818,6 +886,12 @@
   padding: 1rem 1.1rem;
   cursor: default;
   position: relative;
+  overflow: visible;
+  z-index: 0;
+}
+
+.stored-document-card--menu-open {
+  z-index: 24;
 }
 
 .stored-document-card:hover,
@@ -895,6 +969,9 @@
   justify-items: end;
   gap: 0.9rem;
   min-width: 190px;
+  position: relative;
+  overflow: visible;
+  z-index: 1;
 }
 
 .stored-document-actions {
@@ -956,14 +1033,83 @@
 .document-status-badge__dot[data-tone='danger'] { background: #ff9a9a; }
 .document-status-badge__dot[data-tone='neutral'] { background: #c5ceda; }
 
-.document-actions-menu {
-  right: 0;
-  top: calc(100% - 0.2rem);
-  min-width: 220px;
+.document-actions-popover {
+  position: fixed;
+  z-index: 10000;
+  width: 240px;
+  padding: 8px;
+  background: #ffffff;
+  border: 1px solid #dbe4ef;
+  border-radius: 16px;
+  box-shadow:
+    0 20px 45px rgba(15, 23, 42, 0.16),
+    0 4px 12px rgba(15, 23, 42, 0.08);
 }
 
-.document-actions-menu .danger-option {
-  color: #ffb4b4;
+.document-actions-popover button {
+  width: 100%;
+  min-height: 42px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #10233f;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.document-actions-popover button:hover {
+  background: #f1f5f9;
+}
+
+.document-actions-divider {
+  height: 1px;
+  margin: 6px 4px;
+  background: #e2e8f0;
+}
+
+.document-actions-popover .document-actions-danger {
+  color: #b42318;
+}
+
+.document-actions-popover .document-actions-danger:hover {
+  background: #fef2f2;
+}
+
+.operator-delete-document-overlay {
+  z-index: 2350;
+}
+
+.operator-delete-document-modal {
+  width: min(100%, 520px);
+  display: grid;
+  gap: 1.2rem;
+}
+
+.operator-delete-document-modal__copy {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.operator-delete-document-modal__copy h3,
+.operator-delete-document-modal__copy p {
+  margin: 0;
+}
+
+.operator-delete-document-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+.operator-delete-document-modal__actions .primary-action.danger {
+  background: linear-gradient(135deg, #a63d3d, #8a2626);
+  border-color: rgba(166, 61, 61, 0.3);
 }
 
 .document-preview-modal {
@@ -1036,6 +1182,10 @@
 }
 
 @media (max-width: 1080px) {
+  .document-type-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .document-library-toolbar {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1056,6 +1206,10 @@
 }
 
 @media (max-width: 720px) {
+  .document-type-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .document-library-summary {
     justify-content: flex-start;
   }
@@ -1065,6 +1219,10 @@
   }
 
   .stored-document-card {
+    grid-template-columns: 1fr;
+  }
+
+  .document-type-grid {
     grid-template-columns: 1fr;
   }
 

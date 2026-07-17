@@ -54,6 +54,7 @@ export async function requestWithCandidates(candidates, requestOptions = {}) {
         query: candidate.query,
         headers: candidate.headers,
         timeoutMs: candidate.timeoutMs,
+        debugTag: candidate.debugTag,
         signal: requestOptions.signal,
         redirectOnForbidden: candidate.redirectOnForbidden,
       }

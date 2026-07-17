@@ -1,24 +1,59 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { requestWithCandidates } from '../../lib/backendCrud'
+import { pickCollection, requestWithCandidates } from '../../lib/backendCrud'
 import { resolveMediaUrl } from '../../lib/api'
+import { getAircraftChecklist, updateAircraftChecklist } from '../../lib/adminAircraftChecklist'
+import { useUiStore } from '../../stores/ui'
+import {
+  deduplicateAircraftDocuments,
+  getAircraftDocumentId,
+  getAircraftDocumentKey,
+} from '../../utils/aircraftDocuments'
+import {
+  isAdminAircraftActive,
+  isAdminAircraftApproved,
+  isProviderApprovedForAdminAircraft,
+  normalizeAdminAircraftStatus,
+  resolvePrimaryAdminAircraftAction,
+} from '../../utils/adminAircraftStatus'
 
 const props = defineProps({
   aircraft: { type: Array, required: true },
   subscriptions: { type: Array, required: true },
   mode: { type: String, default: 'aircraft' },
+  aircraftLoading: { type: Boolean, default: false },
+  documentsLoading: { type: Boolean, default: false },
+  subscriptionsLoading: { type: Boolean, default: false },
+  paymentsLoading: { type: Boolean, default: false },
+  sectionErrors: {
+    type: Object,
+    default: () => ({
+      aircraft: '',
+      documents: '',
+      subscriptions: '',
+      payments: '',
+    }),
+  },
 })
 
 const route = useRoute()
 const router = useRouter()
-const emit = defineEmits(['approve-aircraft', 'reject-aircraft', 'suspend-aircraft'])
+const ui = useUiStore()
+const emit = defineEmits([
+  'approve-provider',
+  'approve-aircraft',
+  'activate-aircraft',
+  'deactivate-aircraft',
+  'reject-aircraft',
+  'suspend-aircraft',
+  'approve-aircraft-document',
+  'reject-aircraft-document',
+])
 
 const companyFilter = ref('Todas')
 const approvalFilter = ref('Todas')
-const matchingFilter = ref('Todos')
 const documentsFilter = ref('Todos')
-const trialFilter = ref('Todos')
 const searchTerm = ref('')
 const sortMode = ref('recent')
 const showAdvancedFilters = ref(false)
@@ -28,24 +63,30 @@ const detailTab = ref('general')
 const downloadingDocumentId = ref('')
 const documentDownloadError = ref('')
 const previewDocument = ref(null)
+const expandedCompanyGroups = ref([])
 
 const approvalOptions = ['Todas', 'Aprobadas', 'Pendientes', 'Suspendidas']
-const matchingOptions = ['Todos', 'Visibles', 'Bloqueados']
 const documentOptions = ['Todos', 'Validos', 'Pendientes', 'Incompletos', 'Rechazados', 'Vencidos']
-const trialOptions = ['Todos', 'Trial activo', 'Trial vencido', 'Sin trial']
 const sortOptions = [
   { label: 'Mas recientes', value: 'recent' },
-  { label: 'Trial proximo', value: 'trial' },
   { label: 'Nombre A-Z', value: 'az' },
   { label: 'Aprobadas primero', value: 'approved' },
 ]
-const detailTabs = [
-  { id: 'general', label: 'General' },
-  { id: 'documents', label: 'Documentacion' },
-  { id: 'operations', label: 'Operacion' },
-  { id: 'pricing', label: 'Pricing' },
-  { id: 'media', label: 'Multimedia' },
-]
+const CHECKLIST_ALLOWED_STATES = ['pending', 'approved', 'rejected', 'missing']
+const CHECKLIST_STATE_META = {
+  approved: { label: 'Aprobado', tone: 'success', icon: '✓' },
+  pending: { label: 'Pendiente', tone: 'warning', icon: '!' },
+  rejected: { label: 'Rechazado', tone: 'danger', icon: '×' },
+  missing: { label: 'Faltante', tone: 'neutral', icon: '•' },
+}
+const checklistLoading = ref(false)
+const checklistSaving = ref(false)
+const checklistError = ref('')
+const checklistLoadedAircraftId = ref(0)
+const checklistDirty = ref(false)
+const checklistUnsupported = ref(false)
+const checklistDraft = reactive({})
+const checklistExpandedSections = ref(['general', 'documents', 'operations', 'pricing'])
 
 function providerName(item) {
   return (
@@ -60,9 +101,21 @@ function providerName(item) {
 }
 
 function providerIdValue(item = {}) {
-  return String(
-    item.provider_id || item.proveedor_id || item.provider?.id || item.provider?.provider_id || '',
-  ).trim()
+  const normalized = Number(
+    item.provider_id ||
+      item.proveedor_id ||
+      item.provider?.id ||
+      item.provider?.provider_id ||
+      item.provider?.provider_id ||
+      0,
+  )
+
+  return Number.isFinite(normalized) && normalized > 0 ? normalized : 0
+}
+
+function routeProviderIdValue() {
+  const normalized = Number(route.query.providerId || 0)
+  return Number.isFinite(normalized) && normalized > 0 ? normalized : 0
 }
 
 function aircraftName(item) {
@@ -171,6 +224,89 @@ function primaryAircraftImage(item = {}) {
   return images.find((image) => image.kind === 'main')?.imageUrl || images[0]?.imageUrl || ''
 }
 
+function mediaFileExtension(url = '') {
+  const cleanUrl = String(url || '').split('?')[0].split('#')[0]
+  const extension = cleanUrl.includes('.') ? cleanUrl.slice(cleanUrl.lastIndexOf('.') + 1).toLowerCase() : ''
+  return extension
+}
+
+function detectMediaKind(record = {}, url = '') {
+  const token = compactToken(
+    record.mime_type ||
+      record.mimeType ||
+      record.type ||
+      record.kind ||
+      record.category ||
+      record.document_type ||
+      record.title ||
+      record.name ||
+      '',
+  )
+  const extension = mediaFileExtension(url)
+
+  if (token.includes('video') || ['mp4', 'mov', 'm4v', 'webm', 'avi'].includes(extension)) return 'video'
+  if (token.includes('pdf') || extension === 'pdf') return 'pdf'
+  return 'image'
+}
+
+function aircraftMediaAssets(item = {}) {
+  const mixedMedia = [
+    ...normalizeImageCollection(item.images),
+    ...normalizeImageCollection(item.aircraft_images),
+    ...normalizeImageCollection(item.aircraftImages),
+    ...normalizeImageCollection(item.gallery_images),
+    ...normalizeImageCollection(item.galleryImages),
+    ...normalizeImageCollection(item.gallery),
+    ...normalizeImageCollection(item.photos),
+    ...normalizeImageCollection(item.media),
+    ...normalizeImageCollection(item.multimedia),
+    ...normalizeImageCollection(item.pictures),
+    ...normalizeImageCollection(item.files),
+  ]
+
+  const normalizedMixedMedia = mixedMedia
+    .map((entry, index) => {
+      const record = typeof entry === 'string' ? { url: entry } : entry || {}
+      const url = normalizeMediaUrl(
+        getPrimaryImageValue(record) ||
+          record.url ||
+          record.path ||
+          record.file_url ||
+          record.fileUrl ||
+          record.public_url ||
+          record.publicUrl ||
+          record.src ||
+          '',
+      )
+      if (!url) return null
+
+      const kind = detectMediaKind(record, url)
+
+      return {
+        id: record.id || `mixed-media-${index}`,
+        title: record.title || record.name || record.kind || `Media ${index + 1}`,
+        kind,
+        url,
+        thumbUrl: kind === 'image' ? url : '',
+        meta: record,
+      }
+    })
+    .filter(Boolean)
+
+  const documentMedia = aircraftDocuments(item)
+    .filter((document) => ['video', 'pdf'].includes(detectMediaKind(document, document.fileUrl)))
+    .map((document) => ({
+      id: `document-${document.id}`,
+      title: document.name,
+      kind: detectMediaKind(document, document.fileUrl),
+      url: document.fileUrl,
+      thumbUrl: '',
+      meta: document,
+    }))
+
+  return [...new Map([...normalizedMixedMedia, ...documentMedia].map((entry) => [entry.id, entry])).values()]
+}
+
 function formatNumber(value, suffix = '') {
   const number = Number(value || 0)
   if (!number) return 'Pendiente'
@@ -222,6 +358,205 @@ function formatHours(value) {
   return `${new Intl.NumberFormat('es-MX').format(amount)} hrs`
 }
 
+function compactToken(value = '') {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[\s-]+/g, '_')
+}
+
+function formatDateTime(value) {
+  if (!value) return 'Sin registro'
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return String(value)
+
+  return new Intl.DateTimeFormat('es-MX', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(parsed)
+}
+
+function providerApprovalState(item = {}) {
+  const providerStatus = compactToken(
+    item.provider?.approval_status ||
+      item.provider?.status ||
+      item.provider?.state ||
+      item.provider_status ||
+      '',
+  )
+
+  return ['approved', 'active', 'aprobado', 'aprobada', 'activo', 'activa'].includes(providerStatus)
+}
+
+function currentAircraftSubscription(item = {}) {
+  const aircraftId = Number(item.id || item.aircraft_id || 0)
+  if (item.current_subscription && typeof item.current_subscription === 'object') {
+    return item.current_subscription
+  }
+
+  return (
+    props.subscriptions.find((subscription) => {
+      const candidateAircraftId = Number(
+        subscription?.aircraft_id || subscription?.aircraft?.id || subscription?.aircraft?.aircraft_id || 0,
+      )
+      return candidateAircraftId > 0 && candidateAircraftId === aircraftId
+    }) || null
+  )
+}
+
+function hasActiveSubscription(item = {}) {
+  const subscription = currentAircraftSubscription(item)
+  if (subscription && !isExpiredAircraftSubscription(subscription)) {
+    const status = compactToken(subscription.status || subscription.subscription_status || '')
+    if (!status || ['active', 'approved', 'vigente'].includes(status)) return true
+  }
+  return false
+}
+
+function resolveAircraftDescription(item = {}) {
+  return (
+    item.description ||
+    item.commercial_description ||
+    item.marketplace_description ||
+    item.summary ||
+    item.notes ||
+    ''
+  )
+}
+
+function aircraftImagesByToken(item = {}, token = '') {
+  const normalizedToken = compactToken(token)
+  return aircraftImages(item).filter((image) => {
+    const candidate = compactToken(`${image.kind || ''} ${image.title || ''}`)
+    return candidate.includes(normalizedToken)
+  })
+}
+
+function hasExteriorPhotos(item = {}) {
+  const exteriorImages = aircraftImagesByToken(item, 'exterior')
+  if (exteriorImages.length) return true
+  return aircraftImages(item).length > 0
+}
+
+function hasInteriorPhotos(item = {}) {
+  const interiorImages = aircraftImagesByToken(item, 'interior')
+  return interiorImages.length > 0
+}
+
+function hasApprovedPhotos(item = {}) {
+  return aircraftImages(item).length > 0
+}
+
+function hasCrewConfigured(item = {}) {
+  const candidates = [
+    item.crew_count,
+    item.crewCount,
+    item.required_crew,
+    item.minimum_crew,
+    Array.isArray(item.crew) ? item.crew.length : 0,
+  ]
+
+  return candidates.some((value) => Number(value || 0) > 0)
+}
+
+function hasAvailabilityConfigured(item = {}) {
+  const candidates = [
+    item.availability_configured,
+    item.availabilityConfigured,
+    item.has_availability,
+    item.calendar_enabled,
+    item.schedule_enabled,
+  ]
+
+  const explicit = candidates.find((value) => value != null)
+  if (explicit != null) return Boolean(explicit)
+
+  return Boolean(item.availability || item.calendar || item.schedules)
+}
+
+function hasCruiseSpeedValue(item = {}) {
+  return Number(
+    item.cruise_speed ||
+      item.cruiseSpeed ||
+      item.cruise_speed_kts ||
+      item.cruiseSpeedKts ||
+      item.speed ||
+      0,
+  ) > 0
+}
+
+function hasModelYearValue(item = {}) {
+  return Number(item.model_year || item.year || 0) > 0
+}
+
+function hasManufacturerValue(item = {}) {
+  return hasTextValue(item.manufacturer || item.make || item.brand)
+}
+
+function hasModelValue(item = {}) {
+  return hasTextValue(item.model || item.name)
+}
+
+function hasCurrencyValue(item = {}) {
+  return hasTextValue(item.currency || item.pricing_currency || item.hourly_rate_currency)
+}
+
+function hasDomesticExpensesValue(item = {}) {
+  return Number(
+    item.national_expenses ||
+      item.domestic_expenses ||
+      item.expenses_national ||
+      item.expenses_domestic ||
+      0,
+  ) > 0
+}
+
+function hasFixedFeeValue(item = {}) {
+  return Number(item.fixed_fee || item.fee_fijo || item.global_fixed_fee || 0) > 0
+}
+
+function hasMarginValue(item = {}) {
+  return Number(item.margin_percent || item.profit_percent || item.utility_percent || item.utilidad || 0) > 0
+}
+
+function hasAdminReviewedPrice(item = {}) {
+  const pricingState = adminAircraftPricingState(item)
+  const reviewedValue =
+    pricingState.reviewed_by_admin ??
+    pricingState.reviewed ??
+    pricingState.admin_reviewed ??
+    item.price_reviewed_by_admin ??
+    item.pricing_reviewed
+
+  return reviewedValue === true || compactToken(reviewedValue).includes('approved')
+}
+
+function normalizeChecklistState(value = '') {
+  const normalized = compactToken(value)
+  if (['approved', 'aprobado', 'aprobada'].includes(normalized)) return 'approved'
+  if (['rejected', 'rechazado', 'rechazada', 'cancelled', 'canceled'].includes(normalized)) return 'rejected'
+  if (['missing', 'faltante', 'faltantes'].includes(normalized)) return 'missing'
+  return 'pending'
+}
+
+function checklistStateMeta(state = 'pending') {
+  return CHECKLIST_STATE_META[normalizeChecklistState(state)] || CHECKLIST_STATE_META.pending
+}
+
+function normalizeChecklistBackendItems(payload = {}) {
+  if (Array.isArray(payload?.data?.items)) return payload.data.items
+  const collection = pickCollection(payload, ['items', 'checklist_items', 'checklist', 'data'])
+  return Array.isArray(collection) ? collection : []
+}
+
+function checklistDraftRecord(itemId) {
+  return checklistDraft[itemId] && typeof checklistDraft[itemId] === 'object'
+    ? checklistDraft[itemId]
+    : null
+}
+
 function documentSummaryItems(item = {}) {
   const validation = resolveAircraftDocumentValidation(item)
   const summary = validation.requirements.map((requirement) => ({
@@ -248,28 +583,19 @@ function normalizeDocumentCollection(value) {
   return []
 }
 
-function buildAircraftDocumentIdentity(record = {}, index = 0) {
-  if (record.storage_path != null && String(record.storage_path).trim() !== '') return `storage:${record.storage_path}`
-  if (record.file_path != null && String(record.file_path).trim() !== '') return `path:${record.file_path}`
-  if (record.path != null && String(record.path).trim() !== '') return `path:${record.path}`
-  if (record.file_url != null && String(record.file_url).trim() !== '') return `url:${record.file_url}`
-  if (record.document_url != null && String(record.document_url).trim() !== '') return `url:${record.document_url}`
-  if (record.id != null && String(record.id).trim() !== '') return `id:${record.id}`
-  if (record.uuid != null && String(record.uuid).trim() !== '') return `uuid:${record.uuid}`
-  return `index:${index}:${record.document_name || record.name || record.file_name || 'documento'}`
-}
-
 function aircraftDocuments(item = {}) {
-  const documents = [
-    ...normalizeDocumentCollection(item.documents),
-    ...normalizeDocumentCollection(item.aircraft_documents),
-    ...normalizeDocumentCollection(item.aircraftDocuments),
-    ...normalizeDocumentCollection(item.documentos),
-    ...normalizeDocumentCollection(item.files),
-    ...normalizeDocumentCollection(item.attachments),
-  ]
+  const primaryDocuments = normalizeDocumentCollection(item.documents)
+  const fallbackDocuments = primaryDocuments.length
+    ? []
+    : [
+        ...normalizeDocumentCollection(item.aircraft_documents),
+        ...normalizeDocumentCollection(item.aircraftDocuments),
+        ...normalizeDocumentCollection(item.documentos),
+        ...normalizeDocumentCollection(item.files),
+        ...normalizeDocumentCollection(item.attachments),
+      ]
 
-  const normalizedDocuments = documents
+  return deduplicateAircraftDocuments([...primaryDocuments, ...fallbackDocuments])
     .map((document, index) => {
       const record = typeof document === 'string' ? { document_name: document } : document || {}
       const fileUrl = normalizeMediaUrl(
@@ -285,8 +611,8 @@ function aircraftDocuments(item = {}) {
       )
 
       return {
-        identityKey: buildAircraftDocumentIdentity(record, index),
-        id: record.id || record.uuid || `document-${index}`,
+        identityKey: getAircraftDocumentKey(record),
+        id: getAircraftDocumentId(record) || record.uuid || `document-${index}`,
         aircraftId: record.aircraft_id || record.aircraftId || item.id || '',
         filename: record.file_name || record.filename || '',
         type: record.document_type || record.type || record.kind || 'documento',
@@ -313,8 +639,6 @@ function aircraftDocuments(item = {}) {
       }
     })
     .filter((document) => document.name || document.fileUrl)
-
-  return [...new Map(normalizedDocuments.map((document) => [document.identityKey, document])).values()]
 }
 
 function documentTypeLabel(type = '') {
@@ -330,6 +654,20 @@ function documentTypeLabel(type = '') {
     documento: 'Documento',
   }
   return labels[normalized] || type || 'Documento'
+}
+
+function previewMediaAsset(asset = {}) {
+  if (!asset?.url) return
+  if (previewDocument.value?.objectUrl) {
+    URL.revokeObjectURL(previewDocument.value.objectUrl)
+  }
+
+  previewDocument.value = {
+    url: asset.url,
+    objectUrl: '',
+    name: asset.title || 'Archivo',
+    type: asset.kind || 'documento',
+  }
 }
 
 function isPrivateStorageUrl(url = '') {
@@ -388,7 +726,7 @@ function triggerBrowserDownload(content, fileName, mimeType = 'text/plain;charse
 }
 
 function exportAircraftCsv() {
-  const headers = ['Matricula', 'Aeronave', 'Proveedor', 'Base', 'Estatus', 'Documentos', 'Trial']
+  const headers = ['Matricula', 'Aeronave', 'Proveedor', 'Base', 'Estatus', 'Documentos', 'Pago']
   const rows = filteredAircraft.value.map((item) => [
     item.registration || '',
     aircraftName(item),
@@ -396,7 +734,7 @@ function exportAircraftCsv() {
     baseLabel(item),
     statusChip(item).label,
     docsChip(item).label,
-    trialChip(item).label,
+    billingChip(item).label,
   ])
   const csv = [headers, ...rows]
     .map((row) => row.map((cell) => `"${String(cell ?? '').replaceAll('"', '""')}"`).join(','))
@@ -416,7 +754,7 @@ function downloadSelectedAircraftSummary() {
     `Base: ${baseLabel(item)}`,
     `Estatus: ${statusChip(item).label}`,
     `Documentos: ${docsChip(item).label}`,
-    `Trial: ${trialChip(item).label}`,
+    `Pago: ${billingChip(item).label}`,
     `Tarifa: ${formatMoney(item.hourly_rate || item.hourlyPrice || item.price_per_hour)}`,
   ].join('\n')
 
@@ -459,7 +797,7 @@ async function openAircraftDocument(documentRecord) {
 }
 
 function normalizeStatus(value) {
-  return String(value || '').toLowerCase()
+  return normalizeAdminAircraftStatus(value)
 }
 
 function adminAircraftSnapshot(item = {}) {
@@ -501,11 +839,6 @@ function adminAircraftPricingState(item = {}) {
   return snapshot.pricing && typeof snapshot.pricing === 'object' ? snapshot.pricing : {}
 }
 
-function adminAircraftMatchingState(item = {}) {
-  const snapshot = adminAircraftSnapshot(item)
-  return snapshot.matching && typeof snapshot.matching === 'object' ? snapshot.matching : {}
-}
-
 function adminAircraftActivationState(item = {}) {
   const snapshot = adminAircraftSnapshot(item)
   return snapshot.activation && typeof snapshot.activation === 'object' ? snapshot.activation : {}
@@ -514,24 +847,31 @@ function adminAircraftActivationState(item = {}) {
 function normalizeMissingRequirement(value = '') {
   const normalized = normalizeStatus(value).trim().replace(/[\s-]+/g, '_')
   const aliases = {
+    provider_not_approved: 'provider_not_approved',
+    aircraft_not_approved: 'aircraft_not_approved',
     documents: 'documentacion',
+    documents_pending: 'documentacion',
     documentation: 'documentacion',
     documents_required: 'documentacion',
+    commercial_information_incomplete: 'tarifa',
     pricing: 'tarifa',
     hourly_rate: 'tarifa',
     minimum_hours: 'minimo',
+    range_missing: 'rango',
     range: 'rango',
     range_nm: 'rango',
     range_km: 'rango',
+    base_missing: 'base',
     base: 'base',
     base_registered: 'base',
+    capacity_missing: 'capacidad',
     capacity: 'capacidad',
     capacity_configured: 'capacidad',
     registration: 'matricula',
     tail_number: 'matricula',
-    matching: 'matching',
     photos: 'fotografias',
     images: 'fotografias',
+    payment_pending: 'payment_pending',
   }
 
   return aliases[normalized] || normalized
@@ -583,6 +923,10 @@ function documentStatusMeta(document = {}) {
   }
 
   return { key: 'pending', label: 'Pendiente', tone: 'warning' }
+}
+
+function canReviewAircraftDocument(document = {}) {
+  return documentStatusMeta(document).key === 'pending'
 }
 
 const AIRCRAFT_DOCUMENT_REQUIREMENTS = [
@@ -969,15 +1313,7 @@ function hasApprovedMarker(item = {}) {
 }
 
 function isApproved(item) {
-  const reviewState = adminAircraftReviewState(item)
-  if (reviewState.approved != null) return Boolean(reviewState.approved)
-  const status = normalizeStatus(item.status || '')
-  const reviewStatus = normalizedAircraftReviewStatus(item)
-  return (
-    hasApprovedMarker(item) ||
-    reviewStatus === 'approved' ||
-    ['active', 'approved', 'aprobada', 'aprobado', 'trial_active'].includes(status)
-  )
+  return isAdminAircraftApproved(item)
 }
 
 function isSuspended(item) {
@@ -999,32 +1335,29 @@ function billingStatusKey(item = {}) {
   const billingState = adminAircraftBillingState(item)
   return normalizeStatus(
     billingState.status ||
-      billingState.billing_status ||
-      billingState.subscription_status ||
+      billingState.payment_status ||
       item.billing_status ||
       item.billingStatus ||
-      item.subscription_status ||
-      item.subscriptionStatus ||
       '',
   )
 }
 
 function hasActiveBilling(item = {}) {
   const billingState = adminAircraftBillingState(item)
-  if (billingState.payment_confirmed === true || billingState.subscription_active === true) return true
+  if (billingState.is_active === true || billingState.payment_confirmed === true) return true
   const status = billingStatusKey(item)
-  return ['active', 'trialing', 'paid', 'vigente'].includes(status)
+  return status === 'active'
 }
 
 function hasPendingPayment(item = {}) {
   const billingState = adminAircraftBillingState(item)
   const activationState = adminAircraftActivationState(item)
-  if (billingState.payment_confirmed === false && normalizeStatus(billingState.status).includes('pending')) {
+  if (billingState.is_active === false && normalizeStatus(billingState.status) === 'pending') {
     return true
   }
   if (normalizeStatus(activationState.commercial_status) === 'pending_payment') return true
   const status = billingStatusKey(item)
-  return ['pending_payment', 'pending', 'inactive'].includes(status) && isApproved(item) && !hasActiveBilling(item)
+  return status === 'pending' && isApproved(item) && !hasActiveBilling(item)
 }
 
 function documentsState(item) {
@@ -1034,17 +1367,6 @@ function documentsState(item) {
   if (validation.status === 'rejected') return 'Rechazados'
   if (validation.status === 'pending') return 'Pendientes'
   return 'Incompletos'
-}
-
-function trialState(item) {
-  const status = normalizeStatus(item.status)
-  if (!item.trial_ends_at && !status.includes('trial')) return 'Sin trial'
-  if (status.includes('trial') && !status.includes('expired')) return 'Trial activo'
-  if (!item.trial_ends_at) return 'Trial activo'
-
-  const trialDate = new Date(item.trial_ends_at)
-  if (Number.isNaN(trialDate.getTime())) return 'Trial activo'
-  return trialDate >= new Date() ? 'Trial activo' : 'Trial vencido'
 }
 
 function isExpiredAircraftSubscription(item = {}) {
@@ -1066,25 +1388,12 @@ function aircraftSubscriptionStatusLabel(item = {}) {
   return item.status || 'Sin estado'
 }
 
-function matchingVisibilityFlag(item) {
-  const matchingState = adminAircraftMatchingState(item)
-  if (matchingState.enabled != null) return Boolean(matchingState.enabled)
-  const candidate = item.matching_visible ?? item.matchingVisible ?? item.marketplace_visible ?? item.visible_for_matching
-  if (candidate == null) return null
-  if (typeof candidate === 'boolean') return candidate
-  return ['1', 'true', 'visible', 'activo', 'active', 'approved'].includes(normalizeStatus(candidate))
-}
-
-function matchingVisible(item) {
-  const validation = resolveAircraftDocumentValidation(item)
-  const commerciallyEligible =
-    isApproved(item) &&
-    validation.allApproved &&
-    hasActiveBilling(item) &&
-    ['trial_active', 'active', 'approved'].includes(normalizeStatus(item.status))
-  const explicitVisibility = matchingVisibilityFlag(item)
-  if (explicitVisibility !== null) return explicitVisibility && commerciallyEligible
-  return commerciallyEligible
+function marketplaceAvailable(item = {}) {
+  const snapshot = adminAircraftSnapshot(item)
+  if (snapshot.ready_to_book != null) return Boolean(snapshot.ready_to_book)
+  const activationState = adminAircraftActivationState(item)
+  if (activationState.is_active != null) return Boolean(activationState.is_active)
+  return isApproved(item) && hasActiveBilling(item) && resolveAircraftDocumentValidation(item).allApproved
 }
 
 function aircraftMissingFields(item) {
@@ -1110,7 +1419,6 @@ function aircraftMissingFields(item) {
 
 function aircraftReadiness(item) {
   const snapshot = adminAircraftSnapshot(item)
-  const matchingState = adminAircraftMatchingState(item)
   const activationState = adminAircraftActivationState(item)
   const missing = aircraftMissingFields(item)
   const approved = isApproved(item)
@@ -1118,8 +1426,7 @@ function aircraftReadiness(item) {
   const documentValidation = resolveAircraftDocumentValidation(item)
   const documented = documentValidation.allApproved
   const baseRegistered = hasRegisteredBase(item)
-  const visibleForMatching =
-    matchingState.enabled != null ? Boolean(matchingState.enabled) : matchingVisible(item)
+  const marketplaceReady = marketplaceAvailable(item)
   const billingPending = hasPendingPayment(item)
   const billingActive = hasActiveBilling(item)
   const quoteReady =
@@ -1127,7 +1434,7 @@ function aircraftReadiness(item) {
     (approved && !suspended && documented && baseRegistered && hasCapacityValue(item) && hasHourlyRateValue(item))
   const reservationReady =
     snapshot.ready_to_book ??
-    (quoteReady && visibleForMatching && hasRegistration(item))
+    (quoteReady && marketplaceReady && hasRegistration(item))
 
   return {
     approved,
@@ -1135,7 +1442,7 @@ function aircraftReadiness(item) {
     billingPending,
     billingActive,
     documented,
-    visibleForMatching,
+    marketplaceReady,
     baseRegistered,
     quoteReady,
     reservationReady,
@@ -1166,14 +1473,10 @@ function readinessDescription(item) {
   const readiness = aircraftReadiness(item)
   const documentValidation = resolveAircraftDocumentValidation(item)
   const activationState = adminAircraftActivationState(item)
-  const matchingState = adminAircraftMatchingState(item)
-  if (readiness.suspended) return 'La aeronave esta bloqueada y no debe mostrarse en matching.'
+  if (readiness.suspended) return 'La aeronave esta bloqueada y no esta disponible comercialmente.'
   if (readiness.reservationReady) return 'Cumple aprobacion, base, documentos y datos comerciales para reservas.'
   if (readiness.billingPending) return 'La aeronave ya fue aprobada por administracion, pero no se activa hasta reflejar el pago mensual.'
-  if (readiness.quoteReady) return 'Puede entrar a cotizaciones, pero aun requiere visibilidad final o ajuste operativo.'
-  if (Array.isArray(matchingState.blocked_reasons) && matchingState.blocked_reasons.length) {
-    return `Matching bloqueado por: ${matchingState.blocked_reasons.map((entry) => missingFieldLabel(normalizeMissingRequirement(entry))).join(', ')}.`
-  }
+  if (readiness.quoteReady) return 'Puede entrar a cotizaciones, pero aun requiere disponibilidad comercial final.'
   if (Array.isArray(activationState.missing_requirements) && activationState.missing_requirements.length) {
     return `Faltan ${activationState.missing_requirements.map((entry) => missingFieldLabel(normalizeMissingRequirement(entry))).join(', ')}.`
   }
@@ -1188,13 +1491,15 @@ function readinessChecklist(item) {
     { label: 'Aprobada', complete: readiness.approved && !readiness.suspended },
     { label: 'Documentada', complete: readiness.documented },
     { label: 'Pago activo', complete: readiness.billingActive },
-    { label: 'Matching', complete: readiness.visibleForMatching },
+    { label: 'Marketplace', complete: readiness.marketplaceReady },
     { label: 'Base registrada', complete: readiness.baseRegistered },
   ]
 }
 
 function missingFieldLabel(field) {
   const labels = {
+    provider_not_approved: 'Proveedor no aprobado',
+    aircraft_not_approved: 'Aeronave no aprobada',
     matricula: 'Sin matricula',
     base: 'Sin base',
     capacidad: 'Sin capacidad',
@@ -1203,9 +1508,322 @@ function missingFieldLabel(field) {
     rango: 'Sin rango',
     documentacion: 'Sin documentacion',
     fotografias: 'Sin fotos',
-    matching: 'Matching bloqueado',
+    payment_pending: 'Pago pendiente',
+    pricing: 'Informacion comercial incompleta',
+    documents: 'Documentacion incompleta',
+    provider: 'Proveedor no aprobado',
   }
   return labels[field] || field
+}
+
+function buildChecklistRequirement(item = {}, config = {}) {
+  const autoState = normalizeChecklistState(typeof config.resolveState === 'function' ? config.resolveState(item) : 'pending')
+  const persistedRecord = checklistDraftRecord(config.id)
+  const persistedState = normalizeChecklistState(persistedRecord?.state || '')
+  const state =
+    persistedRecord && CHECKLIST_ALLOWED_STATES.includes(persistedState)
+      ? persistedState
+      : autoState
+  const evidence = typeof config.resolveEvidence === 'function' ? config.resolveEvidence(item) : null
+  const relatedDocument = typeof config.resolveDocument === 'function' ? config.resolveDocument(item) : null
+
+  return {
+    id: config.id,
+    sectionId: config.sectionId,
+    label: config.label,
+    state,
+    autoState,
+    mandatory: config.mandatory !== false,
+    manual: config.manual !== false,
+    completed: state === 'approved',
+    evidence,
+    relatedDocument,
+    reviewedAt: persistedRecord?.reviewedAt || persistedRecord?.reviewed_at || '',
+    reviewedBy: persistedRecord?.reviewedBy || persistedRecord?.reviewed_by || '',
+    notes: persistedRecord?.notes || persistedRecord?.observation || persistedRecord?.observations || '',
+    source: persistedRecord ? 'manual' : 'automatic',
+  }
+}
+
+function checklistDocumentStatus(item = {}, requirement = {}) {
+  return requirementDocuments(item, requirement).some((document) => {
+    const meta = documentStatusMeta(document)
+    return meta.key === 'approved' && !isExpiredDocument(document)
+  })
+}
+
+function checklistDocumentEvidence(item = {}, requirement = {}) {
+  const currentDocuments = requirementDocuments(item, requirement)
+  if (!currentDocuments.length) return null
+  const document = currentDocuments[0]
+
+  return {
+    label: document.name || requirement.label,
+    detail: `${documentStatusMeta(document).label} · Vence ${formatDate(document.expiresAt)}`,
+    document,
+  }
+}
+
+function automaticChecklistSections(item = {}) {
+  const summary = resolveAircraftDocumentValidation(item)
+  const readiness = aircraftReadiness(item)
+
+  return [
+    {
+      id: 'general',
+      label: 'Informacion general',
+      items: [
+        buildChecklistRequirement(item, { id: 'registration_present', sectionId: 'general', label: 'Matricula registrada', resolveState: (record) => (hasRegistration(record) ? 'approved' : 'pending') }),
+        buildChecklistRequirement(item, { id: 'manufacturer_present', sectionId: 'general', label: 'Fabricante informado', resolveState: (record) => (hasManufacturerValue(record) ? 'approved' : 'pending') }),
+        buildChecklistRequirement(item, { id: 'model_present', sectionId: 'general', label: 'Modelo informado', resolveState: (record) => (hasModelValue(record) ? 'approved' : 'pending') }),
+        buildChecklistRequirement(item, { id: 'year_present', sectionId: 'general', label: 'Ano informado', resolveState: (record) => (hasModelYearValue(record) ? 'approved' : 'pending') }),
+        buildChecklistRequirement(item, { id: 'base_configured', sectionId: 'general', label: 'Base operativa configurada', resolveState: (record) => (hasRegisteredBase(record) ? 'approved' : 'pending') }),
+        buildChecklistRequirement(item, { id: 'capacity_configured', sectionId: 'general', label: 'Capacidad de pasajeros configurada', resolveState: (record) => (hasCapacityValue(record) ? 'approved' : 'pending') }),
+        buildChecklistRequirement(item, { id: 'range_configured', sectionId: 'general', label: 'Rango configurado', resolveState: (record) => (hasRangeValue(record) ? 'approved' : 'pending') }),
+        buildChecklistRequirement(item, { id: 'cruise_speed_configured', sectionId: 'general', label: 'Velocidad crucero configurada', resolveState: (record) => (hasCruiseSpeedValue(record) ? 'approved' : 'pending') }),
+      ],
+    },
+    {
+      id: 'documents',
+      label: 'Documentacion',
+      items: [
+        buildChecklistRequirement(item, {
+          id: 'airworthiness_certificate',
+          sectionId: 'documents',
+          label: 'Certificado de aeronavegabilidad',
+          resolveState: (record) => (checklistDocumentStatus(record, { key: 'airworthiness', aliases: ['airworthiness', 'aeronavegabilidad'] }) ? 'approved' : 'pending'),
+          resolveEvidence: (record) => checklistDocumentEvidence(record, { key: 'airworthiness', aliases: ['airworthiness', 'aeronavegabilidad'] }),
+          resolveDocument: (record) => checklistDocumentEvidence(record, { key: 'airworthiness', aliases: ['airworthiness', 'aeronavegabilidad'] })?.document || null,
+        }),
+        buildChecklistRequirement(item, {
+          id: 'registration',
+          sectionId: 'documents',
+          label: 'Matricula',
+          resolveState: (record) => (checklistDocumentStatus(record, { key: 'registration', aliases: ['registration', 'matricula', 'registro'] }) ? 'approved' : 'pending'),
+          resolveEvidence: (record) => checklistDocumentEvidence(record, { key: 'registration', aliases: ['registration', 'matricula', 'registro'] }),
+          resolveDocument: (record) => checklistDocumentEvidence(record, { key: 'registration', aliases: ['registration', 'matricula', 'registro'] })?.document || null,
+        }),
+        buildChecklistRequirement(item, {
+          id: 'insurance',
+          sectionId: 'documents',
+          label: 'Seguro vigente',
+          resolveState: (record) => (checklistDocumentStatus(record, { key: 'insurance', aliases: ['insurance', 'seguro', 'poliza'] }) ? 'approved' : 'pending'),
+          resolveEvidence: (record) => checklistDocumentEvidence(record, { key: 'insurance', aliases: ['insurance', 'seguro', 'poliza'] }),
+          resolveDocument: (record) => checklistDocumentEvidence(record, { key: 'insurance', aliases: ['insurance', 'seguro', 'poliza'] })?.document || null,
+        }),
+        buildChecklistRequirement(item, {
+          id: 'maintenance',
+          sectionId: 'documents',
+          label: 'Programa o evidencia de mantenimiento',
+          resolveState: (record) => (checklistDocumentStatus(record, { key: 'maintenance', aliases: ['maintenance', 'mantenimiento', 'maintenance_sticker'] }) ? 'approved' : 'pending'),
+          resolveEvidence: (record) => checklistDocumentEvidence(record, { key: 'maintenance', aliases: ['maintenance', 'mantenimiento', 'maintenance_sticker'] }),
+          resolveDocument: (record) => checklistDocumentEvidence(record, { key: 'maintenance', aliases: ['maintenance', 'mantenimiento', 'maintenance_sticker'] })?.document || null,
+        }),
+        buildChecklistRequirement(item, {
+          id: 'exterior_photos',
+          sectionId: 'documents',
+          label: 'Fotografias exteriores',
+          resolveState: (record) => (hasExteriorPhotos(record) ? 'approved' : 'pending'),
+          resolveEvidence: (record) => ({ label: `${aircraftImages(record).length} imagen(es)`, detail: hasExteriorPhotos(record) ? 'Galeria disponible' : 'Sin evidencia' }),
+        }),
+      ],
+    },
+    {
+      id: 'operations',
+      label: 'Operacion',
+      items: [
+        buildChecklistRequirement(item, { id: 'base_airport_configured', sectionId: 'operations', label: 'Aeropuerto base configurado', resolveState: (record) => (hasRegisteredBase(record) ? 'approved' : 'pending') }),
+        buildChecklistRequirement(item, { id: 'crew_configured', sectionId: 'operations', label: 'Tripulacion configurada', resolveState: (record) => (hasCrewConfigured(record) ? 'approved' : 'pending') }),
+        buildChecklistRequirement(item, { id: 'availability_configured', sectionId: 'operations', label: 'Disponibilidad configurada', resolveState: (record) => (hasAvailabilityConfigured(record) ? 'approved' : 'pending') }),
+        buildChecklistRequirement(item, { id: 'operations_complete', sectionId: 'operations', label: 'Datos operativos completos', resolveState: (record) => (hasRegisteredBase(record) && hasCapacityValue(record) && hasRangeValue(record) && hasCruiseSpeedValue(record) ? 'approved' : 'pending') }),
+        buildChecklistRequirement(item, { id: 'ready_to_quote', sectionId: 'operations', label: 'Aeronave habilitada para cotizar', resolveState: () => (readiness.quoteReady ? 'approved' : 'pending') }),
+        buildChecklistRequirement(item, { id: 'ready_to_book', sectionId: 'operations', label: 'Aeronave habilitada para reservar', resolveState: () => (readiness.reservationReady ? 'approved' : 'pending') }),
+      ],
+    },
+    {
+      id: 'pricing',
+      label: 'Pricing',
+      items: [
+        buildChecklistRequirement(item, { id: 'hourly_rate_registered', sectionId: 'pricing', label: 'Tarifa por hora registrada', resolveState: (record) => (hasHourlyRateValue(record) ? 'approved' : 'pending') }),
+        buildChecklistRequirement(item, { id: 'currency_configured', sectionId: 'pricing', label: 'Moneda configurada', resolveState: (record) => (hasCurrencyValue(record) ? 'approved' : 'pending') }),
+        buildChecklistRequirement(item, { id: 'domestic_expenses_configured', sectionId: 'pricing', label: 'Gastos nacionales configurados', resolveState: (record) => (hasDomesticExpensesValue(record) ? 'approved' : 'pending') }),
+        buildChecklistRequirement(item, { id: 'fixed_fee_configured', sectionId: 'pricing', label: 'Fee fijo configurado', resolveState: (record) => (hasFixedFeeValue(record) ? 'approved' : 'pending') }),
+        buildChecklistRequirement(item, { id: 'margin_configured', sectionId: 'pricing', label: 'Porcentaje de utilidad configurado', resolveState: (record) => (hasMarginValue(record) ? 'approved' : 'pending') }),
+        buildChecklistRequirement(item, { id: 'price_reviewed_admin', sectionId: 'pricing', label: 'Precio revisado por administrador', resolveState: (record) => (hasAdminReviewedPrice(record) ? 'approved' : 'pending') }),
+      ],
+    },
+  ]
+    .map((section) => ({
+      ...section,
+      items: [...section.items].sort((left, right) => Number(left.completed) - Number(right.completed)),
+    }))
+    .map((section) => {
+      const completed = section.items.filter((requirement) => requirement.completed).length
+      const total = section.items.length || 1
+      return {
+        ...section,
+        completed,
+        total,
+        percent: Math.round((completed / total) * 100),
+        complete: completed === total,
+      }
+    })
+}
+
+const selectedAircraftChecklistSections = computed(() =>
+  selectedAircraft.value ? automaticChecklistSections(selectedAircraft.value) : [],
+)
+
+const selectedAircraftChecklistSummary = computed(() => {
+  const sections = selectedAircraftChecklistSections.value
+  const items = sections.flatMap((section) => section.items)
+  const completed = items.filter((item) => item.completed).length
+  const total = items.length || 1
+  const mandatoryPending = items.filter((item) => item.mandatory !== false && !item.completed)
+  const documentationSection = sections.find((section) => section.id === 'documents')
+  const generalSection = sections.find((section) => section.id === 'general')
+  const operationsSection = sections.find((section) => section.id === 'operations')
+  const pricingSection = sections.find((section) => section.id === 'pricing')
+
+  return {
+    completed,
+    total,
+    percent: Math.round((completed / total) * 100),
+    mandatoryPendingCount: mandatoryPending.length,
+    status: mandatoryPending.length ? 'pending' : 'approved',
+    documentationComplete: Boolean(documentationSection?.complete),
+    quoteReady: Boolean(generalSection?.complete && operationsSection?.complete && pricingSection?.complete),
+    reservationReady: Boolean(documentationSection?.complete && operationsSection?.complete),
+  }
+})
+
+function applyChecklistBackendItems(records = []) {
+  Object.keys(checklistDraft).forEach((key) => delete checklistDraft[key])
+
+  records.forEach((record, index) => {
+    const itemId = String(
+      record.item_id || record.key || record.requirement_id || record.requirement_key || record.slug || `item-${index}`,
+    ).trim()
+    if (!itemId) return
+    checklistDraft[itemId] = {
+      id: itemId,
+      state: normalizeChecklistState(record.state || record.status),
+      notes: record.notes || record.observation || record.observations || '',
+      reviewedAt: record.reviewed_at || record.updated_at || record.created_at || '',
+      reviewedBy: record.reviewed_by_name || record.reviewed_by || record.admin_name || 'Administrador',
+    }
+  })
+
+  checklistDirty.value = false
+}
+
+async function loadChecklistForAircraft(aircraftId) {
+  if (!aircraftId) return
+
+  checklistLoading.value = true
+  checklistError.value = ''
+  checklistUnsupported.value = false
+
+  try {
+    const response = await getAircraftChecklist(aircraftId)
+
+    applyChecklistBackendItems(normalizeChecklistBackendItems(response))
+    checklistLoadedAircraftId.value = Number(aircraftId)
+  } catch (error) {
+    Object.keys(checklistDraft).forEach((key) => delete checklistDraft[key])
+    checklistLoadedAircraftId.value = Number(aircraftId)
+
+    if ([404, 405].includes(Number(error?.status || 0))) {
+      checklistUnsupported.value = true
+      checklistError.value = 'El endpoint oficial del checklist administrativo no esta disponible en este ambiente.'
+      return
+    }
+
+    checklistError.value = error?.message || 'No fue posible cargar el checklist administrativo.'
+  } finally {
+    checklistLoading.value = false
+  }
+}
+
+function resetChecklistDraft() {
+  if (selectedAircraft.value) {
+    void loadChecklistForAircraft(selectedAircraft.value.id)
+  }
+}
+
+function updateChecklistItemState(itemId, nextState) {
+  const normalizedState = normalizeChecklistState(nextState)
+  const current = checklistDraftRecord(itemId) || {}
+  checklistDraft[itemId] = {
+    ...current,
+    id: itemId,
+    state: normalizedState,
+    reviewedAt: new Date().toISOString(),
+    reviewedBy: current.reviewedBy || 'Administrador',
+  }
+  checklistDirty.value = true
+}
+
+function updateChecklistItemNotes(itemId, nextNotes) {
+  const current = checklistDraftRecord(itemId) || {}
+  checklistDraft[itemId] = {
+    ...current,
+    id: itemId,
+    state: normalizeChecklistState(current.state || 'pending'),
+    notes: String(nextNotes || ''),
+  }
+  checklistDirty.value = true
+}
+
+function toggleChecklistSection(sectionId) {
+  checklistExpandedSections.value = checklistExpandedSections.value.includes(sectionId)
+    ? checklistExpandedSections.value.filter((value) => value !== sectionId)
+    : [...checklistExpandedSections.value, sectionId]
+}
+
+function markChecklistSectionComplete(section) {
+  section.items.forEach((item) => {
+    if (!item.completed) {
+      updateChecklistItemState(item.id, 'approved')
+    }
+  })
+}
+
+async function saveChecklist() {
+  if (!selectedAircraft.value) return
+
+  checklistSaving.value = true
+  checklistError.value = ''
+
+  try {
+    await updateAircraftChecklist(selectedAircraft.value.id, {
+      items: Object.values(checklistDraft).map((item) => ({
+        key: item.id,
+        status: normalizeChecklistState(item.state || 'pending'),
+        notes: item.notes || null,
+      })),
+    })
+
+    checklistDirty.value = false
+    ui.pushToast({
+      tone: 'success',
+      title: 'Checklist guardado',
+      message: 'La revision administrativa de la aeronave quedo actualizada.',
+    })
+  } catch (error) {
+    checklistError.value = error?.message || 'No fue posible guardar el checklist.'
+    ui.pushToast({
+      tone: 'error',
+      title: 'No se pudo guardar el checklist',
+      message: checklistError.value,
+    })
+  } finally {
+    checklistSaving.value = false
+  }
+}
+
+function canApproveAircraftByChecklist(item = {}) {
+  return selectedAircraftChecklistSummary.value.mandatoryPendingCount === 0
 }
 
 function approvalState(item) {
@@ -1235,17 +1853,10 @@ function docsChip(item) {
   return { label: 'Documentacion incompleta', tone: 'warning', icon: '!' }
 }
 
-function matchingChip(item) {
-  return matchingVisible(item)
-    ? { label: 'Matching visible', tone: 'info', icon: '•' }
-    : { label: 'Matching bloqueado', tone: 'neutral', icon: '•' }
-}
-
-function trialChip(item) {
-  const state = trialState(item)
-  if (state === 'Trial activo') return { label: 'Trial activo', tone: 'info', icon: '•' }
-  if (state === 'Trial vencido') return { label: 'Trial vencido', tone: 'danger', icon: '!' }
-  return { label: 'Sin trial', tone: 'neutral', icon: '•' }
+function operationalChip(item) {
+  return aircraftReadiness(item).reservationReady
+    ? { label: 'Activa', tone: 'success', icon: '✓' }
+    : { label: 'Inactiva', tone: 'warning', icon: '!' }
 }
 
 function companyInitials(name) {
@@ -1255,6 +1866,173 @@ function companyInitials(name) {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
     .join('')
+}
+
+function aircraftChecklistPercent(item = {}) {
+  const sections = automaticChecklistSections(item)
+  const items = sections.flatMap((section) => section.items)
+  const total = items.length || 1
+  const completed = items.filter((entry) => entry.completed).length
+  return Math.round((completed / total) * 100)
+}
+
+function providerCompliancePercent(items = []) {
+  if (!items.length) return 0
+  const total = items.reduce((sum, item) => sum + aircraftChecklistPercent(item), 0)
+  return Math.round(total / items.length)
+}
+
+function providerOverallStatus(group) {
+  if (!group?.items?.length) return { label: 'Sin aeronaves', tone: 'neutral' }
+  if (group.pending > 0) return { label: 'Requiere revision', tone: 'warning' }
+  if (group.active === group.items.length) return { label: 'Operativa', tone: 'success' }
+  if (group.approved > 0) return { label: 'Parcial', tone: 'info' }
+  return { label: 'En proceso', tone: 'neutral' }
+}
+
+function yesNoLabel(value) {
+  return value ? 'Si' : 'No'
+}
+
+function detailMetricTone(value) {
+  return value ? 'success' : 'neutral'
+}
+
+function detailStatusRows(item = {}) {
+  const readiness = aircraftReadiness(item)
+  const validation = resolveAircraftDocumentValidation(item)
+  return [
+    { label: 'Capacidad', value: formatNumber(item.capacity || item.passenger_capacity, ' pax') },
+    { label: 'Rango', value: formatNumber(item.range_km || item.rangeKm, ' km') },
+    { label: 'Tarifa', value: formatMoney(item.hourly_rate || item.hourlyPrice || item.price_per_hour) },
+    { label: 'Ultima actualizacion', value: formatDate(item.updated_at || item.created_at) },
+    { label: 'Cotizable', value: yesNoLabel(readiness.quoteReady), tone: detailMetricTone(readiness.quoteReady) },
+    { label: 'Reservable', value: yesNoLabel(readiness.reservationReady), tone: detailMetricTone(readiness.reservationReady) },
+    { label: 'Documentacion', value: validation.label, tone: docsChip(item).tone },
+    { label: 'Pago', value: billingChip(item).label, tone: billingChip(item).tone },
+    { label: 'Estado operativo', value: operationalChip(item).label, tone: operationalChip(item).tone },
+  ]
+}
+
+function detailGeneralRows(item = {}) {
+  return [
+    { label: 'Modelo', value: aircraftName(item) },
+    { label: 'Fabricante', value: item.manufacturer || 'Pendiente' },
+    { label: 'Tipo', value: item.type || item.category || 'Jet ejecutivo' },
+    { label: 'Ano', value: item.model_year || item.year || 'Pendiente' },
+    { label: 'Matricula', value: item.registration || 'Pendiente' },
+    { label: 'Proveedor', value: providerName(item) },
+    { label: 'Base', value: baseLabel(item) },
+    { label: 'Horas', value: formatHours(item.flight_hours || item.hours) },
+    { label: 'Estado', value: statusChip(item).label, tone: statusChip(item).tone },
+  ]
+}
+
+function detailOperationRows(item = {}) {
+  const readiness = aircraftReadiness(item)
+  return [
+    { label: 'Estado Backend', value: item.status || 'Pendiente' },
+    { label: 'Marketplace', value: readiness.reservationReady ? 'Disponible' : 'Bloqueado', tone: detailMetricTone(readiness.reservationReady) },
+    { label: 'Reservable', value: yesNoLabel(readiness.reservationReady), tone: detailMetricTone(readiness.reservationReady) },
+    { label: 'Cotizable', value: yesNoLabel(readiness.quoteReady), tone: detailMetricTone(readiness.quoteReady) },
+    { label: 'Base registrada', value: yesNoLabel(readiness.baseRegistered), tone: detailMetricTone(readiness.baseRegistered) },
+    { label: 'Pago', value: billingChip(item).label, tone: billingChip(item).tone },
+  ]
+}
+
+function firstDefinedText(...values) {
+  return values.find((value) => String(value || '').trim()) || ''
+}
+
+function lastApprovalDate(item = {}) {
+  const reviewState = adminAircraftReviewState(item)
+  return (
+    reviewState.approved_at ||
+    reviewState.last_approved_at ||
+    item.approved_at ||
+    item.approvedAt ||
+    item.last_approved_at ||
+    ''
+  )
+}
+
+function lastRejectionDate(item = {}) {
+  const reviewState = adminAircraftReviewState(item)
+  return (
+    reviewState.rejected_at ||
+    reviewState.last_rejected_at ||
+    item.rejected_at ||
+    item.rejectedAt ||
+    item.last_rejected_at ||
+    ''
+  )
+}
+
+function selectedAircraftAdminName(item = {}) {
+  const reviewState = adminAircraftReviewState(item)
+  const snapshot = adminAircraftSnapshot(item)
+  const reviewedByDraft = Object.values(checklistDraft)
+    .map((entry) => entry?.reviewedBy || '')
+    .find(Boolean)
+
+  return (
+    firstDefinedText(
+      reviewState.reviewed_by_name,
+      reviewState.admin_name,
+      reviewState.approved_by_name,
+      reviewState.rejected_by_name,
+      snapshot.updated_by_name,
+      item.updated_by_name,
+      item.admin_name,
+      reviewedByDraft,
+    ) || 'Administrador'
+  )
+}
+
+function detailHistoryRows(item = {}) {
+  return [
+    { label: 'Registro creado', value: formatDate(item.created_at) },
+    { label: 'Ultima actualizacion', value: formatDate(item.updated_at || item.created_at) },
+    { label: 'Ultima aprobacion', value: formatDate(lastApprovalDate(item)) },
+    { label: 'Ultimo rechazo', value: formatDate(lastRejectionDate(item)) },
+  ]
+}
+
+function detailPricingCards(item = {}) {
+  return [
+    { label: 'Tarifa hora', value: formatMoney(item.hourly_rate || item.hourlyPrice || item.price_per_hour) },
+    { label: 'Minimo', value: formatNumber(item.minimum_hours || item.min_hours, ' h') },
+    { label: 'Capacidad', value: formatNumber(item.capacity || item.passenger_capacity, ' pasajeros') },
+    { label: 'Cobertura', value: formatList(item.coverage) },
+    { label: 'Amenidades', value: formatList(item.amenities) },
+    { label: 'Comisiones', value: formatNumber(item.commission_percent || item.commission || item.comisiones, '%') },
+    { label: 'Fee', value: formatMoney(item.fixed_fee || item.fee_fijo || item.global_fixed_fee) },
+    { label: 'Utilidad', value: formatNumber(item.margin_percent || item.profit_percent || item.utility_percent || item.utilidad, '%') },
+    { label: 'Combustible', value: formatMoney(item.fuel_surcharge || item.fuel_cost || item.combustible) },
+  ]
+}
+
+async function scrollDetailSection(sectionId = 'general') {
+  await nextTick()
+  const target = globalThis.document?.querySelector?.(`[data-detail-section="${sectionId}"]`)
+  target?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+function isCompanyExpanded(name) {
+  return expandedCompanyGroups.value.includes(name)
+}
+
+function toggleCompanyGroup(name) {
+  expandedCompanyGroups.value = isCompanyExpanded(name)
+    ? expandedCompanyGroups.value.filter((value) => value !== name)
+    : [...expandedCompanyGroups.value, name]
+}
+
+function openAircraftDetail(item, tab = 'general') {
+  selectedAircraft.value = item
+  detailTab.value = tab
+  openActionMenuId.value = null
+  void scrollDetailSection(tab)
 }
 
 function formatDate(value) {
@@ -1294,21 +2072,19 @@ const activeFilters = computed(() =>
     companyFilter.value !== 'Todas' ? `Empresa: ${companyFilter.value}` : '',
     approvalFilter.value !== 'Todas' ? `Estado: ${approvalFilter.value}` : '',
     documentsFilter.value !== 'Todos' ? `Docs: ${documentsFilter.value}` : '',
-    matchingFilter.value !== 'Todos' ? `Matching: ${matchingFilter.value}` : '',
-    trialFilter.value !== 'Todos' ? `Trial: ${trialFilter.value}` : '',
     sortMode.value !== 'recent' ? `Orden: ${sortOptions.find((item) => item.value === sortMode.value)?.label || sortMode.value}` : '',
   ].filter(Boolean),
 )
 
 const companyFilteredAircraft = computed(() => {
-  const providerIdQuery = String(route.query.providerId || '').trim()
+  const providerIdQuery = routeProviderIdValue()
   const providerNameQuery = String(route.query.providerName || '').trim()
 
   return props.aircraft.filter((item) => {
     const matchesCompany = companyFilter.value === 'Todas' || providerName(item) === companyFilter.value
     if (!matchesCompany) return false
 
-    if (providerIdQuery) {
+    if (providerIdQuery > 0) {
       return providerIdValue(item) === providerIdQuery
     }
 
@@ -1320,28 +2096,36 @@ const companyFilteredAircraft = computed(() => {
   })
 })
 
+const sectionStatusItems = computed(() =>
+  [
+    props.aircraftLoading ? 'Cargando aeronaves...' : '',
+    props.documentsLoading ? 'Cargando documentos...' : '',
+    props.subscriptionsLoading ? 'Cargando suscripciones...' : '',
+    props.paymentsLoading ? 'Cargando pagos...' : '',
+  ].filter(Boolean),
+)
+
+const sectionErrorMessages = computed(() =>
+  [
+    props.sectionErrors?.aircraft || '',
+    props.sectionErrors?.documents || '',
+    props.sectionErrors?.subscriptions || '',
+    props.sectionErrors?.payments || '',
+  ].filter(Boolean),
+)
+
 
 
 const filteredAircraft = computed(() => {
   const items = companyFilteredAircraft.value.filter((item) => {
     const approvalMatches = approvalFilter.value === 'Todas' || approvalState(item) === approvalFilter.value
-    const matchingMatches =
-      matchingFilter.value === 'Todos' ||
-      (matchingFilter.value === 'Visibles' && matchingVisible(item)) ||
-      (matchingFilter.value === 'Bloqueados' && !matchingVisible(item))
     const documentMatches = documentsFilter.value === 'Todos' || documentsState(item) === documentsFilter.value
-    const trialMatches = trialFilter.value === 'Todos' || trialState(item) === trialFilter.value
-    return approvalMatches && matchingMatches && documentMatches && trialMatches && matchesText(item)
+    return approvalMatches && documentMatches && matchesText(item)
   })
 
   return [...items].sort((a, b) => {
     if (sortMode.value === 'az') return aircraftName(a).localeCompare(aircraftName(b))
     if (sortMode.value === 'approved') return Number(isApproved(b)) - Number(isApproved(a))
-    if (sortMode.value === 'trial') {
-      const aTime = a.trial_ends_at ? new Date(a.trial_ends_at).getTime() : Number.MAX_SAFE_INTEGER
-      const bTime = b.trial_ends_at ? new Date(b.trial_ends_at).getTime() : Number.MAX_SAFE_INTEGER
-      return aTime - bTime
-    }
     return new Date(b.updated_at || b.created_at || 0).getTime() - new Date(a.updated_at || a.created_at || 0).getTime()
   })
 })
@@ -1353,7 +2137,7 @@ const kpis = computed(() => {
     { label: 'Aprobadas', value: companyFilteredAircraft.value.filter(isApproved).length, tone: 'success' },
     { label: 'Pendientes', value: companyFilteredAircraft.value.filter((item) => approvalState(item) === 'Pendientes').length, tone: 'warning' },
     { label: 'Suspendidas', value: companyFilteredAircraft.value.filter(isSuspended).length, tone: 'danger' },
-    { label: 'Matching visible', value: companyFilteredAircraft.value.filter(matchingVisible).length, tone: 'info' },
+    { label: 'Activas', value: companyFilteredAircraft.value.filter((item) => aircraftReadiness(item).reservationReady).length, tone: 'info' },
   ]
 
   return items.map((item) => ({
@@ -1374,16 +2158,15 @@ const companyGroups = computed(() => {
     items,
     approved: items.filter(isApproved).length,
     pending: items.filter((item) => approvalState(item) === 'Pendientes').length,
-    visible: items.filter(matchingVisible).length,
+    active: items.filter((item) => aircraftReadiness(item).reservationReady).length,
+    compliance: providerCompliancePercent(items),
   }))
 })
 
 function clearFilters() {
   companyFilter.value = 'Todas'
   approvalFilter.value = 'Todas'
-  matchingFilter.value = 'Todos'
   documentsFilter.value = 'Todos'
-  trialFilter.value = 'Todos'
   searchTerm.value = ''
   sortMode.value = 'recent'
   showAdvancedFilters.value = false
@@ -1394,9 +2177,7 @@ function clearFilters() {
 }
 
 function selectAircraft(item) {
-  selectedAircraft.value = item
-  detailTab.value = 'general'
-  openActionMenuId.value = null
+  openAircraftDetail(item, 'general')
 }
 
 function closeDrawer() {
@@ -1416,14 +2197,50 @@ function runCardAction(action, item) {
   if (!item) return
   if (action === 'view') {
     selectAircraft(item)
-  } else if (action === 'approve') {
-    emit('approve-aircraft', item.id)
+  } else if (action === 'activate') {
+    emit('activate-aircraft', item.id)
+  } else if (action === 'deactivate') {
+    emit('deactivate-aircraft', item.id)
   } else if (action === 'reject') {
     emit('reject-aircraft', item.id)
   } else if (action === 'suspend') {
     emit('suspend-aircraft', item.id)
   }
   closeActionMenu()
+}
+
+function aircraftIsActive(item = {}) {
+  return isAdminAircraftActive(item)
+}
+
+function providerApproved(item = {}) {
+  return isProviderApprovedForAdminAircraft(item)
+}
+
+function activationRequirements(item = {}) {
+  const activationState = adminAircraftActivationState(item)
+  return Array.isArray(activationState.missing_requirements) ? activationState.missing_requirements : []
+}
+
+function hasActivationRequirement(item = {}, code = '') {
+  const normalizedCode = normalizeMissingRequirement(code)
+  return activationRequirements(item).some((entry) => {
+    const currentCode = typeof entry === 'string' ? entry : String(entry?.code || '').trim()
+    return normalizeMissingRequirement(currentCode) === normalizedCode
+  })
+}
+
+function primaryAdminAction(item = {}) {
+  return resolvePrimaryAdminAircraftAction(item)
+}
+
+function primaryAdminActionLabel(item = {}) {
+  return ({
+    approve_provider: 'Aprobar proveedor',
+    approve_aircraft: 'Aprobar aeronave',
+    activate_aircraft: 'Activar aeronave',
+    deactivate_aircraft: 'Desactivar aeronave',
+  })[primaryAdminAction(item)] || ''
 }
 
 const selectedAircraftIndex = computed(() =>
@@ -1442,18 +2259,35 @@ const selectedAircraftDocumentSummary = computed(() =>
   selectedAircraft.value ? documentSummaryItems(selectedAircraft.value) : [],
 )
 
+const selectedAircraftMediaAssets = computed(() =>
+  selectedAircraft.value ? aircraftMediaAssets(selectedAircraft.value) : [],
+)
+
+const selectedAircraftPrimaryMedia = computed(() => {
+  const media = selectedAircraftMediaAssets.value
+  return media.find((asset) => asset.kind === 'image') || media[0] || null
+})
+
+const selectedAircraftGalleryMedia = computed(() => {
+  const primaryId = selectedAircraftPrimaryMedia.value?.id
+  return selectedAircraftMediaAssets.value.filter((asset) => asset.id !== primaryId)
+})
+
 function selectRelativeAircraft(direction = 1) {
   if (!filteredAircraft.value.length || selectedAircraftIndex.value < 0) return
   const nextIndex = (selectedAircraftIndex.value + direction + filteredAircraft.value.length) % filteredAircraft.value.length
   selectedAircraft.value = filteredAircraft.value[nextIndex]
   detailTab.value = 'general'
+  void scrollDetailSection('general')
 }
 
 watch(
   () => props.aircraft,
   () => {
-    if (selectedAircraft.value && !props.aircraft.some((item) => item.id === selectedAircraft.value.id)) {
-      selectedAircraft.value = null
+    if (selectedAircraft.value) {
+      const refreshedSelectedAircraft =
+        props.aircraft.find((item) => Number(item.id) === Number(selectedAircraft.value.id)) || null
+      selectedAircraft.value = refreshedSelectedAircraft
     }
     if (openActionMenuId.value && !props.aircraft.some((item) => item.id === openActionMenuId.value)) {
       openActionMenuId.value = null
@@ -1462,15 +2296,31 @@ watch(
 )
 
 watch(
+  () => selectedAircraft.value?.id || 0,
+  (aircraftId) => {
+    checklistError.value = ''
+    checklistUnsupported.value = false
+    if (!aircraftId) {
+      Object.keys(checklistDraft).forEach((key) => delete checklistDraft[key])
+      checklistLoadedAircraftId.value = 0
+      checklistDirty.value = false
+      return
+    }
+
+    void loadChecklistForAircraft(aircraftId)
+  },
+)
+
+watch(
   () => [route.query.providerId, route.query.providerName, props.aircraft.length],
   () => {
-    const providerIdQuery = String(route.query.providerId || '').trim()
+    const providerIdQuery = routeProviderIdValue()
     const providerNameQuery = String(route.query.providerName || '').trim()
 
     if (!providerIdQuery && !providerNameQuery) return
 
     const matchedAircraft = props.aircraft.find((item) => {
-      if (providerIdQuery) {
+      if (providerIdQuery > 0) {
         return providerIdValue(item) === providerIdQuery
       }
 
@@ -1482,6 +2332,21 @@ watch(
     const matchedProviderName = providerName(matchedAircraft)
     if (matchedProviderName && companyFilter.value !== matchedProviderName) {
       companyFilter.value = matchedProviderName
+    }
+  },
+  { immediate: true },
+)
+
+watch(
+  () => companyGroups.value.map((group) => group.name),
+  (names) => {
+    const nextExpanded = expandedCompanyGroups.value.filter((name) => names.includes(name))
+    if (!nextExpanded.length && names.length) {
+      expandedCompanyGroups.value = [names[0]]
+      return
+    }
+    if (nextExpanded.length !== expandedCompanyGroups.value.length) {
+      expandedCompanyGroups.value = nextExpanded
     }
   },
   { immediate: true },
@@ -1536,10 +2401,22 @@ watch(
         <div>
           <span class="eyebrow">Dashboard aeronaves</span>
           <h2>Control de la flota</h2>
-          <p>Revision ejecutiva de aprobacion, documentos, trial y visibilidad en marketplace.</p>
+          <p>Revision ejecutiva de aprobacion, documentos, pago y estado operativo.</p>
         </div>
-        <button type="button" class="export-button" @click="exportAircraftCsv">Exportar</button>
+        <button type="button" class="admin-button admin-button--download" @click="exportAircraftCsv">
+          <span class="admin-button__icon" aria-hidden="true">⬇</span>
+          <span>Exportar</span>
+        </button>
       </header>
+
+      <div v-if="sectionStatusItems.length || sectionErrorMessages.length" class="section-runtime-panel">
+        <p v-if="sectionStatusItems.length" class="section-runtime-copy">
+          {{ sectionStatusItems.join(' · ') }}
+        </p>
+        <p v-for="message in sectionErrorMessages" :key="message" class="section-runtime-error">
+          {{ message }}
+        </p>
+      </div>
 
       <div class="kpi-grid" aria-label="Resumen de aeronaves">
         <article v-for="item in kpis" :key="item.label" :class="['kpi-card', `tone-${item.tone}`]">
@@ -1589,29 +2466,14 @@ watch(
               </select>
             </label>
 
-            <button type="button" class="more-filters-toggle" :class="{ active: showAdvancedFilters }" @click="showAdvancedFilters = !showAdvancedFilters">
-              Mas filtros {{ showAdvancedFilters ? '▲' : '▼' }}
+            <button type="button" class="admin-button admin-button--outline more-filters-toggle" :class="{ active: showAdvancedFilters }" @click="showAdvancedFilters = !showAdvancedFilters">
+              <span class="admin-button__icon" aria-hidden="true">{{ showAdvancedFilters ? '−' : '+' }}</span>
+              <span>Mas filtros</span>
             </button>
           </div>
         </div>
 
         <div v-if="showAdvancedFilters" class="filter-groups filter-groups-advanced">
-          <label class="toolbar-field">
-            <span>Matching</span>
-            <select v-model="matchingFilter">
-              <option v-for="option in matchingOptions" :key="option" :value="option">
-                {{ option }}
-              </option>
-            </select>
-          </label>
-          <label class="toolbar-field">
-            <span>Trial</span>
-            <select v-model="trialFilter">
-              <option v-for="option in trialOptions" :key="option" :value="option">
-                {{ option }}
-              </option>
-            </select>
-          </label>
           <label class="toolbar-field sort-control">
             <span>Orden</span>
             <select v-model="sortMode">
@@ -1645,19 +2507,30 @@ watch(
       </div>
 
       <section v-for="group in companyGroups" :key="group.name" class="company-group">
-        <div class="company-head">
-          <div class="company-avatar">{{ companyInitials(group.name) }}</div>
-          <div class="company-head-copy">
-            <h3>{{ group.name }}</h3>
-            <p>{{ group.items.length }} aeronaves activas · {{ group.approved }} aprobadas · {{ group.pending }} pendientes · {{ group.visible }} en matching</p>
+        <button
+          type="button"
+          class="company-head"
+          :class="{ expanded: isCompanyExpanded(group.name) }"
+          @click="toggleCompanyGroup(group.name)"
+        >
+          <div class="company-head-leading">
+            <span class="company-head-chevron">{{ isCompanyExpanded(group.name) ? '▼' : '▶' }}</span>
+            <div class="company-avatar">{{ companyInitials(group.name) }}</div>
+            <div class="company-head-copy">
+              <h3>{{ group.name }}</h3>
+              <p>{{ group.items.length }} aeronaves</p>
+            </div>
           </div>
           <div class="company-head-metrics">
-            <span>{{ group.items.length }} total</span>
-            <span>{{ group.approved }} aprobadas</span>
+            <span>{{ group.items.length }} aeronaves</span>
+            <span>Cumplimiento {{ group.compliance }}%</span>
+            <span :class="['company-status-pill', `company-status-pill-${providerOverallStatus(group).tone}`]">
+              {{ providerOverallStatus(group).label }}
+            </span>
           </div>
-        </div>
+        </button>
 
-        <div class="aircraft-grid">
+        <div v-if="isCompanyExpanded(group.name)" class="aircraft-grid">
           <article
             v-for="item in group.items"
             :key="item.id"
@@ -1675,100 +2548,77 @@ watch(
             </div>
 
             <div class="aircraft-card-body">
-              <div class="aircraft-topline">
-                <div class="aircraft-topline-left">
-                  <span class="aircraft-icon">✈</span>
-                  <span :class="['chip', `chip-${statusChip(item).tone}`]">
-                    {{ statusChip(item).icon }} {{ statusChip(item).label }}
-                  </span>
-                </div>
-                <button type="button" class="card-menu-trigger" @click.stop="toggleActionMenu(item.id)">⋮</button>
-              </div>
-
               <div class="aircraft-title">
-                <span>{{ item.registration || 'Sin matricula' }}</span>
                 <h4>{{ aircraftName(item) }}</h4>
-                <p>{{ providerName(item) }}</p>
+                <span>{{ item.registration || 'Sin matricula' }}</span>
               </div>
 
-              <div class="aircraft-core-metrics">
-                <div>
-                  <span>Horas</span>
-                  <strong>{{ formatHours(item.flight_hours || item.hours) }}</strong>
-                </div>
-                <div>
-                  <span>Documentos</span>
-                  <strong>{{ documentCompletion(item).completed }}/{{ documentCompletion(item).total }}</strong>
-                </div>
-                <div>
-                  <span>Base</span>
-                  <strong>{{ baseLabel(item) }}</strong>
-                </div>
+              <div class="aircraft-facts">
+                <p>📍 {{ baseLabel(item) }}</p>
+                <p>✈ {{ item.type || item.category || 'Jet ejecutivo' }}</p>
+                <p class="aircraft-state-line">Estado: {{ statusChip(item).label }}</p>
               </div>
 
-              <div class="status-list compact-status-list">
+              <div class="status-list compact-status-list compact-status-list-single">
+                <span :class="['chip', `chip-${statusChip(item).tone}`]">
+                  {{ statusChip(item).label }}
+                </span>
                 <span :class="['chip', `chip-${docsChip(item).tone}`]">
-                  {{ docsChip(item).icon }} {{ docsChip(item).label }}
+                  Docs {{ documentCompletion(item).completed }}/{{ documentCompletion(item).total }}
                 </span>
-                <span :class="['chip', `chip-${billingChip(item).tone}`]">
-                  {{ billingChip(item).icon }} {{ billingChip(item).label }}
-                </span>
-                <span :class="['chip', `chip-${matchingChip(item).tone}`]">
-                  {{ matchingChip(item).icon }} {{ matchingChip(item).label }}
-                </span>
-                <span :class="['chip', `chip-${trialChip(item).tone}`]">
-                  {{ trialChip(item).icon }} {{ trialChip(item).label }}
+                <span :class="['chip', `chip-${readinessTone(item)}`]">
+                  Checklist {{ aircraftChecklistPercent(item) }}%
                 </span>
               </div>
 
-              <div :class="['readiness-panel', `readiness-panel-${readinessTone(item)}`]">
-                <div class="readiness-head">
-                  <div>
-                    <small>Estado comercial</small>
-                    <strong>{{ readinessHeadline(item) }}</strong>
-                  </div>
-                  <span :class="['chip', `chip-${readinessTone(item)}`]">
-                    {{ aircraftReadiness(item).reservationReady ? 'Reservable' : aircraftReadiness(item).quoteReady ? 'Cotizable' : 'Pendiente' }}
-                  </span>
-                </div>
-                <p>{{ readinessDescription(item) }}</p>
-                <div class="readiness-checklist">
-                  <span
-                    v-for="entry in readinessChecklist(item)"
-                    :key="entry.label"
-                    :class="['readiness-item', { complete: entry.complete }]"
-                  >
-                    {{ entry.complete ? '✓' : '!' }} {{ entry.label }}
-                  </span>
-                </div>
-                <div v-if="aircraftReadiness(item).missing.length" class="missing-tags">
-                  <span v-for="field in aircraftReadiness(item).missing" :key="field">
-                    {{ missingFieldLabel(field) }}
-                  </span>
-                </div>
+              <div class="aircraft-readiness-copy">
+                <p>{{ readinessHeadline(item) }}</p>
+                <small>{{ readinessDescription(item) }}</small>
               </div>
 
-              <div class="document-progress">
-                <div class="document-progress-copy">
-                  <small>Completitud documental</small>
-                  <strong>{{ documentCompletion(item).percent }}%</strong>
-                </div>
-                <div class="document-progress-track">
-                  <div class="document-progress-fill" :style="{ width: `${documentCompletion(item).percent}%` }"></div>
+              <div class="document-progress compact-document-progress">
+                <div class="document-progress-copy compact-document-progress-copy">
+                  <small>Ultima actualizacion</small>
+                  <strong>{{ formatDate(item.updated_at || item.created_at) }}</strong>
                 </div>
               </div>
 
               <div class="card-foot compact-card-foot">
-                <small>Trial vence: {{ formatDate(item.trial_ends_at) }}</small>
-                <button type="button" @click.stop="selectAircraft(item)">Ver</button>
+                <div class="card-foot-actions">
+                  <button type="button" class="admin-button admin-button--outline" @click.stop="openAircraftDetail(item, 'general')">
+                    <span class="admin-button__icon" aria-hidden="true">📄</span>
+                    <span>Abrir</span>
+                  </button>
+                  <button type="button" class="admin-button admin-button--neutral secondary-card-button" @click.stop="openAircraftDetail(item, 'checklist')">
+                    <span class="admin-button__icon" aria-hidden="true">✏</span>
+                    <span>Editar</span>
+                  </button>
+                </div>
+                <button type="button" class="admin-button admin-button--icon admin-button--neutral card-menu-trigger" aria-label="Mas acciones" @click.stop="toggleActionMenu(item.id)">⋯</button>
               </div>
             </div>
 
             <div v-if="openActionMenuId === item.id" class="card-action-menu" @click.stop>
-              <button type="button" @click="runCardAction('view', item)">Ver detalle</button>
-              <button type="button" @click="runCardAction('approve', item)">Aprobar</button>
-              <button type="button" @click="runCardAction('reject', item)">Rechazar</button>
-              <button type="button" @click="runCardAction('suspend', item)">Suspender</button>
+              <button type="button" class="admin-button admin-button--outline admin-button--menu" @click="runCardAction('view', item)">
+                <span class="admin-button__icon" aria-hidden="true">📄</span>
+                <span>Abrir detalle</span>
+              </button>
+              <button
+                type="button"
+                :class="['admin-button', aircraftIsActive(item) ? 'admin-button--reject' : 'admin-button--approve', 'admin-button--menu']"
+                @click="runCardAction(aircraftIsActive(item) ? 'deactivate' : 'activate', item)"
+              >
+                <span class="admin-button__icon" aria-hidden="true">{{ aircraftIsActive(item) ? '⛔' : '✔' }}</span>
+                <span>{{ aircraftIsActive(item) ? 'Desactivar aeronave' : 'Activar aeronave' }}</span>
+              </button>
+              <button type="button" class="admin-button admin-button--reject admin-button--menu" @click="runCardAction('reject', item)">
+                <span class="admin-button__icon" aria-hidden="true">✕</span>
+                <span>Rechazar</span>
+              </button>
+              <button type="button" class="admin-button admin-button--suspend admin-button--menu" @click="runCardAction('suspend', item)">
+                <span class="admin-button__icon" aria-hidden="true">⛔</span>
+                <span>Suspender</span>
+              </button>
             </div>
           </article>
         </div>
@@ -1794,295 +2644,421 @@ watch(
         </header>
 
         <div class="detail-body">
-          <section class="detail-hero">
-            <div :class="['detail-hero-media', { 'drawer-media-empty': !primaryAircraftImage(selectedAircraft) }]">
-              <img
-                v-if="primaryAircraftImage(selectedAircraft)"
-                :src="primaryAircraftImage(selectedAircraft)"
-                :alt="`Imagen de ${aircraftName(selectedAircraft)}`"
-                class="hero-image"
-              />
-              <span v-else>✈</span>
-            </div>
-            <aside class="detail-hero-side">
-              <div class="detail-hero-card">
-                <span class="mini-label">Resumen ejecutivo</span>
-                <div class="drawer-chips">
-                  <span :class="['chip', `chip-${statusChip(selectedAircraft).tone}`]">{{ statusChip(selectedAircraft).label }}</span>
-                  <span :class="['chip', `chip-${docsChip(selectedAircraft).tone}`]">{{ docsChip(selectedAircraft).label }}</span>
-                  <span :class="['chip', `chip-${billingChip(selectedAircraft).tone}`]">{{ billingChip(selectedAircraft).label }}</span>
-                  <span :class="['chip', `chip-${matchingChip(selectedAircraft).tone}`]">{{ matchingChip(selectedAircraft).label }}</span>
-                  <span :class="['chip', `chip-${trialChip(selectedAircraft).tone}`]">{{ trialChip(selectedAircraft).label }}</span>
-                  <span :class="['chip', `chip-${readinessTone(selectedAircraft)}`]">{{ readinessHeadline(selectedAircraft) }}</span>
-                </div>
-                <dl class="hero-kpi-list">
-                  <div>
-                    <dt>Capacidad</dt>
-                    <dd>{{ formatNumber(selectedAircraft.capacity || selectedAircraft.passenger_capacity, ' pax') }}</dd>
-                  </div>
-                  <div>
-                    <dt>Rango</dt>
-                    <dd>{{ formatNumber(selectedAircraft.range_km || selectedAircraft.rangeKm, ' km') }}</dd>
-                  </div>
-                  <div>
-                    <dt>Tarifa hora</dt>
-                    <dd>{{ formatMoney(selectedAircraft.hourly_rate || selectedAircraft.hourlyPrice || selectedAircraft.price_per_hour) }}</dd>
-                  </div>
-                  <div>
-                    <dt>Actualizacion</dt>
-                    <dd>{{ formatDate(selectedAircraft.updated_at || selectedAircraft.created_at) }}</dd>
-                  </div>
-                </dl>
-                <div class="drawer-readiness-block">
-                  <strong>Listo para cotizar: {{ aircraftReadiness(selectedAircraft).quoteReady ? 'Si' : 'No' }}</strong>
-                  <strong>Listo para reservar: {{ aircraftReadiness(selectedAircraft).reservationReady ? 'Si' : 'No' }}</strong>
-                  <p>{{ readinessDescription(selectedAircraft) }}</p>
-                  <div v-if="aircraftReadiness(selectedAircraft).missing.length" class="missing-tags">
-                    <span v-for="field in aircraftReadiness(selectedAircraft).missing" :key="field">
-                      {{ missingFieldLabel(field) }}
-                    </span>
-                  </div>
+          <section class="detail-dashboard-grid detail-dashboard-grid-top" data-detail-section="general">
+            <article class="detail-panel detail-panel-gallery">
+              <div class="detail-section-heading">
+                <div>
+                  <span class="mini-label">Galeria</span>
+                  <h4>Galeria operativa</h4>
                 </div>
               </div>
-            </aside>
-          </section>
 
-          <nav class="detail-tabs" aria-label="Navegacion de detalle">
-            <button
-              v-for="tab in detailTabs"
-              :key="tab.id"
-              type="button"
-              :class="{ active: detailTab === tab.id }"
-              @click="detailTab = tab.id"
-            >
-              {{ tab.label }}
-            </button>
-          </nav>
+              <button
+                type="button"
+                :class="['detail-hero-media', { 'drawer-media-empty': !selectedAircraftPrimaryMedia }]"
+                @click="selectedAircraftPrimaryMedia ? previewMediaAsset(selectedAircraftPrimaryMedia) : null"
+              >
+                <img
+                  v-if="selectedAircraftPrimaryMedia && selectedAircraftPrimaryMedia.kind === 'image'"
+                  :src="selectedAircraftPrimaryMedia.url"
+                  :alt="selectedAircraftPrimaryMedia.title"
+                  class="hero-image"
+                />
+                <video
+                  v-else-if="selectedAircraftPrimaryMedia && selectedAircraftPrimaryMedia.kind === 'video'"
+                  :src="selectedAircraftPrimaryMedia.url"
+                  class="hero-image"
+                  muted
+                ></video>
+                <div v-else-if="selectedAircraftPrimaryMedia && selectedAircraftPrimaryMedia.kind === 'pdf'" class="detail-media-placeholder">
+                  <strong>PDF</strong>
+                  <small>{{ selectedAircraftPrimaryMedia.title }}</small>
+                </div>
+                <span v-else>✈</span>
+              </button>
 
-          <section v-if="detailTab === 'general'" class="detail-panel-grid">
-            <article class="detail-panel">
-              <h4>Datos de la aeronave</h4>
-              <dl class="detail-definition-grid">
-                <div>
-                  <dt>Matricula</dt>
-                  <dd>{{ selectedAircraft.registration || 'Pendiente' }}</dd>
-                </div>
-                <div>
-                  <dt>Fabricante</dt>
-                  <dd>{{ selectedAircraft.manufacturer || 'Pendiente' }}</dd>
-                </div>
-                <div>
-                  <dt>Modelo</dt>
-                  <dd>{{ aircraftName(selectedAircraft) }}</dd>
-                </div>
-                <div>
-                  <dt>Año</dt>
-                  <dd>{{ selectedAircraft.model_year || selectedAircraft.year || 'Pendiente' }}</dd>
-                </div>
-                <div>
-                  <dt>Horas totales</dt>
-                  <dd>{{ selectedAircraft.flight_hours || selectedAircraft.hours || 'Pendiente' }}</dd>
-                </div>
-                <div>
-                  <dt>Ubicacion</dt>
-                  <dd>{{ baseLabel(selectedAircraft) }}</dd>
-                </div>
-                <div>
-                  <dt>Tipo</dt>
-                  <dd>{{ selectedAircraft.type || selectedAircraft.category || 'Jet ejecutivo' }}</dd>
-                </div>
-                <div>
-                  <dt>Proveedor</dt>
-                  <dd>{{ providerName(selectedAircraft) }}</dd>
-                </div>
-              </dl>
+              <div v-if="selectedAircraftGalleryMedia.length" class="detail-media-thumb-grid">
+                <button
+                  v-for="asset in selectedAircraftGalleryMedia"
+                  :key="asset.id"
+                  type="button"
+                  class="detail-media-thumb"
+                  @click="previewMediaAsset(asset)"
+                >
+                  <img v-if="asset.kind === 'image'" :src="asset.url" :alt="asset.title" loading="lazy" />
+                  <div v-else class="detail-media-thumb-badge">
+                    <strong>{{ asset.kind === 'video' ? 'Play' : 'PDF' }}</strong>
+                  </div>
+                  <span>{{ asset.title }}</span>
+                </button>
+              </div>
             </article>
 
-            <article class="detail-panel">
-              <h4>Observaciones</h4>
-              <p class="detail-copy">
-                {{ selectedAircraft.notes || selectedAircraft.admin_notes || 'Sin observaciones registradas para esta aeronave.' }}
-              </p>
-              <h4>Disponibilidad comercial</h4>
-              <p class="detail-copy">
-                {{
-                  aircraftReadiness(selectedAircraft).reservationReady
-                    ? 'Visible y lista para entrar a matching, cotizaciones y reservas.'
-                    : aircraftReadiness(selectedAircraft).quoteReady
-                      ? 'Ya puede cotizarse, pero aun requiere cierre comercial para reservas.'
-                      : 'Oculta hasta completar aprobacion, documentos, base y datos comerciales.'
-                }}
-              </p>
-            </article>
-          </section>
+            <article class="detail-panel detail-panel-executive">
+              <div class="detail-section-heading">
+                <div>
+                  <span class="mini-label">Resumen Ejecutivo</span>
+                  <h4>Estado comercial</h4>
+                </div>
+              </div>
 
-          <section v-else-if="detailTab === 'documents'" class="detail-panel-grid">
-            <article class="detail-panel">
-              <h4>Checklist documental</h4>
-              <div class="document-summary-grid">
+              <div class="drawer-chips">
+                <span :class="['chip', `chip-${statusChip(selectedAircraft).tone}`]">{{ statusChip(selectedAircraft).label }}</span>
+                <span :class="['chip', `chip-${docsChip(selectedAircraft).tone}`]">{{ docsChip(selectedAircraft).label }}</span>
+                <span :class="['chip', `chip-${billingChip(selectedAircraft).tone}`]">{{ billingChip(selectedAircraft).label }}</span>
+                <span :class="['chip', `chip-${operationalChip(selectedAircraft).tone}`]">{{ operationalChip(selectedAircraft).label }}</span>
+              </div>
+
+              <div class="executive-stats-grid">
                 <div
-                  v-for="item in selectedAircraftDocumentSummary"
-                  :key="item.label"
-                  :class="['document-summary-card', `document-summary-card-${item.status || 'missing'}`, { complete: item.complete }]"
+                  v-for="metric in detailStatusRows(selectedAircraft)"
+                  :key="metric.label"
+                  :class="['executive-stat-card', metric.tone ? `tone-${metric.tone}` : '']"
                 >
-                  <strong>{{ item.complete ? '✓' : '!' }} {{ item.label }}</strong>
-                  <small>{{ item.detail }}</small>
+                  <span>{{ metric.label }}</span>
+                  <strong>{{ metric.value }}</strong>
+                </div>
+              </div>
+
+              <div class="drawer-readiness-block">
+                <strong>{{ readinessHeadline(selectedAircraft) }}</strong>
+                <p>{{ readinessDescription(selectedAircraft) }}</p>
+                <div v-if="aircraftReadiness(selectedAircraft).missing.length" class="missing-tags">
+                  <span v-for="field in aircraftReadiness(selectedAircraft).missing" :key="field">
+                    {{ missingFieldLabel(field) }}
+                  </span>
+                </div>
+              </div>
+
+              <div
+                v-if="!aircraftIsActive(selectedAircraft) && activationRequirements(selectedAircraft).length"
+                class="drawer-required-actions"
+              >
+                <strong>Acciones requeridas</strong>
+                <p v-if="primaryAdminAction(selectedAircraft) === 'approve_provider'">El proveedor está pendiente de aprobación administrativa.</p>
+                <p v-else-if="primaryAdminAction(selectedAircraft) === 'approve_aircraft'">Aeronave pendiente de aprobación administrativa.</p>
+                <p v-else-if="primaryAdminAction(selectedAircraft) === 'activate_aircraft'">La aeronave está aprobada y lista para activación.</p>
+                <ul class="required-actions-list">
+                  <li
+                    v-for="requirement in activationRequirements(selectedAircraft)"
+                    :key="typeof requirement === 'string' ? requirement : requirement.code"
+                  >
+                    {{ typeof requirement === 'string' ? missingFieldLabel(normalizeMissingRequirement(requirement)) : requirement.label }}
+                  </li>
+                </ul>
+                <div class="detail-inline-actions">
+                  <button
+                    v-if="primaryAdminAction(selectedAircraft) === 'approve_provider'"
+                    type="button"
+                    class="admin-button admin-button--approve"
+                    @click="$emit('approve-provider', selectedAircraft.provider?.id || selectedAircraft.provider_id)"
+                  >
+                    <span class="admin-button__icon" aria-hidden="true">✔</span>
+                    <span>Aprobar proveedor</span>
+                  </button>
+                  <button
+                    v-else-if="primaryAdminAction(selectedAircraft) === 'approve_aircraft'"
+                    type="button"
+                    class="admin-button admin-button--approve"
+                    @click="$emit('approve-aircraft', selectedAircraft.id)"
+                  >
+                    <span class="admin-button__icon" aria-hidden="true">✔</span>
+                    <span>Aprobar aeronave</span>
+                  </button>
+                  <button
+                    v-if="primaryAdminAction(selectedAircraft) === 'activate_aircraft' && (hasActivationRequirement(selectedAircraft, 'tarifa') || hasActivationRequirement(selectedAircraft, 'rango'))"
+                    type="button"
+                    class="admin-button admin-button--outline"
+                    @click="openAircraftDetail(selectedAircraft, 'pricing')"
+                  >
+                    <span class="admin-button__icon" aria-hidden="true">✏</span>
+                    <span>Editar aeronave</span>
+                  </button>
+                  <button
+                    v-if="primaryAdminAction(selectedAircraft) === 'activate_aircraft' && hasActivationRequirement(selectedAircraft, 'documentacion')"
+                    type="button"
+                    class="admin-button admin-button--outline"
+                    @click="scrollDetailSection('documents')"
+                  >
+                    <span class="admin-button__icon" aria-hidden="true">📄</span>
+                    <span>Revisar documentos</span>
+                  </button>
                 </div>
               </div>
             </article>
 
-            <article class="detail-panel detail-panel-wide">
-              <h4>Documentos cargados</h4>
-              <div v-if="selectedAircraftDocuments.length" class="document-list">
+            <article class="detail-panel detail-panel-settings">
+              <div class="detail-section-heading">
+                <div>
+                  <span class="mini-label">Informacion General</span>
+                  <h4>Ficha de aeronave</h4>
+                </div>
+              </div>
+
+              <div class="settings-list">
+                <div v-for="row in detailGeneralRows(selectedAircraft)" :key="row.label" class="settings-row">
+                  <span>{{ row.label }}</span>
+                  <strong :class="row.tone ? `text-${row.tone}` : ''">{{ row.value }}</strong>
+                </div>
+              </div>
+            </article>
+          </section>
+
+          <section class="detail-dashboard-grid detail-dashboard-grid-middle" data-detail-section="checklist">
+            <article class="detail-panel detail-panel-checklist">
+              <div class="detail-section-heading">
+                <div>
+                  <span class="mini-label">Checklist documental</span>
+                  <h4>{{ selectedAircraftChecklistSummary.completed }}/{{ selectedAircraftChecklistSummary.total }} completos</h4>
+                </div>
+                <span :class="['chip', `chip-${checklistStateMeta(selectedAircraftChecklistSummary.status).tone}`]">
+                  {{ selectedAircraftChecklistSummary.percent }}%
+                </span>
+              </div>
+
+              <div class="checklist-progress-track">
+                <span class="checklist-progress-fill" :style="{ width: `${selectedAircraftChecklistSummary.percent}%` }"></span>
+              </div>
+
+              <p v-if="checklistLoading" class="documents-empty">Cargando checklist administrativo...</p>
+              <p v-else-if="checklistError" class="document-error">{{ checklistError }}</p>
+              <p v-else-if="checklistUnsupported" class="documents-empty">
+                El backend todavia no expone la persistencia del checklist para esta aeronave.
+              </p>
+
+              <div class="checklist-toolbar">
+                <button type="button" class="admin-button admin-button--primary admin-button--save" :disabled="checklistSaving || checklistLoading || checklistUnsupported" @click="saveChecklist">
+                  <span v-if="checklistSaving" class="button-spinner" aria-hidden="true"></span>
+                  <span v-else class="admin-button__icon" aria-hidden="true">💾</span>
+                  <span>{{ checklistSaving ? 'Guardando cambios...' : 'Guardar cambios' }}</span>
+                </button>
+                <button type="button" class="admin-button admin-button--neutral" :disabled="checklistLoading" @click="resetChecklistDraft">
+                  <span class="admin-button__icon" aria-hidden="true">↺</span>
+                  <span>Restablecer</span>
+                </button>
+              </div>
+
+              <div class="compact-checklist-list">
                 <article
-                  v-for="document in selectedAircraftDocuments"
-                  :key="document.id"
-                  class="document-item"
+                  v-for="item in selectedAircraftChecklistSections.find((section) => section.id === 'documents')?.items || []"
+                  :key="item.id"
+                  :class="['compact-checklist-item', `tone-${checklistStateMeta(item.state).tone}`]"
                 >
-                  <div>
+                  <div class="compact-checklist-item-head">
+                    <span class="compact-checklist-icon">
+                      {{ item.state === 'approved' || item.state === 'not_applicable' ? '✔' : item.state === 'rejected' ? '✕' : '⚠' }}
+                    </span>
+                    <div>
+                      <strong>{{ item.label }}</strong>
+                      <small>{{ checklistStateMeta(item.state).label }}</small>
+                    </div>
+                  </div>
+                  <label class="checklist-state-select">
+                    <span>Estado</span>
+                    <select :value="item.state" @change="updateChecklistItemState(item.id, $event.target.value)">
+                      <option value="pending">Pendiente</option>
+                      <option value="approved">Aprobado</option>
+                      <option value="rejected">Rechazado</option>
+                      <option value="missing">Faltante</option>
+                    </select>
+                  </label>
+                </article>
+              </div>
+            </article>
+
+            <article class="detail-panel detail-panel-documents" data-detail-section="documents">
+              <div class="detail-section-heading">
+                <div>
+                  <span class="mini-label">Documentos</span>
+                  <h4>Documentos cargados</h4>
+                </div>
+              </div>
+
+              <div v-if="selectedAircraftDocuments.length" class="document-card-grid">
+                <article v-for="document in selectedAircraftDocuments" :key="getAircraftDocumentKey(document)" class="document-card">
+                  <div class="document-card-head document-card-head--toolbar">
+                    <div class="document-card-head-copy">
+                      <strong>{{ document.name }}</strong>
+                      <small>{{ documentTypeLabel(document.type) }}</small>
+                    </div>
                     <span :class="['chip', `chip-${documentStatusMeta(document).tone}`]">{{ documentStatusMeta(document).label }}</span>
-                    <strong>{{ document.name }}</strong>
-                    <small>{{ documentTypeLabel(document.type) }} · Vence: {{ formatDate(document.expiresAt) }}</small>
+                  </div>
+                  <div class="document-card-body">
+                    <p>Fecha: {{ formatDate(document.expiresAt) }}</p>
                     <p v-if="document.notes">{{ document.notes }}</p>
                   </div>
-                  <button
-                    v-if="document.fileUrl || document.id"
-                    type="button"
-                    class="document-open"
-                    :disabled="downloadingDocumentId === document.id"
-                    @click="openAircraftDocument(document)"
-                  >
-                    {{ downloadingDocumentId === document.id ? 'Abriendo...' : 'Abrir' }}
-                  </button>
-                  <span v-else class="document-missing">Sin archivo</span>
+                  <div class="document-card-actions">
+                    <button
+                      v-if="document.fileUrl || document.id"
+                      type="button"
+                      class="admin-button admin-button--outline"
+                      :disabled="downloadingDocumentId === document.id"
+                      @click="openAircraftDocument(document)"
+                    >
+                      <span v-if="downloadingDocumentId === document.id" class="button-spinner" aria-hidden="true"></span>
+                      <span v-else class="admin-button__icon" aria-hidden="true">📄</span>
+                      <span>{{ downloadingDocumentId === document.id ? 'Abriendo...' : 'Abrir' }}</span>
+                    </button>
+                    <button
+                      v-if="canReviewAircraftDocument(document)"
+                      type="button"
+                      class="admin-button admin-button--approve"
+                      @click="$emit('approve-aircraft-document', { aircraftId: selectedAircraft.id, document })"
+                    >
+                      <span class="admin-button__icon" aria-hidden="true">✔</span>
+                      <span>Aprobar</span>
+                    </button>
+                    <button
+                      v-if="canReviewAircraftDocument(document)"
+                      type="button"
+                      class="admin-button admin-button--reject"
+                      @click="$emit('reject-aircraft-document', { aircraftId: selectedAircraft.id, document })"
+                    >
+                      <span class="admin-button__icon" aria-hidden="true">✕</span>
+                      <span>Rechazar</span>
+                    </button>
+                    <button v-else type="button" class="admin-button admin-button--neutral" disabled>
+                      <span class="admin-button__icon" aria-hidden="true">🕘</span>
+                      <span>Historial</span>
+                    </button>
+                    <button type="button" class="admin-button admin-button--icon admin-button--neutral" disabled aria-label="Mas acciones">⋯</button>
+                  </div>
                 </article>
               </div>
               <p v-if="documentDownloadError" class="document-error">{{ documentDownloadError }}</p>
               <p v-if="!selectedAircraftDocuments.length" class="documents-empty">No hay documentos cargados para esta aeronave.</p>
             </article>
-          </section>
 
-          <section v-else-if="detailTab === 'operations'" class="detail-panel-grid">
-            <article class="detail-panel">
-              <h4>Operacion</h4>
-              <dl class="detail-definition-grid">
+            <article class="detail-panel detail-panel-operations" data-detail-section="operations">
+              <div class="detail-section-heading">
                 <div>
-                  <dt>Estado backend</dt>
-                  <dd>{{ selectedAircraft.status || 'Pendiente' }}</dd>
+                  <span class="mini-label">Operacion</span>
+                  <h4>Operacion y auditoria</h4>
                 </div>
-                <div>
-                  <dt>Trial vence</dt>
-                  <dd>{{ formatDate(selectedAircraft.trial_ends_at) }}</dd>
-                </div>
-                <div>
-                  <dt>Documentos</dt>
-                  <dd>{{ selectedAircraftDocuments.length }} archivo(s)</dd>
-                </div>
-                <div>
-                  <dt>Marketplace</dt>
-                  <dd>{{ matchingVisible(selectedAircraft) ? 'Visible' : 'Bloqueado' }}</dd>
-                </div>
-                <div>
-                  <dt>Base registrada</dt>
-                  <dd>{{ aircraftReadiness(selectedAircraft).baseRegistered ? 'Completa' : 'Pendiente' }}</dd>
-                </div>
-                <div>
-                  <dt>Cotizable</dt>
-                  <dd>{{ aircraftReadiness(selectedAircraft).quoteReady ? 'Si' : 'No' }}</dd>
-                </div>
-                <div>
-                  <dt>Reservable</dt>
-                  <dd>{{ aircraftReadiness(selectedAircraft).reservationReady ? 'Si' : 'No' }}</dd>
-                </div>
-              </dl>
-            </article>
+              </div>
 
-            <article class="detail-panel">
-              <h4>Historial rapido</h4>
+              <div class="settings-list">
+                <div v-for="row in detailOperationRows(selectedAircraft)" :key="row.label" class="settings-row">
+                  <span>{{ row.label }}</span>
+                  <strong :class="row.tone ? `text-${row.tone}` : ''">{{ row.value }}</strong>
+                </div>
+              </div>
+
               <div class="timeline-list">
-                <div class="timeline-item">
-                  <strong>Registro creado</strong>
-                  <small>{{ formatDate(selectedAircraft.created_at) }}</small>
-                </div>
-                <div class="timeline-item">
-                  <strong>Ultima actualizacion</strong>
-                  <small>{{ formatDate(selectedAircraft.updated_at || selectedAircraft.created_at) }}</small>
-                </div>
-                <div class="timeline-item">
-                  <strong>Estatus actual</strong>
-                  <small>{{ statusChip(selectedAircraft).label }}</small>
-                </div>
-                <div class="timeline-item">
-                  <strong>Faltantes criticos</strong>
-                  <small>{{
-                    aircraftReadiness(selectedAircraft).missing.length
-                      ? aircraftReadiness(selectedAircraft).missing.map(missingFieldLabel).join(', ')
-                      : 'Sin faltantes criticos'
-                  }}</small>
+                <div v-for="row in detailHistoryRows(selectedAircraft)" :key="row.label" class="timeline-item">
+                  <strong>{{ row.label }}</strong>
+                  <small>{{ row.value }}</small>
                 </div>
               </div>
             </article>
           </section>
 
-          <section v-else-if="detailTab === 'pricing'" class="detail-panel-grid">
+          <section class="detail-dashboard-grid-single" data-detail-section="pricing">
             <article class="detail-panel detail-panel-wide">
-              <h4>Pricing y disponibilidad</h4>
-              <dl class="detail-definition-grid">
+              <div class="detail-section-heading">
                 <div>
-                  <dt>Tarifa hora</dt>
-                  <dd>{{ formatMoney(selectedAircraft.hourly_rate || selectedAircraft.hourlyPrice || selectedAircraft.price_per_hour) }}</dd>
+                  <span class="mini-label">Pricing</span>
+                  <h4>Informacion comercial</h4>
                 </div>
-                <div>
-                  <dt>Minimo</dt>
-                  <dd>{{ formatNumber(selectedAircraft.minimum_hours || selectedAircraft.min_hours, ' h') }}</dd>
-                </div>
-                <div>
-                  <dt>Rango</dt>
-                  <dd>{{ formatNumber(selectedAircraft.range_km || selectedAircraft.rangeKm, ' km') }}</dd>
-                </div>
-                <div>
-                  <dt>Capacidad</dt>
-                  <dd>{{ formatNumber(selectedAircraft.capacity || selectedAircraft.passenger_capacity, ' pasajeros') }}</dd>
-                </div>
-                <div>
-                  <dt>Cobertura</dt>
-                  <dd>{{ formatList(selectedAircraft.coverage) }}</dd>
-                </div>
-                <div>
-                  <dt>Amenidades</dt>
-                  <dd>{{ formatList(selectedAircraft.amenities) }}</dd>
-                </div>
-              </dl>
+              </div>
+
+              <div class="pricing-card-grid">
+                <article v-for="card in detailPricingCards(selectedAircraft)" :key="card.label" class="pricing-info-card">
+                  <span>{{ card.label }}</span>
+                  <strong>{{ card.value }}</strong>
+                </article>
+              </div>
             </article>
           </section>
 
-          <section v-else class="detail-panel-grid">
+          <section class="detail-dashboard-grid-single" data-detail-section="media">
             <article class="detail-panel detail-panel-wide">
-              <h4>Multimedia</h4>
-              <div v-if="selectedAircraftImages.length" class="detail-media-grid">
-                <img
-                  v-for="image in selectedAircraftImages"
-                  :key="image.id"
-                  :src="image.imageUrl"
-                  :alt="image.title"
-                  loading="lazy"
-                />
+              <div class="detail-section-heading">
+                <div>
+                  <span class="mini-label">Multimedia</span>
+                  <h4>Galeria expandida</h4>
+                </div>
               </div>
-              <p v-else class="documents-empty">No hay imagenes cargadas para esta aeronave.</p>
+
+              <div v-if="selectedAircraftMediaAssets.length" class="detail-media-masonry">
+                <button
+                  v-for="asset in selectedAircraftMediaAssets"
+                  :key="asset.id"
+                  type="button"
+                  class="detail-media-masonry-item"
+                  @click="previewMediaAsset(asset)"
+                >
+                  <img v-if="asset.kind === 'image'" :src="asset.url" :alt="asset.title" loading="lazy" />
+                  <div v-else class="detail-media-masonry-placeholder">
+                    <strong>{{ asset.kind === 'video' ? 'Video' : 'PDF' }}</strong>
+                    <small>{{ asset.title }}</small>
+                  </div>
+                </button>
+              </div>
+              <p v-else class="documents-empty">No hay imagenes, videos o PDFs disponibles para esta aeronave.</p>
             </article>
           </section>
         </div>
 
         <footer class="detail-footer">
           <div class="detail-footer-copy">
-            <strong>{{ aircraftName(selectedAircraft) }}</strong>
             <small>{{ providerName(selectedAircraft) }} · {{ baseLabel(selectedAircraft) }}</small>
+            <small>Actualizacion: {{ formatDate(selectedAircraft.updated_at || selectedAircraft.created_at) }}</small>
           </div>
           <div class="detail-footer-actions">
-            <button class="action-approve" type="button" @click="$emit('approve-aircraft', selectedAircraft.id)">✓ Aprobar</button>
-            <button class="action-reject" type="button" @click="$emit('reject-aircraft', selectedAircraft.id)">× Rechazar</button>
-            <button class="action-suspend" type="button" @click="$emit('suspend-aircraft', selectedAircraft.id)">! Suspender</button>
-            <button type="button" class="export-button" @click="downloadSelectedAircraftSummary">Descargar resumen</button>
+            <button
+              v-if="primaryAdminAction(selectedAircraft) === 'approve_provider'"
+              class="admin-button admin-button--approve detail-footer-button"
+              type="button"
+              @click="$emit('approve-provider', selectedAircraft.provider?.id || selectedAircraft.provider_id)"
+            >
+              <span class="admin-button__icon" aria-hidden="true">✔</span>
+              <span>Aprobar proveedor</span>
+            </button>
+            <button
+              v-else-if="primaryAdminAction(selectedAircraft) === 'approve_aircraft'"
+              class="admin-button admin-button--approve detail-footer-button"
+              type="button"
+              @click="$emit('approve-aircraft', selectedAircraft.id)"
+            >
+              <span class="admin-button__icon" aria-hidden="true">✔</span>
+              <span>Aprobar aeronave</span>
+            </button>
+            <button
+              v-else-if="primaryAdminAction(selectedAircraft) === 'deactivate_aircraft'"
+              class="admin-button admin-button--reject detail-footer-button"
+              type="button"
+              @click="$emit('deactivate-aircraft', selectedAircraft.id)"
+            >
+              <span class="admin-button__icon" aria-hidden="true">⛔</span>
+              <span>Desactivar aeronave</span>
+            </button>
+            <button
+              v-else
+              class="admin-button admin-button--approve detail-footer-button"
+              type="button"
+              :disabled="activationRequirements(selectedAircraft).length > 0"
+              @click="$emit('activate-aircraft', selectedAircraft.id)"
+            >
+              <span class="admin-button__icon" aria-hidden="true">✔</span>
+              <span>Activar aeronave</span>
+            </button>
+            <button class="admin-button admin-button--reject detail-footer-button" type="button" @click="$emit('reject-aircraft', selectedAircraft.id)">
+              <span class="admin-button__icon" aria-hidden="true">✕</span>
+              <span>Rechazar</span>
+            </button>
+            <button class="admin-button admin-button--suspend detail-footer-button" type="button" @click="$emit('suspend-aircraft', selectedAircraft.id)">
+              <span class="admin-button__icon" aria-hidden="true">⛔</span>
+              <span>Suspender</span>
+            </button>
+            <button type="button" class="admin-button admin-button--download detail-footer-button" @click="downloadSelectedAircraftSummary">
+              <span class="admin-button__icon" aria-hidden="true">⬇</span>
+              <span>Descargar resumen</span>
+            </button>
+          </div>
+          <div class="detail-footer-meta">
+            <span>Admin: {{ selectedAircraftAdminName(selectedAircraft) }}</span>
+            <span>Estado: {{ statusChip(selectedAircraft).label }}</span>
           </div>
         </footer>
       </section>
@@ -2095,12 +3071,14 @@ watch(
       <section v-if="previewDocument" class="document-preview" aria-label="Vista previa de documento">
         <header>
           <div>
-            <span class="mini-label">{{ documentTypeLabel(previewDocument.type) }}</span>
+            <span class="mini-label">{{ previewDocument.type === 'image' ? 'Imagen' : previewDocument.type === 'video' ? 'Video' : documentTypeLabel(previewDocument.type) }}</span>
             <h3>{{ previewDocument.name }}</h3>
           </div>
           <button type="button" @click="closeDocumentPreview">Cerrar</button>
         </header>
-        <iframe :src="previewDocument.url" :title="previewDocument.name"></iframe>
+        <img v-if="previewDocument.type === 'image'" :src="previewDocument.url" :alt="previewDocument.name" class="document-preview-image" />
+        <video v-else-if="previewDocument.type === 'video'" :src="previewDocument.url" class="document-preview-video" controls autoplay></video>
+        <iframe v-else :src="previewDocument.url" :title="previewDocument.name"></iframe>
       </section>
     </Transition>
   </section>
@@ -2157,7 +3135,7 @@ watch(
 .empty-state {
   border: 1px solid #e5e7eb;
   background: #ffffff;
-  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.06);
 }
 
 .company-avatar {
@@ -2184,9 +3162,11 @@ watch(
 .aircraft-command {
   display: grid;
   gap: 1rem;
-  border-radius: 8px;
-  padding: 1rem;
-  background: #ffffff;
+  border-radius: 18px;
+  padding: 1.1rem;
+  background:
+    radial-gradient(circle at top left, rgba(59, 130, 246, 0.08), transparent 24%),
+    linear-gradient(180deg, #ffffff, #fbfdff);
 }
 
 .command-hero {
@@ -2194,19 +3174,230 @@ watch(
   align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
-  padding: 0.25rem 0.25rem 0;
+  padding: 0.15rem 0.15rem 0;
 }
 
 .command-hero h2 {
   margin: 0;
   color: #0f172a;
-  font-size: clamp(1.6rem, 3vw, 2.35rem);
+  font-size: clamp(1.45rem, 2.5vw, 2rem);
   letter-spacing: 0;
 }
 
 .command-hero p {
   margin: 0.45rem 0 0;
   max-width: 44rem;
+}
+
+.section-runtime-panel {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0.75rem 0 0;
+  padding: 0.9rem 1rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  background: #f8fafc;
+}
+
+.section-runtime-copy {
+  margin: 0;
+  color: #475569;
+  font-size: 0.94rem;
+  font-weight: 700;
+}
+
+.section-runtime-error {
+  margin: 0;
+  color: #b45309;
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.checklist-overview-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.checklist-overview-head,
+.checklist-item-head,
+.checklist-item-actions,
+.checklist-toolbar,
+.checklist-section-head,
+.checklist-item-meta,
+.checklist-section-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.9rem;
+}
+
+.checklist-overview-score,
+.checklist-evidence {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.checklist-overview-score {
+  justify-items: end;
+  text-align: right;
+}
+
+.checklist-overview-score strong,
+.checklist-evidence strong {
+  color: #0f172a;
+}
+
+.checklist-overview-score span,
+.checklist-item-meta span,
+.checklist-evidence small,
+.checklist-section-head small,
+.checklist-state-select span {
+  color: #64748b;
+  font-size: 0.9rem;
+}
+
+.checklist-progress-track {
+  width: 100%;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e2e8f0;
+}
+
+.checklist-progress-track.compact {
+  height: 8px;
+}
+
+.checklist-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2563eb 0%, #0f766e 100%);
+}
+
+.checklist-toolbar {
+  flex-wrap: wrap;
+}
+
+.checklist-section-card,
+.checklist-item-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  background: #fff;
+}
+
+.checklist-section-card {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem;
+}
+
+.checklist-section-head {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.checklist-section-head strong,
+.checklist-item-title strong,
+.checklist-approval-banner strong {
+  color: #0f172a;
+}
+
+.checklist-requirements {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.checklist-item-card {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem;
+}
+
+.checklist-item-card.tone-success {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+
+.checklist-item-card.tone-warning {
+  border-color: #fed7aa;
+  background: #fff7ed;
+}
+
+.checklist-item-card.tone-danger {
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
+.checklist-item-card.tone-neutral {
+  border-color: #e2e8f0;
+  background: #f8fafc;
+}
+
+.checklist-item-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.checklist-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  min-width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.08);
+  color: #0f172a;
+  font-weight: 800;
+}
+
+.checklist-state-select,
+.checklist-notes-field {
+  min-width: 200px;
+}
+
+.checklist-state-select select,
+.checklist-notes-field textarea {
+  width: 100%;
+}
+
+.checklist-item-meta {
+  flex-wrap: wrap;
+}
+
+.checklist-item-actions {
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.checklist-notes-field textarea {
+  min-height: 84px;
+  resize: vertical;
+  padding: 0.85rem 1rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 16px;
+  color: #0f172a;
+  background: #fff;
+  font: inherit;
+}
+
+.checklist-approval-banner {
+  display: grid;
+  gap: 0.35rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid #bbf7d0;
+  border-radius: 18px;
+  background: #f0fdf4;
+}
+
+.checklist-approval-banner.blocked {
+  border-color: #fed7aa;
+  background: #fff7ed;
 }
 
 .export-button,
@@ -2227,23 +3418,23 @@ watch(
 }
 
 .export-button {
-  padding: 0.75rem 1rem;
+  padding: 0.68rem 0.95rem;
   color: #0f172a;
-  background: #f1f5f9;
+  background: #f3f6fb;
 }
 
 .kpi-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 0.75rem;
+  gap: 0.85rem;
 }
 
 .kpi-card {
-  min-height: 6rem;
+  min-height: 5.15rem;
   border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 0.9rem;
-  background: #ffffff;
+  border-radius: 16px;
+  padding: 0.8rem 0.9rem;
+  background: rgba(255, 255, 255, 0.9);
 }
 
 .kpi-card span {
@@ -2255,9 +3446,9 @@ watch(
 
 .kpi-card strong {
   display: block;
-  margin-top: 0.45rem;
+  margin-top: 0.3rem;
   color: #0f172a;
-  font-size: 2rem;
+  font-size: 1.55rem;
 }
 
 .kpi-card small {
@@ -2300,9 +3491,10 @@ watch(
 
 .filter-panel {
   display: grid;
-  gap: 0.9rem;
-  border-radius: 8px;
-  padding: 1rem;
+  gap: 0.8rem;
+  border-radius: 18px;
+  padding: 0.95rem;
+  background: rgba(255, 255, 255, 0.88);
 }
 
 .primary-filters,
@@ -2315,7 +3507,7 @@ watch(
 .toolbar-select-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.75rem;
+  gap: 0.7rem;
   align-items: end;
 }
 
@@ -2346,7 +3538,7 @@ watch(
   border-radius: 999px;
   color: #0f172a;
   background: #f8fafc;
-  padding: 0.75rem 1rem;
+  padding: 0.72rem 0.95rem;
   font-weight: 900;
 }
 
@@ -2372,25 +3564,25 @@ watch(
 
 .search-row input {
   width: 100%;
-  min-height: 3.4rem;
+  min-height: 3rem;
   border: 1px solid #dbe3ef;
-  border-radius: 18px;
+  border-radius: 14px;
   color: #0f172a;
   background: #f8fafc;
   padding: 0 1rem;
-  font-size: 1rem;
+  font-size: 0.96rem;
   outline: none;
 }
 
 .toolbar-field select {
   width: 100%;
-  min-height: 3rem;
+  min-height: 2.8rem;
   border: 1px solid #dbe3ef;
-  border-radius: 14px;
+  border-radius: 12px;
   color: #0f172a;
   background: #ffffff;
   padding: 0 0.95rem;
-  font-size: 0.94rem;
+  font-size: 0.9rem;
   outline: none;
 }
 
@@ -2400,7 +3592,7 @@ watch(
   justify-content: space-between;
   gap: 1rem;
   border-top: 1px solid #e5e7eb;
-  padding-top: 0.95rem;
+  padding-top: 0.8rem;
 }
 
 .results-copy {
@@ -2479,29 +3671,37 @@ watch(
 }
 
 .active-filter-row span {
-  color: #bfdbfe;
-  background: rgba(59, 130, 246, 0.14);
+  color: #1d4ed8;
+  border-color: #bfdbfe;
+  background: #eff6ff;
 }
 
 .active-filter-row button {
-  color: #ffffff;
-  background: rgba(239, 68, 68, 0.18);
+  color: #b91c1c;
+  border-color: #fecaca;
+  background: #fef2f2;
+  font-weight: 900;
 }
 
 .company-group {
   display: grid;
-  gap: 0.85rem;
+  gap: 1rem;
 }
 
 .company-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
+  gap: 1rem;
+  width: 100%;
   border: 1px solid #e5e7eb;
   border-radius: 18px;
-  background: #f8fafc;
-  padding: 1rem 1.1rem;
+  background:
+    linear-gradient(135deg, rgba(248, 250, 252, 0.98), rgba(255, 255, 255, 0.98)),
+    #ffffff;
+  padding: 0.95rem 1rem;
+  text-align: left;
+  cursor: pointer;
 }
 
 .company-head h3,
@@ -2518,10 +3718,24 @@ watch(
   min-width: 0;
 }
 
+.company-head-leading {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  min-width: 0;
+}
+
+.company-head-chevron {
+  color: #64748b;
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+
 .company-head-metrics {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.45rem;
+  justify-content: flex-end;
+  gap: 0.55rem;
 }
 
 .company-head-metrics span {
@@ -2534,21 +3748,50 @@ watch(
   font-weight: 800;
 }
 
+.company-status-pill-success {
+  border-color: rgba(34, 197, 94, 0.28);
+  color: #166534;
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.company-status-pill-warning {
+  border-color: rgba(245, 158, 11, 0.28);
+  color: #92400e;
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.company-status-pill-info {
+  border-color: rgba(59, 130, 246, 0.28);
+  color: #1d4ed8;
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.company-status-pill-neutral {
+  border-color: rgba(148, 163, 184, 0.3);
+  color: #475569;
+  background: rgba(148, 163, 184, 0.1);
+}
+
 .aircraft-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.85rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 24px;
 }
 
 .aircraft-card {
   position: relative;
   display: grid;
-  grid-template-columns: 148px minmax(0, 1fr);
-  min-height: 260px;
+  grid-template-columns: 1fr;
+  grid-template-rows: 90px minmax(0, 1fr);
+  width: 100%;
+  max-width: 330px;
+  min-height: 250px;
+  height: 250px;
   align-items: stretch;
-  gap: 0.85rem;
-  border-radius: 18px;
-  padding: 0.85rem;
+  gap: 0;
+  overflow: hidden;
+  border-radius: 20px;
+  padding: 0;
   cursor: pointer;
   transition:
     transform 0.2s ease,
@@ -2565,11 +3808,12 @@ watch(
 .aircraft-photo {
   position: relative;
   display: grid;
-  min-height: 100%;
+  min-height: 90px;
+  max-height: 90px;
   overflow: hidden;
   place-items: center;
-  border-radius: 14px;
-  background: #f1f5f9;
+  border-radius: 12px 12px 0 0;
+  background: #e2e8f0;
 }
 
 .aircraft-photo img,
@@ -2594,9 +3838,11 @@ watch(
 
 .aircraft-card-body {
   display: grid;
+  grid-template-rows: auto auto auto 1fr auto auto;
   align-content: start;
-  gap: 0.7rem;
+  gap: 0.45rem;
   min-width: 0;
+  padding: 0.85rem 0.9rem 0.8rem;
 }
 
 .aircraft-topline,
@@ -2604,28 +3850,6 @@ watch(
   display: flex;
   align-items: center;
   gap: 0.75rem;
-}
-
-.aircraft-topline {
-  justify-content: space-between;
-}
-
-.aircraft-topline-left {
-  display: flex;
-  align-items: center;
-  gap: 0.55rem;
-  min-width: 0;
-}
-
-.aircraft-icon {
-  display: grid;
-  width: 1.85rem;
-  height: 1.85rem;
-  place-items: center;
-  border-radius: 8px;
-  background: #eff6ff;
-  color: #1d4ed8;
-  font-size: 0.86rem;
 }
 
 .aircraft-title span,
@@ -2637,45 +3861,35 @@ watch(
 }
 
 .aircraft-title h4 {
-  margin: 0.16rem 0;
+  margin: 0;
   color: #0f172a;
   font-size: 1rem;
   letter-spacing: 0;
+  line-height: 1.2;
 }
 
-.aircraft-title p {
+.aircraft-facts {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.aircraft-facts p,
+.aircraft-readiness-copy p,
+.aircraft-readiness-copy small {
   margin: 0;
-  font-size: 0.84rem;
 }
 
-.aircraft-core-metrics {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.5rem;
-}
-
-.aircraft-core-metrics div {
-  display: grid;
-  gap: 0.22rem;
-  border-radius: 12px;
-  background: #f8fafc;
-  padding: 0.55rem 0.6rem;
-}
-
-.aircraft-core-metrics span {
-  color: #64748b;
-  font-size: 0.68rem;
-  font-weight: 800;
-  text-transform: uppercase;
-}
-
-.aircraft-core-metrics strong {
-  min-width: 0;
+.aircraft-facts p {
   overflow: hidden;
-  color: #0f172a;
-  font-size: 0.82rem;
+  color: #475569;
+  font-size: 0.79rem;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.aircraft-state-line {
+  color: #0f172a;
+  font-weight: 700;
 }
 
 .status-list,
@@ -2685,6 +3899,18 @@ watch(
   gap: 0.4rem;
 }
 
+.compact-status-list-single {
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+.compact-status-list-single .chip {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .chip {
   display: inline-flex;
   align-items: center;
@@ -2692,10 +3918,10 @@ watch(
   gap: 0.32rem;
   border: 1px solid #e5e7eb;
   border-radius: 999px;
-  padding: 0.28rem 0.5rem;
+  padding: 0.26rem 0.48rem;
   color: #475569;
   background: #f8fafc;
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   font-weight: 900;
 }
 
@@ -2740,76 +3966,44 @@ watch(
   margin-top: auto;
 }
 
+.card-foot-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
 .compact-status-list .chip {
   font-size: 0.66rem;
 }
 
 .document-progress {
   display: grid;
-  gap: 0.45rem;
+  gap: 0.2rem;
 }
 
-.readiness-panel {
+.aircraft-readiness-copy,
+.drawer-readiness-block {
   display: grid;
-  gap: 0.6rem;
-  border: 1px solid #e5e7eb;
-  border-radius: 16px;
-  padding: 0.8rem;
-  background: linear-gradient(180deg, #fffdf7, #ffffff);
+  gap: 0.15rem;
 }
 
-.readiness-panel-success {
-  border-color: rgba(34, 197, 94, 0.28);
-  background: linear-gradient(180deg, rgba(240, 253, 244, 0.95), #ffffff);
-}
-
-.readiness-panel-warning {
-  border-color: rgba(245, 158, 11, 0.28);
-  background: linear-gradient(180deg, rgba(255, 251, 235, 0.95), #ffffff);
-}
-
-.readiness-panel-danger {
-  border-color: rgba(239, 68, 68, 0.28);
-  background: linear-gradient(180deg, rgba(254, 242, 242, 0.95), #ffffff);
-}
-
-.readiness-panel-info {
-  border-color: rgba(59, 130, 246, 0.24);
-  background: linear-gradient(180deg, rgba(239, 246, 255, 0.95), #ffffff);
-}
-
-.readiness-panel-neutral {
-  border-color: rgba(148, 163, 184, 0.24);
-  background: linear-gradient(180deg, rgba(248, 250, 252, 0.98), #ffffff);
-}
-
-.readiness-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.6rem;
-}
-
-.readiness-head small {
-  color: #64748b;
-  font-size: 0.7rem;
-  font-weight: 900;
-  text-transform: uppercase;
-}
-
-.readiness-head strong {
-  display: block;
-  margin-top: 0.14rem;
-  color: #0f172a;
-  font-size: 0.88rem;
-}
-
-.readiness-panel p,
+.aircraft-readiness-copy p,
 .drawer-readiness-block p {
   margin: 0;
   color: #475569;
-  font-size: 0.78rem;
-  line-height: 1.5;
+  font-size: 0.77rem;
+  line-height: 1.35;
+}
+
+.aircraft-readiness-copy p {
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.aircraft-readiness-copy small {
+  color: #64748b;
+  font-size: 0.72rem;
+  line-height: 1.25;
 }
 
 .readiness-checklist,
@@ -2855,6 +4049,10 @@ watch(
   gap: 0.75rem;
 }
 
+.compact-document-progress-copy {
+  justify-content: flex-start;
+}
+
 .document-progress-copy small {
   color: #64748b;
   font-size: 0.72rem;
@@ -2871,15 +4069,20 @@ watch(
   border-radius: 999px;
   color: #334155;
   background: #ffffff;
-  padding: 0.38rem 0.68rem;
-  font-size: 1rem;
+  padding: 0.32rem 0.58rem;
+  font-size: 0.95rem;
   line-height: 1;
+}
+
+.secondary-card-button {
+  color: #334155;
+  background: #f8fafc;
 }
 
 .card-action-menu {
   position: absolute;
-  top: 3.6rem;
-  right: 0.85rem;
+  right: 0.8rem;
+  bottom: 3.2rem;
   z-index: 5;
   display: grid;
   gap: 0.35rem;
@@ -3016,51 +4219,45 @@ watch(
 }
 
 .detail-body {
+  width: min(1700px, 100%);
   height: calc(100vh - 160px);
   overflow-y: auto;
-  padding: 1.25rem 1.5rem 7rem;
-}
-
-.detail-hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1.9fr) minmax(320px, 0.9fr);
-  gap: 1rem;
+  margin: 0 auto;
+  padding: 1.5rem 1.5rem 10rem;
 }
 
 .detail-hero-media {
   position: relative;
-  min-height: 500px;
+  min-height: 360px;
   overflow: hidden;
   border-radius: 24px;
+  border: 0;
   background:
     linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(15, 118, 110, 0.1)),
     #f8fafc;
+  cursor: pointer;
 }
 
 .hero-image {
   width: 100%;
-  height: 500px;
+  height: 100%;
   object-fit: cover;
 }
 
-.detail-hero-side {
-  display: grid;
-}
-
-.detail-hero-card,
 .detail-panel {
   display: grid;
   gap: 1rem;
   border: 1px solid #e5e7eb;
   border-radius: 24px;
-  background: #ffffff;
-  padding: 1.25rem;
-  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.06);
+  background: linear-gradient(180deg, #ffffff, #fbfdff);
+  padding: 24px;
+  box-shadow: 0 14px 40px rgba(15, 23, 42, 0.06);
 }
 
-.hero-kpi-list {
-  display: grid;
-  gap: 0.85rem;
+.detail-panel-gallery,
+.detail-panel-checklist,
+.detail-panel-operations {
+  align-self: start;
 }
 
 .drawer-readiness-block {
@@ -3075,60 +4272,24 @@ watch(
   font-size: 0.85rem;
 }
 
-.hero-kpi-list div {
-  justify-content: space-between;
-  border-bottom: 1px solid #eef2f7;
-  padding-bottom: 0.75rem;
-}
-
-.hero-kpi-list dt,
-.detail-definition-grid dt {
-  color: #64748b;
-  font-size: 0.78rem;
-  font-weight: 800;
-  text-transform: uppercase;
-}
-
-.hero-kpi-list dd,
-.detail-definition-grid dd {
-  margin: 0;
-  color: #0f172a;
-  font-weight: 800;
-  text-align: right;
-}
-
-.detail-tabs {
-  position: sticky;
-  top: 0;
-  z-index: 15;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  border-bottom: 1px solid #e5e7eb;
-  background: rgba(255, 255, 255, 0.98);
-  padding: 1rem 0 0.85rem;
-  margin-top: 1.2rem;
-}
-
-.detail-tabs button {
-  border: 1px solid #dbe3ef;
-  border-radius: 999px;
-  color: #334155;
-  background: #ffffff;
-  padding: 0.7rem 0.95rem;
-  font-weight: 800;
-}
-
-.detail-tabs button.active {
-  border-color: rgba(96, 165, 250, 0.65);
-  color: #ffffff;
-  background: #2563eb;
-}
-
-.detail-panel-grid {
+.detail-dashboard-grid,
+.detail-dashboard-grid-single {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
-  padding-top: 1.2rem;
+  gap: 24px;
+}
+
+.detail-dashboard-grid {
+  grid-template-columns: minmax(0, 1.17fr) minmax(0, 1.17fr) minmax(0, 1fr);
+  margin-bottom: 24px;
+}
+
+.detail-dashboard-grid-middle {
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.45fr) minmax(0, 0.95fr);
+}
+
+.detail-dashboard-grid-single {
+  grid-template-columns: minmax(0, 1fr);
+  margin-bottom: 24px;
 }
 
 .detail-panel-wide {
@@ -3136,7 +4297,8 @@ watch(
 }
 
 .detail-panel h4,
-.detail-copy {
+.detail-copy,
+.detail-section-heading h4 {
   margin: 0;
 }
 
@@ -3145,19 +4307,124 @@ watch(
   line-height: 1.7;
 }
 
-.detail-definition-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.9rem 1rem;
-  margin: 0;
+.detail-section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
 }
 
-.detail-definition-grid div {
+.detail-media-placeholder,
+.detail-media-masonry-placeholder {
+  display: grid;
+  place-items: center;
+  gap: 0.45rem;
+  height: 100%;
+  color: #334155;
+  text-align: center;
+}
+
+.detail-media-placeholder strong,
+.detail-media-masonry-placeholder strong {
+  font-size: 1.2rem;
+}
+
+.detail-media-thumb-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.detail-media-thumb {
+  display: grid;
+  gap: 0.5rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 18px;
+  padding: 0.55rem;
+  background: #f8fafc;
+  text-align: left;
+}
+
+.detail-media-thumb img,
+.detail-media-thumb-badge {
+  width: 100%;
+  height: 88px;
+  border-radius: 14px;
+}
+
+.detail-media-thumb img {
+  object-fit: cover;
+}
+
+.detail-media-thumb-badge {
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, #0f172a, #334155);
+  color: #ffffff;
+}
+
+.detail-media-thumb span {
+  overflow: hidden;
+  color: #475569;
+  font-size: 0.74rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.executive-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.executive-stat-card,
+.pricing-info-card {
+  display: grid;
+  gap: 0.35rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 18px;
+  background: #f8fafc;
+  padding: 0.9rem;
+}
+
+.executive-stat-card span,
+.pricing-info-card span,
+.settings-row span {
+  color: #64748b;
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.executive-stat-card strong,
+.pricing-info-card strong,
+.settings-row strong {
+  color: #0f172a;
+  font-size: 0.92rem;
+}
+
+.settings-list {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.settings-row {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 1rem;
   border-bottom: 1px solid #eef2f7;
-  padding-bottom: 0.85rem;
+  padding: 0.9rem 0;
+}
+
+.settings-row:first-child {
+  padding-top: 0.2rem;
+}
+
+.settings-row:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
 }
 
 .document-summary-grid {
@@ -3190,18 +4457,81 @@ watch(
   color: #64748b;
 }
 
-.detail-media-grid {
+.compact-checklist-list {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.85rem;
+  gap: 0.75rem;
 }
 
-.detail-media-grid img {
-  width: 100%;
-  aspect-ratio: 4 / 3;
+.compact-checklist-item {
+  display: grid;
+  gap: 0.8rem;
+  border: 1px solid #e5e7eb;
   border-radius: 18px;
-  object-fit: cover;
-  background: #f1f5f9;
+  background: #ffffff;
+  padding: 0.9rem;
+}
+
+.compact-checklist-item-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.compact-checklist-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  min-width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 900;
+}
+
+.compact-checklist-item strong,
+.document-card-body strong {
+  color: #0f172a;
+}
+
+.compact-checklist-item small,
+.document-card-body small,
+.document-card-body p {
+  margin: 0;
+  color: #64748b;
+}
+
+.document-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.document-card {
+  display: grid;
+  gap: 0.85rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 18px;
+  background: #f8fafc;
+  padding: 1rem;
+}
+
+.document-card-head,
+.document-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.document-card-actions {
+  flex-wrap: wrap;
+}
+
+.document-card-body {
+  display: grid;
+  gap: 0.28rem;
 }
 
 .timeline-list {
@@ -3217,6 +4547,58 @@ watch(
   padding: 1rem;
 }
 
+.pricing-card-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.detail-media-masonry {
+  column-count: 4;
+  column-gap: 16px;
+}
+
+.detail-media-masonry-item {
+  display: block;
+  width: 100%;
+  margin-bottom: 16px;
+  overflow: hidden;
+  border: 1px solid #e5e7eb;
+  border-radius: 22px;
+  background: #f8fafc;
+}
+
+.detail-media-masonry-item img {
+  width: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.detail-media-masonry-placeholder {
+  min-height: 210px;
+  padding: 1rem;
+}
+
+.text-success {
+  color: #166534;
+}
+
+.text-neutral {
+  color: #475569;
+}
+
+.text-warning {
+  color: #92400e;
+}
+
+.text-danger {
+  color: #991b1b;
+}
+
+.text-info {
+  color: #1d4ed8;
+}
+
 .detail-footer {
   position: sticky;
   bottom: 0;
@@ -3229,6 +4611,10 @@ watch(
   background: rgba(255, 255, 255, 0.97);
   padding: 1rem 1.5rem;
   backdrop-filter: blur(14px);
+}
+
+.detail-footer-actions {
+  flex-wrap: wrap;
 }
 
 .detail-footer-actions button {
@@ -3251,6 +4637,15 @@ watch(
 
 .detail-footer-copy small {
   color: #64748b;
+}
+
+.detail-footer-meta {
+  display: grid;
+  gap: 0.3rem;
+  justify-items: end;
+  color: #475569;
+  font-size: 0.8rem;
+  font-weight: 800;
 }
 
 .document-preview {
@@ -3297,38 +4692,14 @@ watch(
   background: #f8fafc;
 }
 
-.document-list {
-  display: grid;
-  gap: 0.6rem;
+.document-preview-image,
+.document-preview-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #0f172a;
 }
 
-.document-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 0.75rem;
-  background: #f8fafc;
-}
-
-.document-item > div {
-  display: grid;
-  min-width: 0;
-  gap: 0.35rem;
-}
-
-.document-item strong {
-  overflow: hidden;
-  color: #0f172a;
-  font-size: 0.88rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.document-item small,
-.document-item p,
 .documents-empty,
 .document-missing {
   margin: 0;
@@ -3409,12 +4780,15 @@ watch(
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .detail-hero,
-  .detail-panel-grid,
+  .detail-dashboard-grid,
   .document-summary-grid,
-  .detail-definition-grid,
-  .detail-media-grid {
+  .document-card-grid,
+  .pricing-card-grid {
     grid-template-columns: 1fr;
+  }
+
+  .detail-media-masonry {
+    column-count: 3;
   }
 }
 
@@ -3435,17 +4809,16 @@ watch(
   .toolbar-select-grid,
   .filter-groups,
   .subscription-grid,
-  .meta-grid,
-  .aircraft-core-metrics {
+  .meta-grid {
     grid-template-columns: 1fr;
   }
 
   .aircraft-card {
-    grid-template-columns: 1fr;
+    max-width: none;
   }
 
   .aircraft-photo {
-    min-height: 160px;
+    min-height: 90px;
   }
 
   .document-preview {
@@ -3455,7 +4828,6 @@ watch(
 
   .results-toolbar,
   .company-head,
-  .aircraft-core-metrics,
   .detail-footer,
   .detail-header,
   .detail-header-left,
@@ -3479,9 +4851,12 @@ watch(
     height: 260px;
   }
 
-  .detail-media-grid,
-  .detail-definition-grid,
-  .document-summary-grid {
+  .detail-dashboard-grid,
+  .detail-dashboard-grid-middle,
+  .document-card-grid,
+  .pricing-card-grid,
+  .detail-media-thumb-grid,
+  .executive-stats-grid {
     grid-template-columns: 1fr;
   }
 
@@ -3494,9 +4869,304 @@ watch(
     flex-direction: column;
   }
 
-  .document-item {
-    align-items: stretch;
-    flex-direction: column;
+  .company-head-metrics {
+    justify-content: flex-start;
+  }
+
+  .detail-media-masonry {
+    column-count: 1;
+  }
+
+  .detail-footer-meta {
+    justify-items: start;
+  }
+}
+
+.admin-button,
+.detail-back,
+.detail-nav,
+.document-preview button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  height: 40px;
+  padding: 0 18px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease,
+    opacity 0.2s ease;
+}
+
+.admin-button {
+  color: #0f172a;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+}
+
+.admin-button__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.96rem;
+  line-height: 1;
+}
+
+.admin-button--icon {
+  width: 40px;
+  min-width: 40px;
+  padding: 0;
+  font-size: 1rem;
+}
+
+.admin-button--menu {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.admin-button--primary {
+  border-color: #1d4ed8;
+  color: #ffffff;
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.2);
+}
+
+.admin-button--outline,
+.detail-back,
+.detail-nav {
+  border-color: rgba(37, 99, 235, 0.18);
+  color: #1d4ed8;
+  background: #ffffff;
+}
+
+.admin-button--outline:hover,
+.detail-back:hover,
+.detail-nav:hover {
+  background: #eff6ff;
+}
+
+.admin-button--approve {
+  border-color: #16a34a;
+  color: #ffffff;
+  background: #16a34a;
+  box-shadow: 0 10px 24px rgba(22, 163, 74, 0.18);
+}
+
+.admin-button--approve:hover {
+  border-color: #15803d;
+  background: #15803d;
+}
+
+.admin-button--reject {
+  border-color: #374151;
+  color: #ffffff;
+  background: #374151;
+  box-shadow: 0 10px 24px rgba(55, 65, 81, 0.18);
+}
+
+.admin-button--reject:hover {
+  border-color: #1f2937;
+  background: #1f2937;
+}
+
+.admin-button--suspend {
+  border-color: #dc2626;
+  color: #ffffff;
+  background: #dc2626;
+  box-shadow: 0 10px 24px rgba(220, 38, 38, 0.18);
+}
+
+.admin-button--suspend:hover {
+  border-color: #b91c1c;
+  background: #b91c1c;
+}
+
+.admin-button--download,
+.admin-button--neutral {
+  border-color: #e5e7eb;
+  color: #374151;
+  background: #f3f4f6;
+}
+
+.admin-button--download:hover,
+.admin-button--neutral:hover {
+  background: #e5e7eb;
+}
+
+.admin-button--save {
+  min-width: 190px;
+}
+
+.admin-button:hover,
+.detail-back:hover,
+.detail-nav:hover,
+.document-preview button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+}
+
+.admin-button:focus-visible,
+.detail-back:focus-visible,
+.detail-nav:focus-visible,
+.document-preview button:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 3px rgba(191, 219, 254, 0.92),
+    0 10px 24px rgba(15, 23, 42, 0.12);
+}
+
+.admin-button:active,
+.detail-back:active,
+.detail-nav:active,
+.document-preview button:active {
+  transform: translateY(0);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
+}
+
+.admin-button:disabled,
+.detail-back:disabled,
+.detail-nav:disabled,
+.document-preview button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+  box-shadow: none;
+  transform: none;
+}
+
+.button-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.34);
+  border-top-color: currentColor;
+  border-radius: 999px;
+  animation: admin-button-spin 0.75s linear infinite;
+}
+
+.admin-button--outline .button-spinner,
+.admin-button--download .button-spinner,
+.admin-button--neutral .button-spinner {
+  border-color: rgba(55, 65, 81, 0.2);
+  border-top-color: currentColor;
+}
+
+@keyframes admin-button-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.more-filters-toggle {
+  justify-self: start;
+}
+
+.more-filters-toggle.active {
+  border-color: rgba(37, 99, 235, 0.26);
+  color: #1d4ed8;
+  background: #eff6ff;
+}
+
+.card-foot-actions {
+  flex-wrap: wrap;
+}
+
+.card-menu-trigger {
+  font-size: 1rem;
+}
+
+.card-action-menu .admin-button {
+  box-shadow: none;
+}
+
+.checklist-toolbar {
+  align-items: center;
+}
+
+.document-card {
+  gap: 1rem;
+  border-radius: 20px;
+  background: linear-gradient(180deg, #ffffff, #f9fbff);
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.06);
+}
+
+.document-card-head--toolbar {
+  align-items: flex-start;
+}
+
+.document-card-head-copy {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.document-card-head-copy strong {
+  color: #0f172a;
+  font-size: 0.98rem;
+}
+
+.document-card-head-copy small {
+  margin: 0;
+  color: #64748b;
+}
+
+.document-card-body {
+  gap: 0.32rem;
+}
+
+.document-card-actions {
+  flex-wrap: wrap;
+  align-items: center;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 0.95rem;
+}
+
+.detail-footer-actions {
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.detail-footer-button {
+  min-width: 205px;
+  flex: 1 1 205px;
+}
+
+@media (max-width: 760px) {
+  .admin-button,
+  .detail-back,
+  .detail-nav,
+  .document-preview button {
+    width: 100%;
+  }
+
+  .card-foot-actions,
+  .document-card-actions,
+  .checklist-toolbar,
+  .detail-footer-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
+  .detail-header-right {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .detail-footer-button {
+    min-width: 0;
+    width: 100%;
   }
 }
 </style>

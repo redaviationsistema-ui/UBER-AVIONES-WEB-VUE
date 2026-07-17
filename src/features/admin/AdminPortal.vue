@@ -1,5 +1,6 @@
 <script setup>
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { api } from '../../lib/api'
 import { pickCollection, requestWithCandidates } from '../../lib/backendCrud'
 import { useUiStore } from '../../stores/ui'
@@ -36,6 +37,7 @@ const props = defineProps({
   section: { type: String, required: true },
 })
 
+const route = useRoute()
 const ui = useUiStore()
 const IS_LOCAL_ADMIN_DEV =
   typeof window !== 'undefined' &&
@@ -82,6 +84,16 @@ const genericModuleErrors = reactive({
   auditoria: '',
   reportes: '',
   configuracion: '',
+})
+const aircraftLoading = ref(false)
+const documentsLoading = ref(false)
+const subscriptionsLoading = ref(false)
+const paymentsLoading = ref(false)
+const aircraftSectionErrors = reactive({
+  aircraft: '',
+  documents: '',
+  subscriptions: '',
+  payments: '',
 })
 const rawSectionRecords = reactive({
   usuarios: [],
@@ -179,9 +191,9 @@ function abortTrackedPortalSectionRequest(section) {
   }
 }
 
-function abortTrackedPortalSectionRequests(exceptSection = '') {
+function abortOtherTrackedPortalSectionRequests(activeSection) {
   for (const section of portalSectionAbortControllers.keys()) {
-    if (section === exceptSection) continue
+    if (section === activeSection) continue
     abortTrackedPortalSectionRequest(section)
   }
 }
@@ -1083,12 +1095,6 @@ function normalizeAdminAircraft(item = {}) {
       : item?.aircraft_state?.pricing && typeof item.aircraft_state.pricing === 'object'
         ? item.aircraft_state.pricing
         : {}
-  const matchingState =
-    item?.matching && typeof item.matching === 'object'
-      ? item.matching
-      : item?.aircraft_state?.matching && typeof item.aircraft_state.matching === 'object'
-        ? item.aircraft_state.matching
-        : {}
   const activationState =
     item?.activation && typeof item.activation === 'object'
       ? item.activation
@@ -1101,7 +1107,6 @@ function normalizeAdminAircraft(item = {}) {
     documents: documentsState,
     operation: operationState,
     pricing: pricingState,
-    matching: matchingState,
     activation: activationState,
     ready_to_quote:
       item?.ready_to_quote ??
@@ -1132,7 +1137,6 @@ function normalizeAdminAircraft(item = {}) {
     billing_status:
       billingState.status ||
       item.billing_status ||
-      item.subscription_status ||
       relatedSubscription?.status ||
       '',
     subscription_status:
@@ -1140,19 +1144,11 @@ function normalizeAdminAircraft(item = {}) {
       item.subscription_status ||
       relatedSubscription?.status ||
       '',
-    matching_visible:
-      matchingState.enabled ??
-      item.matching_visible ??
-      item.matchingVisible ??
-      item.marketplace_visible ??
-      item.visible_for_matching ??
-      null,
     ready_to_quote: stateSnapshot.ready_to_quote,
     ready_to_book: stateSnapshot.ready_to_book,
     aircraft_state: item.aircraft_state && typeof item.aircraft_state === 'object' ? item.aircraft_state : stateSnapshot,
     admin_state_snapshot: stateSnapshot,
     current_subscription: relatedSubscription,
-    trial_ends_at: item.trial_ends_at || null,
   }
 }
 
@@ -1640,6 +1636,26 @@ function setModuleError(section, message = '') {
   genericModuleErrors[section] = String(message || '')
 }
 
+function setAircraftSectionLoading(section, value) {
+  if (section === 'aircraft') aircraftLoading.value = value
+  if (section === 'documents') documentsLoading.value = value
+  if (section === 'subscriptions') subscriptionsLoading.value = value
+  if (section === 'payments') paymentsLoading.value = value
+}
+
+function setAircraftSectionError(section, message = '') {
+  aircraftSectionErrors[section] = String(message || '')
+}
+
+function resolveAdminAircraftProviderQuery() {
+  const rawProviderId = Number(route.query.providerId || route.query.provider_id || 0)
+  if (!Number.isFinite(rawProviderId) || rawProviderId <= 0) return {}
+
+  return {
+    provider_id: rawProviderId,
+  }
+}
+
 async function loadDashboardKpis(options = {}) {
   dashboardLoading.value = true
   dashboardErrorMessage.value = ''
@@ -1805,10 +1821,18 @@ async function loadFlightOps(options = {}) {
 async function loadDocumentsModule(options = {}) {
   setModuleLoading('documentos', true)
   setModuleError('documentos')
+  setAircraftSectionLoading('documents', true)
+  setAircraftSectionError('documents')
 
   try {
     const response = await requestWithCandidates(
-      [{ method: 'get', path: '/admin/documents' }],
+      [{
+        method: 'get',
+        path: '/admin/documents',
+        query: resolveAdminAircraftProviderQuery(),
+        timeoutMs: 60000,
+        debugTag: 'documents',
+      }],
       { signal: options.signal },
     )
     rawSectionRecords.documentos = pickCollection(response, ['documents'])
@@ -1817,10 +1841,12 @@ async function loadDocumentsModule(options = {}) {
     }
   } catch (error) {
     if (isAbortLikeError(error)) return
-    rawSectionRecords.documentos = []
-    setModuleError('documentos', error?.message || 'No fue posible preparar el modulo documental.')
+    const message = error?.message || 'No fue posible preparar el modulo documental.'
+    setModuleError('documentos', message)
+    setAircraftSectionError('documents', message)
   } finally {
     setModuleLoading('documentos', false)
+    setAircraftSectionLoading('documents', false)
   }
 }
 
@@ -1891,11 +1917,15 @@ async function loadFlags(options = {}) {
 }
 
 async function loadAircraft(options = {}) {
+  setAircraftSectionLoading('aircraft', true)
+  setAircraftSectionError('aircraft')
+
   try {
+    const query = resolveAdminAircraftProviderQuery()
     const response = await requestWithCandidates(
       [
-        { method: 'get', path: '/admin/fleet/aircraft' },
-        { method: 'get', path: '/admin/aeronaves' },
+        { method: 'get', path: '/admin/fleet/aircraft', query, timeoutMs: 60000, debugTag: 'aircraft' },
+        { method: 'get', path: '/admin/aeronaves', query, timeoutMs: 60000, debugTag: 'aeronaves' },
       ],
       { signal: options.signal },
     )
@@ -1904,15 +1934,27 @@ async function loadAircraft(options = {}) {
     aircraft.value = collection.map(normalizeAdminAircraft)
   } catch (error) {
     if (isAbortLikeError(error)) return
-    rawSectionRecords.aeronaves = []
-    aircraft.value = []
+    setAircraftSectionError('aircraft', error?.message || 'No fue posible cargar las aeronaves.')
+    throw error
+  } finally {
+    setAircraftSectionLoading('aircraft', false)
   }
 }
 
 async function loadSubscriptions(options = {}) {
+  setAircraftSectionLoading('subscriptions', true)
+  setAircraftSectionError('subscriptions')
+
   try {
+    const query = resolveAdminAircraftProviderQuery()
     const response = await requestWithCandidates(
-      [{ method: 'get', path: '/admin/fleet/aircraft-subscriptions' }],
+      [{
+        method: 'get',
+        path: '/admin/fleet/aircraft-subscriptions',
+        query,
+        timeoutMs: 60000,
+        debugTag: 'aircraft-subscriptions',
+      }],
       { signal: options.signal },
     )
     const collection = pickCollection(response, ['aircraft_subscriptions'])
@@ -1923,15 +1965,19 @@ async function loadSubscriptions(options = {}) {
     }
   } catch (error) {
     if (isAbortLikeError(error)) return
-    rawSectionRecords.suscripciones = []
-    subscriptions.value = []
+    setAircraftSectionError('subscriptions', error?.message || 'No fue posible cargar las suscripciones.')
+  } finally {
+    setAircraftSectionLoading('subscriptions', false)
   }
 }
 
 async function loadAccessPayments(options = {}) {
+  setAircraftSectionLoading('payments', true)
+  setAircraftSectionError('payments')
+
   try {
     const response = await requestWithCandidates(
-      [{ method: 'get', path: '/admin/client-access-payments' }],
+      [{ method: 'get', path: '/admin/client-access-payments', timeoutMs: 60000, debugTag: 'client-access-payments' }],
       { signal: options.signal },
     )
     const collection = pickCollection(response, ['access_payments'])
@@ -1939,8 +1985,9 @@ async function loadAccessPayments(options = {}) {
     accessPayments.value = collection
   } catch (error) {
     if (isAbortLikeError(error)) return
-    rawSectionRecords.pagos_acceso = []
-    accessPayments.value = []
+    setAircraftSectionError('payments', error?.message || 'No fue posible cargar los pagos de acceso.')
+  } finally {
+    setAircraftSectionLoading('payments', false)
   }
 }
 
@@ -1974,9 +2021,12 @@ async function reconcilePendingClientAccessPayments({ silent = true, signal } = 
 }
 
 async function loadSubscriptionPayments(options = {}) {
+  setAircraftSectionLoading('payments', true)
+  setAircraftSectionError('payments')
+
   try {
     const response = await requestWithCandidates(
-      [{ method: 'get', path: '/admin/subscription-payments' }],
+      [{ method: 'get', path: '/admin/subscription-payments', timeoutMs: 60000, debugTag: 'subscription-payments' }],
       { signal: options.signal },
     )
     const collection = pickCollection(response, ['subscription_payments'])
@@ -1984,8 +2034,9 @@ async function loadSubscriptionPayments(options = {}) {
     subscriptionPayments.value = collection
   } catch (error) {
     if (isAbortLikeError(error)) return
-    rawSectionRecords.pagos_suscripcion = []
-    subscriptionPayments.value = []
+    setAircraftSectionError('payments', error?.message || 'No fue posible cargar los pagos de suscripcion.')
+  } finally {
+    setAircraftSectionLoading('payments', false)
   }
 }
 
@@ -2029,27 +2080,11 @@ async function loadProvidersSectionData(options = {}) {
     }
   }
 
-  const providersRequest = loadProviders({
+  await loadProviders({
     preserveExisting: true,
     timeoutMs: ADMIN_PROVIDERS_TIMEOUT_MS,
     signal: options.signal,
   })
-  const aircraftRequest = loadAircraft({ signal: options.signal })
-    .then(() => {
-      if (!providers.value.length && aircraft.value.length) {
-        applyFallbackProvidersFromAircraft(aircraft.value)
-      }
-    })
-    .catch(() => {})
-
-  if (providers.value.length) {
-    void Promise.allSettled([providersRequest, aircraftRequest])
-  } else {
-    await Promise.race([
-      providersRequest,
-      aircraftRequest,
-    ])
-  }
 
   const hasEmbeddedAircraftMetrics = providers.value.some((provider) => {
     const metrics = provider?.aircraft_metrics
@@ -2060,18 +2095,19 @@ async function loadProvidersSectionData(options = {}) {
     return
   }
 
-  if (!providers.value.length) {
-    await aircraftRequest
-  } else {
-    void aircraftRequest.then(() => {
-      if (!providers.value.length && aircraft.value.length) {
-        applyFallbackProvidersFromAircraft(aircraft.value)
-      }
-    })
+  if (providers.value.length) {
+    return
   }
 
-  if (!providers.value.length && aircraft.value.length) {
-    applyFallbackProvidersFromAircraft(aircraft.value)
+  try {
+    await loadAircraft({ signal: options.signal })
+    if (!providers.value.length && aircraft.value.length) {
+      applyFallbackProvidersFromAircraft(aircraft.value)
+    }
+  } catch (error) {
+    if (isAbortLikeError(error)) {
+      return
+    }
   }
 }
 
@@ -2325,11 +2361,15 @@ async function loadPortalSection(section, options = {}) {
   }
 
   if (section === 'aeronaves') {
-    await Promise.all([
+    const results = await Promise.allSettled([
       loadAircraft({ signal: options.signal }),
       loadSubscriptions({ signal: options.signal }),
       loadDocumentsModule({ signal: options.signal }),
     ])
+    const aircraftFailure = results[0]?.status === 'rejected' ? results[0].reason : null
+    if (aircraftFailure && !isAbortLikeError(aircraftFailure)) {
+      throw aircraftFailure
+    }
     return
   }
 
@@ -2348,25 +2388,33 @@ async function loadPortalSection(section, options = {}) {
 
   if (section === 'suscripciones') {
     await reconcilePendingClientAccessPayments({ silent: true, signal: options.signal })
-    await Promise.all([
+    const results = await Promise.allSettled([
       loadAircraft({ signal: options.signal }),
       loadSubscriptions({ signal: options.signal }),
       loadClients(clientTableQuery, { signal: options.signal }),
       loadAccessPayments({ signal: options.signal }),
       loadSubscriptionPayments({ signal: options.signal }),
     ])
+    const aircraftFailure = results[0]?.status === 'rejected' ? results[0].reason : null
+    if (aircraftFailure && !isAbortLikeError(aircraftFailure)) {
+      throw aircraftFailure
+    }
     return
   }
 
   if (section === 'pagos' || section === 'pagos-proveedor') {
     await reconcilePendingClientAccessPayments({ silent: true, signal: options.signal })
-    await Promise.all([
+    const results = await Promise.allSettled([
       loadAircraft({ signal: options.signal }),
       loadSubscriptions({ signal: options.signal }),
       loadClients(clientTableQuery, { signal: options.signal }),
       loadAccessPayments({ signal: options.signal }),
       loadSubscriptionPayments({ signal: options.signal }),
     ])
+    const aircraftFailure = results[0]?.status === 'rejected' ? results[0].reason : null
+    if (aircraftFailure && !isAbortLikeError(aircraftFailure)) {
+      throw aircraftFailure
+    }
     return
   }
 
@@ -2467,7 +2515,7 @@ function shouldThrottlePortalSectionLoad(section = props.section, force = false)
 }
 
 function requestPortalSectionLoad(section = props.section, options = {}) {
-  const { force = false, abortOtherSections = section === props.section } = options
+  const { force = false, abortOtherSections = true } = options
 
   if (!section) return Promise.resolve()
 
@@ -2476,9 +2524,8 @@ function requestPortalSectionLoad(section = props.section, options = {}) {
   if (shouldThrottlePortalSectionLoad(section, force)) return Promise.resolve()
 
   if (abortOtherSections) {
-    abortTrackedPortalSectionRequests(section)
+    abortOtherTrackedPortalSectionRequests(section)
   }
-
   abortTrackedPortalSectionRequest(section)
   const controller = new AbortController()
   portalSectionAbortControllers.set(section, controller)
@@ -2489,7 +2536,13 @@ function requestPortalSectionLoad(section = props.section, options = {}) {
     try {
       await loadPortalSection(section, { signal: controller.signal })
     } catch (error) {
-      if (isAbortLikeError(error)) return
+      if (isAbortLikeError(error)) {
+        console.warn('[admin-portal] solicitud cancelada', {
+          section,
+          message: error?.message || 'AbortError',
+        })
+        return
+      }
       throw error
     } finally {
       if (portalSectionRequestPromises.get(section) === requestPromise) {
@@ -2928,6 +2981,15 @@ async function refreshAircraftAndProvidersState(title, message) {
   ui.pushToast({ tone: 'success', title, message })
 }
 
+async function refreshAircraftDocumentsAndSubscriptionsState(title, message) {
+  await Promise.all([
+    requestPortalSectionLoad('aeronaves', { force: true, abortOtherSections: false }),
+    requestPortalSectionLoad('documentos', { force: true, abortOtherSections: false }),
+    requestPortalSectionLoad('suscripciones', { force: true, abortOtherSections: false }),
+  ])
+  ui.pushToast({ tone: 'success', title, message })
+}
+
 async function refreshSubscriptionsPanel() {
   const targetSection =
     props.section === 'pagos' || props.section === 'pagos-proveedor'
@@ -3052,47 +3114,6 @@ function resolveAdminFlowErrorMessage(error) {
   return isTimeoutLikeError(error)
     ? 'El backend tardo demasiado en responder. El cambio de flujo no fue confirmado.'
     : error?.message || 'El backend no confirmo el cambio de etapa.'
-}
-
-function findAircraftRecordById(aircraftId) {
-  return aircraft.value.find((item) => Number(item?.id || 0) === Number(aircraftId || 0)) || null
-}
-
-function resolveAircraftProviderId(aircraftRecord = {}) {
-  return Number(
-    aircraftRecord?.provider_id ||
-      aircraftRecord?.providerId ||
-      aircraftRecord?.provider?.id ||
-      aircraftRecord?.company_id ||
-      0,
-  )
-}
-
-function isProviderNotApprovedError(error) {
-  const backendCode = String(error?.payload?.code || error?.code || '')
-    .trim()
-    .toUpperCase()
-  if (backendCode === 'PROVIDER_NOT_APPROVED') return true
-
-  const message = String(error?.message || '')
-    .trim()
-    .toLowerCase()
-
-  return message.includes('proveedor') && message.includes('no esta aprobado')
-}
-
-async function activateAircraftInBackend(aircraftId) {
-  return requestWithCandidates([
-    { method: 'post', path: `/admin/aeronaves/${aircraftId}/activar`, body: {} },
-  ])
-}
-
-async function validateProviderInBackend(providerId) {
-  return requestWithCandidates([
-    { method: 'post', path: `/admin/providers/${providerId}/validate`, body: {} },
-    { method: 'post', path: `/admin/proveedores/${providerId}/validar`, body: {} },
-    { method: 'post', path: `/admin/proveedores/${providerId}/aprobar`, body: {} },
-  ])
 }
 
 function applyExternalWorkflowSync(payload = {}) {
@@ -3305,56 +3326,6 @@ async function handleMarkManualReservationPaid({ reservationId }) {
   }
 }
 
-async function handleApproveAircraft(aircraftId) {
-  try {
-    await activateAircraftInBackend(aircraftId)
-    await refreshNetworkState(
-      'Aeronave activada',
-      `La aeronave #${aircraftId} quedo activa en la base de datos.`,
-    )
-  } catch (error) {
-    if (isProviderNotApprovedError(error)) {
-      const aircraftRecord = findAircraftRecordById(aircraftId)
-      const providerId = resolveAircraftProviderId(aircraftRecord)
-
-      if (!providerId) {
-        ui.pushToast({
-          tone: 'error',
-          title: 'Proveedor no localizado',
-          message:
-            'La aeronave no tiene un proveedor asociado en la vista administrativa. Recarga el panel y vuelve a intentar.',
-        })
-        return
-      }
-
-      try {
-        await validateProviderInBackend(providerId)
-        await activateAircraftInBackend(aircraftId)
-        await refreshAircraftAndProvidersState(
-          'Proveedor validado y aeronave activada',
-          `El proveedor #${providerId} se valido desde admin y la aeronave #${aircraftId} quedo activa.`,
-        )
-        return
-      } catch (validationError) {
-        ui.pushToast({
-          tone: 'error',
-          title: 'No se pudo validar el proveedor',
-          message:
-            validationError?.message ||
-            'Admin no pudo validar al proveedor antes de activar la aeronave.',
-        })
-        return
-      }
-    }
-
-    ui.pushToast({
-      tone: 'error',
-      title: 'No se pudo activar',
-      message: error.message || 'Error en el backend.',
-    })
-  }
-}
-
 async function handleRejectAircraft(aircraftId) {
   try {
     await requestWithCandidates([
@@ -3373,8 +3344,158 @@ async function handleRejectAircraft(aircraftId) {
   }
 }
 
+async function validateProviderInBackend(providerId) {
+  return requestWithCandidates([
+    { method: 'post', path: `/admin/providers/${providerId}/validate`, body: {} },
+    { method: 'post', path: `/admin/proveedores/${providerId}/validar`, body: {} },
+    { method: 'post', path: `/admin/proveedores/${providerId}/aprobar`, body: {} },
+  ])
+}
+
+async function handleApproveProvider(providerId) {
+  const normalizedProviderId = Number(providerId || 0)
+  if (!normalizedProviderId) {
+    ui.pushToast({
+      tone: 'error',
+      title: 'Proveedor no localizado',
+      message: 'No se encontró el proveedor asociado a esta aeronave.',
+    })
+    return
+  }
+
+  try {
+    await validateProviderInBackend(normalizedProviderId)
+    await refreshAircraftAndProvidersState(
+      'Proveedor aprobado',
+      `El proveedor #${normalizedProviderId} fue aprobado y la vista administrativa se sincronizó.`,
+    )
+  } catch (error) {
+    ui.pushToast({
+      tone: 'error',
+      title: 'No se pudo aprobar el proveedor',
+      message: error?.message || 'El backend no confirmó la aprobación del proveedor.',
+    })
+  }
+}
+
+async function handleApproveAircraft(aircraftId) {
+  try {
+    await requestWithCandidates([
+      { method: 'post', path: `/admin/aeronaves/${aircraftId}/aprobar`, body: {} },
+    ])
+    await refreshNetworkState(
+      'Aeronave aprobada',
+      `La aeronave #${aircraftId} fue aprobada y quedó lista para activación administrativa.`,
+    )
+  } catch (error) {
+    ui.pushToast({
+      tone: 'error',
+      title: 'No se pudo aprobar la aeronave',
+      message: error?.message || 'El backend no confirmó la aprobación de la aeronave.',
+    })
+  }
+}
+
+async function handleActivateAircraft(aircraftId) {
+  try {
+    await requestWithCandidates([
+      { method: 'post', path: `/admin/aeronaves/${aircraftId}/activar`, body: {} },
+    ])
+    await refreshNetworkState(
+      'Aeronave activada',
+      `La aeronave #${aircraftId} quedo activa y la vista administrativa se sincronizo.`,
+    )
+  } catch (error) {
+    const requirements = Array.isArray(error?.payload?.missing_requirements)
+      ? error.payload.missing_requirements.map((entry) => entry?.label || entry?.code || '').filter(Boolean)
+      : []
+    ui.pushToast({
+      tone: 'error',
+      title: 'No se pudo activar la aeronave',
+      message:
+        requirements.length > 0
+          ? `Faltan los siguientes requisitos: ${requirements.join(', ')}.`
+          : error?.message || 'El backend no confirmo la activacion de la aeronave.',
+    })
+  }
+}
+
+async function handleDeactivateAircraft(aircraftId) {
+  try {
+    await requestWithCandidates([
+      { method: 'post', path: `/admin/aeronaves/${aircraftId}/desactivar`, body: {} },
+    ])
+    await refreshNetworkState(
+      'Aeronave desactivada',
+      `La aeronave #${aircraftId} quedo inactiva sin perder su aprobacion administrativa.`,
+    )
+  } catch (error) {
+    ui.pushToast({
+      tone: 'error',
+      title: 'No se pudo desactivar la aeronave',
+      message: error?.message || 'El backend no confirmo la desactivacion de la aeronave.',
+    })
+  }
+}
+
 async function handleSuspendAircraft(aircraftId) {
   await handleRejectAircraft(aircraftId)
+}
+
+async function handleApproveAircraftDocument({ aircraftId, document }) {
+  const documentId = String(document?.id || '').trim()
+  if (!documentId) return
+
+  try {
+    await requestWithCandidates([
+      {
+        method: 'post',
+        path: `/admin/documents/aircraft:${documentId}/approve`,
+        body: {
+          reason: `Documento de aeronave aprobado desde el panel administrativo (${aircraftId || 'sin-aeronave'}).`,
+        },
+      },
+    ])
+
+    await refreshAircraftDocumentsAndSubscriptionsState(
+      'Documento aprobado',
+      `El documento ${document?.name || documentId} ya fue aprobado y la vista administrativa se sincronizo.`,
+    )
+  } catch (error) {
+    ui.pushToast({
+      tone: 'error',
+      title: 'No se pudo aprobar el documento',
+      message: error?.message || 'El backend no confirmo la aprobacion documental.',
+    })
+  }
+}
+
+async function handleRejectAircraftDocument({ aircraftId, document }) {
+  const documentId = String(document?.id || '').trim()
+  if (!documentId) return
+
+  try {
+    await requestWithCandidates([
+      {
+        method: 'post',
+        path: `/admin/documents/aircraft:${documentId}/reject`,
+        body: {
+          reason: `Documento de aeronave rechazado desde el panel administrativo (${aircraftId || 'sin-aeronave'}).`,
+        },
+      },
+    ])
+
+    await refreshAircraftDocumentsAndSubscriptionsState(
+      'Documento rechazado',
+      `El documento ${document?.name || documentId} ya fue rechazado y la vista administrativa se sincronizo.`,
+    )
+  } catch (error) {
+    ui.pushToast({
+      tone: 'error',
+      title: 'No se pudo rechazar el documento',
+      message: error?.message || 'El backend no confirmo el rechazo documental.',
+    })
+  }
 }
 
 function downloadBlob(blob, fileName = 'archivo.bin') {
@@ -3431,7 +3552,9 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   clearReservationsPolling()
-  abortTrackedPortalSectionRequests()
+  for (const section of portalSectionAbortControllers.keys()) {
+    abortTrackedPortalSectionRequest(section)
+  }
   if (removeWorkflowSyncSubscription) {
     removeWorkflowSyncSubscription()
     removeWorkflowSyncSubscription = null
@@ -3452,6 +3575,14 @@ watch(
       loadCrewSectionBackground({ allowUsersFallback: false })
     }
     startReservationsPolling()
+  },
+)
+
+watch(
+  () => [route.query.providerId, route.query.provider_id, route.query.providerName],
+  () => {
+    if (props.section !== 'aeronaves') return
+    void requestPortalSectionLoad('aeronaves', { force: true })
   },
 )
 </script>
@@ -3525,9 +3656,19 @@ watch(
     v-else-if="section === 'aeronaves'"
     :aircraft="aircraft"
     :subscriptions="subscriptions"
+    :aircraft-loading="aircraftLoading"
+    :documents-loading="documentsLoading"
+    :subscriptions-loading="subscriptionsLoading"
+    :payments-loading="paymentsLoading"
+    :section-errors="aircraftSectionErrors"
     mode="aircraft"
+    @approve-provider="handleApproveProvider"
     @approve-aircraft="handleApproveAircraft"
+    @activate-aircraft="handleActivateAircraft"
+    @approve-aircraft-document="handleApproveAircraftDocument"
+    @deactivate-aircraft="handleDeactivateAircraft"
     @reject-aircraft="handleRejectAircraft"
+    @reject-aircraft-document="handleRejectAircraftDocument"
     @suspend-aircraft="handleSuspendAircraft"
   />
   <AdminSubscriptionsSection

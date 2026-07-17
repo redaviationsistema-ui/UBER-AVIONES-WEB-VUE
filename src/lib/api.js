@@ -16,7 +16,7 @@ const RAW_FALLBACK_BACKEND_ORIGIN = String(import.meta.env.VITE_FALLBACK_BACKEND
   /\/$/,
   '',
 )
-const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS || 15000)
+const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS || 60000)
 const DOCUSIGN_TIMEOUT_MS = Number(import.meta.env.VITE_DOCUSIGN_TIMEOUT_MS || 120000)
 const API_CREDENTIALS_MODE = String(import.meta.env.VITE_API_CREDENTIALS_MODE || 'same-origin')
   .trim()
@@ -220,8 +220,18 @@ function shouldLogAircraftRequest(path = '') {
   return String(path || '').toLowerCase().includes('aircraft')
 }
 
-function shouldTraceOperationalRequest(_path = '', _debugTag = '') {
-  return false
+function shouldTraceOperationalRequest(path = '', debugTag = '') {
+  const normalizedPath = String(path || '').trim().toLowerCase()
+  const normalizedTag = String(debugTag || '').trim().toLowerCase()
+
+  return [
+    '/admin/fleet/aircraft',
+    '/admin/aeronaves',
+    '/admin/fleet/aircraft-subscriptions',
+    '/admin/client-access-payments',
+    '/admin/subscription-payments',
+    '/admin/documents',
+  ].some((token) => normalizedPath.includes(token) || normalizedTag.includes(token))
 }
 
 function isDocuSignRequestPath(path = '') {
@@ -235,6 +245,11 @@ function logAircraftRequest(_label, _details = {}) {
 
 function logOperationalRequest(label, details = {}) {
   if (typeof console === 'undefined') return
+  if (label === 'response') {
+    console.info(`[ops-request-debug] ${label}`, details)
+    return
+  }
+
   console.warn(`[ops-request-debug] ${label}`, details)
 }
 
@@ -435,6 +450,16 @@ export function clearStoredToken() {
   clearLegacyStoredAuth()
 }
 
+function createAbortError(message = 'The operation was aborted.') {
+  if (typeof DOMException === 'function') {
+    return new DOMException(message, 'AbortError')
+  }
+
+  const abortedError = new Error(message)
+  abortedError.name = 'AbortError'
+  return abortedError
+}
+
 export async function apiRequest(path, options = {}) {
   const timeoutMs = Number.isFinite(Number(options.timeoutMs))
     ? Number(options.timeoutMs)
@@ -465,11 +490,7 @@ export async function apiRequest(path, options = {}) {
   const externalSignal = options.signal
 
   if (externalSignal?.aborted) {
-    const abortedError = typeof DOMException === 'function'
-      ? new DOMException('The operation was aborted.', 'AbortError')
-      : new Error('The operation was aborted.')
-    abortedError.name = 'AbortError'
-    throw abortedError
+    throw createAbortError()
   }
 
   for (const candidate of orderedCandidates) {
@@ -531,6 +552,16 @@ export async function apiRequest(path, options = {}) {
       }
 
       if (shouldTraceRequest && elapsedMs >= 1000) {
+        logOperationalRequest('response', {
+          tag: debugTag || path,
+          method: config.method,
+          path,
+          url,
+          status: response.status,
+          elapsedMs,
+          timeoutMs,
+        })
+      } else if (shouldTraceRequest) {
         logOperationalRequest('response', {
           tag: debugTag || path,
           method: config.method,

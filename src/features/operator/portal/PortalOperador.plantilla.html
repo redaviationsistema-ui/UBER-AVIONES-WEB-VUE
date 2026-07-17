@@ -1461,9 +1461,7 @@
                     Carga multiples imagenes o PDF por categoria. Las imagenes compatibles se optimizan a WebP antes de enviarse.
                   </p>
                 </div>
-                <span class="badge"
-                  >{{ selectedDocumentAircraft?.documents?.length || 0 }} registro(s)</span
-                >
+                <span class="badge document-record-count">{{ selectedDocumentRecordCountLabel }}</span>
               </div>
 
               <div class="document-type-grid">
@@ -1471,13 +1469,31 @@
                   v-for="type in aircraftDocumentTypes"
                   :key="type.id"
                   type="button"
-                  class="document-type-card"
+                  class="document-type-card document-category-card"
                   :class="{ active: documentForm.type === type.id }"
                   @click="selectDocumentType(type.id)"
                 >
-                  <strong>{{ type.label }}</strong>
-                  <span>PDF + IMG</span>
-                  <small>{{ type.requiresExpiry ? 'Vencimiento requerido' : 'Sin vencimiento obligatorio' }}</small>
+                  <div class="document-category-icon">
+                    {{ getAircraftDocumentTypeIcon(type) }}
+                  </div>
+
+                  <h3 class="document-category-title">
+                    {{ type.label }}
+                  </h3>
+
+                  <div class="document-category-formats">
+                    <span v-for="format in getAircraftDocumentTypeFormats(type)" :key="`${type.id}-${format}`">
+                      {{ format }}
+                    </span>
+                  </div>
+
+                  <p class="document-category-status">
+                    {{ getAircraftDocumentTypeStatus(type) }}
+                  </p>
+
+                  <p class="document-category-expiration">
+                    {{ getAircraftDocumentTypeExpirationLabel(type) }}
+                  </p>
                 </button>
               </div>
 
@@ -1596,8 +1612,8 @@
               <div v-if="filteredStoredAircraftDocuments.length" class="stored-documents-list document-library">
                 <article
                   v-for="document in filteredStoredAircraftDocuments"
-                  :key="document.id"
-                  class="stored-document-card"
+                  :key="getAircraftDocumentKey(document)"
+                  :class="['stored-document-card', { 'stored-document-card--menu-open': documentLibraryMenuId === document.id }]"
                   role="button"
                   tabindex="0"
                   @click="openStoredDocumentPreview(document)"
@@ -1634,24 +1650,8 @@
                       <button type="button" class="ghost-button" @click.stop="downloadDocumentFile(document)">
                         Descargar
                       </button>
-                      <button type="button" class="card-menu-button" @click.stop="toggleDocumentLibraryMenu(document.id)">
+                      <button type="button" class="card-menu-button" @click.stop="toggleDocumentLibraryMenu(document, $event)">
                         ⋮
-                      </button>
-                    </div>
-
-                    <div v-if="documentLibraryMenuId === document.id" class="fleet-card-menu document-actions-menu" @click.stop>
-                      <button type="button" disabled @click="showDocumentLibraryComingSoon('Editar informacion', document)">
-                        Editar informacion
-                      </button>
-                      <button type="button" disabled @click="showDocumentLibraryComingSoon('Reemplazar archivo', document)">
-                        Reemplazar archivo
-                      </button>
-                      <button
-                        type="button"
-                        class="danger-option"
-                        @click.stop="removeStoredAircraftDocument(selectedDocumentAircraft?.id, document.id)"
-                      >
-                        Eliminar
                       </button>
                     </div>
                   </div>
@@ -1663,6 +1663,76 @@
               <p v-else class="empty-state">
                 Aun no hay documentos guardados para esta aeronave. Cuando subas archivos aqui se iran mostrando en esta biblioteca.
               </p>
+              </div>
+
+              <Teleport to="body">
+                <div
+                  v-if="activeDocumentMenu"
+                  ref="documentMenuRef"
+                  class="document-actions-popover"
+                  :style="documentMenuPosition"
+                  role="menu"
+                >
+                  <button type="button" role="menuitem" @click="showDocumentLibraryComingSoon('Editar informacion', activeDocumentMenu)">
+                    Editar informacion
+                  </button>
+
+                  <button type="button" role="menuitem" @click="showDocumentLibraryComingSoon('Reemplazar archivo', activeDocumentMenu)">
+                    Reemplazar archivo
+                  </button>
+
+                  <div class="document-actions-divider"></div>
+
+                  <button
+                    type="button"
+                    class="document-actions-danger"
+                    role="menuitem"
+                    @click="promptStoredAircraftDocumentRemoval(selectedDocumentAircraft?.id, activeDocumentMenu.id)"
+                  >
+                    Eliminar documento
+                  </button>
+                </div>
+              </Teleport>
+
+              <div
+                v-if="pendingAircraftDocumentDelete"
+                class="wizard-overlay operator-delete-document-overlay"
+                role="dialog"
+                aria-modal="true"
+                @click.self="cancelStoredAircraftDocumentRemoval"
+              >
+                <article class="wizard-modal surface operator-delete-document-modal">
+                  <div class="operator-delete-document-modal__copy">
+                    <p class="eyebrow">Eliminar documento</p>
+                    <h3>{{ pendingAircraftDocumentDelete.name }}</h3>
+                    <p>
+                      Esta accion eliminara el documento de la aeronave y no se puede deshacer.
+                    </p>
+                  </div>
+
+                  <div class="operator-delete-document-modal__actions">
+                    <button
+                      type="button"
+                      class="ghost-button"
+                      :disabled="deletingAircraftDocumentId === pendingAircraftDocumentDelete.documentId"
+                      @click="cancelStoredAircraftDocumentRemoval"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      class="primary-action danger"
+                      :disabled="deletingAircraftDocumentId === pendingAircraftDocumentDelete.documentId"
+                      @click="removeStoredAircraftDocument"
+                    >
+                      {{
+                        deletingAircraftDocumentId === pendingAircraftDocumentDelete.documentId
+                          ? 'Eliminando...'
+                          : 'Eliminar documento'
+                      }}
+                    </button>
+                  </div>
+                </article>
               </div>
 
               <div v-else class="wizard-panel">

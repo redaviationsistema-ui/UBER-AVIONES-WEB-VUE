@@ -816,8 +816,10 @@
 }
 
 .fleet-operations-luxury .wizard-hero-copy h2 {
-  display: grid;
-  gap: 0.2rem;
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  flex-wrap: nowrap;
   max-width: 700px;
   overflow: visible;
   font-size: 56px;
@@ -825,13 +827,19 @@
   -webkit-line-clamp: initial;
 }
 
+.fleet-operations-luxury .wizard-hero-copy h2 span,
 .fleet-operations-luxury .wizard-hero-copy h2 small {
-  display: block;
+  white-space: nowrap;
+}
+
+.fleet-operations-luxury .wizard-hero-copy h2 small {
+  display: inline-flex;
+  align-items: center;
   color: #111111;
   font-family: 'Inter', 'Manrope', ui-sans-serif, system-ui, sans-serif;
-  font-size: 0.45em;
+  font-size: 0.36em;
   font-weight: 700;
-  line-height: 1.15;
+  line-height: 1;
   text-transform: none;
 }
 
