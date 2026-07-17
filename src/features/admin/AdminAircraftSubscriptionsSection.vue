@@ -26,6 +26,8 @@ const props = defineProps({
   documentsLoading: { type: Boolean, default: false },
   subscriptionsLoading: { type: Boolean, default: false },
   paymentsLoading: { type: Boolean, default: false },
+  activatingAircraftId: { type: Number, default: null },
+  activationRefreshVersion: { type: Number, default: 0 },
   sectionErrors: {
     type: Object,
     default: () => ({
@@ -1903,7 +1905,10 @@ function detailStatusRows(item = {}) {
   const validation = resolveAircraftDocumentValidation(item)
   return [
     { label: 'Capacidad', value: formatNumber(item.capacity || item.passenger_capacity, ' pax') },
-    { label: 'Rango', value: formatNumber(item.range_km || item.rangeKm, ' km') },
+    {
+      label: 'Rango máximo',
+      value: hasRangeValue(item) ? formatNumber(item.range_km || item.rangeKm, ' km') : 'Pendiente',
+    },
     { label: 'Tarifa', value: formatMoney(item.hourly_rate || item.hourlyPrice || item.price_per_hour) },
     { label: 'Ultima actualizacion', value: formatDate(item.updated_at || item.created_at) },
     { label: 'Cotizable', value: yesNoLabel(readiness.quoteReady), tone: detailMetricTone(readiness.quoteReady) },
@@ -2195,6 +2200,7 @@ function closeActionMenu() {
 
 function runCardAction(action, item) {
   if (!item) return
+  if (action === 'activate' && props.activatingAircraftId === Number(item.id)) return
   if (action === 'view') {
     selectAircraft(item)
   } else if (action === 'activate') {
@@ -2308,6 +2314,15 @@ watch(
     }
 
     void loadChecklistForAircraft(aircraftId)
+  },
+)
+
+watch(
+  () => props.activationRefreshVersion,
+  () => {
+    if (selectedAircraft.value?.id) {
+      void loadChecklistForAircraft(selectedAircraft.value.id)
+    }
   },
 )
 
@@ -2606,10 +2621,13 @@ watch(
               <button
                 type="button"
                 :class="['admin-button', aircraftIsActive(item) ? 'admin-button--reject' : 'admin-button--approve', 'admin-button--menu']"
+                :disabled="props.activatingAircraftId === Number(item.id)"
+                :aria-busy="props.activatingAircraftId === Number(item.id)"
                 @click="runCardAction(aircraftIsActive(item) ? 'deactivate' : 'activate', item)"
               >
-                <span class="admin-button__icon" aria-hidden="true">{{ aircraftIsActive(item) ? '⛔' : '✔' }}</span>
-                <span>{{ aircraftIsActive(item) ? 'Desactivar aeronave' : 'Activar aeronave' }}</span>
+                <span v-if="props.activatingAircraftId === Number(item.id)" class="button-spinner" aria-hidden="true"></span>
+                <span v-else class="admin-button__icon" aria-hidden="true">{{ aircraftIsActive(item) ? '⛔' : '✔' }}</span>
+                <span>{{ props.activatingAircraftId === Number(item.id) ? 'Activando aeronave...' : aircraftIsActive(item) ? 'Desactivar aeronave' : 'Activar aeronave' }}</span>
               </button>
               <button type="button" class="admin-button admin-button--reject admin-button--menu" @click="runCardAction('reject', item)">
                 <span class="admin-button__icon" aria-hidden="true">✕</span>
@@ -3037,11 +3055,13 @@ watch(
               v-else
               class="admin-button admin-button--approve detail-footer-button"
               type="button"
-              :disabled="activationRequirements(selectedAircraft).length > 0"
+              :disabled="activationRequirements(selectedAircraft).length > 0 || props.activatingAircraftId === Number(selectedAircraft.id)"
+              :aria-busy="props.activatingAircraftId === Number(selectedAircraft.id)"
               @click="$emit('activate-aircraft', selectedAircraft.id)"
             >
-              <span class="admin-button__icon" aria-hidden="true">✔</span>
-              <span>Activar aeronave</span>
+              <span v-if="props.activatingAircraftId === Number(selectedAircraft.id)" class="button-spinner" aria-hidden="true"></span>
+              <span v-else class="admin-button__icon" aria-hidden="true">✔</span>
+              <span>{{ props.activatingAircraftId === Number(selectedAircraft.id) ? 'Activando aeronave...' : 'Activar aeronave' }}</span>
             </button>
             <button class="admin-button admin-button--reject detail-footer-button" type="button" @click="$emit('reject-aircraft', selectedAircraft.id)">
               <span class="admin-button__icon" aria-hidden="true">✕</span>

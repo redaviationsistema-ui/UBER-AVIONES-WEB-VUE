@@ -14,6 +14,7 @@ const baseForm = {
   registration: 'XA-ABC',
   year: '2020',
   capacity: 13,
+  range_km: 2500,
   speedKnots: 460,
   amenities: 'WiFi, Galley',
   base: 'TOLUCA',
@@ -63,6 +64,12 @@ describe('aircraft wizard utils', () => {
     expect(errors._documents).toContain('documento')
   })
 
+  it('requires a positive maximum range in the operation step', () => {
+    const errors = buildAircraftWizardStepErrors(2, { ...baseForm, range_km: 0 }, {})
+
+    expect(errors.range_km).toBe('Debe capturar el rango máximo de la aeronave.')
+  })
+
   it('builds a normalized aircraft payload for create/update requests', () => {
     const payload = buildAircraftPayload(baseForm, {
       inferredMinimumHours: 2,
@@ -77,6 +84,7 @@ describe('aircraft wizard utils', () => {
       engine_type: 'turbofan',
       motor_tipo: 'TURBOFAN',
       year: 2020,
+      range_km: 2500,
       speed_kmh: 852,
       minimum_hours: 2,
       hourly_rate: 6500,

@@ -1352,6 +1352,21 @@
                   }}</small>
                 </label>
                 <label>
+                  <span>Rango máximo (km)</span>
+                  <input
+                    v-model="aircraftForm.range_km"
+                    type="number"
+                    min="1"
+                    placeholder="2500"
+                    :disabled="aircraftWizardReadOnly"
+                    :class="{ 'input-error': formErrors.aircraft.range_km }"
+                  />
+                  <small>Distancia máxima aproximada que puede recorrer la aeronave sin reabastecimiento.</small>
+                  <small v-if="formErrors.aircraft.range_km" class="field-error">{{
+                    formErrors.aircraft.range_km
+                  }}</small>
+                </label>
+                <label>
                   <span>Velocidad crucero (knots)</span>
                   <input
                     v-model="aircraftForm.speedKnots"
@@ -1796,6 +1811,10 @@
                 <div>
                   <span>Capacidad</span>
                   <strong>{{ aircraftForm.capacity || 0 }} pax</strong>
+                </div>
+                <div>
+                  <span>Rango máximo</span>
+                  <strong>{{ Number(aircraftForm.range_km || 0).toLocaleString('es-MX') }} km</strong>
                 </div>
                 <div>
                   <span>Tarifa</span>

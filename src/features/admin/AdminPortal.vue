@@ -144,6 +144,8 @@ let releasesRequestPromise = null
 let crewMembersRequestPromise = null
 const portalSectionRequestPromises = new Map()
 const portalSectionAbortControllers = new Map()
+const activatingAircraftId = ref(null)
+const aircraftActivationRefreshVersion = ref(0)
 const lastPortalSectionLoadAt = new Map()
 const adminPortalInstanceId = `admin-${Math.random().toString(16).slice(2, 10)}`
 let lastReservationsRefreshAt = 0
@@ -3397,14 +3399,61 @@ async function handleApproveAircraft(aircraftId) {
 }
 
 async function handleActivateAircraft(aircraftId) {
+  const normalizedAircraftId = Number(aircraftId || 0)
+  if (!normalizedAircraftId || activatingAircraftId.value === normalizedAircraftId) return
+
+  activatingAircraftId.value = normalizedAircraftId
   try {
-    await requestWithCandidates([
-      { method: 'post', path: `/admin/aeronaves/${aircraftId}/activar`, body: {} },
+    const response = await requestWithCandidates([
+      {
+        method: 'post',
+        path: `/admin/aeronaves/${normalizedAircraftId}/activar`,
+        body: {},
+        timeoutMs: 0,
+      },
     ])
-    await refreshNetworkState(
-      'Aeronave activada',
-      `La aeronave #${aircraftId} quedo activa y la vista administrativa se sincronizo.`,
+
+    const responseAircraft = response?.aircraft
+    aircraft.value = aircraft.value.map((item) =>
+      Number(item.id) === normalizedAircraftId
+        ? normalizeAdminAircraft({
+            ...item,
+            ...(responseAircraft && typeof responseAircraft === 'object' ? responseAircraft : {}),
+            id: normalizedAircraftId,
+            status: 'active',
+            is_active: true,
+            operational_status: 'active',
+            ready_to_quote: responseAircraft?.ready_to_quote ?? true,
+            ready_to_book: responseAircraft?.ready_to_book ?? true,
+          })
+        : item,
     )
+
+    ui.pushToast({
+      tone: 'success',
+      title: 'Aeronave activada correctamente',
+      message: `La aeronave #${normalizedAircraftId} quedo activa.`,
+    })
+
+    try {
+      const detailResponse = await requestWithCandidates([
+        {
+          method: 'get',
+          path: `/admin/aeronaves/${normalizedAircraftId}`,
+          timeoutMs: 60000,
+        },
+      ])
+      const detailedAircraft = detailResponse?.aircraft
+      if (detailedAircraft && typeof detailedAircraft === 'object') {
+        aircraft.value = aircraft.value.map((item) =>
+          Number(item.id) === normalizedAircraftId ? normalizeAdminAircraft(detailedAircraft) : item,
+        )
+      }
+      await requestPortalSectionLoad('aeronaves', { force: true, abortOtherSections: false })
+    } catch {
+      // La activacion ya fue confirmada. Un fallo de refresco no debe convertirse en un falso error de activacion.
+    }
+    aircraftActivationRefreshVersion.value += 1
   } catch (error) {
     const requirements = Array.isArray(error?.payload?.missing_requirements)
       ? error.payload.missing_requirements.map((entry) => entry?.label || entry?.code || '').filter(Boolean)
@@ -3417,6 +3466,8 @@ async function handleActivateAircraft(aircraftId) {
           ? `Faltan los siguientes requisitos: ${requirements.join(', ')}.`
           : error?.message || 'El backend no confirmo la activacion de la aeronave.',
     })
+  } finally {
+    activatingAircraftId.value = null
   }
 }
 
@@ -3661,6 +3712,8 @@ watch(
     :subscriptions-loading="subscriptionsLoading"
     :payments-loading="paymentsLoading"
     :section-errors="aircraftSectionErrors"
+    :activating-aircraft-id="activatingAircraftId"
+    :activation-refresh-version="aircraftActivationRefreshVersion"
     mode="aircraft"
     @approve-provider="handleApproveProvider"
     @approve-aircraft="handleApproveAircraft"

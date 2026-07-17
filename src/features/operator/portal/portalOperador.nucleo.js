@@ -579,6 +579,7 @@ const aircraftForm = reactive({
   registration: '',
   year: '',
   capacity: 1,
+  range_km: null,
   speedKnots: '',
   amenities: '',
   base: '',
@@ -7218,6 +7219,7 @@ function resetAircraftForm() {
     registration: '',
     year: '',
     capacity: 1,
+    range_km: null,
     speedKnots: '',
     amenities: '',
     base: '',
@@ -7389,6 +7391,7 @@ function startEditingAircraft(item) {
     registration: uppercaseText(item.registration),
     year: normalizeAircraftYear(item.year),
     capacity: item.capacity || 1,
+    range_km: Number(item.range_km || item.rangeKm || 0) || null,
     speedKnots: item.speedKnots || '',
     amenities: uppercaseText(item.amenities),
     base: uppercaseText(item.base),
@@ -7481,7 +7484,7 @@ function validateAircraftWizardStep(step = aircraftWizardStep.value) {
   const errors = getAircraftWizardStepErrors(step)
   const aircraftErrors = {}
 
-  ;['name', 'category', 'year', 'base', 'capacity', 'speedKnots', 'hourlyPrice'].forEach((key) => {
+  ;['name', 'category', 'year', 'base', 'capacity', 'range_km', 'speedKnots', 'hourlyPrice'].forEach((key) => {
     if (errors[key]) aircraftErrors[key] = errors[key]
   })
 
@@ -9883,6 +9886,7 @@ async function createAircraft() {
         registration: 'registration',
         year: 'year',
         capacity: 'capacity',
+        range_km: 'range_km',
         amenities: 'amenities',
         base_airport: 'base',
         coverage: 'coverage',
@@ -10185,6 +10189,7 @@ async function saveAircraftEdits(id) {
         registration: 'registration',
         year: 'year',
         capacity: 'capacity',
+        range_km: 'range_km',
         amenities: 'amenities',
         base_airport: 'base',
         coverage: 'coverage',

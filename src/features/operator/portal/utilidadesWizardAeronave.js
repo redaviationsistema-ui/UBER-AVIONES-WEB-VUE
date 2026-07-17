@@ -47,6 +47,9 @@ export function buildAircraftWizardStepErrors(
 
   if (step === 2 || step === 5) {
     if (toPositiveNumber(form.capacity) < 1) errors.capacity = 'La capacidad debe ser al menos 1.'
+    if (toPositiveNumber(form.range_km) <= 0) {
+      errors.range_km = 'Debe capturar el rango máximo de la aeronave.'
+    }
     if (toPositiveNumber(form.speedKnots) <= 0) {
       errors.speedKnots = 'Ingresa una velocidad de crucero valida.'
     }
@@ -99,6 +102,7 @@ export function buildAircraftPayload(
     registration: nullableText(form.registration),
     year: resolveAircraftYearNumber(form.year),
     capacity: Number(form.capacity || 1),
+    range_km: Number(form.range_km) || null,
     speed_kmh: knotsToKmh(form.speedKnots),
     amenities: normalizeAmenities(form.amenities),
     base_airport: form.base,
