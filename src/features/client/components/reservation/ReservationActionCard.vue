@@ -503,7 +503,7 @@ defineEmits(['action'])
   font-size: 0.96rem;
   font-weight: 900;
   letter-spacing: 0.01em;
-  color: #ffffff;
+  color: #ffffff !important;
   cursor: pointer;
   transition:
     transform 0.18s ease,
@@ -571,6 +571,7 @@ defineEmits(['action'])
 }
 
 .reservation-action-card__button-icon,
+.reservation-action-card__button-label,
 .reservation-action-card__button-arrow {
   color: inherit;
   font-size: 1.05rem;

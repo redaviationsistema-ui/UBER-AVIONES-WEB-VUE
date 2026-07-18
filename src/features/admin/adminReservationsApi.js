@@ -23,16 +23,23 @@ const normalizedConfiguredAdminRequestDetailPath =
     ? `${normalizedConfiguredAdminRequestsPath.replace(/\/$/, '')}/:id`
     : normalizedConfiguredAdminRequestsPath
 const ADMIN_REQUESTS_PATH_CANDIDATES = [
+  '/admin/solicitudes',
   '/admin/requests',
   normalizedConfiguredAdminRequestsPath,
 ].filter(Boolean)
 
-const ADMIN_RELEASES_PATH_CANDIDATES = ['/admin/releases']
+const ADMIN_RELEASES_PATH_CANDIDATES = [
+  '/admin/releases',
+  '/admin/reservas',
+]
 
 const ADMIN_UPDATE_PATH_CANDIDATES = [
+  '/admin/solicitudes/:id',
   '/admin/requests/:id',
   normalizedConfiguredAdminRequestDetailPath,
+  '/admin/reservas/:id',
   '/admin/reservations/:id',
+  '/admin/solicitudes/:id/workflow',
   '/admin/requests/:id/workflow',
   normalizedConfiguredWorkflowPath,
 ].filter(Boolean)
@@ -357,7 +364,7 @@ export async function getAdminReservations(options = {}) {
     { signal: options.signal },
   )
 
-  return pickCollection(response, ['operations', 'operaciones', 'requests', 'solicitudes', 'data']).map(
+  return pickCollection(response, ['operations', 'operaciones', 'requests', 'solicitudes', 'flight_requests', 'data']).map(
     buildAdminReservationRecord,
   )
 }

@@ -57,6 +57,25 @@ const docusignCompleted = computed(
     ['go_to_payment', 'go_to_history'].includes(String(frontendState.value.next_action || '').trim()) ||
     String(frontendState.value.docusign_status || '').trim().toLowerCase() === 'completed',
 )
+
+const visualStatus = computed(() => {
+  if (error.value) return 'error'
+  if (docusignCompleted.value) return 'success'
+  return 'loading'
+})
+
+const statusTitle = computed(() => {
+  if (visualStatus.value === 'loading') return 'Validando estado del contrato...'
+  if (visualStatus.value === 'success') return 'Firma confirmada correctamente'
+  return 'No pudimos validar la firma'
+})
+
+const statusDescription = computed(() => {
+  if (visualStatus.value === 'loading') return 'Esto puede tardar unos segundos.'
+  if (visualStatus.value === 'success') return 'Tu contrato fue firmado y validado correctamente.'
+  return 'No fue posible confirmar el estado del contrato. Intenta nuevamente.'
+})
+
 const canNavigateToHistory = computed(() => Boolean(effectiveReservationId.value))
 const statusMessage = computed(() =>
   docusignCompleted.value
@@ -194,8 +213,8 @@ async function loadContractStatus({ silent = false } = {}) {
     }
 
     queueAutoContinue()
-  } catch (error) {
-    error.value = error?.message || 'No pudimos consultar el estado del contrato.'
+  } catch (loadError) {
+    error.value = loadError?.message || 'No pudimos consultar el estado del contrato.'
     queueContractStatusPoll()
   } finally {
     if (!silent) {
@@ -275,6 +294,10 @@ function continuarHistorial() {
   })
 }
 
+function retryValidation() {
+  void loadContractStatus()
+}
+
 onMounted(loadContractStatus)
 onBeforeUnmount(() => {
   clearAutoContinueTimer()
@@ -284,33 +307,188 @@ onBeforeUnmount(() => {
 
 <template>
   <main class="contract-result-page">
-    <section class="contract-result-card">
-      <span class="eyebrow">Contrato cliente</span>
-      <h1>Resultado de firma</h1>
+    <div class="contract-result-background">
+      <div class="contract-result-decoration"></div>
+    </div>
 
-      <p v-if="loading">Validando estado del contrato...</p>
+    <section class="contract-result-shell">
+      <div class="contract-result-icon">
+        <svg v-if="visualStatus === 'success'" width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke-linecap="round" stroke-linejoin="round"/>
+          <polyline points="14 2 14 8 20 8" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M9 15l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <svg v-else-if="visualStatus === 'error'" width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke-linecap="round" stroke-linejoin="round"/>
+          <polyline points="14 2 14 8 20 8" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="11" cy="15" r="1" fill="currentColor"/>
+          <circle cx="11" cy="11" r="1" fill="currentColor"/>
+        </svg>
+        <svg v-else width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke-linecap="round" stroke-linejoin="round"/>
+          <polyline points="14 2 14 8 20 8" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M8 13h8M8 17h8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
 
-      <template v-else>
-        <p v-if="docusignCompleted" class="status-copy status-copy--success">
-          Contrato firmado correctamente.
-        </p>
-        <p v-if="docusignCompleted" class="status-note">
-          Regresando a tu historial...
-        </p>
-        <p v-else-if="normalizedStatus === 'sent'" class="status-copy status-copy--pending">
-          Firma pendiente de completar.
-        </p>
-        <p v-else class="status-copy status-copy--pending">
-          Estado actual del contrato:
-          <strong>{{ normalizedStatus || 'pendiente' }}</strong>
-        </p>
+      <article class="contract-result-card">
+        <p class="contract-result-eyebrow">Contrato cliente</p>
+        <h1 class="contract-result-title">{{ statusTitle }}</h1>
+        <p class="contract-result-description">{{ statusDescription }}</p>
 
-        <p v-if="statusMessage" class="status-note">{{ statusMessage }}</p>
-        <p v-if="!docusignCompleted" class="status-note">
-          Esperando confirmacion real del backend para continuar a pago...
-        </p>
-        <p v-if="error" class="status-copy status-copy--error">{{ error }}</p>
-      </template>
+        <p v-if="statusMessage && visualStatus !== 'loading'" class="contract-result-status-message">{{ statusMessage }}</p>
+
+        <ol v-if="visualStatus === 'loading'" class="signature-progress" aria-label="Progreso de validación">
+          <li class="signature-progress__step signature-progress__step--complete">
+            <span class="signature-progress__marker">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke-linecap="round" stroke-linejoin="round"/>
+                <polyline points="14 2 14 8 20 8" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M8 13h8M8 17h8" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </span>
+            <span class="signature-progress__label">Verificando</span>
+          </li>
+          <li class="signature-progress__step signature-progress__step--active" aria-busy="true">
+            <span class="signature-progress__marker">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="signature-progress__spinner" aria-hidden="true">
+                <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </span>
+            <span class="signature-progress__label">Validando</span>
+          </li>
+          <li class="signature-progress__step signature-progress__step--pending">
+            <span class="signature-progress__marker">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </span>
+            <span class="signature-progress__label">Finalizando</span>
+          </li>
+        </ol>
+
+        <ol v-else-if="visualStatus === 'success'" class="signature-progress" aria-label="Progreso de validación">
+          <li class="signature-progress__step signature-progress__step--complete">
+            <span class="signature-progress__marker">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke-linecap="round" stroke-linejoin="round"/>
+                <polyline points="14 2 14 8 20 8" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M8 13h8M8 17h8" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </span>
+            <span class="signature-progress__label">Verificando</span>
+          </li>
+          <li class="signature-progress__step signature-progress__step--complete">
+            <span class="signature-progress__marker">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </span>
+            <span class="signature-progress__label">Validando</span>
+          </li>
+          <li class="signature-progress__step signature-progress__step--complete">
+            <span class="signature-progress__marker">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke-linecap="round" stroke-linejoin="round"/>
+                <polyline points="14 2 14 8 20 8" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M9 15l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </span>
+            <span class="signature-progress__label">Finalizando</span>
+          </li>
+        </ol>
+
+        <ol v-else class="signature-progress" aria-label="Progreso de validación">
+          <li class="signature-progress__step signature-progress__step--complete">
+            <span class="signature-progress__marker">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke-linecap="round" stroke-linejoin="round"/>
+                <polyline points="14 2 14 8 20 8" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M8 13h8M8 17h8" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </span>
+            <span class="signature-progress__label">Verificando</span>
+          </li>
+          <li class="signature-progress__step signature-progress__step--error">
+            <span class="signature-progress__marker">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </span>
+            <span class="signature-progress__label">Validando</span>
+          </li>
+          <li class="signature-progress__step signature-progress__step--pending">
+            <span class="signature-progress__marker">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke-linecap="round" stroke-linejoin="round"/>
+                <polyline points="14 2 14 8 20 8" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M9 15l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </span>
+            <span class="signature-progress__label">Finalizando</span>
+          </li>
+        </ol>
+
+        <div v-if="visualStatus === 'loading'" class="contract-result-pill" role="status" aria-live="polite">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M12 16v-4M12 8h.01" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>Esto puede tardar unos segundos.</span>
+        </div>
+
+        <div v-if="visualStatus === 'success' && (contract?.contract_id || contract?.id || contractId)" class="contract-result-details">
+          <div v-if="contract?.contract_id || contract?.id || contractId" class="contract-result-detail">
+            <span class="contract-result-detail__label">Folio</span>
+            <span class="contract-result-detail__value">{{ contract?.contract_id || contract?.id || contractId }}</span>
+          </div>
+          <div v-if="contract?.signed_at || contract?.updated_at || contract?.contract?.signed_at" class="contract-result-detail">
+            <span class="contract-result-detail__label">Fecha de firma</span>
+            <span class="contract-result-detail__value">{{ contract?.signed_at || contract?.updated_at || contract?.contract?.signed_at }}</span>
+          </div>
+          <div v-if="normalizedStatus" class="contract-result-detail">
+            <span class="contract-result-detail__label">Estado</span>
+            <span class="contract-result-detail__value">{{ normalizedStatus }}</span>
+          </div>
+        </div>
+
+        <div v-if="visualStatus === 'error'" class="contract-result-error" role="alert">
+          <p>{{ error }}</p>
+        </div>
+
+        <div class="contract-result-actions">
+          <button
+            v-if="visualStatus === 'error'"
+            type="button"
+            class="contract-result-button contract-result-button--primary"
+            @click="retryValidation"
+          >
+            Reintentar validación
+          </button>
+
+          <button
+            v-if="visualStatus === 'success'"
+            type="button"
+            class="contract-result-button contract-result-button--primary"
+            :disabled="syncingReadyForPayment"
+            @click="continuarHistorial"
+          >
+            {{ syncingReadyForPayment ? 'Preparando...' : 'Continuar' }}
+          </button>
+
+          <button
+            v-if="visualStatus === 'error' && canNavigateToHistory"
+            type="button"
+            class="contract-result-button contract-result-button--ghost"
+            @click="continuarHistorial"
+          >
+            Volver al inicio
+          </button>
+        </div>
+      </article>
     </section>
   </main>
 </template>
@@ -320,55 +498,292 @@ onBeforeUnmount(() => {
   min-height: 100vh;
   display: grid;
   place-items: center;
-  padding: 2rem 1rem;
+  padding: 40px 24px;
   background:
-    radial-gradient(circle at top, rgba(198, 151, 67, 0.18), transparent 30%),
-    linear-gradient(180deg, #15202a 0%, #efe8db 100%);
+    radial-gradient(circle at center 35%, rgba(199, 157, 70, 0.12), transparent 32%),
+    linear-gradient(180deg, #18222c 0%, #39434b 35%, #d8d5ce 68%, #f4ede1 100%);
+}
+
+.contract-result-background {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.contract-result-decoration {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 20% 10%, rgba(199, 157, 70, 0.08), transparent 28%),
+    radial-gradient(circle at 80% 90%, rgba(199, 157, 70, 0.06), transparent 32%);
+}
+
+.contract-result-shell {
+  position: relative;
+  width: min(800px, 100%);
+  display: grid;
+  place-items: center;
+  gap: 24px;
+}
+
+.contract-result-icon {
+  width: 104px;
+  height: 104px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #e0b75e;
+  background: rgba(196, 150, 56, 0.08);
+  border: 1px solid rgba(217, 177, 88, 0.24);
+  box-shadow:
+    0 0 0 18px rgba(196, 150, 56, 0.025),
+    0 0 50px rgba(196, 150, 56, 0.16);
 }
 
 .contract-result-card {
-  width: min(100%, 38rem);
-  display: grid;
-  justify-items: center;
-  gap: 1rem;
-  padding: 2rem;
-  border-radius: 1.75rem;
-  background: rgba(255, 252, 247, 0.96);
-  box-shadow: 0 24px 60px rgba(21, 32, 42, 0.18);
+  width: min(800px, 100%);
+  padding: 56px 64px 36px;
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  border-radius: 34px;
+  background: rgba(255, 253, 249, 0.97);
+  box-shadow:
+    0 32px 80px rgba(18, 25, 31, 0.22),
+    0 8px 24px rgba(18, 25, 31, 0.10);
   text-align: center;
+  backdrop-filter: blur(18px);
+  display: grid;
+  gap: 18px;
 }
 
-.eyebrow {
-  color: #8b6a24;
-  font-size: 0.76rem;
+.contract-result-eyebrow {
+  color: #b88a2e;
+  font-size: 15px;
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-}
-
-h1 {
   margin: 0;
-  color: #111111;
-  font-size: clamp(2rem, 4vw, 2.8rem);
-  line-height: 1;
 }
 
-.status-copy,
-.status-note {
+.contract-result-title {
   margin: 0;
-  color: #5e564a;
+  color: #111315;
+  font-size: clamp(42px, 5vw, 64px);
+  font-weight: 800;
+  line-height: 1.05;
 }
 
-.status-copy strong {
-  color: #111111;
+.contract-result-description {
+  margin: 20px 0 0;
+  color: #52575c;
+  font-size: 20px;
+  line-height: 1.35;
 }
 
-.status-copy--success {
-  color: #146c43;
+.contract-result-status-message {
+  margin: 16px 0 0;
+  color: #62676b;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.signature-progress {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  list-style: none;
+  margin: 28px 0 0;
+  padding: 0;
+  flex-wrap: wrap;
+}
+
+.signature-progress__step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  min-width: 96px;
+}
+
+.signature-progress__marker {
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #b88a2e;
+  background: rgba(196, 150, 56, 0.10);
+  border: 1px solid rgba(217, 177, 88, 0.28);
+}
+
+.signature-progress__label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #62676b;
+  text-align: center;
+}
+
+.signature-progress__step--complete .signature-progress__marker {
+  color: #2f7d57;
+  background: rgba(47, 125, 87, 0.10);
+  border-color: rgba(47, 125, 87, 0.28);
+}
+
+.signature-progress__step--active .signature-progress__marker {
+  color: #b88a2e;
+  background: rgba(196, 150, 56, 0.14);
+  border-color: rgba(217, 177, 88, 0.45);
+}
+
+.signature-progress__step--pending .signature-progress__marker {
+  color: #9aa3a9;
+  background: rgba(154, 163, 169, 0.10);
+  border-color: rgba(154, 163, 169, 0.22);
+}
+
+.signature-progress__step--error .signature-progress__marker {
+  color: #a84848;
+  background: rgba(168, 72, 72, 0.10);
+  border-color: rgba(168, 72, 72, 0.28);
+}
+
+.signature-progress__spinner {
+  animation: signature-spin 1s linear infinite;
+}
+
+@keyframes signature-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .signature-progress__spinner {
+    animation: none;
+  }
+}
+
+.contract-result-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 24px;
+  padding: 12px 22px;
+  border-radius: 999px;
+  background: #f4ede1;
+  color: #4a3f2f;
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.contract-result-details {
+  margin-top: 24px;
+  display: grid;
+  gap: 12px;
+  text-align: left;
+}
+
+.contract-result-detail {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: rgba(17, 19, 21, 0.03);
+}
+
+.contract-result-detail__label {
+  color: #62676b;
+  font-weight: 600;
+}
+
+.contract-result-detail__value {
+  color: #111315;
   font-weight: 700;
+  text-align: right;
+  word-break: break-word;
 }
 
-.status-copy--error {
-  color: #b42318;
+.contract-result-error {
+  margin-top: 24px;
+  padding: 16px;
+  border-radius: 18px;
+  background: rgba(168, 72, 72, 0.08);
+  color: #a84848;
+  font-weight: 600;
+  text-align: left;
+}
+
+.contract-result-actions {
+  margin-top: 28px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+}
+
+.contract-result-button {
+  min-width: 180px;
+  padding: 14px 18px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 15px;
+  cursor: pointer;
+  border: none;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.contract-result-button:focus-visible {
+  outline: 3px solid #b88a2e;
+  outline-offset: 3px;
+}
+
+.contract-result-button--primary {
+  background: #111315;
+  color: #fff;
+}
+
+.contract-result-button--ghost {
+  background: transparent;
+  color: #111315;
+  border: 1px solid rgba(17, 19, 21, 0.18);
+}
+
+@media (max-width: 640px) {
+  .contract-result-page {
+    padding: 24px 16px;
+  }
+
+  .contract-result-icon {
+    width: 82px;
+    height: 82px;
+  }
+
+  .contract-result-card {
+    padding: 38px 20px 28px;
+    border-radius: 24px;
+  }
+
+  .contract-result-title {
+    font-size: 38px;
+  }
+
+  .contract-result-description {
+    font-size: 17px;
+  }
+
+  .signature-progress {
+    gap: 10px;
+  }
+
+  .signature-progress__marker {
+    width: 48px;
+    height: 48px;
+  }
+
+  .contract-result-button {
+    width: 100%;
+  }
 }
 </style>
