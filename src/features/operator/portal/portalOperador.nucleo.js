@@ -1069,6 +1069,20 @@ const activeAircraft = computed(
   () => countAircraftByOperationalTab(aircraft.value, 'active'),
 )
 
+function isAircraftAvailabilityReadinessEligible(item = {}) {
+  const approvalStatus = String(item?.approvalStatus || item?.approval_status || '').trim().toLowerCase()
+  const paymentStatus = String(item?.paymentStatus || item?.payment_status || '').trim().toLowerCase()
+  const operationalStatus = String(item?.operationalStatus || item?.operational_status || obtenerEstadoOperativoAeronave(item) || '').trim().toLowerCase()
+  const isActive = item?.is_active === true || item?.isActive === true
+
+  return (
+    (item?.approved === true || approvalStatus === 'approved') &&
+    paymentStatus === 'active' &&
+    operationalStatus === 'active' &&
+    isActive
+  )
+}
+
 const billingFocusedAircraft = computed(() =>
   aircraft.value.find((item) => Number(item.id) === Number(billingFocusAircraftId.value)) || null,
 )
@@ -3028,7 +3042,7 @@ const dashboardCompletion = computed(() => {
     Boolean(companyForm.legalName && companyForm.rfc && companyForm.email),
     company.documents.length > 0,
     aircraft.value.length > 0,
-    Boolean(availability.value.length > 0),
+    availabilityReadiness.value,
     Boolean(aircraftPricingRows.value.some((row) => Number(row.hourlyPrice || 0) > 0)),
   ]
   const completed = modules.filter(Boolean).length
@@ -3040,15 +3054,37 @@ const dashboardCompletion = computed(() => {
 })
 
 const dashboardGlobalStatus = computed(() => {
-  if (
-    companyStatusMeta.value.tone === 'success' &&
-    aircraft.value.length &&
-    availability.value.length
-  ) {
+  if (companyStatusMeta.value.tone === 'success' && availabilityReadiness.value) {
     return {
       tone: 'success',
       title: 'Operador listo para recibir solicitudes',
-      detail: 'La empresa, la flota y la disponibilidad minima ya estan configuradas.',
+      detail: 'La empresa, la flota activa y la disponibilidad operativa ya estan listas para recibir solicitudes.',
+    }
+  }
+
+  if (companyStatusMeta.value.tone === 'success') {
+    if (!aircraft.value.length) {
+      return {
+        tone: 'warning',
+        title: 'Flota pendiente de configuracion',
+        detail: 'La empresa ya esta aprobada, pero aun falta registrar al menos una aeronave.',
+      }
+    }
+
+    if (!activeAircraftAvailabilityEligible.value.length) {
+      return {
+        tone: 'warning',
+        title: 'Flota pendiente de configuracion',
+        detail: 'La empresa ya esta aprobada, pero aun no hay una aeronave activa y habilitada para operar.',
+      }
+    }
+
+    if (!availabilityReadiness.value) {
+      return {
+        tone: 'warning',
+        title: 'Configuracion operativa pendiente',
+        detail: 'El operador ya fue aprobado. Completa la disponibilidad de la flota para quedar listo para recibir solicitudes.',
+      }
     }
   }
 
@@ -3078,7 +3114,7 @@ const dashboardAlerts = computed(() => {
     action: 'Ver empresa',
     section: 'empresa',
   })
-  if (!availability.value.length) {
+  if (!availabilityReadiness.value) {
     alerts.push({
       tone: 'warning',
       title: 'Falta configurar disponibilidad',
@@ -3198,35 +3234,45 @@ const availabilityStatusCatalog = {
   'Pendiente de confirmacion': { label: 'Vuelo confirmado', tone: 'danger', short: 'Vuelo' },
 }
 
-const availabilityReadyCount = computed(
-  () =>
-    aircraft.value.filter((item) => getAvailabilityOperationalStatus(item).label === 'Disponible')
-      .length,
+const activeAircraftAvailabilityEligible = computed(() =>
+  aircraft.value.filter((item) => isAircraftAvailabilityReadinessEligible(item)),
 )
 
+const activeAircraftWithAvailability = computed(() =>
+  activeAircraftAvailabilityEligible.value.filter((item) => getAvailabilityOperationalStatus(item).label === 'Disponible'),
+)
+
+const availabilityReadyCount = computed(() => activeAircraftWithAvailability.value.length)
+
 const providerAvailabilityUpdatesPending = computed(() =>
-  Math.max(activeAircraft.value - availabilityReadyCount.value, 0),
+  Math.max(activeAircraftAvailabilityEligible.value.length - availabilityReadyCount.value, 0),
 )
 
 const availabilityImmediatePercent = computed(() =>
-  aircraft.value.length
-    ? Math.round((availabilityReadyCount.value / aircraft.value.length) * 100)
+  activeAircraftAvailabilityEligible.value.length
+    ? Math.round((availabilityReadyCount.value / activeAircraftAvailabilityEligible.value.length) * 100)
     : 0,
 )
 
+const availabilityReadiness = computed(
+  () =>
+    activeAircraftAvailabilityEligible.value.length > 0 &&
+    activeAircraftWithAvailability.value.length === activeAircraftAvailabilityEligible.value.length,
+)
+
 const availabilityGlobalStatus = computed(() => {
-  if (!aircraft.value.length) {
+  if (!activeAircraftAvailabilityEligible.value.length) {
     return {
       tone: 'warning',
-      title: 'Aun no hay flota operativa',
-      detail: 'Registra aeronaves antes de gestionar disponibilidad.',
+      title: 'Aun no hay flota operativa elegible',
+      detail: 'Activa y aprueba al menos una aeronave para medir disponibilidad operativa.',
     }
   }
-  if (availabilityReadyCount.value === aircraft.value.length) {
+  if (availabilityReadiness.value) {
     return {
       tone: 'success',
       title: 'Fleet ready',
-      detail: 'Toda la flota registrada aparece disponible hoy.',
+      detail: 'Toda la flota activa y elegible aparece disponible hoy.',
     }
   }
   if (!availabilityReadyCount.value) {
@@ -3247,7 +3293,7 @@ const availabilitySummaryCards = computed(() => [
   {
     label: 'Disponibilidad inmediata',
     value: `${availabilityImmediatePercent.value}%`,
-    detail: `${availabilityReadyCount.value} de ${aircraft.value.length || 0} aeronaves listas hoy.`,
+    detail: `${availabilityReadyCount.value} de ${activeAircraftAvailabilityEligible.value.length || 0} aeronaves activas listas hoy.`,
     tone: availabilityGlobalStatus.value.tone,
   },
   {
@@ -3323,7 +3369,7 @@ const providerPendingActions = computed(() => {
     })
   }
 
-  if (!availability.value.length || providerAvailabilityUpdatesPending.value > 0) {
+  if (!availabilityReadiness.value || providerAvailabilityUpdatesPending.value > 0) {
     actions.push({
       title: 'Actualizar disponibilidad de aeronaves',
       detail: providerAvailabilityUpdatesPending.value
@@ -4647,6 +4693,12 @@ function applyAvailabilityResponse(payload) {
   const collection = pickCollection(payload, ['availability', 'data', 'items'])
   availability.value = collection.map(normalizeAvailability)
   markSectionLoaded('disponibilidad')
+}
+
+async function refreshAvailabilityStateFromBackend(timeoutMs = 15000) {
+  const payload = await requestWithCandidates([{ method: 'get', path: '/proveedor/disponibilidad', timeoutMs }])
+  applyAvailabilityResponse(payload)
+  return payload
 }
 
 function goToSection(section, query = {}) {
@@ -7758,7 +7810,7 @@ function getAircraftPortalState(item = {}) {
   if (billingMeta.code === 'billing_syncing') {
     return {
       code: 'PAYMENT_PENDING',
-      label: 'Pago pendiente',
+      label: billingMeta.label,
       badgeType: 'warning',
       menuAction: billingMeta.action,
       menuLabel: billingMeta.action === 'pay' ? 'Continuar con el pago' : 'Verificar pago',
@@ -8161,6 +8213,28 @@ function getAvailabilityOperationalStatus(item) {
   const latest = relatedEntries[0]
   return getAvailabilityStatusMeta(latest.status)
 }
+
+watch(
+  [
+    () => aircraft.value.length,
+    () => activeAircraftAvailabilityEligible.value.length,
+    () => availability.value.length,
+    () => activeAircraftWithAvailability.value.length,
+    () => availabilityReadiness.value,
+  ],
+  () => {
+    if (!import.meta.env?.DEV) return
+
+    console.table({
+      registeredAircraft: aircraft.value.length,
+      activeAircraft: activeAircraftAvailabilityEligible.value.length,
+      availabilityRecords: availability.value.length,
+      activeAircraftWithAvailability: activeAircraftWithAvailability.value.length,
+      availabilityReady: availabilityReadiness.value,
+    })
+  },
+  { immediate: true },
+)
 
 async function submitAircraftWizard() {
   if (aircraftWizardSubmitting.value) return
@@ -10741,11 +10815,7 @@ async function createAvailabilityBlock() {
     )
 
     if (createdBlock.id == null) {
-      const availabilityResponse = await requestWithCandidates([
-        { method: 'get', path: '/proveedor/disponibilidad' },
-      ])
-      const collection = pickCollection(availabilityResponse, ['availability', 'data', 'items'])
-      availability.value = collection.map(normalizeAvailability)
+      await refreshAvailabilityStateFromBackend()
     } else {
       availability.value.unshift({
         ...createdBlock,
@@ -10760,6 +10830,7 @@ async function createAvailabilityBlock() {
     aircraft.value = aircraft.value.map((item) =>
       item.id === selectedAircraft.id ? { ...item, availability: availabilityForm.status } : item,
     )
+    await refreshAvailabilityStateFromBackend()
   } catch (error) {
     const message = applyBackendValidationErrors(
       'availability',
@@ -10813,6 +10884,7 @@ async function releaseAvailability(id) {
 
   const row = availability.value.find((item) => item.id === id)
   availability.value = availability.value.filter((item) => item.id !== id)
+  await refreshAvailabilityStateFromBackend()
   if (row) pushHistory('Disponibilidad', `Bloqueo liberado para ${row.aircraft}`)
 }
 

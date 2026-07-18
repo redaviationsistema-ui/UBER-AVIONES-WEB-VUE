@@ -1310,6 +1310,24 @@ function normalizedAircraftReviewStatus(item = {}) {
   return normalizeStatus(reviewState.status || item.review_status || item.validation_status || item.approval_status || '')
 }
 
+function normalizeAircraftPaymentStatus(value = '') {
+  const normalized = normalizeStatus(value)
+
+  if (!normalized) return ''
+  if (['active', 'paid', 'approved', 'confirmed', 'current'].includes(normalized)) return 'active'
+  if (['pending', 'pending_payment', 'payment_pending', 'open', 'requires_action', 'incomplete'].includes(normalized)) {
+    return 'pending'
+  }
+  if (['verifying', 'processing', 'pending_review', 'requires_confirmation'].includes(normalized)) {
+    return 'verifying'
+  }
+  if (['expired', 'past_due', 'unpaid', 'incomplete_expired'].includes(normalized)) return 'expired'
+  if (['rejected', 'failed', 'declined'].includes(normalized)) return 'rejected'
+  if (['suspended', 'cancelled', 'canceled', 'paused'].includes(normalized)) return 'suspended'
+
+  return normalized
+}
+
 function hasApprovedMarker(item = {}) {
   return Boolean(item.approved_at || item.approvedAt || item.approved === true)
 }
@@ -1335,8 +1353,11 @@ function isSuspended(item) {
 
 function billingStatusKey(item = {}) {
   const billingState = adminAircraftBillingState(item)
-  return normalizeStatus(
-    billingState.status ||
+  return normalizeAircraftPaymentStatus(
+    billingState.payment_status ||
+      item.payment_status ||
+      item.paymentStatus ||
+      billingState.status ||
       billingState.payment_status ||
       item.billing_status ||
       item.billingStatus ||
@@ -1359,7 +1380,7 @@ function hasPendingPayment(item = {}) {
   }
   if (normalizeStatus(activationState.commercial_status) === 'pending_payment') return true
   const status = billingStatusKey(item)
-  return status === 'pending' && isApproved(item) && !hasActiveBilling(item)
+  return ['pending', 'verifying'].includes(status) && isApproved(item) && !hasActiveBilling(item)
 }
 
 function documentsState(item) {

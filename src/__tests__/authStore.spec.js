@@ -24,7 +24,7 @@ describe('auth store role resolution', () => {
     expect(effectiveRole).toBe('operator')
   })
 
-  it('forces provider context during registration even if the backend responds with an ambiguous role', () => {
+  it('respects the backend client role even if the login intent was provider', () => {
     const payload = resolveAuthPayload(
       {
         token: 'provider-token',
@@ -38,10 +38,10 @@ describe('auth store role resolution', () => {
       },
     )
 
-    expect(payload.user?.operational_role).toBe('provider')
-    expect(payload.login_context?.effective_role).toBe('provider')
-    expect(normalizeRoles(payload)).toContain('operator')
-    expect(resolveEffectiveRole(payload)).toBe('operator')
+    expect(payload.user?.operational_role ?? null).toBe(null)
+    expect(payload.login_context).toBe(null)
+    expect(normalizeRoles(payload)).toContain('client')
+    expect(resolveEffectiveRole(payload)).toBe('client')
   })
 
   it('preserves the operator context while refreshing the session', () => {
@@ -67,7 +67,7 @@ describe('auth store role resolution', () => {
     expect(resolveEffectiveRole(payload)).toBe('operator')
   })
 
-  it('forces crew context when the intended role is sobrecargo', () => {
+  it('respects the backend client role even if the login intent was sobrecargo', () => {
     const payload = resolveAuthPayload(
       {
         token: 'crew-token',
@@ -81,9 +81,34 @@ describe('auth store role resolution', () => {
       },
     )
 
-    expect(payload.user?.operational_role).toBe('sobrecargo')
-    expect(payload.login_context?.effective_role).toBe('sobrecargo')
-    expect(resolveEffectiveRole(payload)).toBe('crew')
+    expect(payload.user?.operational_role ?? null).toBe(null)
+    expect(payload.login_context).toBe(null)
+    expect(resolveEffectiveRole(payload)).toBe('client')
+  })
+
+  it('still preserves operator context while refreshing an ambiguous session payload', () => {
+    const payload = resolveAuthPayload(
+      {
+        token: 'provider-token',
+        user: {
+          id: 12,
+          email: 'ops@example.com',
+        },
+      },
+      {
+        intendedRole: 'provider',
+        currentSnapshot: {
+          login_context: {
+            effective_role: 'provider',
+            roles: ['provider'],
+          },
+        },
+      },
+    )
+
+    expect(payload.user?.operational_role).toBe('provider')
+    expect(payload.login_context?.effective_role).toBe('provider')
+    expect(resolveEffectiveRole(payload)).toBe('operator')
   })
 
   it('does not infer admin from fallback user.role when explicit metadata is missing', () => {

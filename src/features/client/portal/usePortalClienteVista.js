@@ -11,6 +11,7 @@ import {
 } from '../../../utils/flightPricing'
 import { resolveWorkflowState } from '../../../utils/flightWorkflow'
 import {
+  buildFlightRequestPayload,
   cancelClientAccessPayment,
   createClientAircraftHold,
   createClientAccessCheckout,
@@ -88,6 +89,7 @@ const aircraftSidebarFilters = reactive({
 const technicalSheetOpen = ref(false)
 const technicalAircraft = ref(null)
 const aircraftHold = ref(null)
+const reservationDraftContexts = ref({})
 const holdCountdownNow = ref(Date.now())
 let removeWorkflowSyncSubscription = null
 let workflowSyncRefreshTimer = null
@@ -519,6 +521,9 @@ const flightRequestContextId = computed(
     resolveEntityIdentifier(selectedReservation.value?.flight_request_id) ||
     resolveEntityIdentifier(selectedReservation.value?.id) ||
     String(routeId.value || '').trim(),
+)
+const contractRouteContextId = computed(
+  () => flightRequestContextId.value || reservationContextId.value || String(routeId.value || '').trim(),
 )
 const selectedReservationPriceLabel = computed(() => {
   const pricingContext =
@@ -2365,6 +2370,9 @@ function normalizeAircraftHold(payload = null) {
   return {
     hold_id: holdId,
     hold_expires_at: expiresAt,
+    quote_id: String(
+      payload.quote_id || payload.quoteId || payload.quote?.id || payload.data?.quote_id || '',
+    ).trim(),
     aircraft_id: String(
       payload.aircraft_id || payload.aircraftId || payload.aircraft?.id || payload.data?.aircraft_id || '',
     ).trim(),
@@ -2381,6 +2389,158 @@ function normalizeAircraftHold(payload = null) {
     status: String(payload.status || payload.hold_status || payload.data?.status || 'active').trim(),
     source: payload.source || 'backend',
   }
+}
+
+function normalizePositiveInteger(value) {
+  const normalizedValue = Number(value)
+  return Number.isInteger(normalizedValue) && normalizedValue > 0 ? normalizedValue : null
+}
+
+function resolveQuoteId(...sources) {
+  for (const source of sources) {
+    const candidates = [
+      source?.accepted_quote?.quote_id,
+      source?.accepted_quote?.id,
+      source?.quote_id,
+      source?.quoteId,
+      source?.quotation_id,
+      source?.quotationId,
+      source?.quote?.id,
+      source?.quotation?.id,
+      source?.booking?.quote_id,
+      source?.flight_request?.accepted_quote?.quote_id,
+      source?.flight_request?.accepted_quote?.id,
+      source?.flight_request?.quote_id,
+      source?.data?.accepted_quote?.quote_id,
+      source?.data?.accepted_quote?.id,
+      source?.data?.quote_id,
+      source?.data?.id,
+      source?.params?.quote,
+      source?.params?.quote_id,
+    ]
+
+    for (const candidate of candidates) {
+      const resolvedValue = normalizePositiveInteger(candidate)
+      if (resolvedValue) return resolvedValue
+    }
+  }
+
+  return null
+}
+
+function resolveAircraftId(...sources) {
+  for (const source of sources) {
+    const candidates = [
+      source?.aircraft_id,
+      source?.aircraftId,
+      source?.selected_aircraft_id,
+      source?.assigned_aircraft_id,
+      source?.aircraft?.id,
+      source?.data?.aircraft_id,
+      source?.id,
+    ]
+
+    for (const candidate of candidates) {
+      const resolvedValue = normalizePositiveInteger(candidate)
+      if (resolvedValue) return resolvedValue
+    }
+  }
+
+  return null
+}
+
+function buildReservationDraftKey({ aircraftId = null, providerId = null, quoteKey = '' } = {}) {
+  return [
+    'client-aircraft-selection',
+    String(quoteKey || '').trim() || 'no-quote-key',
+    String(aircraftId || ''),
+    String(providerId || ''),
+  ].join(':')
+}
+
+function createReservationAttemptIdempotencyKey() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `client-flight-request:${crypto.randomUUID()}`
+  }
+
+  return `client-flight-request:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 10)}`
+}
+
+function readReservationDraftContext(key = '') {
+  return key ? reservationDraftContexts.value[key] || null : null
+}
+
+function writeReservationDraftContext(key = '', context = null) {
+  if (!key) return
+
+  reservationDraftContexts.value = context
+    ? {
+        ...reservationDraftContexts.value,
+        [key]: context,
+      }
+    : Object.fromEntries(
+        Object.entries(reservationDraftContexts.value).filter(([currentKey]) => currentKey !== key),
+      )
+}
+
+function buildAircraftHoldPayload({
+  quoteId = null,
+  aircraftId = null,
+  aircraft = {},
+  reservationSchedule = {},
+  tripTypeKeyValue = '',
+  tripLabelValue = '',
+  passengers = 1,
+  quoteKey = '',
+  legs = [],
+} = {}) {
+  const normalizedQuoteId = normalizePositiveInteger(quoteId)
+  const normalizedAircraftId = normalizePositiveInteger(aircraftId)
+  const normalizedDepartureDate = String(reservationSchedule.departure_date || '').trim()
+  const normalizedDepartureDateTime = String(reservationSchedule.departure_datetime || '').trim()
+
+  if (!normalizedQuoteId) {
+    throw new Error('No se pudo persistir la cotización antes de solicitar la retención.')
+  }
+
+  if (!normalizedAircraftId) {
+    throw new Error('No se encontró una aeronave válida para solicitar la reserva.')
+  }
+
+  if (!normalizedDepartureDate || !normalizedDepartureDateTime) {
+    throw new Error('No se pudo resolver una fecha válida para solicitar la reserva.')
+  }
+
+  return {
+    quote_id: normalizedQuoteId,
+    aircraft_id: normalizedAircraftId,
+    provider_id: aircraft.provider_id || aircraft.provider?.id || null,
+    match_id: aircraft.match_id || aircraft.matched_option_id || aircraft.id || null,
+    matched_option_id: aircraft.matched_option_id || aircraft.match_id || aircraft.id || null,
+    trip_type: tripTypeKeyValue,
+    trip_label: tripLabelValue,
+    passengers,
+    departure_date: reservationSchedule.departure_date,
+    departure_time: reservationSchedule.departure_time,
+    departure_datetime: reservationSchedule.departure_datetime,
+    start_date: reservationSchedule.start_date,
+    start_time: reservationSchedule.start_time,
+    start_datetime: reservationSchedule.start_datetime,
+    return_datetime: reservationSchedule.return_datetime,
+    quote_key: quoteKey || undefined,
+    legs,
+  }
+}
+
+function logAircraftHoldRequest({ quoteId = null, aircraftId = null, endpoint = '', payload = null } = {}) {
+  if (!import.meta.env.DEV || typeof console === 'undefined') return
+
+  console.group('AIRCRAFT HOLD REQUEST')
+  console.log('quoteId:', quoteId)
+  console.log('aircraftId:', aircraftId)
+  console.log('endpoint:', endpoint)
+  console.log('payload:', payload)
+  console.groupEnd()
 }
 
 function persistAircraftHoldContext(context = null) {
@@ -3571,7 +3731,8 @@ function alignReservationWorkflowRoute() {
   if (!hasReservationsLoaded.value) return
 
   const currentReservationId = String(routeId.value || '').trim()
-  const fallbackReservationId = reservationContextId.value
+  const fallbackReservationId =
+    props.section === 'contrato' ? contractRouteContextId.value : reservationContextId.value
 
   if (
     currentReservationId &&
@@ -4151,6 +4312,7 @@ async function handleAircraftHoldExpiration() {
 
   if (expiredHold.hold_id) {
     await releaseClientAircraftHold(expiredHold.hold_id, {
+      quote_id: expiredHold.quote_id || undefined,
       reservation_id: expiredHold.reservation_id || undefined,
       flight_request_id: expiredHold.flight_request_id || undefined,
       reason: 'expired',
@@ -5228,6 +5390,7 @@ async function handlePaymentSubmit() {
     await validateClientAircraftHold(
       reservationHold.hold_id,
       {
+        quote_id: reservationHold.quote_id || undefined,
         reservation_id: reservationId || undefined,
         flight_request_id: flightRequestId || undefined,
         aircraft_id: reservationHold.aircraft_id || undefined,
@@ -5409,7 +5572,10 @@ async function ensureReservationForSelectedTrip(targetId = '') {
 async function handleOpenContract(targetId = '') {
   try {
     const reservation = await ensureReservationForSelectedTrip(targetId)
-    go('contrato', reservation.id)
+    go(
+      'contrato',
+      resolveEntityIdentifier(reservation?.flight_request_id) || resolveEntityIdentifier(reservation?.id),
+    )
   } catch (error) {
     ui.pushToast({
       tone: 'error',
@@ -5450,16 +5616,18 @@ async function ensureContractReservationContext() {
   try {
     const reservation = await ensureReservationForSelectedTrip(targetId)
     const resolvedReservationId = resolveEntityIdentifier(reservation?.id)
+    const resolvedContractRouteId =
+      resolveEntityIdentifier(reservation?.flight_request_id) || resolvedReservationId
 
     if (!resolvedReservationId) {
       throw new Error('No se pudo identificar la reserva del contrato.')
     }
 
     if (
-      String(routeId.value || '').trim() !== resolvedReservationId ||
+      String(routeId.value || '').trim() !== resolvedContractRouteId ||
       !selectedReservation.value?.is_reservation
     ) {
-      go('contrato', resolvedReservationId)
+      go('contrato', resolvedContractRouteId)
     }
   } catch (error) {
     ui.pushToast({
@@ -6091,35 +6259,41 @@ async function requestReservation(aircraft = selectedAircraft.value) {
     reservingAircraftId.value = aircraftReservationKey(aircraft)
     const selectedAircraftModel =
       aircraft.aircraft || aircraft.model || aircraft.registration || aircraft.cabin || ''
+    const resolvedAircraftId = resolveAircraftId(aircraft)
     const normalizedPassengers =
       Number(activeItinerarySummary.value.passengers || searchForm.passengers || 0) || 1
+    if (!resolvedAircraftId) {
+      throw new Error('No se encontró una aeronave válida para solicitar la reserva.')
+    }
     const pricing = aircraftPricingForType(aircraft, selectedPriorityType.value)
     const selectedCardPrice = Number((pricing.finalPrice + RESULTS_SURCHARGE_USD).toFixed(2))
     const quoteKey = submittedQuotePayload.value ? buildQuoteQueryKey(submittedQuotePayload.value) : ''
-    const holdPayload = {
-      aircraft_id: aircraft.aircraft_id || aircraft.id || null,
-      provider_id: aircraft.provider_id || aircraft.provider?.id || null,
-      match_id: aircraft.match_id || aircraft.matched_option_id || aircraft.id || null,
-      matched_option_id: aircraft.matched_option_id || aircraft.match_id || aircraft.id || null,
+    const reservationDraftKey = buildReservationDraftKey({
+      aircraftId: resolvedAircraftId,
+      providerId: aircraft.provider_id || aircraft.provider?.id || null,
+      quoteKey,
+    })
+    const reservationSchedule = buildFlightRequestPayload({
+      ...activeItinerarySummary.value,
       trip_type: tripTypeKey.value,
       trip_label: tripType.value,
       passengers: normalizedPassengers,
-      quote_key: quoteKey || undefined,
-      legs: activeItinerarySummary.value.legs.map((leg) => ({ ...leg })),
-    }
-    const holdResponse = await createClientAircraftHold(holdPayload, { timeoutMs: 30000 })
+    })
+    const previousDraftContext = readReservationDraftContext(reservationDraftKey)
+    const reservationIdempotencyKey = String(
+      previousDraftContext?.idempotencyKey || createReservationAttemptIdempotencyKey(),
+    ).trim()
     const normalizedHold = normalizeAircraftHold({
-      ...holdResponse,
-      aircraft_id: holdPayload.aircraft_id,
-      provider_id: holdPayload.provider_id,
-      quote_key: quoteKey,
+      ...previousDraftContext?.hold,
     })
 
-    if (!normalizedHold?.hold_id || !normalizedHold?.hold_expires_at) {
-      throw new Error('El backend no devolvio una retencion valida para esta aeronave.')
-    }
+    writeReservationDraftContext(reservationDraftKey, {
+      ...previousDraftContext,
+      aircraftId: resolvedAircraftId,
+      idempotencyKey: reservationIdempotencyKey,
+      quoteKey,
+    })
 
-    setAircraftHold(normalizedHold)
     const reservationPayload = {
       trip_type: tripTypeKey.value,
       trip_label: tripType.value,
@@ -6134,18 +6308,21 @@ async function requestReservation(aircraft = selectedAircraft.value) {
       service_tier: selectedPriorityMeta.value?.name || '',
       match_id: aircraft.match_id || aircraft.matched_option_id || aircraft.id || null,
       matched_option_id: aircraft.matched_option_id || aircraft.match_id || aircraft.id || null,
-      aircraft_id: aircraft.aircraft_id || aircraft.id || null,
+      aircraft_id: resolvedAircraftId,
       provider_id: aircraft.provider_id || aircraft.provider?.id || null,
       priority_type: pricing.priorityType,
       priority_multiplier: pricing.priorityMultiplier,
       source_database: aircraft.source_database || null,
       source_table: aircraft.source_table || null,
-      hold_id: normalizedHold.hold_id,
-      hold_expires_at: normalizedHold.hold_expires_at,
       legs: activeItinerarySummary.value.legs.map((leg) => ({ ...leg })),
     }
     const previousCommercialState = buildCommercialAccessUiState(auth.access?.commercial_access || auth.access)
-    const reservation = await createClientFlightRequest(reservationPayload, { timeoutMs: 60000 })
+    const reservation =
+      previousDraftContext?.reservationResponse ||
+      (await createClientFlightRequest(reservationPayload, {
+        idempotencyKey: reservationIdempotencyKey,
+        timeoutMs: 60000,
+      }))
 
     if (reservation?.access) {
       syncCommercialAccessState(reservation.access?.commercial_access || reservation.access)
@@ -6191,6 +6368,66 @@ async function requestReservation(aircraft = selectedAircraft.value) {
         : reservation?.data?.flight_request && typeof reservation.data.flight_request === 'object'
           ? reservation.data.flight_request
           : null
+    const resolvedQuoteId = resolveQuoteId(
+      reservation,
+      createdReservation,
+      previousDraftContext,
+      aircraft,
+      route,
+    )
+
+    writeReservationDraftContext(reservationDraftKey, {
+      ...previousDraftContext,
+      reservationResponse: reservation,
+      reservationId: createdFlightRequestId,
+      quoteId: resolvedQuoteId,
+      aircraftId: resolvedAircraftId,
+      idempotencyKey: reservationIdempotencyKey,
+      quoteKey,
+    })
+
+    const holdPayload = buildAircraftHoldPayload({
+      quoteId: resolvedQuoteId,
+      aircraftId: resolvedAircraftId,
+      aircraft,
+      reservationSchedule,
+      tripTypeKeyValue: tripTypeKey.value,
+      tripLabelValue: tripType.value,
+      passengers: normalizedPassengers,
+      quoteKey,
+      legs: activeItinerarySummary.value.legs.map((leg) => ({ ...leg })),
+    })
+    logAircraftHoldRequest({
+      quoteId: resolvedQuoteId,
+      aircraftId: resolvedAircraftId,
+      endpoint: `/cliente/cotizaciones/${resolvedQuoteId}/aircraft-hold`,
+      payload: holdPayload,
+    })
+    const holdResponse = await createClientAircraftHold(holdPayload, { timeoutMs: 30000 })
+    const finalHold = normalizeAircraftHold({
+      ...holdResponse,
+      quote_id: holdPayload.quote_id,
+      aircraft_id: holdPayload.aircraft_id,
+      provider_id: holdPayload.provider_id,
+      quote_key: quoteKey,
+      flight_request_id: createdFlightRequestId,
+    })
+
+    if (!finalHold?.hold_id || !finalHold?.hold_expires_at) {
+      throw new Error('El backend no devolvió una retención válida para esta aeronave.')
+    }
+
+    writeReservationDraftContext(reservationDraftKey, {
+      ...previousDraftContext,
+      reservationResponse: reservation,
+      reservationId: createdFlightRequestId,
+      quoteId: resolvedQuoteId,
+      aircraftId: resolvedAircraftId,
+      idempotencyKey: reservationIdempotencyKey,
+      quoteKey,
+      hold: finalHold,
+    })
+    setAircraftHold(finalHold)
 
     if (createdReservation) {
       const normalizedCreatedReservation = normalizeTrip(createdReservation, {
@@ -6208,7 +6445,8 @@ async function requestReservation(aircraft = selectedAircraft.value) {
           ...normalizedCreatedReservation,
           frontend_state: {
             ...normalizedCreatedReservation.frontend_state,
-            aircraft_hold: normalizedHold,
+            aircraft_hold: finalHold,
+            quote_key: quoteKey,
           },
           summary_only: false,
         },

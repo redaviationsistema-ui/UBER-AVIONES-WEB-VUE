@@ -22,13 +22,6 @@ const configuredFlightPackagesPath = String(
 ).trim()
 const configuredAircraftPath = String(import.meta.env.VITE_CLIENT_AIRCRAFT_PATH || '').trim()
 const configuredCheckoutPath = String(import.meta.env.VITE_CLIENT_CHECKOUT_PATH || '').trim()
-const configuredAircraftHoldPath = String(import.meta.env.VITE_CLIENT_AIRCRAFT_HOLD_PATH || '').trim()
-const configuredAircraftHoldValidatePath = String(
-  import.meta.env.VITE_CLIENT_AIRCRAFT_HOLD_VALIDATE_PATH || '',
-).trim()
-const configuredAircraftHoldReleasePath = String(
-  import.meta.env.VITE_CLIENT_AIRCRAFT_HOLD_RELEASE_PATH || '',
-).trim()
 const configuredPaymentIntentPath = String(
   import.meta.env.VITE_CLIENT_PAYMENT_INTENT_PATH || '',
 ).trim()
@@ -79,42 +72,7 @@ const CLIENT_RESERVATION_CONTRACT_DOWNLOAD_PATHS = [
   ),
 ]
 const CLIENT_RESERVATIONS_PATH = '/cliente/reservas'
-const CLIENT_AIRCRAFT_HOLD_PATHS = [
-  ...new Set(
-    [
-      configuredAircraftHoldPath,
-      '/client/aircraft-holds',
-      '/cliente/aeronaves/retencion',
-      '/cliente/aeronaves/hold',
-      '/client/flight-holds',
-      '/client/reservation-holds',
-    ].filter(Boolean),
-  ),
-]
-const CLIENT_AIRCRAFT_HOLD_VALIDATE_PATHS = [
-  ...new Set(
-    [
-      configuredAircraftHoldValidatePath,
-      '/client/aircraft-holds/:id/validate',
-      '/cliente/aeronaves/retencion/:id/validar',
-      '/cliente/aeronaves/hold/:id/validate',
-      '/client/flight-holds/:id/validate',
-      '/client/reservation-holds/:id/validate',
-    ].filter(Boolean),
-  ),
-]
-const CLIENT_AIRCRAFT_HOLD_RELEASE_PATHS = [
-  ...new Set(
-    [
-      configuredAircraftHoldReleasePath,
-      '/client/aircraft-holds/:id/release',
-      '/cliente/aeronaves/retencion/:id/liberar',
-      '/cliente/aeronaves/hold/:id/release',
-      '/client/flight-holds/:id/release',
-      '/client/reservation-holds/:id/release',
-    ].filter(Boolean),
-  ),
-]
+const CLIENT_AIRCRAFT_HOLD_PATH = '/cliente/cotizaciones/:id/aircraft-hold'
 const CLIENT_CHECKOUT_PATHS = [
   ...new Set(
     [configuredCheckoutPath, '/cliente/stripe/checkout/create', '/stripe/checkout/create'].filter(
@@ -217,6 +175,7 @@ const CLIENT_ACCESS_STATUS_CACHE_TTL_MS = Number(
   import.meta.env.VITE_CLIENT_ACCESS_STATUS_CACHE_TTL_MS || 120000,
 )
 let clientAccessStatusRequestPromise = null
+const clientFlightRequestPromises = new Map()
 const clientCheckoutRequestPromises = new Map()
 
 function canUseSessionStorage() {
@@ -665,6 +624,14 @@ function normalizeMatches(payload, itinerary = {}, requestMeta = {}) {
     payload?.data && typeof payload.data === 'object' && !Array.isArray(payload.data)
       ? payload.data
       : payload
+  const previewQuoteId = normalizeNumericEntityIdentifier(
+    previewPayload?.quote_id ||
+      previewPayload?.quoteId ||
+      previewPayload?.quote?.id ||
+      previewPayload?.cotizacion_id ||
+      previewPayload?.cotizacion?.id ||
+      previewPayload?.flight_request?.quote_id,
+  )
   const matches =
     previewPayload?.matches ||
     previewPayload?.matched_options ||
@@ -747,6 +714,14 @@ function normalizeMatches(payload, itinerary = {}, requestMeta = {}) {
 
     return {
       id: match.id || `match-${index}`,
+      quote_id:
+        normalizeNumericEntityIdentifier(
+          match.quote_id ||
+            match.quoteId ||
+            match.quote?.id ||
+            match.cotizacion_id ||
+            match.cotizacion?.id,
+        ) || previewQuoteId,
       match_id: match.match_id || match.matched_option_id || match.id || '',
       matched_option_id: match.matched_option_id || match.match_id || match.id || '',
       aircraft_id: match.aircraft_id || match.aircraftId || aircraftRecord?.id || '',
@@ -1756,6 +1731,34 @@ function nestedReservationRecord(request = {}) {
   return request.reservation && typeof request.reservation === 'object' ? request.reservation : null
 }
 
+function nestedFlightRequestRecord(request = {}) {
+  if (!request || typeof request !== 'object') return null
+
+  if (request.flight_request && typeof request.flight_request === 'object') {
+    return request.flight_request
+  }
+
+  if (request.request && typeof request.request === 'object') {
+    return request.request
+  }
+
+  if (request.trip && typeof request.trip === 'object') {
+    return request.trip
+  }
+
+  const nestedReservation = nestedReservationRecord(request)
+
+  if (nestedReservation?.flight_request && typeof nestedReservation.flight_request === 'object') {
+    return nestedReservation.flight_request
+  }
+
+  if (nestedReservation?.request && typeof nestedReservation.request === 'object') {
+    return nestedReservation.request
+  }
+
+  return null
+}
+
 function collectPayments(request = {}) {
   const nestedReservation = nestedReservationRecord(request)
   const directPayments = Array.isArray(request.payments) ? request.payments : []
@@ -1863,12 +1866,18 @@ export function deriveClientWorkflowStatus(request = {}) {
 
 export function normalizeTrip(request = {}, options = {}) {
   const entityType = String(options.entityType || '').trim() || 'trip'
+  const nestedFlightRequest = nestedFlightRequestRecord(request)
+  const nestedReservation = nestedReservationRecord(request)
+  const baseRequest =
+    nestedFlightRequest && typeof nestedFlightRequest === 'object'
+      ? { ...nestedFlightRequest, ...request }
+      : request
   const explicitWorkflowValue =
-    request.workflow_status || request.work_flow_status || request.workflow || ''
-  const originAirport = normalizedTripAirport(request, 'origin')
-  const destinationAirport = normalizedTripAirport(request, 'destination')
-  const legs = Array.isArray(request.legs)
-    ? request.legs
+    request.workflow_status || request.work_flow_status || request.workflow || nestedFlightRequest?.workflow_status || ''
+  const originAirport = normalizedTripAirport(baseRequest, 'origin')
+  const destinationAirport = normalizedTripAirport(baseRequest, 'destination')
+  const legs = Array.isArray(baseRequest.legs)
+    ? baseRequest.legs
         .map((leg) => ({
           id: leg.id || '',
           leg_order: leg.leg_order || '',
@@ -1883,8 +1892,8 @@ export function normalizeTrip(request = {}, options = {}) {
         }))
         .filter((leg) => leg.origin && leg.destination)
     : []
-  const requirements = Array.isArray(request.requirements)
-    ? request.requirements
+  const requirements = Array.isArray(baseRequest.requirements)
+    ? baseRequest.requirements
         .map((leg, index) => ({
           id: leg.id || '',
           leg_order: leg.leg_order || index + 2,
@@ -1904,15 +1913,15 @@ export function normalizeTrip(request = {}, options = {}) {
           index === 0 ? `${leg.origin} -> ${leg.destination}` : leg.destination,
         )
         .join(' -> ')
-    : [request.origin, request.destination].filter(Boolean).join(' -> ')
-  const preferredMatch = pickPreferredClientMatch(request)
+    : [baseRequest.origin, baseRequest.destination].filter(Boolean).join(' -> ')
+  const preferredMatch = pickPreferredClientMatch(baseRequest)
   const visibilityPayload =
-    request.visibility_payload && typeof request.visibility_payload === 'object'
-      ? request.visibility_payload
+    baseRequest.visibility_payload && typeof baseRequest.visibility_payload === 'object'
+      ? baseRequest.visibility_payload
       : {}
   const snapshotRecord =
-    request.aircraft_snapshot && typeof request.aircraft_snapshot === 'object'
-      ? request.aircraft_snapshot
+    baseRequest.aircraft_snapshot && typeof baseRequest.aircraft_snapshot === 'object'
+      ? baseRequest.aircraft_snapshot
       : visibilityPayload.aircraft_snapshot &&
           typeof visibilityPayload.aircraft_snapshot === 'object'
         ? visibilityPayload.aircraft_snapshot
@@ -1925,8 +1934,8 @@ export function normalizeTrip(request = {}, options = {}) {
     ? visibilitySnapshotRecord
     : {}
   const pricingContext =
-    request.pricing_context && typeof request.pricing_context === 'object'
-      ? request.pricing_context
+    baseRequest.pricing_context && typeof baseRequest.pricing_context === 'object'
+      ? baseRequest.pricing_context
       : null
   const aircraftRecord =
     (Object.keys(snapshotRecord).length ? snapshotRecord : null) ||
@@ -1935,10 +1944,14 @@ export function normalizeTrip(request = {}, options = {}) {
     {}
   const resolvedFinalPrice = asNumber(
     request.selected_card_price ||
+      baseRequest.selected_card_price ||
       pricingContext?.selected_card_price ||
       request.final_price ||
+      baseRequest.final_price ||
       request.total ||
+      baseRequest.total ||
       request.estimated_total ||
+      baseRequest.estimated_total ||
       request.final_price_display ||
       request.formatted_final_price ||
       request.amount ||
@@ -1959,6 +1972,7 @@ export function normalizeTrip(request = {}, options = {}) {
   )
   const resolvedFlightCost = asNumber(
     request.flight_cost ||
+      baseRequest.flight_cost ||
       pricingContext?.flight_cost ||
       snapshotRecord?.flight_cost ||
       preferredMatch?.flight_cost ||
@@ -1967,6 +1981,7 @@ export function normalizeTrip(request = {}, options = {}) {
   )
   const resolvedBaseAmount = asNumber(
     request.base_amount ||
+      baseRequest.base_amount ||
       pricingContext?.base_amount ||
       snapshotRecord?.base_amount ||
       preferredMatch?.base_amount,
@@ -1974,6 +1989,7 @@ export function normalizeTrip(request = {}, options = {}) {
   )
   const resolvedStripeFee = asNumber(
     request.stripe_fee ||
+      baseRequest.stripe_fee ||
       pricingContext?.stripe_fee ||
       snapshotRecord?.stripe_fee ||
       preferredMatch?.stripe_fee,
@@ -1981,6 +1997,7 @@ export function normalizeTrip(request = {}, options = {}) {
   )
   const resolvedAdministrativeFee = asNumber(
     request.administrative_fee ||
+      baseRequest.administrative_fee ||
       pricingContext?.administrative_fee ||
       snapshotRecord?.administrative_fee ||
       preferredMatch?.administrative_fee,
@@ -1988,6 +2005,7 @@ export function normalizeTrip(request = {}, options = {}) {
   )
   const resolvedTotalAmount = asNumber(
     request.total_amount ||
+      baseRequest.total_amount ||
       pricingContext?.total_amount ||
       snapshotRecord?.total_amount ||
       preferredMatch?.total_amount ||
@@ -1996,15 +2014,20 @@ export function normalizeTrip(request = {}, options = {}) {
   )
   const resolvedBasePrice = asNumber(
     request.base_price ||
+      baseRequest.base_price ||
       request.flight_base ||
+      baseRequest.flight_base ||
       preferredMatch?.base_price ||
       preferredMatch?.flight_base,
     0,
   )
   const resolvedAircraftModel = String(
     request.assigned_aircraft_model ||
+      baseRequest.assigned_aircraft_model ||
       request.aircraft_model ||
+      baseRequest.aircraft_model ||
       request.aircraft_name ||
+      baseRequest.aircraft_name ||
       snapshotRecord?.aircraft_model ||
       snapshotRecord?.aircraft ||
       snapshotRecord?.model ||
@@ -2019,19 +2042,31 @@ export function normalizeTrip(request = {}, options = {}) {
 
   return {
     id: request.id || '',
-    flight_request_id: request.flight_request_id || request.request_id || '',
-    client_id: request.client_id || request.customer_id || request.user_id || request.client?.id || '',
+    flight_request_id:
+      request.flight_request_id ||
+      request.request_id ||
+      nestedFlightRequest?.id ||
+      nestedReservation?.flight_request_id ||
+      nestedReservation?.request_id ||
+      '',
+    client_id:
+      request.client_id ||
+      request.customer_id ||
+      request.user_id ||
+      request.client?.id ||
+      nestedFlightRequest?.client_id ||
+      '',
     entity_type: entityType,
     is_reservation: entityType === 'reservation',
     summary_only: Boolean(request.summary_only),
     route,
     title: route || `Solicitud ${request.id || ''}`,
-    origin: request.origin || originAirport?.code || legs[0]?.origin || '',
+    origin: baseRequest.origin || originAirport?.code || legs[0]?.origin || '',
     destination:
-      request.destination || destinationAirport?.code || legs[legs.length - 1]?.destination || '',
+      baseRequest.destination || destinationAirport?.code || legs[legs.length - 1]?.destination || '',
     originAirport,
     destinationAirport,
-    date: request.departure_datetime || request.departure_date || '',
+    date: baseRequest.departure_datetime || baseRequest.departure_date || '',
     created_at: request.created_at || request.createdAt || '',
     updated_at: request.updated_at || request.updatedAt || '',
     assigned_aircraft_id:
@@ -2046,18 +2081,18 @@ export function normalizeTrip(request = {}, options = {}) {
       preferredMatch?.provider_id ||
       aircraftRecord?.provider_id ||
       '',
-    status: request.status || '',
+    status: request.status || baseRequest.status || '',
     explicit_workflow_status: explicitWorkflowValue,
     workflow_status: explicitWorkflowValue || deriveClientWorkflowStatus(request),
-    trip_type: request.trip_type || '',
-    passengers: request.passengers || '',
+    trip_type: baseRequest.trip_type || '',
+    passengers: baseRequest.passengers || '',
     flight_package:
-      request.flight_package ||
-      request.service_tier ||
-      request.package_name ||
-      request.package ||
+      baseRequest.flight_package ||
+      baseRequest.service_tier ||
+      baseRequest.package_name ||
+      baseRequest.package ||
       '',
-    overnight_nights: Number(request.overnight_nights || request.days || 0) || 0,
+    overnight_nights: Number(baseRequest.overnight_nights || baseRequest.days || 0) || 0,
     legs,
     requirements,
     estimated_total: resolvedFinalPrice > 0 ? asMoney(resolvedFinalPrice) : '',
@@ -2092,8 +2127,8 @@ export function normalizeTrip(request = {}, options = {}) {
     aircraft_capacity:
       request.aircraft_capacity || snapshotRecord?.capacity || aircraftRecord?.capacity || '',
     aircraft_image: resolveMediaUrl(
-      request.aircraft_image ||
-        request.visibility_payload?.aircraft_image ||
+      baseRequest.aircraft_image ||
+        baseRequest.visibility_payload?.aircraft_image ||
         resolvePrimaryAircraftImage(snapshotRecord) ||
         resolvePrimaryAircraftImage(aircraftRecord) ||
         preferredMatch?.image_url ||
@@ -2105,20 +2140,20 @@ export function normalizeTrip(request = {}, options = {}) {
         ? aircraftRecord.amenities
         : [],
     operator:
-      request.operator ||
-      request.provider_name ||
+      baseRequest.operator ||
+      baseRequest.provider_name ||
       preferredMatch?.provider_name ||
       preferredMatch?.provider?.name ||
       aircraftRecord?.provider_name ||
       '',
-    booking_status: request.booking_status || request.bookingStatus || request.status || '',
+    booking_status: baseRequest.booking_status || baseRequest.bookingStatus || baseRequest.status || '',
     payment_method:
       request.payment_method ||
       request.paymentMethod ||
       request.payment_order?.payment_method ||
       request.payment_order?.method ||
       '',
-    payment_status: request.payment_status || '',
+    payment_status: request.payment_status || baseRequest.payment_status || latestPaymentStatus(request),
     contract: request.contract && typeof request.contract === 'object' ? request.contract : null,
     contract_status: request.contract?.status || request.contract_status || '',
     contract_signed_at: request.contract?.signed_at || request.contract_signed_at || '',
@@ -2334,15 +2369,15 @@ export function buildFlightRequestPayload(itinerary = {}) {
   const normalizedLegs = Array.isArray(itinerary.legs)
     ? itinerary.legs
         .map((leg) => {
-          const date = String(leg?.date || '').trim()
-          const time = String(leg?.time || '09:00').trim() || '09:00'
+          const date = normalizeFlightDateInput(leg?.date || '')
+          const time = normalizeFlightTimeInput(leg?.time || '09:00')
 
           return {
             origin: leg?.origin || '',
             destination: leg?.destination || '',
             date,
             time,
-            departure_datetime: date ? `${date} ${time}` : '',
+            departure_datetime: buildFlightDateTime(date, time),
             passengers: Number(leg?.passengers || itinerary.passengers) || 1,
           }
         })
@@ -2378,9 +2413,11 @@ export function buildFlightRequestPayload(itinerary = {}) {
       Boolean(itinerary.return_datetime) ||
       inferredClosedRoute ||
       normalizedLegs.length > 1)
-  const departureDate = firstLeg.date || ''
-  const departureTime = firstLeg.time || '09:00'
+  const departureDate = normalizeFlightDateInput(firstLeg.date || '')
+  const departureTime = normalizeFlightTimeInput(firstLeg.time || '09:00')
+  const departureDateTime = buildFlightDateTime(departureDate, departureTime)
   const returnDepartureDatetime =
+    buildFlightDateTime(itinerary.return_date || lastLeg.date || '', itinerary.return_time || lastLeg.time || '09:00') ||
     String(itinerary.return_datetime || '').trim() ||
     (inferredClosedRoute ? String(lastLeg.departure_datetime || '').trim() : '')
   const flightPackage = String(itinerary.flight_package || itinerary.service_tier || '').trim()
@@ -2402,7 +2439,12 @@ export function buildFlightRequestPayload(itinerary = {}) {
     origin: firstLeg.origin || itinerary.origin || '',
     base_airport: firstLeg.origin || itinerary.origin || '',
     destination: firstLeg.destination || itinerary.destination || '',
-    departure_datetime: departureDate ? `${departureDate} ${departureTime}` : '',
+    departure_date: departureDate || null,
+    departure_time: departureTime || null,
+    departure_datetime: departureDateTime || null,
+    start_date: departureDate || null,
+    start_time: departureTime || null,
+    start_datetime: departureDateTime || null,
     return_datetime: returnDepartureDatetime || null,
     passengers: Number(itinerary.passengers) || 1,
     trip_type: tripType,
@@ -2625,6 +2667,55 @@ function normalizeEntityIdentifier(value) {
   return ''
 }
 
+function normalizeNumericEntityIdentifier(value) {
+  const normalizedValue = normalizeEntityIdentifier(value)
+  return /^\d+$/.test(normalizedValue) ? normalizedValue : ''
+}
+
+function normalizeFlightDateInput(value = '') {
+  const normalizedValue = String(value || '').trim()
+  if (!normalizedValue) return ''
+
+  const isoDateMatch = normalizedValue.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (isoDateMatch) {
+    return `${isoDateMatch[1]}-${isoDateMatch[2]}-${isoDateMatch[3]}`
+  }
+
+  const latinDateMatch = normalizedValue.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+  if (latinDateMatch) {
+    return `${latinDateMatch[3]}-${latinDateMatch[2]}-${latinDateMatch[1]}`
+  }
+
+  const parsedDate = new Date(normalizedValue)
+  if (Number.isNaN(parsedDate.getTime())) return ''
+
+  return [
+    parsedDate.getFullYear(),
+    String(parsedDate.getMonth() + 1).padStart(2, '0'),
+    String(parsedDate.getDate()).padStart(2, '0'),
+  ].join('-')
+}
+
+function normalizeFlightTimeInput(value = '') {
+  const normalizedValue = String(value || '').trim()
+  if (!normalizedValue) return '09:00'
+
+  const timeMatch = normalizedValue.match(/(\d{2}):(\d{2})/)
+  if (timeMatch) {
+    return `${timeMatch[1]}:${timeMatch[2]}`
+  }
+
+  return '09:00'
+}
+
+function buildFlightDateTime(date = '', time = '') {
+  const normalizedDate = normalizeFlightDateInput(date)
+  if (!normalizedDate) return ''
+
+  const normalizedTime = normalizeFlightTimeInput(time)
+  return `${normalizedDate}T${normalizedTime}:00`
+}
+
 function buildClientCheckoutIdempotencyKey(flightRequestId, payload = {}) {
   const reservationId = normalizeEntityIdentifier(
     payload.reservation_id || payload.reservation || payload.booking_id,
@@ -2639,6 +2730,14 @@ function buildClientCheckoutIdempotencyKey(flightRequestId, payload = {}) {
     holdId || 'no-hold',
     contactEmail || 'no-email',
   ].join(':')
+}
+
+function createClientIdempotencyKey(prefix = 'client-flight-request') {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `${prefix}:${crypto.randomUUID()}`
+  }
+
+  return `${prefix}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 10)}`
 }
 
 function reuseInFlightRequest(requestMap, requestKey, requestFactory) {
@@ -2954,49 +3053,76 @@ function replaceRouteParam(path, identifier = '') {
   return String(path || '').replace(':id', String(identifier || '').trim())
 }
 
+function resolveClientQuoteIdentifier(payload = {}) {
+  return normalizeNumericEntityIdentifier(
+    payload?.quote_id ||
+      payload?.quoteId ||
+      payload?.quote?.id ||
+      payload?.id ||
+      payload?.matched_option_id ||
+      payload?.match_id,
+  )
+}
+
 export async function createClientAircraftHold(payload = {}, options = {}) {
-  return requestWithCandidates(
-    CLIENT_AIRCRAFT_HOLD_PATHS.map((path) => ({
+  const quoteId = resolveClientQuoteIdentifier(payload)
+
+  if (!quoteId) {
+    throw new Error(
+      'No encontramos un quote_id numerico valido para solicitar la retencion de la aeronave.',
+    )
+  }
+
+  return requestWithCandidates([
+    {
       method: 'post',
-      path,
+      path: replaceRouteParam(CLIENT_AIRCRAFT_HOLD_PATH, quoteId),
       body: payload,
       timeoutMs: options.timeoutMs,
-    })),
-  )
+    },
+  ])
 }
 
 export async function validateClientAircraftHold(holdId, payload = {}, options = {}) {
   const normalizedHoldId = String(holdId || '').trim()
+  const quoteId = resolveClientQuoteIdentifier(payload)
 
   if (!normalizedHoldId) {
     throw new Error('No encontramos la retencion de la aeronave para validarla.')
   }
 
-  return requestWithCandidates(
-    CLIENT_AIRCRAFT_HOLD_VALIDATE_PATHS.map((path) => ({
-      method: 'post',
-      path: replaceRouteParam(path, normalizedHoldId),
-      body: payload,
+  if (!quoteId) {
+    throw new Error('No encontramos un quote_id numerico valido relacionado con la retencion.')
+  }
+
+  return requestWithCandidates([
+    {
+      method: 'get',
+      path: replaceRouteParam(CLIENT_AIRCRAFT_HOLD_PATH, quoteId),
       timeoutMs: options.timeoutMs,
-    })),
-  )
+    },
+  ])
 }
 
 export async function releaseClientAircraftHold(holdId, payload = {}, options = {}) {
   const normalizedHoldId = String(holdId || '').trim()
+  const quoteId = resolveClientQuoteIdentifier(payload)
 
   if (!normalizedHoldId) {
     throw new Error('No encontramos la retencion de la aeronave para liberarla.')
   }
 
-  return requestWithCandidates(
-    CLIENT_AIRCRAFT_HOLD_RELEASE_PATHS.map((path) => ({
-      method: 'post',
-      path: replaceRouteParam(path, normalizedHoldId),
-      body: payload,
+  if (!quoteId) {
+    throw new Error('No encontramos un quote_id numerico valido relacionado con la retencion.')
+  }
+
+  return requestWithCandidates([
+    {
+      method: 'delete',
+      path: replaceRouteParam(CLIENT_AIRCRAFT_HOLD_PATH, quoteId),
       timeoutMs: options.timeoutMs,
-    })),
-  )
+    },
+  ])
 }
 
 export async function downloadClientReservationContract(reservationId, options = {}) {
@@ -3146,7 +3272,30 @@ export async function searchClientFlights(itinerary, options = {}) {
 }
 
 export async function createClientFlightRequest(itinerary, options = {}) {
-  return api.post(CLIENT_TRIP_CREATE_PATH, buildFlightRequestPayload(itinerary), options)
+  const body = buildFlightRequestPayload(itinerary)
+  const idempotencyKey =
+    String(options.idempotencyKey || body.idempotency_key || createClientIdempotencyKey()).trim() ||
+    createClientIdempotencyKey()
+
+  return reuseInFlightRequest(
+    clientFlightRequestPromises,
+    idempotencyKey,
+    () =>
+      api.post(
+        CLIENT_TRIP_CREATE_PATH,
+        {
+          ...body,
+          idempotency_key: idempotencyKey,
+        },
+        {
+          ...options,
+          headers: {
+            ...options.headers,
+            'Idempotency-Key': idempotencyKey,
+          },
+        },
+      ),
+  )
 }
 
 export async function createClientCheckout(flightRequestId, payload = {}, options = {}) {

@@ -56,7 +56,7 @@ function resultRankLabel(index = 0) {
   if (index === 0) return 'Seleccion curada'
   if (index === 1) return 'Alternativa agil'
   if (index === 2) return 'Balance ejecutivo'
-  return 'Opcion privada'
+  return ''
 }
 
 function aircraftFactChips(aircraft, itinerary, helpers) {
@@ -453,7 +453,6 @@ const speedSliderStyle = computed(() => {
               <span v-else class="aircraft-thumb__empty">Imagen en validación</span>
               <div class="aircraft-thumb__overlay">
                 <span class="aircraft-thumb__badge">Recomendado por asesor</span>
-                <span class="aircraft-thumb__rank">{{ resultRankLabel(0) }}</span>
               </div>
             </div>
 
@@ -532,7 +531,6 @@ const speedSliderStyle = computed(() => {
                   />
                   <span v-else class="aircraft-thumb__empty">Imagen en validación</span>
                   <div class="aircraft-thumb__overlay">
-                    <span class="aircraft-thumb__badge">{{ resultRankLabel(index + 1) }}</span>
                     <span class="aircraft-thumb__rank">{{ props.aircraftClassLabel(aircraft) }}</span>
                   </div>
                 </div>

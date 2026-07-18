@@ -27,6 +27,24 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
       .toLowerCase()
   }
 
+  function normalizePaymentStatus(value = '') {
+    const normalized = normalizeStatus(value)
+
+    if (!normalized) return ''
+    if (['active', 'paid', 'approved', 'confirmed', 'current'].includes(normalized)) return 'active'
+    if (['pending', 'pending_payment', 'payment_pending', 'open', 'requires_action', 'incomplete'].includes(normalized)) {
+      return 'pending'
+    }
+    if (['verifying', 'processing', 'pending_review', 'requires_confirmation'].includes(normalized)) {
+      return 'verifying'
+    }
+    if (['expired', 'past_due', 'unpaid', 'incomplete_expired'].includes(normalized)) return 'expired'
+    if (['rejected', 'failed', 'declined'].includes(normalized)) return 'rejected'
+    if (['suspended', 'cancelled', 'canceled', 'paused'].includes(normalized)) return 'suspended'
+
+    return normalized
+  }
+
   function getOperationalStatus(item = {}) {
     return normalizeStatus(item.status)
   }
@@ -37,6 +55,15 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
 
   function getSubscriptionStatus(item = {}) {
     return normalizeStatus(item.subscriptionStatus || item.subscription_status)
+  }
+
+  function getPaymentStatus(item = {}) {
+    return normalizePaymentStatus(
+      item.paymentStatus ||
+        item.payment_status ||
+        item.billingState?.payment_status ||
+        item.billing_state?.payment_status,
+    )
   }
 
   function getSubscriptionEndsAt(item = {}) {
@@ -150,6 +177,7 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
     const operationalStatus = getOperationalStatus(item)
     const billingStatus = getBillingStatus(item)
     const subscriptionStatus = getSubscriptionStatus(item)
+    const paymentStatus = getPaymentStatus(item)
     const hasActiveSubscription = ACTIVE_SUBSCRIPTION_STATUSES.includes(subscriptionStatus)
     const hasPendingSubscription =
       PENDING_SUBSCRIPTION_STATUSES.includes(subscriptionStatus) ||
@@ -171,6 +199,88 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
         action: 'payments',
         operationalEnabled: true,
         reasonMessage: 'Aeronave activa y con suscripcion vigente.',
+      }
+    }
+
+    if (paymentStatus === 'active') {
+      if (operationalStatus === 'active') {
+        return {
+          key: 'active',
+          label: 'Activa',
+          tone: 'success',
+          action: 'payments',
+          operationalEnabled: true,
+          reasonMessage: 'Aeronave activa con pago confirmado en el estado canonico.',
+        }
+      }
+
+      if (!isHiddenOperationalStatus(operationalStatus) && !isUnderReviewOperationalStatus(operationalStatus)) {
+        logInconsistentAircraftState(item, 'payment_active_with_inactive_operation')
+        return {
+          key: 'sync_required',
+          label: 'Pago activo',
+          tone: 'info',
+          action: 'sync',
+          operationalEnabled: false,
+          reasonMessage: 'El pago ya esta activo, pero el backend aun no marca la aeronave como operativa.',
+        }
+      }
+    }
+
+    if (paymentStatus === 'verifying') {
+      return {
+        key: 'pending_payment',
+        label: 'Pago en verificacion',
+        tone: 'info',
+        action: 'sync',
+        operationalEnabled: false,
+        reasonMessage: 'El backend sigue verificando el pago de activacion.',
+      }
+    }
+
+    if (paymentStatus === 'pending') {
+      return {
+        key: 'pending_payment',
+        label: 'Pago pendiente',
+        tone: 'warning',
+        action: hasReusableCheckout(item) ? 'pay' : 'sync',
+        operationalEnabled: false,
+        reasonMessage: hasReusableCheckout(item)
+          ? 'Existe un checkout pendiente para esta aeronave.'
+          : 'El pago sigue pendiente de confirmacion.',
+      }
+    }
+
+    if (paymentStatus === 'rejected') {
+      return {
+        key: 'payment_failed',
+        label: 'Pago rechazado',
+        tone: 'danger',
+        action: 'pay',
+        operationalEnabled: false,
+        reasonMessage: 'El pago fue rechazado y necesita regularizacion.',
+      }
+    }
+
+    if (paymentStatus === 'expired') {
+      return {
+        key: 'expired',
+        label: 'Pago vencido',
+        tone: 'danger',
+        action: 'pay',
+        operationalEnabled: false,
+        reasonMessage: 'La mensualidad vencio. Realiza el pago para volver a activar la aeronave.',
+      }
+    }
+
+    if (paymentStatus === 'suspended') {
+      return {
+        key: 'cancelled',
+        label: 'Pago suspendido',
+        tone: 'neutral',
+        action: 'pay',
+        operationalEnabled: false,
+        reasonMessage: 'La aeronave esta suspendida comercialmente hasta regularizar su cobro.',
       }
     }
 
@@ -666,8 +776,12 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
   }
 
   function shouldPollAircraftBillingStatus(item = {}) {
+    const paymentStatus = getPaymentStatus(item)
     const subscriptionStatus = getSubscriptionStatus(item)
     const billingStatus = getBillingStatus(item)
+
+    if (['pending', 'verifying'].includes(paymentStatus)) return true
+    if (paymentStatus === 'active') return false
 
     return (
       ['trialing', ...PENDING_SUBSCRIPTION_STATUSES].includes(subscriptionStatus) ||

@@ -82,7 +82,7 @@ async function submit() {
       role: props.loginRole,
     })
 
-    const fallbackRedirect = props.postLoginRedirect || auth.dashboardPath
+    const fallbackRedirect = auth.dashboardPath || props.postLoginRedirect
     const redirect = sanitizePostLoginRedirect(route.query.redirect, fallbackRedirect)
 
     await router.replace(redirect)

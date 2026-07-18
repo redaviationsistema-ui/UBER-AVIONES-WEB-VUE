@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { resolveMediaUrl } from '../../../lib/api'
+import ReservationActionCard from '../components/reservation/ReservationActionCard.vue'
 import { featuredAirports } from '../../../utils/airports'
 import {
   buildSharedFlowStepStates,
@@ -28,6 +29,7 @@ const emit = defineEmits([
 ])
 
 const activeTab = ref('historial')
+const loadingActionReservationId = ref('')
 
 const PROGRESS_STEPS = SHARED_WORKFLOW_STEPS.map((step) => ({
   key:
@@ -286,6 +288,168 @@ function nextAction(status = '') {
 
 function nextActionDetail(status = '') {
   return getSharedWorkflowActionCopy(status).detail
+}
+
+function normalizeReservationActionId(reservation = {}) {
+  return String(reservationActionTargetId(reservation) || '').trim()
+}
+
+function isPrimaryActionLoading(reservation = {}) {
+  return loadingActionReservationId.value !== '' &&
+    loadingActionReservationId.value === normalizeReservationActionId(reservation)
+}
+
+function runPrimaryAction(reservation = {}) {
+  const actionConfig = primaryActionConfig(reservation)
+  const reservationId = normalizeReservationActionId(reservation)
+
+  if (!actionConfig.enabled || !reservationId || isPrimaryActionLoading(reservation)) return
+
+  loadingActionReservationId.value = reservationId
+  actionConfig.action()
+}
+
+function normalizedCurrentAction(reservation = {}) {
+  const directAction = String(
+    reservation?.current_action ||
+      reservation?.workflow?.current_action ||
+      reservation?.workflow?.next_action ||
+      reservation?.frontend_state?.next_action ||
+      '',
+  )
+    .trim()
+    .toLowerCase()
+
+  if (['payment', 'go_to_payment', 'open_payment', 'payment_pending'].includes(directAction)) {
+    return 'payment'
+  }
+
+  if (
+    ['contract', 'sign_contract', 'wait_for_signature', 'go_to_contract', 'contract_pending'].includes(
+      directAction,
+    )
+  ) {
+    return 'contract'
+  }
+
+  if (
+    ['flight', 'tracking', 'go_to_detail', 'go_to_history', 'sync_payment'].includes(directAction)
+  ) {
+    return 'detail'
+  }
+
+  return ''
+}
+
+function primaryActionConfig(reservation = {}) {
+  const workflowValue = reservationWorkflowValue(reservation)
+  const stateId = workflowId(workflowValue)
+  const actionTargetId = reservationActionTargetId(reservation)
+  const currentAction = normalizedCurrentAction(reservation)
+
+  if (currentAction === 'contract' || ['provider_accepted', 'contract_pending'].includes(stateId)) {
+    return {
+      type: 'contract',
+      badge: 'Accion requerida',
+      eyebrow: 'Siguiente paso',
+      title: 'Firma el contrato para continuar',
+      description:
+        'La respuesta del proveedor ya fue aceptada. Solo falta tu firma para continuar.',
+      helperText: 'Concierge 24/7 disponible',
+      buttonLabel: 'Firmar contrato',
+      buttonLoadingLabel: 'Cargando...',
+      buttonIcon: '✍',
+      illustration: 'contract',
+      enabled: contractEnabled(reservation),
+      buttonDisabledReason: contractEnabled(reservation)
+        ? ''
+        : 'La firma del contrato todavia no esta disponible.',
+      action: () => emit('open-contract', actionTargetId),
+    }
+  }
+
+  if (currentAction === 'payment' || ['contract_signed', 'payment_pending'].includes(stateId)) {
+    return {
+      type: 'payment',
+      badge: 'Accion requerida',
+      eyebrow: 'Siguiente paso',
+      title: 'Realiza el pago para confirmar tu vuelo',
+      description:
+        'El contrato fue firmado correctamente. Para confirmar tu reserva, completa el pago.',
+      helperText: 'Pago 100% seguro y protegido',
+      estimatedTime: '2 minutos',
+      buttonLabel: 'REALIZAR PAGO',
+      buttonLoadingLabel: 'ABRIENDO PAGO...',
+      buttonIcon: '🔒',
+      illustration: 'payment',
+      enabled: paymentEnabled(reservation),
+      buttonDisabledReason: paymentEnabled(reservation)
+        ? ''
+        : 'El pago todavia no esta disponible.',
+      action: () => emit('open-payment', actionTargetId),
+    }
+  }
+
+  if (['payment_confirmed', 'flight_confirmed', 'tracking_live', 'completed'].includes(stateId)) {
+    return {
+      type: 'flight',
+      badge: 'Seguimiento premium',
+      eyebrow: 'Vista del viaje',
+      title:
+        stateId === 'completed'
+          ? 'Tu vuelo ya finalizo'
+          : stateId === 'tracking_live'
+            ? 'Sigue el servicio en tiempo real'
+            : 'Revisa el estado operativo del vuelo',
+      description:
+        stateId === 'completed'
+          ? 'Todo quedo registrado en tu historial. Puedes revisar detalles, documentos y seguimiento final.'
+          : 'La reserva ya avanzo a operacion. Aqui puedes revisar el detalle del servicio y los siguientes hitos del viaje.',
+      helperText: 'Concierge 24/7 disponible',
+      buttonLabel: stateId === 'completed' ? 'Ver resumen del viaje' : 'Ver detalle del vuelo',
+      buttonLoadingLabel: 'Cargando...',
+      buttonIcon: stateId === 'tracking_live' ? '📡' : '🛫',
+      illustration: 'contract',
+      enabled: flightEnabled(reservation) || stateId === 'completed',
+      buttonDisabledReason: '',
+      action: () => emit('open-detail', actionTargetId),
+    }
+  }
+
+  if (['cancelled', 'rejected'].includes(stateId)) {
+    return {
+      type: 'concierge',
+      badge: 'Atencion concierge',
+      eyebrow: 'Siguiente paso',
+      title: 'Necesitamos revisar esta reserva contigo',
+      description:
+        'El estado del vuelo cambio y nuestro equipo puede ayudarte a reorganizar una nueva opcion o resolver la incidencia.',
+      helperText: 'Concierge 24/7 disponible',
+      buttonLabel: 'Hablar con concierge',
+      buttonLoadingLabel: 'Cargando...',
+      buttonIcon: '🎧',
+      illustration: 'contract',
+      enabled: true,
+      buttonDisabledReason: '',
+      action: () => emit('open-concierge', actionTargetId),
+    }
+  }
+
+  return {
+    type: 'default',
+    badge: 'En seguimiento',
+    eyebrow: 'Siguiente paso',
+    title: nextAction(workflowValue),
+    description: `${nextActionDetail(workflowValue)} Nuestro concierge sigue monitoreando la reserva para que avance al siguiente hito sin friccion.`,
+    helperText: 'Concierge 24/7 disponible',
+    buttonLabel: 'Hablar con concierge',
+    buttonLoadingLabel: 'Cargando...',
+    buttonIcon: '🎧',
+    illustration: 'contract',
+    enabled: true,
+    buttonDisabledReason: '',
+    action: () => emit('open-concierge', actionTargetId),
+  }
 }
 
 function workflowSupportLines(reservation = {}) {
@@ -586,6 +750,50 @@ function reservationAircraftCategory(reservation = {}) {
   )
 }
 
+function reservationPrimarySegment(reservation = {}) {
+  return itinerarySegments(reservation)[0] || null
+}
+
+function actionFooterConfig(reservation = {}) {
+  const stateId = workflowId(reservationWorkflowValue(reservation))
+
+  if (['provider_accepted', 'contract_pending'].includes(stateId)) {
+    return {
+      title: '¡Excelente!',
+      message: 'Tu reserva va por buen camino. Solo falta tu firma para asegurar tu vuelo.',
+    }
+  }
+
+  if (['contract_signed', 'payment_pending'].includes(stateId)) {
+    return {
+      title: '¡Vas muy bien!',
+      message:
+        'Tu vuelo esta casi confirmado. Solo falta completar el pago para asegurar tu lugar.',
+    }
+  }
+
+  if (['payment_confirmed', 'flight_confirmed', 'tracking_live'].includes(stateId)) {
+    return {
+      title: '¡Excelente!',
+      message:
+        'La operacion ya esta avanzando. Nuestro equipo sigue cada hito para mantenerte informado.',
+    }
+  }
+
+  if (stateId === 'completed') {
+    return {
+      title: '¡Excelente!',
+      message:
+        'Este viaje ya finalizo y quedo guardado en tu historial con su seguimiento completo.',
+    }
+  }
+
+  return {
+    title: '¡Excelente!',
+    message: 'Nuestro concierge sigue moviendo tu reserva para llevarla al siguiente paso.',
+  }
+}
+
 function flightActionLabel(reservation = {}) {
   const stateId = workflowId(reservationWorkflowValue(reservation))
 
@@ -774,6 +982,21 @@ watch(
   },
   { immediate: true },
 )
+
+watch(
+  () => props.selectedId,
+  () => {
+    loadingActionReservationId.value = ''
+  },
+)
+
+watch(
+  () => props.refreshing,
+  (isRefreshing) => {
+    if (isRefreshing) return
+    loadingActionReservationId.value = ''
+  },
+)
 </script>
 
 <template>
@@ -882,23 +1105,50 @@ watch(
             />
           </div>
           <div class="executive-card__copy">
-            <strong>🛩 {{ reservationAircraftName(reservation) || 'Aeronave por confirmar' }}</strong>
+            <strong>{{ reservationAircraftName(reservation) || 'Aeronave por confirmar' }}</strong>
             <span v-if="reservationAircraftCapacity(reservation)"
               >Capacidad: {{ reservationAircraftCapacity(reservation) }} pax</span
             >
-            <span v-if="reservationAircraftCategory(reservation)">Cabina: {{ reservationAircraftCategory(reservation) }}</span>
-            <span v-if="reservation.amenities?.length"
-              >Servicios: {{ reservation.amenities.slice(0, 3).join(' • ') }}</span
+            <span v-if="reservationAircraftCategory(reservation)"
+              >Cabina: {{ reservationAircraftCategory(reservation) }}</span
+            >
+            <span class="executive-card__divider"></span>
+            <span v-if="reservationPrimarySegment(reservation)"
+              >Tramo: {{ reservationPrimarySegment(reservation)?.origin }} → {{ reservationPrimarySegment(reservation)?.destination }}</span
+            >
+            <span v-if="departureDateLabel(reservation)"
+              >Fecha: {{ departureDateLabel(reservation) }}</span
+            >
+            <span v-if="departureTimeLabel(reservation)"
+              >Hora: {{ departureTimeLabel(reservation) }}</span
             >
           </div>
         </article>
 
-        <article class="executive-card">
-          <strong>Siguiente paso:</strong>
-          <span>{{ nextAction(reservationWorkflowValue(reservation)) }}</span>
-          <span>{{ nextActionDetail(reservationWorkflowValue(reservation)) }}</span>
-          <span v-for="line in workflowSupportLines(reservation)" :key="line">{{ line }}</span>
-        </article>
+        <ReservationActionCard
+          class="executive-card--action"
+          :badge="primaryActionConfig(reservation).badge"
+          :eyebrow="primaryActionConfig(reservation).eyebrow"
+          :title="primaryActionConfig(reservation).title"
+          :description="primaryActionConfig(reservation).description"
+          :helper-text="primaryActionConfig(reservation).helperText"
+          :button-label="primaryActionConfig(reservation).buttonLabel"
+          :button-loading-label="primaryActionConfig(reservation).buttonLoadingLabel"
+          :button-disabled-reason="primaryActionConfig(reservation).buttonDisabledReason"
+          :button-icon="primaryActionConfig(reservation).buttonIcon"
+          :estimated-time="primaryActionConfig(reservation).estimatedTime"
+          :enabled="primaryActionConfig(reservation).enabled"
+          :loading="isPrimaryActionLoading(reservation)"
+          :variant="primaryActionConfig(reservation).type"
+          :illustration="primaryActionConfig(reservation).illustration"
+          @action="runPrimaryAction(reservation)"
+        />
+      </div>
+
+      <div class="action-footer-note">
+        <span class="action-footer-note__icon">✓</span>
+        <strong>{{ actionFooterConfig(reservation).title }}</strong>
+        <span>{{ actionFooterConfig(reservation).message }}</span>
       </div>
 
       <div v-if="itinerarySegments(reservation).length" class="legs-grid">
@@ -906,30 +1156,6 @@ watch(
           Tramo {{ leg.order || '?' }} · {{ leg.origin }} → {{ leg.destination }}
           <template v-if="leg.departure"> · {{ shortTripDate(leg.departure) }}</template>
         </span>
-      </div>
-
-      <div class="card-actions card-actions--premium">
-        <button
-          type="button"
-          :disabled="!contractEnabled(reservation)"
-          @click="$emit('open-contract', reservationActionTargetId(reservation))"
-        >
-          📄 Contrato
-        </button>
-        <button
-          type="button"
-          :disabled="!paymentEnabled(reservation)"
-          @click="$emit('open-payment', reservationActionTargetId(reservation))"
-        >
-          💳 Pago
-        </button>
-        <button
-          type="button"
-          :disabled="!flightEnabled(reservation)"
-          @click="$emit('open-detail', reservationActionTargetId(reservation))"
-        >
-          {{ flightActionLabel(reservation) }}
-        </button>
       </div>
     </article>
 
@@ -991,13 +1217,20 @@ h3 {
   line-height: 1.02;
 }
 
+h4 {
+  margin: 0;
+  color: #111111;
+  font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  font-size: clamp(1.5rem, 2vw, 2.3rem);
+  line-height: 1.05;
+}
+
 p,
 span {
   color: #625d55;
 }
 
-.tabs,
-.card-actions {
+.tabs {
   display: flex;
   flex-wrap: wrap;
   gap: 0.65rem;
@@ -1096,12 +1329,15 @@ button:disabled {
 .executive-card--aircraft {
   grid-template-columns: 132px minmax(0, 1fr);
   align-items: center;
+  padding: 1.15rem;
+  border: 1px solid rgba(225, 219, 208, 0.9);
+  background: linear-gradient(180deg, rgba(250, 247, 242, 0.98), rgba(245, 240, 232, 0.98));
 }
 
 .executive-card__media {
   display: grid;
   place-items: center;
-  min-height: 100px;
+  min-height: 128px;
   overflow: hidden;
   border-radius: 16px;
   background: linear-gradient(135deg, #14233e, #304668);
@@ -1121,7 +1357,57 @@ button:disabled {
 
 .executive-card__copy {
   display: grid;
-  gap: 0.35rem;
+  gap: 0.42rem;
+}
+
+.executive-card__copy strong {
+  color: #1a1a1a;
+  font-size: 1.05rem;
+}
+
+.executive-card__copy span {
+  color: #544d43;
+  font-weight: 600;
+}
+
+.executive-card__divider {
+  width: 100%;
+  height: 1px;
+  margin: 0.2rem 0 0.1rem;
+  background: linear-gradient(90deg, rgba(198, 186, 168, 0.9), rgba(198, 186, 168, 0));
+}
+
+.action-footer-note {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid rgba(198, 230, 210, 0.9);
+  border-radius: 18px;
+  background: linear-gradient(180deg, #f1fbf4, #e9f7ee);
+}
+
+.action-footer-note strong {
+  color: #168149;
+  font-weight: 900;
+}
+
+.action-footer-note span:last-child {
+  color: #82a08e;
+  font-weight: 700;
+}
+
+.action-footer-note__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.55rem;
+  height: 1.55rem;
+  border-radius: 50%;
+  background: #168149;
+  color: #ffffff !important;
+  font-size: 0.88rem;
+  font-weight: 900;
 }
 
 .hero-card__head {
@@ -1338,25 +1624,6 @@ button:disabled {
   color: #433c31;
 }
 
-.card-actions--premium button {
-  background: #ffffff;
-  color: #14233e;
-  border: 1px solid #ded6c8;
-}
-
-.card-actions--premium button:last-child {
-  background: linear-gradient(135deg, #14233e, #304668);
-  color: #ffffff;
-  border-color: #14233e;
-  box-shadow: 0 12px 28px rgba(20, 35, 62, 0.16);
-}
-
-.card-actions--premium button:disabled {
-  background: #f2eee6;
-  color: #8c8376;
-  border-color: #e3dacd;
-}
-
 @media (max-width: 1080px) {
   .hero-card__head,
   .executive-grid,
@@ -1367,6 +1634,14 @@ button:disabled {
 
   .progress-steps--cards {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .action-card__content {
+    grid-template-columns: 1fr;
+  }
+
+  .action-card__illustration {
+    justify-items: center;
   }
 }
 
@@ -1387,7 +1662,6 @@ button:disabled {
   }
 
   .tabs,
-  .card-actions,
   .hero-meta {
     display: grid;
     grid-template-columns: 1fr;
@@ -1395,7 +1669,7 @@ button:disabled {
 
   .refresh-button,
   .tabs button,
-  .card-actions button {
+  .primary-action-button {
     width: 100%;
   }
 
@@ -1415,6 +1689,21 @@ button:disabled {
 
   .progress-steps--cards {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .executive-card--action,
+  .executive-card--aircraft {
+    padding: 1rem;
+  }
+
+  .action-illustration {
+    width: 150px;
+    height: 150px;
+  }
+
+  .action-footer-note {
+    align-items: flex-start;
+    flex-wrap: wrap;
   }
 }
 </style>

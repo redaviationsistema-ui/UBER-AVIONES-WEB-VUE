@@ -207,12 +207,15 @@ export function resolveAuthPayload(payload = {}, options = {}) {
     access: rawAccess,
     login_context: rawLoginContext,
   })
-  const shouldPreserveCrewContext = currentEffectiveRole === 'crew' && resolvedEffectiveRole !== 'crew'
+  const backendResolvedRole = Boolean(resolvedEffectiveRole)
+  const shouldPreserveCrewContext = currentEffectiveRole === 'crew' && !backendResolvedRole
   const shouldPreserveProviderContext =
-    currentEffectiveRole === 'operator' && resolvedEffectiveRole !== 'operator'
-  const shouldForceCrewContext = intendedRole === 'sobrecargo' || shouldPreserveCrewContext
+    currentEffectiveRole === 'operator' && !backendResolvedRole
+  const shouldForceCrewContext =
+    (!backendResolvedRole && intendedRole === 'sobrecargo') || shouldPreserveCrewContext
   const shouldForceProviderContext =
-    ['provider', 'operator', 'operador'].includes(intendedRole) || shouldPreserveProviderContext
+    (!backendResolvedRole && ['provider', 'operator', 'operador'].includes(intendedRole)) ||
+    shouldPreserveProviderContext
   const forcedOperationalRole = shouldForceCrewContext
     ? 'sobrecargo'
     : shouldForceProviderContext

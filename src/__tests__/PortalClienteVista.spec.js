@@ -110,6 +110,16 @@ vi.mock('../services/contractApi', () => ({
 }))
 
 vi.mock('../features/client/clientBookingApi', () => ({
+  buildFlightRequestPayload: vi.fn((payload = {}) => ({
+    ...payload,
+    departure_date: '2026-07-20',
+    departure_time: '09:00',
+    departure_datetime: '2026-07-20T09:00:00',
+    start_date: '2026-07-20',
+    start_time: '09:00',
+    start_datetime: '2026-07-20T09:00:00',
+    return_datetime: null,
+  })),
   cancelClientAccessPayment: vi.fn(),
   createClientAircraftHold: createClientAircraftHoldMock,
   createClientAccessCheckout: vi.fn(),
@@ -218,6 +228,14 @@ beforeEach(() => {
       flight_request_id: 'fr-created-1',
       workflow_status: 'provider_pending',
       payment_status: 'pending',
+      accepted_quote: {
+        id: 123,
+        quote_id: 123,
+      },
+    },
+    accepted_quote: {
+      id: 123,
+      quote_id: 123,
     },
   })
   createClientAircraftHoldMock.mockResolvedValue({
@@ -506,7 +524,7 @@ describe('PortalClienteVista reservation availability safeguards', () => {
     )
   })
 
-  it('creates the aircraft hold before persisting the flight request', async () => {
+  it('persists the flight request before requesting the aircraft hold with the accepted quote', async () => {
     const wrapper = await mountView({ section: 'reservar' })
 
     await wrapper.vm.requestReservation({
@@ -520,13 +538,24 @@ describe('PortalClienteVista reservation availability safeguards', () => {
 
     expect(createClientAircraftHoldMock).toHaveBeenCalledTimes(1)
     expect(createClientFlightRequestMock).toHaveBeenCalledTimes(1)
-    expect(createClientAircraftHoldMock.mock.invocationCallOrder[0]).toBeLessThan(
-      createClientFlightRequestMock.mock.invocationCallOrder[0],
+    expect(createClientFlightRequestMock.mock.invocationCallOrder[0]).toBeLessThan(
+      createClientAircraftHoldMock.mock.invocationCallOrder[0],
+    )
+    expect(createClientAircraftHoldMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        quote_id: 123,
+        aircraft_id: 77,
+        departure_date: '2026-07-20',
+        departure_datetime: '2026-07-20T09:00:00',
+        start_date: '2026-07-20',
+        start_datetime: '2026-07-20T09:00:00',
+      }),
+      expect.any(Object),
     )
     expect(createClientFlightRequestMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        hold_id: 'hold-1',
-        hold_expires_at: '2099-07-20T09:15:00Z',
+        aircraft_id: 77,
+        provider_id: 22,
       }),
       expect.any(Object),
     )
