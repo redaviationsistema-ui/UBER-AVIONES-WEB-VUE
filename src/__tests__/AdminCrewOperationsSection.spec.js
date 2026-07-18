@@ -38,7 +38,7 @@ const operations = [
 ]
 
 describe('AdminCrewOperationsSection', () => {
-  it('renders the in-flight workspace as a dedicated assigned-only view', () => {
+  it('acts as a compatibility wrapper for the in-flight workspace', () => {
     const wrapper = mount(AdminCrewOperationsSection, {
       props: {
         crewMembers,
@@ -48,11 +48,23 @@ describe('AdminCrewOperationsSection', () => {
       },
     })
 
-    expect(wrapper.text()).toContain('Vista dedicada para seguir vuelos con sobrecargo asignado')
-    expect(wrapper.text()).toContain('Sobrecargos actualmente en vuelo')
+    expect(wrapper.text()).toContain('Sobrecargos en vuelo')
     expect(wrapper.text()).toContain('RA-151')
     expect(wrapper.text()).not.toContain('RA-150')
     expect(wrapper.text()).toContain('En vuelo')
-    expect(wrapper.text()).not.toContain('Sobrecargos listos para asignarse')
+  })
+
+  it('delegates the default view to the operations page', () => {
+    const wrapper = mount(AdminCrewOperationsSection, {
+      props: {
+        crewMembers,
+        operations,
+        auditEntries: [],
+      },
+    })
+
+    expect(wrapper.text()).toContain('Operaciones de sobrecargos')
+    expect(wrapper.text()).toContain('RA-151')
+    expect(wrapper.text()).toContain('RA-150')
   })
 })

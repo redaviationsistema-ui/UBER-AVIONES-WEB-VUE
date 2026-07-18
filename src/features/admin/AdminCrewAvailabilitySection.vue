@@ -38,6 +38,7 @@ const localOverrides = reactive({})
 const remoteAvailabilityRecords = ref([])
 const remoteStatusOptions = ref([])
 const remoteCrewMembers = ref([])
+const availabilityErrorMessage = ref('')
 const hasRequestedInitialAvailability = ref(false)
 const availabilityRequestVersion = ref(0)
 const availabilityCache = new Map()
@@ -286,6 +287,7 @@ async function loadAvailabilityByRange() {
   const cachedEntry = availabilityCache.get(cacheKey)
 
   if (cachedEntry && now - cachedEntry.savedAt <= AVAILABILITY_CACHE_TTL_MS) {
+    availabilityErrorMessage.value = ''
     remoteAvailabilityRecords.value = []
     hasLoadedRemoteAvailability.value = true
     if (cachedEntry.dataset.statuses.length) {
@@ -330,6 +332,7 @@ async function loadAvailabilityByRange() {
         return dataset
       }
 
+      availabilityErrorMessage.value = ''
       remoteAvailabilityRecords.value = []
       hasLoadedRemoteAvailability.value = true
       if (dataset.statuses.length) {
@@ -346,9 +349,8 @@ async function loadAvailabilityByRange() {
       }
 
       if (requestVersion === availabilityRequestVersion.value) {
-        remoteAvailabilityRecords.value = []
-        remoteCrewMembers.value = []
-        hasLoadedRemoteAvailability.value = false
+        availabilityErrorMessage.value =
+          error?.message || 'No fue posible cargar la disponibilidad administrativa.'
       }
 
       throw error
@@ -388,6 +390,11 @@ function scheduleAvailabilityReload({ immediate = false } = {}) {
   }
 
   availabilityReloadTimer = window.setTimeout(runReload, 350)
+}
+
+function retryAvailabilityLoad() {
+  availabilityCache.delete(`${filters.from || ''}:${filters.to || ''}`)
+  scheduleAvailabilityReload({ immediate: true })
 }
 
 function selectCell(member, dayKey) {
@@ -525,6 +532,16 @@ onBeforeUnmount(() => {
       :state-options="normalizedStatusOptions"
     />
 
+    <div v-if="availabilityErrorMessage" class="availability-inline-alert">
+      <div>
+        <strong>No se pudo refrescar la disponibilidad remota.</strong>
+        <p>Se conservan los datos anteriores o el fallback local mientras reintentamos.</p>
+      </div>
+      <button type="button" class="secondary-action" @click="retryAvailabilityLoad">
+        Reintentar
+      </button>
+    </div>
+
     <div class="workspace-grid">
       <AdminCrewAvailabilityMatrix
         :weekly-days="weeklyDays"
@@ -557,6 +574,28 @@ onBeforeUnmount(() => {
 .availability-admin-shell {
   display: grid;
   gap: 1.25rem;
+}
+
+.availability-inline-alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.1rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(226, 111, 111, 0.25);
+  background: rgba(255, 244, 244, 0.95);
+  color: #7f1d1d;
+}
+
+.availability-inline-alert strong {
+  display: block;
+  margin-bottom: 0.2rem;
+}
+
+.availability-inline-alert p {
+  margin: 0;
+  color: rgba(127, 29, 29, 0.82);
 }
 
 .workspace-grid {

@@ -17,13 +17,14 @@ import {
 const AdminAlertsSection = defineAsyncComponent(() => import('./AdminAlertsSection.vue'))
 const AdminAircraftAvailabilityCalendarSection = defineAsyncComponent(() => import('./AdminAircraftAvailabilityCalendarSection.vue'))
 const AdminAircraftSubscriptionsSection = defineAsyncComponent(() => import('./AdminAircraftSubscriptionsSection.vue'))
-const AdminCrewAvailabilitySection = defineAsyncComponent(() => import('./AdminCrewAvailabilitySection.vue'))
-const AdminCrewDirectorySection = defineAsyncComponent(() => import('./AdminCrewDirectorySection.vue'))
-const AdminCrewOperationsSection = defineAsyncComponent(() => import('./AdminCrewOperationsSection.vue'))
+const AdminCrewAvailabilityPage = defineAsyncComponent(() => import('./crew/availability/AdminCrewAvailabilityPage.vue'))
+const AdminCrewDirectoryPage = defineAsyncComponent(() => import('./crew/directory/AdminCrewDirectoryPage.vue'))
+const AdminCrewInFlightPage = defineAsyncComponent(() => import('./crew/in-flight/AdminCrewInFlightPage.vue'))
+const AdminCrewOperationsPage = defineAsyncComponent(() => import('./crew/operations/AdminCrewOperationsPage.vue'))
 const AdminContractsSection = defineAsyncComponent(() => import('./AdminContractsSection.vue'))
 const AdminExecutiveSection = defineAsyncComponent(() => import('./AdminExecutiveSection.vue'))
 const AdminImportsSection = defineAsyncComponent(() => import('./AdminImportsSection.vue'))
-const AdminIncidenciasPage = defineAsyncComponent(() => import('./AdminIncidenciasPage.vue'))
+const AdminCrewIncidentsPage = defineAsyncComponent(() => import('./crew/incidents/AdminCrewIncidentsPage.vue'))
 const AdminProvidersNetworkSection = defineAsyncComponent(() => import('./AdminProvidersNetworkSection.vue'))
 const AdminRecordsSection = defineAsyncComponent(() => import('./AdminRecordsSection.vue'))
 const AdminReleasesSection = defineAsyncComponent(() => import('./AdminReleasesSection.vue'))
@@ -2847,10 +2848,8 @@ async function assignCrewToOperation({
     sobrecargo_id: member.id,
     crew_name: member.name,
     note: nextOperationalNote || undefined,
-    briefing_time: nextPresentationTime || undefined,
     presentation_time: nextPresentationTime || undefined,
     presentation_place: nextPresentationPlace || undefined,
-    presentation_location: nextPresentationPlace || undefined,
   }
 
   let dedicatedAssignmentResponse = null
@@ -2862,10 +2861,8 @@ async function assignCrewToOperation({
     crew_member_id: member.id,
     crew_name: member.name,
     crew_status: 'pending_crew_response',
-    briefing_time: nextPresentationTime || undefined,
     presentation_time: nextPresentationTime || undefined,
     presentation_place: nextPresentationPlace || undefined,
-    presentation_location: nextPresentationPlace || undefined,
     notes: nextOperationalNote ? `${operation.notes || ''} · ${nextOperationalNote}`.replace(/^ · /, '') : operation.notes,
   }
 
@@ -3665,6 +3662,7 @@ watch(
   />
   <AdminRecordsSection
     v-else-if="section === 'cotizaciones'"
+    section-key="cotizaciones"
     title="Cotizaciones administrativas"
     description="Listado y detalle de ofertas emitidas desde el sistema, con referencia de cliente, aeronave, reserva y pago vinculado."
     :records="quoteRecords"
@@ -3676,11 +3674,12 @@ watch(
     search-placeholder="Buscar folio, cliente, ruta o aeronave"
     :columns="[
       { key: 'folio', label: 'Folio' },
-      { key: 'status', label: 'Estado' },
       { key: 'clientName', label: 'Cliente' },
       { key: 'route', label: 'Ruta' },
       { key: 'aircraft', label: 'Aeronave' },
+      { key: 'status', label: 'Estado' },
       { key: 'amount', label: 'Monto', format: (value, record) => formatAdminCell(value, { kind: 'currency', currency: record.currency }) },
+      { key: 'createdAt', label: 'Fecha', format: (value) => formatAdminCell(value, { kind: 'date', withTime: true }) },
     ]"
     :detail-fields="[
       { key: 'folio', label: 'Folio' },
@@ -3754,7 +3753,7 @@ watch(
     initial-tab="provider-payments"
     @refresh="refreshSubscriptionsPanel"
   />
-  <AdminCrewDirectorySection
+  <AdminCrewDirectoryPage
     v-else-if="section === 'sobrecargos'"
     :crew-members="crewMembers"
     :operations="operations"
@@ -3764,31 +3763,21 @@ watch(
     @suspend-crew="suspendCrew"
     @audit-crew="auditCrew"
   />
-  <AdminCrewOperationsSection
+  <AdminCrewOperationsPage
     v-else-if="section === 'sobrecargo-operaciones'"
     :crew-members="crewMembers"
     :operations="operations"
     :audit-entries="crewAuditEntries"
-    view-mode="operations"
-    @approve-crew="approveCrew"
-    @reject-crew="rejectCrew"
-    @suspend-crew="suspendCrew"
     @assign-crew="assignCrewToOperation"
-    @audit-crew="auditCrew"
   />
-  <AdminCrewOperationsSection
+  <AdminCrewInFlightPage
     v-else-if="section === 'sobrecargos-en-vuelo'"
     :crew-members="crewMembers"
     :operations="operations"
     :audit-entries="crewAuditEntries"
-    view-mode="in-flight"
-    @approve-crew="approveCrew"
-    @reject-crew="rejectCrew"
-    @suspend-crew="suspendCrew"
     @assign-crew="assignCrewToOperation"
-    @audit-crew="auditCrew"
   />
-  <AdminCrewAvailabilitySection
+  <AdminCrewAvailabilityPage
     v-else-if="section === 'disponibilidad'"
     :crew-members="crewMembers"
     :operations="operations"
@@ -3864,7 +3853,7 @@ watch(
     v-else-if="section === 'contratos'"
     :contracts="contracts"
   />
-  <AdminIncidenciasPage v-else-if="section === 'incidencias'" />
+  <AdminCrewIncidentsPage v-else-if="section === 'incidencias'" />
   <AdminRecordsSection
     v-else-if="section === 'documentos'"
     title="Repositorio documental"
@@ -3958,9 +3947,51 @@ watch(
 :deep(.subscriptions-shell),
 :deep(.aircraft-admin-shell),
 :deep(.directory-shell),
-:deep(.availability-admin-shell) {
+:deep(.availability-admin-shell),
+:deep(.crew-workspace) {
   min-height: auto;
   background: transparent;
+}
+
+:deep(.crew-workspace),
+:deep(.crew-workspace h3),
+:deep(.crew-workspace h4),
+:deep(.crew-workspace h5),
+:deep(.crew-workspace strong),
+:deep(.crew-workspace td),
+:deep(.crew-workspace label),
+:deep(.crew-workspace input),
+:deep(.crew-workspace select),
+:deep(.crew-workspace textarea),
+:deep(.crew-workspace button) {
+  color: #152942;
+}
+
+:deep(.crew-workspace .eyebrow),
+:deep(.crew-workspace .audit-card__eyebrow),
+:deep(.crew-workspace .signal-card span),
+:deep(.crew-workspace .field span) {
+  color: #5873a3;
+}
+
+:deep(.crew-workspace .muted),
+:deep(.crew-workspace .signal-card p),
+:deep(.crew-workspace .table-primary small),
+:deep(.crew-workspace .audit-card__headline),
+:deep(.crew-workspace .audit-card__date span),
+:deep(.crew-workspace .record-row span),
+:deep(.crew-workspace .section-mini-head p),
+:deep(.crew-workspace .empty-state) {
+  color: #667a98;
+}
+
+:deep(.crew-workspace .signal-card strong),
+:deep(.crew-workspace .table-head h4),
+:deep(.crew-workspace .section-head h3),
+:deep(.crew-workspace .audit-card h5),
+:deep(.crew-workspace .record-row strong),
+:deep(.crew-workspace .detail-kpi-card strong) {
+  color: #10233d;
 }
 
 :deep(.dashboard-hero),

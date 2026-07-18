@@ -59,16 +59,16 @@ export const roleSections = {
     { id: 'disponibilidad-aeronaves', label: 'Disponibilidad de Aeronaves', icon: 'calendar' },
     { id: 'pagos-proveedor', label: 'Pagos proveedor', icon: 'wallet' },
     { id: 'vuelos', label: 'Vuelos', icon: 'jet' },
-    { id: 'sobrecargos', label: 'Directorio de sobrecargos', icon: 'crew' },
+    { id: 'sobrecargos', label: 'Directorio de sobrecargos', icon: 'crew', path: '/admin/sobrecargos' },
     { id: 'disponibilidad', label: 'Disponibilidad', icon: 'calendar', path: '/admin/sobrecargos/disponibilidad' },
-    { id: 'sobrecargo-operaciones', label: 'Operaciones de sobrecargos', icon: 'link' },
-    { id: 'sobrecargos-en-vuelo', label: 'Sobrecargos en vuelo', icon: 'jet' },
+    { id: 'sobrecargo-operaciones', label: 'Operaciones de sobrecargos', icon: 'link', path: '/admin/sobrecargos/operaciones' },
+    { id: 'sobrecargos-en-vuelo', label: 'Sobrecargos en vuelo', icon: 'jet', path: '/admin/sobrecargos/en-vuelo' },
     { id: 'reservas', label: 'Flujo del cliente', icon: 'reservations' },
     { id: 'liberaciones', label: 'Liberaciones', icon: 'clipboard' },
     { id: 'suscripciones', label: 'Suscripciones', icon: 'wallet' },
     { id: 'contratos', label: 'Contratos', icon: 'link' },
     { id: 'pagos', label: 'Pagos y Finanzas', icon: 'wallet' },
-    { id: 'incidencias', label: 'Incidencias', icon: 'alert' },
+    { id: 'incidencias', label: 'Incidencias', icon: 'alert', path: '/admin/sobrecargos/incidencias' },
     { id: 'documentos', label: 'Documentos', icon: 'clipboard' },
     { id: 'auditoria', label: 'Auditoria', icon: 'history' },
     { id: 'reportes', label: 'Reportes', icon: 'chart' },
@@ -218,12 +218,12 @@ export function resolveRoleSectionRoute(role, sectionOrItem) {
 
   const sectionId = sectionItem?.id || sectionOrItem || ''
 
-  if (role === 'admin' && sectionItem?.path === '/admin/sobrecargos/disponibilidad') {
-    return { name: 'admin-sobrecargos-disponibilidad' }
-  }
-
   if (role === 'crew' && sectionItem?.path === '/sobrecargo/disponibilidad') {
     return { name: 'sobrecargo-disponibilidad' }
+  }
+
+  if (role === 'admin' && sectionItem?.path) {
+    return { path: sectionItem.path }
   }
 
   const routeNameByRole = {

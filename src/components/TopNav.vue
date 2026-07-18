@@ -3,6 +3,9 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import BrandLogo from './BrandLogo.vue'
 import { buildMenuGroups, resolveRoleSectionPath, roleSections } from '../data/roleFlows'
+import { adminAllModulesGroup, adminModuleGroups, resolveAdminModuleGroup } from '../data/adminModules'
+import { resolveWorkspaceIcon } from '../data/workspaceIcons'
+import AdminModuleLauncher from './workspace/AdminModuleLauncher.vue'
 import { useAuthStore } from '../stores/auth'
 
 const route = useRoute()
@@ -56,9 +59,22 @@ const hideTopbar = computed(
 )
 
 const currentRoleMenu = computed(() => roleSections[activeRole.value] || [])
+const currentSectionId = computed(() => {
+  const sectionFromParams = String(route.params.section || '')
+
+  if (currentRoleMenu.value.some((item) => item.id === sectionFromParams)) {
+    return sectionFromParams
+  }
+
+  const matchingPath = currentRoleMenu.value.find(
+    (item) => resolveRoleSectionPath(activeRole.value, item) === route.path,
+  )
+
+  return matchingPath?.id || currentRoleMenu.value[0]?.id || ''
+})
 const currentSectionLabel = computed(
   () =>
-    currentRoleMenu.value.find((item) => item.id === route.params.section)?.label ||
+    currentRoleMenu.value.find((item) => item.id === currentSectionId.value)?.label ||
     currentRoleMenu.value[0]?.label ||
     '',
 )
@@ -91,6 +107,14 @@ const usesMobileDrawer = computed(() => {
 const usesPublicMobileDrawer = computed(() => !isRoleView.value)
 const workspaceMenuOpen = ref(false)
 const workspaceMenuGroups = computed(() => buildMenuGroups(activeRole.value, currentRoleMenu.value))
+const isAdminWorkspace = computed(() => activeRole.value === 'admin')
+const adminLauncherKey = ref('')
+const adminLauncherGroups = computed(() => (isAdminWorkspace.value ? adminModuleGroups : []))
+const activeAdminLauncherGroup = computed(() => {
+  if (!adminLauncherKey.value) return null
+  if (adminLauncherKey.value === adminAllModulesGroup.id) return adminAllModulesGroup
+  return resolveAdminModuleGroup(adminLauncherKey.value)
+})
 const workspaceDesktopMenu = ref('')
 const workspaceDrawerMenu = ref('')
 let crewStatusRefreshTimer = null
@@ -112,13 +136,20 @@ function isMenuOpen(targetName, label) {
 function closeAllMenus() {
   workspaceDesktopMenu.value = ''
   workspaceDrawerMenu.value = ''
+  adminLauncherKey.value = ''
 }
 
 function handleDocumentClick(event) {
   const target = event.target
   if (!(target instanceof Element)) return
 
-  if (!target.closest('.menu-master') && !target.closest('.workspace-drawer-dropdown')) {
+  if (target.closest('.admin-module-launcher')) return
+
+  if (
+    !target.closest('.menu-master') &&
+    !target.closest('.workspace-drawer-dropdown') &&
+    !target.closest('.admin-launcher-trigger')
+  ) {
     closeAllMenus()
   }
 }
@@ -151,37 +182,23 @@ function startCrewStatusRefresh() {
   }, 15000)
 }
 
-const iconPaths = {
-  overview:
-    'M4 5.5A1.5 1.5 0 0 1 5.5 4H10v7H4V5.5ZM12 4h6.5A1.5 1.5 0 0 1 20 5.5V9h-8V4ZM4 13h6v7H5.5A1.5 1.5 0 0 1 4 18.5V13Zm8 0h8v5.5a1.5 1.5 0 0 1-1.5 1.5H12v-7Z',
-  reservations:
-    'M7 3h2v2h6V3h2v2h1.5A1.5 1.5 0 0 1 20 6.5v12a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-12A1.5 1.5 0 0 1 5.5 5H7V3Zm11 7H6v8h12v-8Z',
-  account: 'M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm0 2c-3.3 0-6 1.8-6 4v2h12v-2c0-2.2-2.7-4-6-4Z',
-  clipboard:
-    'M9 4.5h6a1 1 0 0 1 1 1V7h1.5A1.5 1.5 0 0 1 19 8.5v10a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 18.5v-10A1.5 1.5 0 0 1 6.5 7H8V5.5a1 1 0 0 1 1-1Zm0 2V7h6v-.5h-6ZM7 9v9h10V9H7Zm2 2h6v1.5H9V11Zm0 3h4v1.5H9V14Z',
-  shield:
-    'M12 3.2 18 5.6v4.8c0 4.2-2.45 7.77-6 9.4-3.55-1.63-6-5.2-6-9.4V5.6l6-2.4Zm0 2.15-4 1.6v3.45c0 3.13 1.7 5.9 4 7.3 2.3-1.4 4-4.17 4-7.3V6.95l-4-1.6Zm-.7 3.15h1.4v3.1l2.35 2.35-1 1-2.75-2.75V8.5Z',
-  link: 'M8.9 15.1a3 3 0 0 1 0-4.24l2.47-2.47 1.06 1.06-2.47 2.47a1.5 1.5 0 0 0 2.12 2.12l2.47-2.47 1.06 1.06-2.47 2.47a3 3 0 0 1-4.24 0Zm6.2-6.2a1.5 1.5 0 0 0-2.12 0l-2.47 2.47-1.06-1.06 2.47-2.47a3 3 0 1 1 4.24 4.24l-2.47 2.47-1.06-1.06 2.47-2.47a1.5 1.5 0 0 0 0-2.12Z',
-  jet: 'm21.8 11.4-8-3.4-3.4-6.2c-.3-.5-.9-.8-1.5-.6l-1 .3 2.2 7-4.6-1.9-2.2-2.6-.9.3 1.2 3.4-1.2 3.4.9.3 2.2-2.6 4.6-1.9-2.2 7 1 .3c.6.2 1.2-.1 1.5-.6l3.4-6.2 8-3.4c.7-.3 1.2-.9 1.2-1.7s-.5-1.4-1.2-1.7Z',
-  calendar:
-    'M7 3h2v2h6V3h2v2h1.5A1.5 1.5 0 0 1 20 6.5v12a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-12A1.5 1.5 0 0 1 5.5 5H7V3Zm11 6H6v9h12V9Zm-8 2h2v2h-2v-2Zm4 0h2v2h-2v-2Zm-4 4h2v2h-2v-2Z',
-  crew: 'M8 11a3 3 0 1 1 0-6 3 3 0 0 1 0 6Zm8 1a2.5 2.5 0 1 0-2.5-2.5A2.5 2.5 0 0 0 16 12Zm-8 1c-2.76 0-5 1.57-5 3.5V19h10v-2.5C13 14.57 10.76 13 8 13Zm8 1c-1.2 0-2.3.33-3.2.9.75.67 1.2 1.56 1.2 2.6V19H21v-1.3c0-2.03-2.24-3.7-5-3.7Z',
-  alert:
-    'M12 3.4 2.8 19h18.4L12 3.4Zm0 4.1 4.52 7.7H7.48L12 7.5Zm-.9 2.2h1.8v3.8h-1.8V9.7Zm0 4.95h1.8v1.8h-1.8v-1.8Z',
-  history:
-    'M12 4a8 8 0 1 1-7.75 10h1.84A6.2 6.2 0 1 0 12 5.8a6.1 6.1 0 0 0-4.3 1.76L10 10H4V4l2.42 2.42A7.9 7.9 0 0 1 12 4Zm-.9 3.4h1.8v4.1l3 1.8-.9 1.5-3.9-2.35V7.4Z',
-  chart: 'M5 19V9h2v10H5Zm6 0V5h2v14h-2Zm6 0v-7h2v7h-2Z',
-  checklist:
-    'M9.2 6.4 7.8 5 6.4 6.4l1.4 1.4L6.4 9.2l1.4 1.4 1.4-1.4 1.4 1.4 1.4-1.4-1.4-1.4 1.4-1.4-1.4-1.4-1.4 1.4Zm4.3.6H19v1.5h-5.5V7Zm0 5H19v1.5h-5.5V12Zm0 5H19v1.5h-5.5V17ZM5 12h6v6H5v-6Z',
-  wallet:
-    'M5.5 6A1.5 1.5 0 0 0 4 7.5v9A1.5 1.5 0 0 0 5.5 18h13a1.5 1.5 0 0 0 1.5-1.5V9.75A1.75 1.75 0 0 0 18.25 8H7V7.5A.5.5 0 0 1 7.5 7H19V5.5h-13.5ZM20 11v5.5a.5.5 0 0 1-.5.5h-14a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5h12.75a.25.25 0 0 1 .25.25V10H16.5a1.5 1.5 0 0 0 0 3H20Zm-3.5-.25a.5.5 0 1 0 0 1h2v-1h-2Z',
-  grid: 'M4 4h7v7H4V4Zm9 0h7v7h-7V4ZM4 13h7v7H4v-7Zm9 0h7v7h-7v-7Z',
-  logout:
-    'M10 4H5.5A1.5 1.5 0 0 0 4 5.5v13A1.5 1.5 0 0 0 5.5 20H10v-2H6V6h4V4Zm4.6 3.4L13.2 8.8l1.8 1.7H9v2h6l-1.8 1.7 1.4 1.4L19 11l-4.4-4.4Z',
+function resolveIcon(icon) {
+  return resolveWorkspaceIcon(icon)
 }
 
-function resolveIcon(icon) {
-  return iconPaths[icon] || iconPaths.grid
+function openAdminLauncher(label, options = {}) {
+  const { closeDrawer = false } = options
+  adminLauncherKey.value = adminLauncherKey.value === label ? '' : label
+  workspaceDesktopMenu.value = ''
+  workspaceDrawerMenu.value = ''
+
+  if (closeDrawer) {
+    workspaceMenuOpen.value = false
+  }
+}
+
+function showAllAdminModules() {
+  adminLauncherKey.value = adminAllModulesGroup.id
 }
 
 watch(
@@ -190,6 +207,7 @@ watch(
     workspaceMenuOpen.value = false
     workspaceDesktopMenu.value = ''
     workspaceDrawerMenu.value = ''
+    adminLauncherKey.value = ''
   },
 )
 
@@ -608,14 +626,16 @@ onBeforeUnmount(() => {
             :key="group.label"
             class="menu-master menu-master-workspace"
             :class="{
-              'menu-master-open': isMenuOpen('desktop', group.label),
+              'menu-master-open': isAdminWorkspace
+                ? adminLauncherKey === group.label
+                : isMenuOpen('desktop', group.label),
             }"
           >
             <button
               type="button"
-              class="menu-master-trigger button-reset"
-              :aria-expanded="isMenuOpen('desktop', group.label) ? 'true' : 'false'"
-              @click.stop="toggleMenu('desktop', group.label)"
+              class="menu-master-trigger button-reset admin-launcher-trigger"
+              :aria-expanded="(isAdminWorkspace ? adminLauncherKey === group.label : isMenuOpen('desktop', group.label)) ? 'true' : 'false'"
+              @click.stop="isAdminWorkspace ? openAdminLauncher(group.label) : toggleMenu('desktop', group.label)"
             >
               <span class="menu-master-copy">
                 <strong>{{ group.label }}</strong>
@@ -626,7 +646,11 @@ onBeforeUnmount(() => {
               <span class="menu-master-caret"></span>
             </button>
 
-            <div v-if="isMenuOpen('desktop', group.label)" class="menu-master-panel" @click.stop>
+            <div
+              v-if="!isAdminWorkspace && isMenuOpen('desktop', group.label)"
+              class="menu-master-panel"
+              @click.stop
+            >
               <RouterLink
                 v-for="item in group.items"
                 :key="item.id"
@@ -776,8 +800,8 @@ onBeforeUnmount(() => {
                 <button
                   type="button"
                   class="workspace-drawer-group-trigger button-reset"
-                  :aria-expanded="isMenuOpen('drawer', group.label) ? 'true' : 'false'"
-                  @click="toggleMenu('drawer', group.label)"
+                  :aria-expanded="(isAdminWorkspace ? adminLauncherKey === group.label : isMenuOpen('drawer', group.label)) ? 'true' : 'false'"
+                  @click="isAdminWorkspace ? openAdminLauncher(group.label, { closeDrawer: true }) : toggleMenu('drawer', group.label)"
                 >
                   <span class="workspace-drawer-group-copy">
                     <span class="workspace-drawer-group-icon">
@@ -792,7 +816,7 @@ onBeforeUnmount(() => {
                   <span class="menu-master-caret"></span>
                 </button>
                 <ul
-                  v-if="isMenuOpen('drawer', group.label)"
+                  v-if="!isAdminWorkspace && isMenuOpen('drawer', group.label)"
                   class="workspace-drawer-list workspace-drawer-submenu"
                 >
                   <li v-for="item in group.items" :key="item.id">
@@ -831,6 +855,15 @@ onBeforeUnmount(() => {
           </div>
         </aside>
       </Transition>
+
+      <AdminModuleLauncher
+        v-if="isAdminWorkspace && activeAdminLauncherGroup"
+        :group="activeAdminLauncherGroup"
+        :active-section="currentSectionId"
+        :show-all-action="activeAdminLauncherGroup.id !== adminAllModulesGroup.id"
+        @close="adminLauncherKey = ''"
+        @show-all="showAllAdminModules"
+      />
     </nav>
   </header>
 </template>
@@ -1203,6 +1236,46 @@ onBeforeUnmount(() => {
 .workspace-topbar--admin .workspace-link-icon,
 .workspace-topbar--admin .workspace-action-icon {
   color: #8c6a1f;
+}
+
+.workspace-topbar--admin {
+  background:
+    radial-gradient(circle at top left, rgba(224, 234, 255, 0.92), transparent 24%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 251, 255, 0.98));
+  border-bottom: 1px solid rgba(207, 220, 242, 0.9);
+  box-shadow: 0 16px 36px rgba(191, 207, 235, 0.18);
+}
+
+.workspace-topbar--admin .workspace-links-grouped {
+  gap: 0.9rem;
+}
+
+.workspace-topbar--admin .menu-master-workspace .menu-master-trigger {
+  min-height: 3.9rem;
+  padding: 0.7rem 1.55rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+
+.workspace-topbar--admin .menu-master-copy strong {
+  color: #284a77;
+  font-size: 0.94rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.workspace-topbar--admin .menu-master-caret {
+  display: none;
+}
+
+.workspace-topbar--admin .menu-master-open .menu-master-trigger {
+  border-color: rgba(191, 209, 241, 0.95);
+  background: linear-gradient(180deg, rgba(245, 249, 255, 0.96), rgba(234, 241, 255, 0.96));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.98);
+}
+
+.workspace-topbar--admin .menu-master-trigger:hover {
+  background: rgba(237, 244, 255, 0.88);
 }
 
 .workspace-label {

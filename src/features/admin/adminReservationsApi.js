@@ -205,6 +205,13 @@ function buildAdminReservationRecord(record = {}) {
       record.provider?.id ||
       record.assigned_provider_id ||
       '',
+    providerName:
+      record.provider_name ||
+      record.provider_company_name ||
+      record.provider_commercial_name ||
+      record.provider?.commercial_name ||
+      record.provider?.company_name ||
+      '',
     aircraftId:
       record.aircraft_id ||
       record.aeronave_id ||
@@ -239,6 +246,8 @@ function buildAdminReservationRecord(record = {}) {
       record.presentation_time ||
       nestedReservation.briefing_time ||
       nestedReservation.presentation_time ||
+      visibilityPayload.presentation_time ||
+      visibilityPayload.briefing?.hora_presentacion ||
       adminFlow.presentation_time ||
       briefing.hora_presentacion ||
       (String(departureValue).includes('T') ? String(departureValue).slice(11, 16) : ''),
@@ -247,6 +256,9 @@ function buildAdminReservationRecord(record = {}) {
       record.presentation_location ||
       nestedReservation.presentation_place ||
       nestedReservation.presentation_location ||
+      visibilityPayload.presentation_place ||
+      visibilityPayload.presentation_location ||
+      visibilityPayload.briefing?.lugar_presentacion ||
       adminFlow.presentation_place ||
       briefing.lugar_presentacion ||
       record.departure_airport ||
@@ -323,6 +335,11 @@ function buildAdminReservationRecord(record = {}) {
         : 'Sin incidencias'),
     incidentsCount: Number(record.incidents_count || visibilityPayload.incidents_count || 0) || 0,
     notes: normalizedTrip.notes || record.notes || record.comment || 'Sin comentarios',
+    crewNotes:
+      record.crew_notes ||
+      record.operation?.crew_notes ||
+      visibilityPayload.crew_notes ||
+      '',
     raw: record,
   }
 }

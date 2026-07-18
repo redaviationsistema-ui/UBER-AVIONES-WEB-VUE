@@ -136,7 +136,7 @@ const synchronizedFields = computed(() =>
 }
 
 .dark-eyebrow {
-  color: #8c6a1f;
+  color: #000000;
 }
 
 .hero-center h1,
@@ -156,7 +156,7 @@ const synchronizedFields = computed(() =>
 .section-heading p,
 .signal-card p,
 .workstream-card li {
-  color: #5d5d5d;
+  color: #000000;
   line-height: 1.7;
 }
 
@@ -190,7 +190,7 @@ const synchronizedFields = computed(() =>
 
 .signal-card span,
 .workstream-label {
-  color: #666666;
+  color: #000000;
   font-size: 0.8rem;
   font-weight: 700;
   text-transform: uppercase;
@@ -225,7 +225,7 @@ const synchronizedFields = computed(() =>
 }
 
 .workstream-label {
-  color: #8c6a1f;
+  color: #000000;
 }
 
 .workstream-card ul {
@@ -252,7 +252,7 @@ const synchronizedFields = computed(() =>
   min-height: 2rem;
   padding: 0 0.75rem;
   border-radius: 999px;
-  color: #8c6a1f;
+  color: #000000;
   background: #f3ead2;
   font-size: 0.78rem;
   font-weight: 800;

@@ -1,5 +1,8 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
+import ReservationFilters from './workflow/components/ReservationFilters.vue'
+import ReservationList from './workflow/components/ReservationList.vue'
+import ReservationTimeline from './workflow/components/ReservationTimeline.vue'
 import {
   buildSharedFlowStepStates,
   getSharedWorkflowActionCopy,
@@ -57,7 +60,6 @@ const holdDrafts = reactive({})
 const searchQuery = ref('')
 const stateFilter = ref('all')
 const stageFilter = ref('all')
-const detailTab = ref('summary')
 
 const sortedReservations = computed(() =>
   [...props.reservations].sort((left, right) => {
@@ -111,29 +113,6 @@ const summaryCards = computed(() => [
   { label: 'Con atraso', value: props.reservations.filter((item) => item.adminFlowState === 'delayed').length },
   { label: 'Bloqueadas', value: props.reservations.filter((item) => item.adminFlowState === 'blocked').length },
   { label: 'Bitacora', value: props.auditEntries.length },
-])
-
-const queueCards = computed(() => [
-  {
-    label: 'Mostrando',
-    value: activeReservations.value.length,
-    detail: searchQuery.value || stateFilter.value !== 'all' || stageFilter.value !== 'all' ? 'Con filtros activos' : 'Vista completa',
-  },
-  {
-    label: 'Activas',
-    value: props.reservations.filter((item) => item.adminFlowState === 'active').length,
-    detail: 'Flujo libre',
-  },
-  {
-    label: 'Retrasadas',
-    value: props.reservations.filter((item) => item.adminFlowState === 'delayed').length,
-    detail: 'Seguimiento cercano',
-  },
-  {
-    label: 'Bloqueadas',
-    value: props.reservations.filter((item) => item.adminFlowState === 'blocked').length,
-    detail: 'Atencion inmediata',
-  },
 ])
 
 const signatureStatus = computed(() => {
@@ -206,13 +185,6 @@ watch(
     })
   },
   { immediate: true },
-)
-
-watch(
-  () => selectedReservation.value?.id,
-  () => {
-    detailTab.value = 'summary'
-  },
 )
 
 function getFlowDraft(reservationId) {
@@ -500,6 +472,82 @@ function clearFilters() {
   stageFilter.value = 'all'
 }
 
+function formatReservationShortDate(value = '') {
+  const normalized = String(value || '').trim()
+  if (!normalized) return 'Sin fecha'
+
+  const parsed = new Date(normalized)
+  if (Number.isNaN(parsed.getTime())) return normalized
+
+  return new Intl.DateTimeFormat('es-MX', {
+    day: '2-digit',
+    month: 'short',
+    timeZone: 'UTC',
+  }).format(parsed)
+}
+
+const compactReservationRows = computed(() =>
+  activeReservations.value.map((reservation) => ({
+    ...reservation,
+    currentStageLabel: reservationStageLabel(reservation),
+    departureShort: formatReservationShortDate(reservation.departure),
+  })),
+)
+
+const compactTimelineSteps = computed(() => {
+  if (!selectedReservation.value) return []
+
+  return flowSteps.map((step, index) => ({
+    id: step.id,
+    index: index + 1,
+    label: step.shortLabel,
+    state: stepState(selectedReservation.value, step.id),
+  }))
+})
+
+const compactSummaryLine = computed(() => {
+  const reservation = selectedReservation.value
+  if (!reservation) return []
+
+  return [
+    reservation.route || 'Ruta pendiente',
+    reservation.aircraft || 'Aeronave por definir',
+    `Contrato ${humanizeContractStatus(reservation.contractStatus)}`,
+    `Pago ${humanizePaymentStatus(reservation.paymentStatus)}`,
+  ]
+})
+
+const compactCurrentMessage = computed(() => {
+  const reservation = selectedReservation.value
+  if (!reservation) {
+    return {
+      title: 'Sin reserva seleccionada',
+      description: 'Selecciona una reserva de la lista para revisar su flujo actual.',
+    }
+  }
+
+  const stageTitle = reservationStageLabel(reservation)
+  const actionCopy = getSharedWorkflowActionCopy(effectiveWorkflowValue(reservation))
+  const providerRelease = getProviderReleaseStatusMeta(reservation)
+
+  if (visualWorkflowStepId(effectiveWorkflowValue(reservation)) === 'flight_confirmed') {
+    return {
+      title: stageTitle,
+      description:
+        providerRelease.label === 'Lista para confirmacion'
+          ? 'La operacion ya tiene aeronave asignada, tripulacion confirmada y salida programada.'
+          : 'La operacion ya tiene aeronave asignada y sigue cerrando coordinacion operativa.',
+    }
+  }
+
+  return {
+    title: stageTitle,
+    description: actionCopy.detail || providerRelease.detail || 'El flujo sigue avanzando sin incidencias registradas.',
+  }
+})
+
+const compactAuditPreview = computed(() => props.auditEntries.slice(0, 2))
+
 function submitFlowUpdate(reservation) {
   if (props.isFlowLoading) return
   const draft = getFlowDraft(reservation.id)
@@ -553,7 +601,7 @@ function submitResume(reservation) {
     </transition>
 
     <article v-if="props.showHeroHeader" class="surface hero-card">
-        <div>
+      <div class="hero-copy">
         <p class="eyebrow">{{ props.headerEyebrow }}</p>
         <h2>{{ props.headerTitle }}</h2>
         <p class="muted">{{ props.headerDescription }}</p>
@@ -567,484 +615,95 @@ function submitResume(reservation) {
       </div>
     </article>
 
-    <div v-if="activeReservations.length" class="page-grid" :class="{ 'page-grid--compact': props.compactMode }">
+    <div v-if="activeReservations.length" class="page-grid">
       <article class="surface section-card reservations-panel">
         <div class="section-head">
-          <div>
-            <p class="eyebrow">Bandeja</p>
-            <h3>{{ props.compactMode ? 'Bandeja operativa compacta' : 'Reservas con seguimiento admin' }}</h3>
-          </div>
+          <h3>Lista de reservas</h3>
           <span class="badge badge-muted">{{ activeReservations.length }} visibles</span>
         </div>
 
-        <div v-if="props.showQueueSummary" class="queue-summary">
-          <article v-for="card in queueCards" :key="card.label" class="queue-stat">
-            <span>{{ card.label }}</span>
-            <strong>{{ card.value }}</strong>
-            <small>{{ card.detail }}</small>
-          </article>
-        </div>
+        <ReservationFilters
+          :search-query="searchQuery"
+          :state-filter="stateFilter"
+          :stage-filter="stageFilter"
+          :workflow-options="workflowFilterOptions"
+          :is-refreshing="props.isContentRefreshing"
+          @update:search-query="searchQuery = $event"
+          @update:state-filter="stateFilter = $event"
+          @update:stage-filter="stageFilter = $event"
+          @refresh="emit('refresh-content')"
+        />
 
-        <div class="filters-shell">
-          <label class="field">
-            <span>Buscar</span>
-            <input
-              v-model="searchQuery"
-              type="text"
-              placeholder="Cliente, empresa, ruta, aeronave o folio"
-            />
-          </label>
+        <ReservationList
+          :reservations="compactReservationRows"
+          :selected-reservation-id="selectedReservation?.id"
+          @select="selectedReservationId = $event"
+        />
 
-          <div class="filters-grid">
-            <label class="field">
-              <span>Estado admin</span>
-              <select v-model="stateFilter">
-                <option value="all">Todos</option>
-                <option value="active">Activas</option>
-                <option value="delayed">Retrasadas</option>
-                <option value="blocked">Bloqueadas</option>
-              </select>
-            </label>
-
-            <label class="field">
-              <span>Etapa</span>
-              <select v-model="stageFilter">
-                <option value="all">Todas</option>
-                <option v-for="option in workflowFilterOptions" :key="option.value" :value="option.value">
-                  {{ option.label }}
-                </option>
-              </select>
-            </label>
-
-            <button type="button" class="ghost-button filter-clear" @click="clearFilters">
-              Limpiar filtros
-            </button>
-          </div>
-        </div>
-
-        <div v-if="props.compactMode" class="compact-table">
-          <div class="compact-table__head">
-            <span>Folio</span>
-            <span>Cliente</span>
-            <span>Ruta</span>
-            <span>Aeronave</span>
-            <span>Proveedor</span>
-            <span>Trip.</span>
-            <span>Pago</span>
-            <span>Accion</span>
-          </div>
-
-          <button
-            v-for="reservation in activeReservations"
-            :key="reservation.id"
-            type="button"
-            class="compact-row"
-            :class="{ 'compact-row--selected': reservation.id === selectedReservation?.id }"
-            @click="selectedReservationId = reservation.id"
-          >
-            <strong>#{{ reservation.id }}</strong>
-            <div class="compact-row__cell">
-              <strong>{{ reservation.clientName }}</strong>
-              <small>{{ reservation.clientCompany || 'Cuenta individual' }}</small>
-            </div>
-            <span class="compact-route">{{ reservation.route }}</span>
-            <span>{{ reservation.aircraft || 'Por definir' }}</span>
-            <span class="badge" :class="`badge-${getProviderReleaseStatusMeta(reservation).tone}`">
-              {{ getProviderReleaseStatusMeta(reservation).label }}
-            </span>
-            <span class="badge badge-muted">
-              {{ providerReleaseCrewLabel(reservation) }}
-            </span>
-            <span class="badge badge-muted">
-              {{ humanizePaymentStatus(reservation.paymentStatus) }}
-            </span>
-            <span class="compact-row__action">Ver</span>
-          </button>
-        </div>
-
-        <div v-else class="reservation-list">
-          <button
-            v-for="reservation in activeReservations"
-            :key="reservation.id"
-            type="button"
-            class="reservation-card"
-            :class="{ 'reservation-card--selected': reservation.id === selectedReservation?.id }"
-            @click="selectedReservationId = reservation.id"
-          >
-            <div class="card-head">
-              <div>
-                <strong>#{{ reservation.id }} · {{ reservation.clientName }}</strong>
-                <p class="muted">{{ reservation.clientCompany || 'Cuenta individual' }}</p>
-              </div>
-              <span class="badge" :class="adminStateTone(reservation.adminFlowState)">
-                {{ adminStateLabel(reservation.adminFlowState) }}
-              </span>
-            </div>
-
-            <p class="route-line">{{ reservation.route }}</p>
-
-            <div class="card-tags">
-              <span class="mini-badge">{{ reservationStageLabel(reservation) }}</span>
-              <span class="mini-badge">{{ reservation.aircraft || 'Aeronave por definir' }}</span>
-              <span class="mini-badge">{{ humanizePaymentStatus(reservation.paymentStatus) }}</span>
-            </div>
-
-            <div class="card-meta">
-              <span>{{ formatReservationDate(reservation.departure) }}</span>
-              <span>{{ humanizeContractStatus(reservation.contractStatus) }}</span>
-            </div>
-          </button>
+        <div class="list-footnote">
+          Mostrando {{ activeReservations.length }} de {{ props.reservations.length }} reservas
         </div>
       </article>
 
       <article v-if="selectedReservation" class="surface section-card detail-panel">
-        <div class="section-head">
+        <div class="section-head section-head--detail">
           <div>
             <p class="eyebrow">Detalle de reserva</p>
-            <h3>#{{ selectedReservation.id }} · {{ selectedReservation.clientName }}</h3>
+            <h3>#{{ selectedReservation.id }}</h3>
+            <p class="detail-client-name">{{ selectedReservation.clientName }}</p>
           </div>
+
           <div class="status-stack">
-            <button
-              type="button"
-              class="ghost-button"
-              :disabled="props.isContentRefreshing"
-              @click="emit('refresh-content')"
-            >
-              {{ props.isContentRefreshing ? 'Refrescando...' : 'Refrescar' }}
-            </button>
             <span class="badge" :class="adminStateTone(selectedReservation.adminFlowState)">
               {{ adminStateLabel(selectedReservation.adminFlowState) }}
             </span>
             <span class="badge badge-muted">
               {{ reservationStageLabel(selectedReservation) }}
             </span>
+            <button
+              type="button"
+              class="ghost-button"
+              :disabled="props.isContentRefreshing"
+              @click="emit('refresh-content')"
+            >
+              {{ props.isContentRefreshing ? 'Actualizando...' : 'Actualizar' }}
+            </button>
           </div>
         </div>
 
-        <div class="info-grid">
-          <article class="info-card">
-            <span>Ruta</span>
-            <strong>{{ selectedReservation.route }}</strong>
-          </article>
-          <article class="info-card">
-            <span>Aeronave</span>
-            <strong>{{ selectedReservation.aircraft }}</strong>
-          </article>
-          <article class="info-card">
-            <span>Contrato</span>
-            <strong>{{ humanizeContractStatus(selectedReservation.contractStatus) }}</strong>
-          </article>
-          <article class="info-card">
-            <span>Pago</span>
-            <strong>{{ humanizePaymentStatus(selectedReservation.paymentStatus) }}</strong>
-          </article>
+        <div class="detail-summary-line">
+          <span v-for="item in compactSummaryLine" :key="item">{{ item }}</span>
         </div>
 
-        <article
-          v-if="props.showProviderReleasePanel && hasProviderRelease(selectedReservation)"
-          class="provider-release-admin"
-          :class="{ 'provider-release-admin--compact': props.compactMode }"
-        >
-          <div class="section-head">
-            <div>
-              <p class="eyebrow">Liberacion operativa del proveedor</p>
-              <h4>{{ getProviderReleaseStatusMeta(selectedReservation).label }}</h4>
-            </div>
-            <span class="badge" :class="`badge-${getProviderReleaseStatusMeta(selectedReservation).tone}`">
-              {{ getProviderReleaseStatusMeta(selectedReservation).label }}
-            </span>
-          </div>
+        <div v-if="props.showAdminFlowPanel" class="flow-shell flow-shell--compact">
+          <ReservationTimeline :steps="compactTimelineSteps" />
+        </div>
 
-          <p class="muted">{{ getProviderReleaseStatusMeta(selectedReservation).detail }}</p>
-
-          <div v-if="props.compactMode" class="compact-release-kpis">
-            <article class="compact-release-kpi">
-              <span>Checklist</span>
-              <strong>{{ providerReleaseProgress(selectedReservation).done }}/{{ providerReleaseProgress(selectedReservation).total }}</strong>
-              <small>Puntos operativos validados</small>
-            </article>
-            <article class="compact-release-kpi">
-              <span>Tripulacion</span>
-              <strong>{{ providerReleaseCrewLabel(selectedReservation) }}</strong>
-              <small>Estado general reportado</small>
-            </article>
-            <article class="compact-release-kpi">
-              <span>Ultima actualizacion</span>
-              <strong>{{ getProviderReleaseSource(selectedReservation)?.updated_at || selectedReservation.departure }}</strong>
-              <small>Referencia de sincronizacion</small>
-            </article>
-          </div>
-
-          <div class="info-grid">
-            <article class="info-card">
-              <span>Aeronave reportada</span>
-              <strong>
-                {{ getProviderReleaseSource(selectedReservation)?.aircraft_label || selectedReservation.aircraft || 'Por definir' }}
-              </strong>
-            </article>
-            <article class="info-card">
-              <span>Ruta operativa</span>
-              <strong>
-                {{ getProviderReleaseSource(selectedReservation)?.departure_airport || 'N/D' }}
-                -
-                {{ getProviderReleaseSource(selectedReservation)?.arrival_airport || 'N/D' }}
-              </strong>
-            </article>
-            <article class="info-card">
-              <span>FBO / handling</span>
-              <strong>{{ getProviderReleaseSource(selectedReservation)?.fbo || 'Pendiente' }}</strong>
-            </article>
-            <article class="info-card">
-              <span>Notas del proveedor</span>
-              <strong>{{ getProviderReleaseSource(selectedReservation)?.notes || 'Sin notas' }}</strong>
-            </article>
-          </div>
-
-          <div v-if="props.compactMode" class="release-tabs">
-            <button
-              type="button"
-              class="release-tab"
-              :class="{ 'release-tab--active': detailTab === 'summary' }"
-              @click="detailTab = 'summary'"
-            >
-              Resumen
-            </button>
-            <button
-              type="button"
-              class="release-tab"
-              :class="{ 'release-tab--active': detailTab === 'aircraft' }"
-              @click="detailTab = 'aircraft'"
-            >
-              Aeronave
-            </button>
-            <button
-              type="button"
-              class="release-tab"
-              :class="{ 'release-tab--active': detailTab === 'crew' }"
-              @click="detailTab = 'crew'"
-            >
-              Tripulacion
-            </button>
-            <button
-              type="button"
-              class="release-tab"
-              :class="{ 'release-tab--active': detailTab === 'dispatch' }"
-              @click="detailTab = 'dispatch'"
-            >
-              Despacho
-            </button>
-            <button
-              type="button"
-              class="release-tab"
-              :class="{ 'release-tab--active': detailTab === 'log' }"
-              @click="detailTab = 'log'"
-            >
-              Bitacora
-            </button>
-          </div>
-
-          <div v-if="!props.compactMode" class="provider-release-admin__grid">
-            <article class="control-card">
-              <div class="section-mini-head">
-                <h4>Disponibilidad y despacho</h4>
-                <p>Lectura rapida de lo que el proveedor ya confirmo para liberar el vuelo.</p>
-              </div>
-              <div class="provider-release-admin__list">
-                <span
-                  v-for="item in providerReleaseBooleanItems(selectedReservation)"
-                  :key="item.label"
-                  :class="{ 'is-done': item.done }"
-                >
-                  {{ item.label }}
-                </span>
-              </div>
-            </article>
-
-            <article class="control-card">
-              <div class="section-mini-head">
-                <h4>Tripulacion</h4>
-                <p>Estados operativos reportados por el proveedor, sin exponer datos sensibles.</p>
-              </div>
-              <div class="provider-release-admin__list">
-                <span
-                  v-for="item in providerReleaseCrewItems(selectedReservation)"
-                  :key="item.label"
-                  :class="{ 'is-done': item.done }"
-                >
-                  {{ item.label }}{{ item.value ? ` · ${item.value}` : '' }}
-                </span>
-              </div>
-            </article>
-
-            <article class="control-card control-card--wide">
-              <div class="section-mini-head">
-                <h4>Notas operativas</h4>
-                <p>Observaciones capturadas por el proveedor para seguimiento administrativo.</p>
-              </div>
-              <p class="provider-release-note-copy">{{ getProviderReleaseNotes(selectedReservation) }}</p>
-            </article>
-          </div>
-
-          <div v-else class="provider-release-admin__grid provider-release-admin__grid--compact">
-            <article v-if="detailTab === 'summary'" class="control-card control-card--wide">
-              <div class="section-mini-head">
-                <h4>Resumen operativo</h4>
-                <p>Lectura rapida del avance real del proveedor antes de confirmar el vuelo.</p>
-              </div>
-              <div class="provider-release-admin__list">
-                <span
-                  v-for="item in providerReleaseBooleanItems(selectedReservation)"
-                  :key="item.label"
-                  :class="{ 'is-done': item.done }"
-                >
-                  {{ item.label }}
-                </span>
-              </div>
-              <div class="provider-release-note-shell">
-                <span class="mini-label">Notas operativas</span>
-                <p class="provider-release-note-copy">{{ getProviderReleaseNotes(selectedReservation) }}</p>
-              </div>
-            </article>
-
-            <article v-if="detailTab === 'aircraft'" class="control-card control-card--wide">
-              <div class="section-mini-head">
-                <h4>Aeronave y alistamiento</h4>
-                <p>Estado de disponibilidad, mantenimiento y alistamiento final de cabina.</p>
-              </div>
-              <div class="provider-release-admin__list">
-                <span
-                  v-for="item in providerReleaseAircraftItems(selectedReservation)"
-                  :key="item.label"
-                  :class="{ 'is-done': item.done }"
-                >
-                  {{ item.label }}
-                </span>
-              </div>
-            </article>
-
-            <article v-if="detailTab === 'crew'" class="control-card control-card--wide">
-              <div class="section-mini-head">
-                <h4>Tripulacion</h4>
-                <p>Estados operativos reportados por el proveedor, sin exponer datos sensibles.</p>
-              </div>
-              <div class="provider-release-admin__list">
-                <span
-                  v-for="item in providerReleaseCrewItems(selectedReservation)"
-                  :key="item.label"
-                  :class="{ 'is-done': item.done }"
-                >
-                  {{ item.label }}{{ item.value ? ` · ${item.value}` : '' }}
-                </span>
-              </div>
-            </article>
-
-            <article v-if="detailTab === 'dispatch'" class="control-card control-card--wide">
-              <div class="section-mini-head">
-                <h4>Despacho y coordinacion</h4>
-                <p>Plan de vuelo, permisos, handling y documentos listos para salida.</p>
-              </div>
-              <div class="provider-release-admin__list">
-                <span
-                  v-for="item in providerReleaseDispatchItems(selectedReservation)"
-                  :key="item.label"
-                  :class="{ 'is-done': item.done }"
-                >
-                  {{ item.label }}
-                </span>
-              </div>
-            </article>
-
-            <article v-if="detailTab === 'log'" class="control-card control-card--wide">
-              <div class="section-mini-head">
-                <h4>Bitacora operativa</h4>
-                <p>Referencia rapida para seguimiento administrativo y coordinacion interna.</p>
-              </div>
-              <div class="provider-release-log">
-                <div class="info-card">
-                  <span>Notas del proveedor</span>
-                  <strong>{{ getProviderReleaseNotes(selectedReservation) }}</strong>
-                </div>
-                <div class="info-card">
-                  <span>FBO / handling</span>
-                  <strong>{{ getProviderReleaseSource(selectedReservation)?.fbo || 'Pendiente por definir' }}</strong>
-                </div>
-                <div class="info-card">
-                  <span>Ruta operativa</span>
-                  <strong>
-                    {{ getProviderReleaseSource(selectedReservation)?.departure_airport || 'N/D' }}
-                    -
-                    {{ getProviderReleaseSource(selectedReservation)?.arrival_airport || 'N/D' }}
-                  </strong>
-                </div>
-                <div class="info-card">
-                  <span>Ultima actualizacion</span>
-                  <strong>{{ getProviderReleaseSource(selectedReservation)?.updated_at || 'Sin sello de tiempo' }}</strong>
-                </div>
-              </div>
-            </article>
-          </div>
+        <article class="compact-state-panel">
+          <strong>{{ compactCurrentMessage.title }}</strong>
+          <p>{{ compactCurrentMessage.description }}</p>
         </article>
-
-        <div v-if="props.showAdminFlowPanel" class="flow-shell">
-          <div class="section-mini-head">
-            <h4>Flujo visible para el admin</h4>
-          </div>
-
-          <article class="signature-callout" :class="`signature-callout--${signatureStatus.tone}`">
-            <strong>{{ signatureStatus.title }}</strong>
-            <p>{{ signatureStatus.detail }}</p>
-          </article>
-
-          <div class="stepper-strip" aria-label="Resumen del flujo">
-            <div
-              v-for="(step, index) in flowSteps"
-              :key="`${step.id}-strip`"
-              class="stepper-pill"
-              :class="`stepper-pill--${stepState(selectedReservation, step.id)}`"
-            >
-              <span class="stepper-pill-index">{{ index + 1 }}</span>
-              <span class="stepper-pill-label">{{ step.shortLabel }}</span>
-            </div>
-          </div>
-
-          <div class="stepper-grid">
-            <article
-              v-for="step in flowSteps"
-              :key="step.id"
-              class="step-card"
-              :class="`step-card--${stepState(selectedReservation, step.id)}`"
-            >
-              <span class="step-chip">{{ step.shortLabel }}</span>
-              <strong>{{ step.title }}</strong>
-              <p>{{ stepDescription(selectedReservation, step) }}</p>
-            </article>
-          </div>
-        </div>
 
         <div v-if="props.showAdminFlowPanel" class="control-grid">
           <article class="control-card">
             <div class="section-mini-head">
-              <h4>Cambiar etapa</h4>
-              <p>Mueve manualmente la reserva a la fase correcta y deja evidencia administrativa.</p>
+              <h4>Nueva etapa</h4>
+              <p>Mueve manualmente la reserva a la fase correcta.</p>
             </div>
 
-            <label class="field">
-              <span>Nueva etapa</span>
+            <div class="compact-update-form">
               <select v-model="getFlowDraft(selectedReservation.id).stage">
                 <option v-for="step in flowSteps" :key="step.id" :value="step.id">
                   {{ step.title }}
                 </option>
               </select>
-            </label>
 
-            <label class="field">
-              <span>Nota admin</span>
               <textarea
                 v-model="getFlowDraft(selectedReservation.id).note"
-                rows="3"
-                placeholder="Explica por que se movio el flujo o que validacion se completo"
+                rows="2"
+                placeholder="Nota"
               ></textarea>
-            </label>
+            </div>
 
             <p v-if="props.flowErrorMessage" class="form-feedback form-feedback-error">
               {{ props.flowErrorMessage }}
@@ -1059,81 +718,11 @@ function submitResume(reservation) {
             >
               {{ props.isFlowLoading ? 'Actualizando...' : 'Actualizar flujo' }}
             </button>
-          </article>
-
-          <article class="control-card">
-            <div class="section-mini-head">
-              <h4>Retrasar o bloquear</h4>
-              <p>Usa este control cuando el cliente, el pago, la firma o una incidencia detengan la operacion.</p>
-            </div>
-
-            <div class="toggle-grid">
-              <label class="field">
-                <span>Modo</span>
-                <select v-model="getHoldDraft(selectedReservation.id).mode">
-                  <option value="delayed">Retrasar flujo</option>
-                  <option value="blocked">Bloquear flujo</option>
-                </select>
-              </label>
-
-              <label class="field">
-                <span>ETA de resolucion</span>
-                <input v-model="getHoldDraft(selectedReservation.id).eta" type="text" placeholder="2026-05-22 18:00" />
-              </label>
-            </div>
-
-            <label class="field">
-              <span>Motivo</span>
-              <textarea
-                v-model="getHoldDraft(selectedReservation.id).reason"
-                rows="3"
-                placeholder="Cliente pidio mover horario, pago retenido, contrato con observaciones..."
-              ></textarea>
-            </label>
-
-            <label class="field">
-              <span>Comentario adicional</span>
-              <input
-                v-model="getHoldDraft(selectedReservation.id).note"
-                type="text"
-                placeholder="Impacto, responsable o siguiente accion"
-              />
-            </label>
-
-            <div class="inline-actions">
-              <button type="button" class="ghost-button" @click="submitDelay(selectedReservation)">
-                Guardar pausa
-              </button>
-
-              <button
-                v-if="selectedReservation.adminFlowState !== 'active'"
-                type="button"
-                class="primary-action"
-                @click="submitResume(selectedReservation)"
-              >
-                Reanudar flujo
-              </button>
-            </div>
-
-            <label v-if="selectedReservation.adminFlowState !== 'active'" class="field">
-              <span>Nota de reactivacion</span>
-              <input
-                v-model="getHoldDraft(selectedReservation.id).resumeNote"
-                type="text"
-                placeholder="Ej. cliente envio documentos y se libera el proceso"
-              />
-            </label>
-          </article>
-
-          <article v-if="isAssistedManualValidationPending(selectedReservation)" class="control-card">
-            <div class="section-mini-head">
-              <h4>Pago asistido</h4>
-              <p>El cliente ya subio comprobante y esta reserva espera validacion administrativa.</p>
-            </div>
 
             <button
+              v-if="isAssistedManualValidationPending(selectedReservation)"
               type="button"
-              class="primary-action"
+              class="ghost-button"
               :disabled="props.isFlowLoading"
               @click="emit('mark-manual-paid', { reservationId: selectedReservation.id })"
             >
@@ -1144,18 +733,25 @@ function submitResume(reservation) {
 
         <article
           v-if="props.showAdminFlowPanel"
-          class="alert-card"
+          class="alert-card alert-card--compact"
           :class="adminStateTone(selectedReservation.adminFlowState)"
         >
-          <strong>Seguimiento administrativo</strong>
-          <p v-if="selectedReservation.adminFlowState === 'active'">
-            La reserva esta activa y puede seguir avanzando normalmente.
-          </p>
-          <p v-else>
-            {{ selectedReservation.adminDelayReason || 'Hay una pausa administrativa registrada.' }}
-          </p>
+          <div class="compact-followup">
+            <div>
+              <strong>Seguimiento administrativo</strong>
+              <p v-if="selectedReservation.adminFlowState === 'active'">
+                Reserva operando normalmente. Sin incidencias.
+              </p>
+              <p v-else>
+                {{ selectedReservation.adminDelayReason || 'Hay una pausa administrativa registrada.' }}
+              </p>
+            </div>
+            <button type="button" class="ghost-button" :disabled="!compactAuditPreview.length">
+              Ver bitacora
+            </button>
+          </div>
           <small v-if="selectedReservation.adminDelayEta">ETA estimada: {{ selectedReservation.adminDelayEta }}</small>
-          <small>{{ selectedReservation.notes }}</small>
+          <small v-if="compactAuditPreview[0]">{{ compactAuditPreview[0].title }}</small>
         </article>
       </article>
     </div>
@@ -1163,30 +759,8 @@ function submitResume(reservation) {
     <article v-if="!activeReservations.length && props.reservations.length" class="surface section-card empty-shell">
       <p class="eyebrow">Sin resultados</p>
       <h3>No hay reservas con esos filtros</h3>
-      <p class="muted">Ajusta la busqueda o limpia los filtros para volver a ver la bandeja completa.</p>
+      <p class="muted">Ajusta la busqueda o vuelve a actualizar la lista.</p>
       <button type="button" class="ghost-button" @click="clearFilters">Limpiar filtros</button>
-    </article>
-
-    <article class="surface section-card">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow">Bitacora</p>
-          <h3>Historial de cambios del flujo</h3>
-        </div>
-      </div>
-
-      <div v-if="auditEntries.length" class="timeline">
-        <article v-for="entry in auditEntries" :key="entry.id" class="timeline-item">
-          <span class="timeline-date">{{ entry.date }}</span>
-          <div>
-            <strong>{{ entry.title }}</strong>
-            <p class="muted">{{ entry.detail }}</p>
-          </div>
-        </article>
-      </div>
-      <p v-else class="empty-state">
-        Cuando el admin haga cambios de etapa o registre retrasos, apareceran aqui.
-      </p>
     </article>
 
     <article v-if="!activeReservations.length" class="surface section-card empty-shell">
@@ -1198,19 +772,21 @@ function submitResume(reservation) {
 </template>
 
 <style scoped>
-.reservation-admin-page,
-.hero-metrics,
-.reservation-list,
-.timeline,
-.status-stack,
-.stepper-strip {
+.reservation-admin-page {
+  position: relative;
   display: grid;
   gap: 1rem;
+  color: #111111;
 }
 
-.reservation-admin-page {
-  color: #16120d;
-  position: relative;
+.reservation-admin-page :deep(.surface) {
+  background: #fffdfa;
+  border: 1px solid #e7dde0;
+  box-shadow: 0 18px 44px rgba(18, 24, 40, 0.06);
+}
+
+.reservation-admin-page :deep(.eyebrow) {
+  color: #2457e2;
 }
 
 .flow-loading-modal {
@@ -1225,9 +801,7 @@ function submitResume(reservation) {
 .flow-loading-backdrop {
   position: absolute;
   inset: 0;
-  background:
-    radial-gradient(circle at top, rgba(194, 138, 18, 0.16), transparent 42%),
-    rgba(20, 16, 12, 0.42);
+  background: rgba(17, 17, 17, 0.38);
   backdrop-filter: blur(10px);
 }
 
@@ -1236,30 +810,22 @@ function submitResume(reservation) {
   z-index: 1;
   width: min(100%, 28rem);
   padding: 1.4rem;
-  border: 1px solid rgba(234, 223, 201, 0.9);
-  border-radius: 28px;
-  background: linear-gradient(180deg, rgba(255, 253, 249, 0.98) 0%, rgba(255, 247, 232, 0.98) 100%);
-  box-shadow: 0 28px 80px rgba(44, 29, 10, 0.2);
+  border: 1px solid rgba(223, 228, 239, 0.9);
+  border-radius: 24px;
+  background: #ffffff;
+  box-shadow: 0 28px 80px rgba(17, 17, 17, 0.18);
   text-align: center;
 }
 
 .flow-loading-orb {
   display: inline-block;
-  width: 4.25rem;
-  height: 4.25rem;
+  width: 4rem;
+  height: 4rem;
   margin-bottom: 0.9rem;
   border-radius: 50%;
-  background:
-    radial-gradient(circle at 32% 30%, #fff7de 0%, #f7d98e 28%, #c28a12 62%, #6f4d0d 100%);
-  box-shadow:
-    0 0 0 10px rgba(194, 138, 18, 0.09),
-    0 18px 45px rgba(194, 138, 18, 0.3);
+  background: radial-gradient(circle at 32% 30%, #e8f0ff 0%, #5b87ff 48%, #2457e2 100%);
+  box-shadow: 0 18px 45px rgba(36, 87, 226, 0.28);
   animation: flow-orb-pulse 1.6s ease-in-out infinite;
-}
-
-.flow-loading-card h3 {
-  margin: 0.2rem 0 0.45rem;
-  font-size: 1.7rem;
 }
 
 .flow-loading-progress {
@@ -1267,7 +833,7 @@ function submitResume(reservation) {
   height: 0.42rem;
   margin-top: 1rem;
   border-radius: 999px;
-  background: rgba(194, 138, 18, 0.12);
+  background: rgba(36, 87, 226, 0.12);
 }
 
 .flow-loading-progress span {
@@ -1275,7 +841,7 @@ function submitResume(reservation) {
   width: 35%;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #c28a12 0%, #f1c85b 100%);
+  background: linear-gradient(90deg, #2457e2, #7da0ff);
   animation: flow-progress-slide 1.15s ease-in-out infinite;
 }
 
@@ -1289,469 +855,292 @@ function submitResume(reservation) {
   opacity: 0;
 }
 
-.reservation-admin-page :deep(.surface) {
-  background: #fffdf9;
-  border-color: #eadfc9;
-  box-shadow: 0 24px 60px rgba(145, 108, 36, 0.08);
-}
-
-.reservation-admin-page :deep(.eyebrow) {
-  color: #c28a12;
-}
-
-.reservation-admin-page :deep(.muted) {
-  color: #6e6250;
-}
-
-.reservation-admin-page h2,
-.reservation-admin-page h3,
-.reservation-admin-page h4,
-.reservation-admin-page strong,
-.reservation-admin-page p,
-.reservation-admin-page span,
-.reservation-admin-page small,
-.reservation-admin-page label {
-  color: inherit;
-}
-
-.reservation-admin-page h2,
-.reservation-admin-page h3,
-.reservation-admin-page h4,
-.reservation-admin-page strong {
-  color: #20160d;
-}
-
-.reservation-admin-page p,
-.reservation-admin-page small {
-  color: #544838;
-}
-
-.page-grid,
-.control-grid,
-.toggle-grid,
-.info-grid,
-.stepper-grid,
-.queue-summary,
-.filters-grid {
-  display: grid;
-  gap: 1rem;
-}
-
-.page-grid {
-  grid-template-columns: minmax(320px, 0.86fr) minmax(0, 1.14fr);
-  align-items: start;
-}
-
-.page-grid--compact {
-  grid-template-columns: minmax(420px, 0.95fr) minmax(0, 1.05fr);
-}
-
-.hero-card,
-.section-card,
-.metric-card,
-.reservation-card,
-.control-card,
-.info-card,
-.step-card,
-.alert-card {
-  border-radius: 22px;
-}
-
-.hero-card,
-.section-card,
-.metric-card,
-.reservation-card,
-.control-card,
-.info-card,
-.step-card,
-.alert-card,
-.timeline-item {
-  border: 1px solid #eee2cc;
-  background: #fffdfa;
-}
-
 .hero-card,
 .section-card {
-  padding: 1.2rem;
-}
-
-.hero-card,
-.section-head,
-.card-head,
-.inline-actions {
   display: flex;
   justify-content: space-between;
-  align-items: center;
   gap: 1rem;
+  padding: 1rem;
+  border-radius: 20px;
+}
+
+.hero-copy {
+  display: grid;
+  gap: 0.35rem;
+  max-width: 42rem;
+}
+
+.hero-copy h2,
+.section-head h3 {
+  margin: 0;
+  color: #111111;
+}
+
+.muted {
+  margin: 0;
+  color: #556274;
 }
 
 .hero-metrics {
+  display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
   min-width: min(34rem, 100%);
 }
 
-.metric-card,
-.control-card,
-.info-card,
-.step-card,
-.alert-card,
-.timeline-item {
-  padding: 1rem;
+.metric-card {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid #e7ecf5;
+  border-radius: 18px;
+  background: #ffffff;
 }
 
-.metric-card span,
-.field span,
-.timeline-date,
-.info-card span,
-.step-chip,
-.stepper-pill-label,
-.stepper-pill-index {
-  display: block;
-  color: #78684e;
+.metric-card span {
+  color: #6f7b8f;
   font-size: 0.82rem;
 }
 
-.metric-card strong,
-.info-card strong,
-.section-card h3,
-.hero-card h2,
-.step-card strong,
-.alert-card strong {
-  margin-top: 0.3rem;
+.metric-card strong {
+  color: #111111;
+  font-size: 1.5rem;
 }
 
-.reservations-panel,
-.detail-panel,
-.reservation-card,
-.flow-shell,
-.filters-shell,
-.provider-release-admin,
-.compact-table,
-.compact-table__head,
-.compact-row,
-.compact-row__cell,
-.compact-release-kpis,
-.provider-release-log {
+.page-grid {
   display: grid;
+  grid-template-columns: minmax(320px, 0.82fr) minmax(0, 1.18fr);
   gap: 1rem;
-}
-
-.reservations-panel,
-.detail-panel,
-.reservation-list,
-.reservation-card,
-.card-head,
-.card-head > div,
-.route-line,
-.card-tags,
-.card-meta,
-.card-meta span,
-.mini-badge,
-.badge {
-  min-width: 0;
-}
-
-.reservation-list {
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   align-items: start;
 }
 
-.provider-release-note-shell {
+.reservations-panel,
+.detail-panel,
+.compact-state-panel,
+.control-card,
+.alert-card {
   display: grid;
-  gap: 0.45rem;
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid #eee2cc;
+  gap: 0.9rem;
 }
 
-.provider-release-note-copy {
-  margin: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-  color: #4f4638;
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.9rem;
 }
 
-.reservation-card {
-  width: 100%;
-  padding: 1rem;
-  text-align: left;
-  cursor: pointer;
-  overflow: hidden;
-  transition:
-    border-color 0.2s ease,
-    box-shadow 0.2s ease,
-    transform 0.2s ease;
+.section-head--detail {
+  align-items: start;
 }
 
-.primary-action[disabled] {
-  cursor: wait;
-  opacity: 0.82;
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2rem;
+  padding: 0 0.8rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 800;
 }
 
-.reservation-card--selected {
-  border-color: rgba(200, 169, 107, 0.75);
-  box-shadow: 0 20px 45px rgba(141, 105, 25, 0.12);
-  transform: translateY(-1px);
+.badge-muted {
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  background: rgba(17, 17, 17, 0.05);
+  color: #4b5563;
 }
 
-.compact-table {
+.badge-success {
+  border: 1px solid rgba(31, 128, 61, 0.16);
+  background: rgba(31, 128, 61, 0.12);
+  color: #1f803d;
+}
+
+.badge-warning {
+  border: 1px solid rgba(200, 146, 17, 0.2);
+  background: rgba(200, 146, 17, 0.12);
+  color: #9f6c00;
+}
+
+.badge-danger {
+  border: 1px solid rgba(167, 35, 47, 0.2);
+  background: rgba(167, 35, 47, 0.1);
+  color: #a7232f;
+}
+
+.detail-client-name {
+  margin: 0.2rem 0 0;
+  color: #111111;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.status-stack {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 0.6rem;
 }
 
-.compact-table__head,
-.compact-row {
-  grid-template-columns: 0.7fr 1.2fr 1.6fr 1fr 1fr 0.85fr 0.8fr 0.55fr;
-  align-items: center;
-  column-gap: 0.8rem;
-}
-
-.compact-table__head {
-  padding: 0 0.75rem;
-  color: #78684e;
-  font-size: 0.78rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.compact-row {
-  width: 100%;
-  padding: 0.9rem 0.75rem;
-  text-align: left;
-  border: 1px solid #eee2cc;
-  border-radius: 18px;
-  background: #fffdfa;
-  cursor: pointer;
-  transition:
-    border-color 0.2s ease,
-    box-shadow 0.2s ease,
-    transform 0.2s ease;
-}
-
-.compact-row:hover,
-.compact-row--selected {
-  border-color: rgba(200, 169, 107, 0.75);
-  box-shadow: 0 18px 40px rgba(141, 105, 25, 0.1);
-  transform: translateY(-1px);
-}
-
-.compact-row__cell {
-  gap: 0.2rem;
-}
-
-.compact-row__cell small {
-  color: #7a6b57;
-}
-
-.compact-route,
-.compact-row__action {
-  color: #4f4638;
-}
-
-.compact-row__action {
-  font-weight: 700;
-}
-
-.queue-summary {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.queue-stat {
-  padding: 0.95rem 1rem;
-  border: 1px solid #eee2cc;
-  border-radius: 18px;
-  background: linear-gradient(180deg, #fffdfa 0%, #fff8ef 100%);
-}
-
-.queue-stat span,
-.queue-stat small {
-  display: block;
-}
-
-.queue-stat strong {
-  display: block;
-  margin: 0.25rem 0;
-  font-size: 1.35rem;
-}
-
-.filters-shell {
-  padding: 1rem;
-  border: 1px solid #eee2cc;
-  border-radius: 20px;
-  background: linear-gradient(180deg, #fffdfa 0%, #fff8ef 100%);
-}
-
-.filters-grid {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
-  align-items: end;
-}
-
-.route-line,
-.card-meta {
-  color: #4f4638;
-  font-size: 0.94rem;
-}
-
-.card-head strong,
-.route-line,
-.card-meta span,
-.mini-badge,
-.badge {
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-
-.card-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.mini-badge {
-  display: inline-flex;
-  align-items: center;
-  min-height: 1.8rem;
-  padding: 0 0.7rem;
-  border-radius: 999px;
-  border: 1px solid rgba(194, 138, 18, 0.18);
-  background: rgba(194, 138, 18, 0.08);
-  color: #785f2a;
-  font-size: 0.76rem;
-  font-weight: 700;
-}
-
-.card-meta {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.info-grid,
-.control-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.flow-shell,
-.provider-release-admin,
-.control-card {
-  padding: 1rem;
-  border: 1px solid #eee2cc;
-  border-radius: 20px;
-  background: linear-gradient(180deg, #fffdfa 0%, #fff8ef 100%);
-}
-
-.provider-release-admin__grid,
-.provider-release-admin__list {
-  display: grid;
-  gap: 1rem;
-}
-
-.provider-release-admin__grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.provider-release-admin--compact {
-  gap: 1.1rem;
-}
-
-.compact-release-kpis {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.compact-release-kpi {
-  padding: 0.95rem 1rem;
-  border: 1px solid #eadfc9;
-  border-radius: 18px;
-  background: #fffdfa;
-}
-
-.compact-release-kpi span,
-.compact-release-kpi strong,
-.compact-release-kpi small {
-  display: block;
-}
-
-.compact-release-kpi strong {
-  margin: 0.25rem 0;
-}
-
-.release-tabs {
+.detail-summary-line {
   display: flex;
   flex-wrap: wrap;
   gap: 0.65rem;
+  align-items: center;
+  padding: 0.15rem 0 0.8rem;
+  border-bottom: 1px solid #e7ebf2;
 }
 
-.release-tab {
-  min-height: 2.4rem;
-  padding: 0 0.95rem;
-  border: 1px solid #eadfc9;
-  border-radius: 999px;
-  background: #fffdfa;
-  color: #5d5243;
-  cursor: pointer;
+.detail-summary-line span {
+  color: #111111;
+  font-weight: 600;
 }
 
-.release-tab--active {
-  border-color: rgba(200, 146, 17, 0.35);
-  background: #fff0c9;
-  color: #8f6a1d;
-  font-weight: 700;
+.detail-summary-line span:not(:last-child)::after {
+  content: '•';
+  margin-left: 0.65rem;
+  color: #a0a9b8;
 }
 
-.provider-release-admin__grid--compact {
+.flow-shell {
+  padding: 0.4rem 0 0.2rem;
+}
+
+.compact-state-panel,
+.control-card,
+.alert-card {
+  padding: 1rem;
+  border: 1px solid #e7ecf5;
+  border-radius: 18px;
+  background: #ffffff;
+}
+
+.compact-state-panel strong,
+.compact-followup strong {
+  color: #111111;
+}
+
+.compact-state-panel p,
+.compact-followup p,
+.alert-card small {
+  margin: 0;
+  color: #556274;
+}
+
+.control-grid {
+  display: grid;
   grid-template-columns: 1fr;
 }
 
-.control-card--wide {
-  min-width: 0;
+.section-mini-head {
+  display: grid;
+  gap: 0.25rem;
 }
 
-.provider-release-log {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.section-mini-head h4,
+.section-mini-head p {
+  margin: 0;
 }
 
-.provider-release-admin__list span {
-  display: flex;
-  align-items: center;
-  min-height: 2.5rem;
-  padding: 0.75rem 0.9rem;
-  border: 1px solid #eadfc9;
+.compact-update-form {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.9fr) minmax(0, 1.1fr);
+  gap: 0.75rem;
+}
+
+input,
+select,
+textarea,
+button {
+  font: inherit;
+}
+
+select,
+textarea {
+  border: 1px solid #dde5ef;
   border-radius: 14px;
-  background: #fffdfa;
-  color: #6c5c47;
+  background: #ffffff;
+  color: #111111;
+}
+
+select {
+  min-height: 2.9rem;
+  padding: 0 0.85rem;
+}
+
+textarea {
+  min-height: 2.9rem;
+  padding: 0.75rem 0.85rem;
+  resize: vertical;
+}
+
+textarea::placeholder {
+  color: #8a95a6;
+}
+
+.primary-action,
+.ghost-button {
+  min-height: 2.85rem;
+  padding: 0 1rem;
+  border-radius: 14px;
+  cursor: pointer;
+}
+
+.primary-action {
+  border: 1px solid #0e2f69;
+  background: linear-gradient(135deg, #0e2f69, #123d87);
+  color: #ffffff;
+}
+
+.ghost-button {
+  border: 1px solid #dde5ef;
+  background: #ffffff;
+  color: #253247;
+}
+
+.primary-action[disabled],
+.ghost-button[disabled] {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.compact-followup {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: start;
+}
+
+.alert-card--compact.badge-success,
+.alert-card--compact.badge-warning,
+.alert-card--compact.badge-danger {
+  display: grid;
+  justify-content: stretch;
+}
+
+.list-footnote,
+.empty-shell {
+  color: #667489;
   font-size: 0.92rem;
 }
 
-.provider-release-admin__list span.is-done {
-  border-color: rgba(31, 128, 61, 0.22);
-  background: #eef9f0;
-  color: #1f803d;
-  font-weight: 700;
+.empty-shell {
+  text-align: center;
 }
 
-.signature-callout {
-  display: grid;
-  gap: 0.35rem;
-  padding: 0.95rem 1rem;
-  border-radius: 18px;
-  border: 1px solid #eadfc9;
-  background: #fffaf0;
+.form-feedback-error {
+  color: #a7232f;
 }
 
 @keyframes flow-orb-pulse {
   0%,
   100% {
     transform: scale(0.96);
-    box-shadow:
-      0 0 0 10px rgba(194, 138, 18, 0.09),
-      0 18px 45px rgba(194, 138, 18, 0.3);
   }
 
   50% {
     transform: scale(1.03);
-    box-shadow:
-      0 0 0 16px rgba(194, 138, 18, 0.12),
-      0 24px 52px rgba(194, 138, 18, 0.36);
   }
 }
 
@@ -1765,301 +1154,34 @@ function submitResume(reservation) {
   }
 }
 
-.signature-callout strong {
-  margin: 0;
-}
-
-.signature-callout p {
-  margin: 0;
-}
-
-.signature-callout--success {
-  border-color: rgba(31, 128, 61, 0.24);
-  background: #eef9f0;
-}
-
-.signature-callout--warning {
-  border-color: rgba(194, 138, 18, 0.28);
-  background: #fff2cf;
-}
-
-.signature-callout--neutral {
-  border-color: rgba(95, 82, 67, 0.14);
-  background: #fbf8f1;
-}
-
-.stepper-strip {
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-}
-
-.stepper-pill {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  min-height: 3.2rem;
-  padding: 0.6rem 0.8rem;
-  border: 1px solid #eadfc9;
-  border-radius: 999px;
-  background: #ffffff;
-}
-
-.stepper-pill-index {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.8rem;
-  height: 1.8rem;
-  border-radius: 999px;
-  font-weight: 800;
-  background: #f7f1e4;
-  color: #8f6a1d;
-}
-
-.stepper-pill-label {
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #544838;
-}
-
-.stepper-pill--done {
-  border-color: rgba(31, 128, 61, 0.3);
-  background: #eef9f0;
-}
-
-.stepper-pill--done .stepper-pill-index {
-  background: #1f803d;
-  color: #ffffff;
-}
-
-.stepper-pill--current {
-  border-color: rgba(194, 138, 18, 0.35);
-  background: #fff0c9;
-  box-shadow: 0 12px 30px rgba(194, 138, 18, 0.12);
-}
-
-.stepper-pill--current .stepper-pill-index {
-  background: #c28a12;
-  color: #ffffff;
-}
-
-.stepper-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.step-card {
-  min-height: 9rem;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
-}
-
-.step-card--done {
-  background: #eef9f0;
-  border-color: rgba(31, 128, 61, 0.22);
-}
-
-.step-card--current {
-  background: #fff4d6;
-  border-color: rgba(200, 146, 17, 0.3);
-}
-
-.step-card--pending {
-  background: #fffdfa;
-}
-
-.step-chip {
-  margin-bottom: 0.5rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-.step-card strong {
-  display: block;
-  margin-bottom: 0.45rem;
-  font-size: 1rem;
-  color: #23180f;
-}
-
-.step-card p {
-  margin: 0;
-  line-height: 1.45;
-  color: #5d5243;
-}
-
-.section-mini-head {
-  display: grid;
-  gap: 0.35rem;
-}
-
-.section-mini-head h4,
-.section-mini-head p {
-  margin: 0;
-}
-
-.field {
-  display: grid;
-  gap: 0.35rem;
-}
-
-input,
-select,
-textarea,
-button {
-  font: inherit;
-}
-
-input,
-select,
-textarea {
-  min-height: 2.8rem;
-  padding: 0 0.85rem;
-  border-radius: 14px;
-  border: 1px solid #dccfb9;
-  background: #ffffff;
-  color: #111111;
-}
-
-textarea {
-  padding: 0.8rem;
-}
-
-input::placeholder,
-textarea::placeholder {
-  color: #8c7c68;
-}
-
-.badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 2rem;
-  padding: 0 0.8rem;
-  border-radius: 999px;
-  border: 1px solid rgba(200, 169, 107, 0.18);
-  background: rgba(200, 169, 107, 0.14);
-  color: #8f6919;
-  font-size: 0.78rem;
-  font-weight: 700;
-}
-
-.badge-muted {
-  border-color: rgba(17, 17, 17, 0.08);
-  background: rgba(17, 17, 17, 0.05);
-  color: #4b5563;
-}
-
-.badge-success {
-  border-color: rgba(31, 128, 61, 0.18);
-  background: rgba(31, 128, 61, 0.12);
-  color: #1f803d;
-}
-
-.badge-warning {
-  border-color: rgba(200, 146, 17, 0.2);
-  background: rgba(200, 146, 17, 0.12);
-  color: #9f6c00;
-}
-
-.badge-danger {
-  border-color: rgba(167, 35, 47, 0.2);
-  background: rgba(167, 35, 47, 0.1);
-  color: #a7232f;
-}
-
-.primary-action,
-.ghost-button {
-  min-height: 2.75rem;
-  padding: 0 1rem;
-  border-radius: 14px;
-  cursor: pointer;
-}
-
-.primary-action {
-  border: 1px solid #111111;
-  background: #111111;
-  color: #ffffff;
-}
-
-.ghost-button {
-  border: 1px solid #dccfb9;
-  background: #fffdfa;
-  color: #2e2a22;
-}
-
-.inline-actions {
-  flex-wrap: wrap;
-}
-
-.timeline-item {
-  display: grid;
-  gap: 0.35rem;
-}
-
-.alert-card {
-  display: grid;
-  gap: 0.35rem;
-}
-
-.alert-card strong,
-.alert-card p,
-.alert-card small {
-  color: inherit;
-}
-
-.empty-state,
-.empty-shell {
-  text-align: center;
-}
-
-.muted {
-  color: #5c5345;
-}
-
 @media (max-width: 1180px) {
+  .hero-card,
   .page-grid,
   .hero-metrics,
-  .queue-summary,
-  .info-grid,
-  .control-grid,
-  .compact-release-kpis,
-  .provider-release-log,
-  .provider-release-admin__grid,
-  .toggle-grid,
-  .filters-grid,
-  .stepper-strip,
-  .stepper-grid {
+  .compact-update-form {
     grid-template-columns: 1fr;
   }
 
   .hero-card {
     display: grid;
   }
-
-  .compact-table__head {
-    display: none;
-  }
-
-  .compact-row {
-    grid-template-columns: 1fr;
-    row-gap: 0.5rem;
-  }
 }
 
 @media (max-width: 760px) {
-  .hero-card,
   .section-head,
-  .card-head,
-  .inline-actions {
+  .status-stack,
+  .compact-followup {
     flex-direction: column;
     align-items: stretch;
   }
 
-  .card-meta {
+  .detail-summary-line {
     flex-direction: column;
+    align-items: start;
   }
 
-  .card-tags {
-    flex-direction: column;
+  .detail-summary-line span::after {
+    content: none !important;
   }
 }
 </style>

@@ -91,6 +91,7 @@ defineEmits(['action'])
         `reservation-action-card__button--${variant}`,
         { 'reservation-action-card__button--loading': loading },
       ]"
+      style="color: #ffffff; -webkit-text-fill-color: #ffffff;"
       :disabled="buttonDisabled"
       :aria-busy="loading ? 'true' : 'false'"
       @click="$emit('action')"
@@ -100,9 +101,19 @@ defineEmits(['action'])
         class="reservation-action-card__spinner"
         aria-hidden="true"
       ></span>
-      <span v-else class="reservation-action-card__button-icon">{{ buttonIcon }}</span>
-      <span class="reservation-action-card__button-label">{{ buttonLabelText }}</span>
-      <span class="reservation-action-card__button-arrow">{{ loading ? '…' : buttonArrow }}</span>
+      <span
+        v-else
+        class="reservation-action-card__button-icon"
+        style="color: #ffffff; -webkit-text-fill-color: #ffffff;"
+      >{{ buttonIcon }}</span>
+      <span
+        class="reservation-action-card__button-label"
+        style="color: #ffffff; -webkit-text-fill-color: #ffffff;"
+      >{{ buttonLabelText }}</span>
+      <span
+        class="reservation-action-card__button-arrow"
+        style="color: #ffffff; -webkit-text-fill-color: #ffffff;"
+      >{{ loading ? '…' : buttonArrow }}</span>
     </button>
 
     <p
@@ -504,6 +515,7 @@ defineEmits(['action'])
   font-weight: 900;
   letter-spacing: 0.01em;
   color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff;
   cursor: pointer;
   transition:
     transform 0.18s ease,
@@ -513,7 +525,8 @@ defineEmits(['action'])
 
 .reservation-action-card__button,
 .reservation-action-card__button span {
-  color: inherit;
+  color: inherit !important;
+  -webkit-text-fill-color: inherit;
 }
 
 .reservation-action-card__button--contract {
@@ -573,7 +586,8 @@ defineEmits(['action'])
 .reservation-action-card__button-icon,
 .reservation-action-card__button-label,
 .reservation-action-card__button-arrow {
-  color: inherit;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff;
   font-size: 1.05rem;
 }
 

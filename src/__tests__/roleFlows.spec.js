@@ -24,8 +24,20 @@ describe('roleFlows helpers', () => {
   })
 
   it('resolves custom paths when a section declares them', () => {
+    expect(resolveRoleSectionPath('admin', 'sobrecargos')).toBe(
+      '/admin/sobrecargos',
+    )
     expect(resolveRoleSectionPath('admin', 'disponibilidad')).toBe(
       '/admin/sobrecargos/disponibilidad',
+    )
+    expect(resolveRoleSectionPath('admin', 'sobrecargo-operaciones')).toBe(
+      '/admin/sobrecargos/operaciones',
+    )
+    expect(resolveRoleSectionPath('admin', 'sobrecargos-en-vuelo')).toBe(
+      '/admin/sobrecargos/en-vuelo',
+    )
+    expect(resolveRoleSectionPath('admin', 'incidencias')).toBe(
+      '/admin/sobrecargos/incidencias',
     )
   })
 

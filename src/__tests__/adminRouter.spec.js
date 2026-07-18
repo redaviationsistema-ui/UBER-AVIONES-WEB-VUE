@@ -38,14 +38,56 @@ describe('admin router policy', () => {
     })
 
     const adminRoute = router.resolve('/admin/ejecutivo')
+    const crewDirectoryRoute = router.resolve('/admin/sobrecargos')
     const crewAvailabilityRoute = router.resolve('/admin/sobrecargos/disponibilidad')
+    const crewOperationsRoute = router.resolve('/admin/sobrecargos/operaciones')
+    const crewInFlightRoute = router.resolve('/admin/sobrecargos/en-vuelo')
+    const crewIncidentsRoute = router.resolve('/admin/sobrecargos/incidencias')
 
     expect(adminRoute.meta.requiresAuth).toBe(true)
     expect(adminRoute.meta.requiresAdmin).toBe(true)
     expect(adminRoute.meta.role).toBe('admin')
+    expect(crewDirectoryRoute.meta.requiresAuth).toBe(true)
+    expect(crewDirectoryRoute.meta.requiresAdmin).toBe(true)
     expect(crewAvailabilityRoute.meta.requiresAuth).toBe(true)
     expect(crewAvailabilityRoute.meta.requiresAdmin).toBe(true)
     expect(crewAvailabilityRoute.meta.role).toBe('admin')
+    expect(crewOperationsRoute.meta.requiresAuth).toBe(true)
+    expect(crewInFlightRoute.meta.requiresAuth).toBe(true)
+    expect(crewIncidentsRoute.meta.requiresAuth).toBe(true)
+  })
+
+  it('supports direct admin crew URLs through redirects to the canonical admin section route', async () => {
+    const authStore = {
+      token: 'session-token',
+      loaded: true,
+      initialized: true,
+      isAuthenticated: true,
+      user: { id: 7, role: 'admin' },
+      dashboardPath: '/admin/ejecutivo',
+      initialize: vi.fn(),
+      loadCurrentUser: vi.fn(),
+      hasAdminAccess: vi.fn(() => true),
+      hasRole: vi.fn(() => true),
+    }
+
+    const router = await loadRouterWithAuthStore(authStore)
+
+    await router.push('/admin/sobrecargos')
+    expect(router.currentRoute.value.name).toBe('admin')
+    expect(router.currentRoute.value.params.section).toBe('sobrecargos')
+
+    await router.push('/admin/sobrecargos/operaciones')
+    expect(router.currentRoute.value.name).toBe('admin')
+    expect(router.currentRoute.value.params.section).toBe('sobrecargo-operaciones')
+
+    await router.push('/admin/sobrecargos/en-vuelo')
+    expect(router.currentRoute.value.name).toBe('admin')
+    expect(router.currentRoute.value.params.section).toBe('sobrecargos-en-vuelo')
+
+    await router.push('/admin/sobrecargos/incidencias')
+    expect(router.currentRoute.value.name).toBe('admin')
+    expect(router.currentRoute.value.params.section).toBe('incidencias')
   })
 
   it('reuses the initialized admin session on section changes without refetching auth', async () => {

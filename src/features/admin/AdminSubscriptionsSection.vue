@@ -24,11 +24,19 @@ const currentPage = ref(1)
 const rowsPerPage = ref(10)
 const sortBy = ref('renewal_asc')
 const actionUserId = ref(0)
+const commercialActionMenuId = ref(0)
 const evidenceModalOpen = ref(false)
 const selectedEvidence = ref(null)
 const evidenceSearchTerm = ref('')
 const selectedProviderPaymentId = ref('')
 const brokenAircraftImages = ref({})
+
+const contentTabs = [
+  { id: 'commercial', label: 'Acceso comercial' },
+  { id: 'payments', label: 'Pagos recientes' },
+  { id: 'provider-payments', label: 'Pagos proveedor' },
+  { id: 'aircraft', label: 'Aeronaves' },
+]
 
 const latestPaymentByUserId = computed(() => {
   const map = new Map()
@@ -319,6 +327,8 @@ const activeCollectionLength = computed(() => {
 })
 
 const totalPages = computed(() => Math.max(1, Math.ceil(activeCollectionLength.value / rowsPerPage.value)))
+const paginationStart = computed(() => (activeCollectionLength.value ? (currentPage.value - 1) * rowsPerPage.value + 1 : 0))
+const paginationEnd = computed(() => Math.min(currentPage.value * rowsPerPage.value, activeCollectionLength.value))
 
 const paginatedCommercialRows = computed(() => paginateRows(filteredCommercialRows.value))
 const paginatedRecentPayments = computed(() => paginateRows(props.accessPayments || []))
@@ -737,8 +747,54 @@ function isBusy(userId) {
   return actionUserId.value === Number(userId || 0)
 }
 
+function userInitials(name = '') {
+  return (
+    String(name || '')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((chunk) => chunk.charAt(0).toUpperCase())
+      .join('') || 'CL'
+  )
+}
+
+function isCommercialMenuOpen(userId) {
+  return commercialActionMenuId.value === Number(userId || 0)
+}
+
+function toggleCommercialActionMenu(userId) {
+  const normalizedId = Number(userId || 0)
+  commercialActionMenuId.value = commercialActionMenuId.value === normalizedId ? 0 : normalizedId
+}
+
+function closeCommercialActionMenu() {
+  commercialActionMenuId.value = 0
+}
+
+function openCommercialDetail(row) {
+  closeCommercialActionMenu()
+  openAdminSection('usuarios')
+}
+
+function primaryCommercialActionLabel(row = {}) {
+  if (row.hasPaidAccess || row.commercialStage === 'paid') return 'Actualizar acceso'
+  return 'Activar demo'
+}
+
+async function runPrimaryCommercialAction(row) {
+  closeCommercialActionMenu()
+  if (row.hasPaidAccess || row.commercialStage === 'paid') {
+    await revokeAccess(row)
+    return
+  }
+
+  await grantTrial(row)
+}
+
 async function grantTrial(row) {
   if (!row?.id || isBusy(row.id)) return
+  closeCommercialActionMenu()
   actionUserId.value = Number(row.id)
 
   try {
@@ -762,6 +818,7 @@ async function grantTrial(row) {
 
 async function revokeAccess(row) {
   if (!row?.id || isBusy(row.id)) return
+  closeCommercialActionMenu()
   if (typeof window !== 'undefined' && !window.confirm(`Se desactivara el acceso comercial de ${row.name}. Deseas continuar?`)) {
     return
   }
@@ -789,6 +846,7 @@ async function revokeAccess(row) {
 
 async function deleteClient(row) {
   if (!row?.id || isBusy(row.id)) return
+  closeCommercialActionMenu()
   if (
     typeof window !== 'undefined' &&
     !window.confirm(
@@ -821,6 +879,7 @@ async function deleteClient(row) {
 
 async function anonymizeClient(row) {
   if (!row?.id || isBusy(row.id)) return
+  closeCommercialActionMenu()
   if (
     typeof window !== 'undefined' &&
     !window.confirm(
@@ -1096,7 +1155,7 @@ function exportCsv(fileName, headers, rows) {
 <template>
   <section class="subscriptions-shell">
     <div class="surface subscriptions-hero">
-      <div>
+      <div class="subscriptions-hero__copy">
         <span class="eyebrow">Suscripciones y cobros</span>
         <h2>Control comercial y de flota</h2>
         <p>
@@ -1106,23 +1165,35 @@ function exportCsv(fileName, headers, rows) {
       </div>
 
       <div class="hero-actions">
-        <button type="button" :class="['tab-button', { active: activeTab === 'commercial' }]" @click="activeTab = 'commercial'">
-          Acceso comercial
-        </button>
-        <button type="button" :class="['tab-button', { active: activeTab === 'payments' }]" @click="activeTab = 'payments'">
-          Pagos recientes
-        </button>
-        <button type="button" :class="['tab-button', { active: activeTab === 'provider-payments' }]" @click="activeTab = 'provider-payments'">
-          Pagos proveedor
-        </button>
-        <button type="button" :class="['tab-button', { active: activeTab === 'aircraft' }]" @click="activeTab = 'aircraft'">
-          Aeronaves
+        <button
+          v-for="tab in contentTabs"
+          :key="tab.id"
+          type="button"
+          :class="['tab-button', { active: activeTab === tab.id }]"
+          @click="activeTab = tab.id"
+        >
+          {{ tab.label }}
         </button>
       </div>
     </div>
 
     <div v-if="activeTab !== 'provider-payments'" class="summary-grid">
       <article v-for="card in summaryCards" :key="card.label" class="surface summary-card">
+        <span class="summary-card__icon" aria-hidden="true">
+          {{
+            card.label === 'Clientes monitoreados'
+              ? '👥'
+              : card.label === 'Acceso activo'
+                ? '🛡️'
+                : card.label === 'Prueba consumida'
+                  ? '📄'
+                  : card.label === 'Pagos pendientes'
+                    ? '🕘'
+                    : card.label === 'Suscripciones aeronave'
+                      ? '✈️'
+                      : '💳'
+          }}
+        </span>
         <span>{{ card.label }}</span>
         <strong>{{ card.value }}</strong>
         <small>{{ card.detail }}</small>
@@ -1196,10 +1267,13 @@ function exportCsv(fileName, headers, rows) {
           <tbody>
             <tr v-for="row in paginatedCommercialRows" :key="row.id">
               <td>
-                <div class="primary-cell">
-                  <strong>{{ row.name }}</strong>
-                  <span>{{ row.email }}</span>
-                  <small v-if="row.companyName">{{ row.companyName }}</small>
+                <div class="client-cell">
+                  <span class="client-avatar">{{ userInitials(row.name) }}</span>
+                  <div class="primary-cell">
+                    <strong>{{ row.name }}</strong>
+                    <span>{{ row.email }}</span>
+                    <small v-if="row.companyName">{{ row.companyName }}</small>
+                  </div>
                 </div>
               </td>
               <td>
@@ -1229,39 +1303,48 @@ function exportCsv(fileName, headers, rows) {
                 </div>
               </td>
               <td>
-                <div class="row-actions">
+                <div class="row-actions row-actions--compact">
                   <button
                     type="button"
-                    class="ghost-button"
-                    :disabled="isBusy(row.id)"
-                    @click="grantTrial(row)"
+                    class="icon-button"
+                    :title="`Ver detalle de ${row.name}`"
+                    @click="openCommercialDetail(row)"
                   >
-                    {{ isBusy(row.id) ? 'Procesando...' : 'Activar demo' }}
+                    👁
                   </button>
                   <button
                     type="button"
-                    class="danger-button"
+                    class="ghost-button ghost-button--primary"
                     :disabled="isBusy(row.id)"
-                    @click="revokeAccess(row)"
+                    @click="runPrimaryCommercialAction(row)"
                   >
-                    {{ isBusy(row.id) ? 'Procesando...' : 'Revocar acceso' }}
+                    {{ isBusy(row.id) ? 'Procesando...' : primaryCommercialActionLabel(row) }}
                   </button>
-                  <button
-                    type="button"
-                    class="warning-button"
-                    :disabled="isBusy(row.id)"
-                    @click="anonymizeClient(row)"
-                  >
-                    {{ isBusy(row.id) ? 'Procesando...' : 'Anonimizar cliente' }}
-                  </button>
-                  <button
-                    type="button"
-                    class="delete-button"
-                    :disabled="isBusy(row.id)"
-                    @click="deleteClient(row)"
-                  >
-                    {{ isBusy(row.id) ? 'Procesando...' : 'Eliminar cliente' }}
-                  </button>
+                  <div class="row-actions__menu-wrap">
+                    <button
+                      type="button"
+                      class="icon-button"
+                      :aria-expanded="isCommercialMenuOpen(row.id) ? 'true' : 'false'"
+                      :title="`Mas acciones para ${row.name}`"
+                      @click="toggleCommercialActionMenu(row.id)"
+                    >
+                      ⋮
+                    </button>
+                    <div v-if="isCommercialMenuOpen(row.id)" class="row-actions__menu">
+                      <button type="button" class="menu-item" :disabled="isBusy(row.id)" @click="grantTrial(row)">
+                        Activar demo
+                      </button>
+                      <button type="button" class="menu-item" :disabled="isBusy(row.id)" @click="revokeAccess(row)">
+                        Revocar acceso
+                      </button>
+                      <button type="button" class="menu-item" :disabled="isBusy(row.id)" @click="anonymizeClient(row)">
+                        Anonimizar cliente
+                      </button>
+                      <button type="button" class="menu-item menu-item--danger" :disabled="isBusy(row.id)" @click="deleteClient(row)">
+                        Eliminar cliente
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </td>
             </tr>
@@ -1270,6 +1353,21 @@ function exportCsv(fileName, headers, rows) {
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <div class="panel-footer">
+        <div class="pagination-bar">
+          <button type="button" class="pager-button" :disabled="currentPage <= 1" @click="goToPage(currentPage - 1)">
+            Anterior
+          </button>
+          <span>Pagina {{ currentPage }}</span>
+          <button type="button" class="pager-button" :disabled="currentPage >= totalPages" @click="goToPage(currentPage + 1)">
+            Siguiente
+          </button>
+        </div>
+        <p class="results-copy">
+          Mostrando {{ paginationStart }} a {{ paginationEnd }} de {{ activeCollectionLength }} resultados
+        </p>
       </div>
     </div>
 
@@ -1412,6 +1510,21 @@ function exportCsv(fileName, headers, rows) {
           </table>
         </div>
       </div>
+
+      <div class="panel-footer">
+        <div class="pagination-bar">
+          <button type="button" class="pager-button" :disabled="currentPage <= 1" @click="goToPage(currentPage - 1)">
+            Anterior
+          </button>
+          <span>Pagina {{ currentPage }}</span>
+          <button type="button" class="pager-button" :disabled="currentPage >= totalPages" @click="goToPage(currentPage + 1)">
+            Siguiente
+          </button>
+        </div>
+        <p class="results-copy">
+          Mostrando {{ paginationStart }} a {{ paginationEnd }} de {{ activeCollectionLength }} resultados
+        </p>
+      </div>
     </div>
 
     <div v-else-if="activeTab === 'provider-payments'" class="surface table-panel">
@@ -1442,7 +1555,6 @@ function exportCsv(fileName, headers, rows) {
                 <th>Monto</th>
                 <th>Ultimo cobro</th>
                 <th>Vigencia</th>
-                <th>Stripe</th>
               </tr>
             </thead>
             <tbody>
@@ -1491,12 +1603,7 @@ function exportCsv(fileName, headers, rows) {
                 </td>
                 <td>{{ formatDate(row.paidAt, { compact: true, withTime: true }) }}</td>
                 <td>{{ formatDate(row.endsAt, { compact: true }) }}</td>
-                <td>
-                  <div class="stack-cell">
-                    <strong>{{ row.providerSubscriptionId }}</strong>
-                    <small>{{ row.renewalModeLabel }} · {{ row.checkoutId }}</small>
-                  </div>
-                </td>
+               
               </tr>
             </tbody>
           </table>
@@ -1633,6 +1740,21 @@ function exportCsv(fileName, headers, rows) {
           </tbody>
         </table>
       </div>
+
+      <div class="panel-footer">
+        <div class="pagination-bar">
+          <button type="button" class="pager-button" :disabled="currentPage <= 1" @click="goToPage(currentPage - 1)">
+            Anterior
+          </button>
+          <span>Pagina {{ currentPage }}</span>
+          <button type="button" class="pager-button" :disabled="currentPage >= totalPages" @click="goToPage(currentPage + 1)">
+            Siguiente
+          </button>
+        </div>
+        <p class="results-copy">
+          Mostrando {{ paginationStart }} a {{ paginationEnd }} de {{ activeCollectionLength }} resultados
+        </p>
+      </div>
     </div>
 
     <div v-else class="surface table-panel">
@@ -1680,16 +1802,21 @@ function exportCsv(fileName, headers, rows) {
           </tbody>
         </table>
       </div>
-    </div>
 
-    <div class="pagination-bar">
-      <button type="button" class="pager-button" :disabled="currentPage <= 1" @click="goToPage(currentPage - 1)">
-        Anterior
-      </button>
-      <span>Pagina {{ currentPage }} de {{ totalPages }}</span>
-      <button type="button" class="pager-button" :disabled="currentPage >= totalPages" @click="goToPage(currentPage + 1)">
-        Siguiente
-      </button>
+      <div class="panel-footer">
+        <div class="pagination-bar">
+          <button type="button" class="pager-button" :disabled="currentPage <= 1" @click="goToPage(currentPage - 1)">
+            Anterior
+          </button>
+          <span>Pagina {{ currentPage }}</span>
+          <button type="button" class="pager-button" :disabled="currentPage >= totalPages" @click="goToPage(currentPage + 1)">
+            Siguiente
+          </button>
+        </div>
+        <p class="results-copy">
+          Mostrando {{ paginationStart }} a {{ paginationEnd }} de {{ activeCollectionLength }} resultados
+        </p>
+      </div>
     </div>
 
     <div v-if="evidenceModalOpen" class="evidence-modal-backdrop" @click.self="closeEvidenceModal">
@@ -1744,32 +1871,37 @@ function exportCsv(fileName, headers, rows) {
 .subscriptions-shell {
   display: grid;
   gap: 1.25rem;
+  color: #111111;
 }
 
 .surface {
   background: #ffffff;
   border: 1px solid rgba(168, 140, 69, 0.16);
-  border-radius: 28px;
-  box-shadow: 0 20px 60px rgba(26, 22, 16, 0.06);
+  border-radius: 20px;
+  box-shadow: 0 18px 40px rgba(26, 22, 16, 0.05);
 }
 
 .subscriptions-hero,
 .toolbar,
 .table-panel {
-  padding: 1.5rem;
+  padding: 1.25rem;
 }
 
 .subscriptions-hero {
   display: flex;
   justify-content: space-between;
-  gap: 1rem;
-  align-items: flex-start;
+  gap: 1.25rem;
+  align-items: center;
+}
+
+.subscriptions-hero__copy {
+  max-width: 44rem;
 }
 
 .subscriptions-hero h2,
 .panel-head h3 {
-  margin: 0.35rem 0 0.4rem;
-  font-size: clamp(1.8rem, 3vw, 2.8rem);
+  margin: 0.25rem 0 0.35rem;
+  font-size: clamp(1.9rem, 3vw, 2.5rem);
   line-height: 1;
   color: #111111;
 }
@@ -1790,7 +1922,7 @@ function exportCsv(fileName, headers, rows) {
 
 .hero-actions {
   display: flex;
-  gap: 0.75rem;
+  gap: 0.55rem;
   flex-wrap: wrap;
   justify-content: flex-end;
 }
@@ -1800,7 +1932,7 @@ function exportCsv(fileName, headers, rows) {
   background: #f6f2e8;
   color: #1f1b17;
   border-radius: 999px;
-  padding: 0.85rem 1.15rem;
+  padding: 0.72rem 1rem;
   font: inherit;
   font-weight: 700;
   cursor: pointer;
@@ -1813,14 +1945,25 @@ function exportCsv(fileName, headers, rows) {
 
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 1rem;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.85rem;
 }
 
 .summary-card {
-  padding: 1.2rem 1.25rem;
+  padding: 1rem;
   display: grid;
-  gap: 0.45rem;
+  gap: 0.3rem;
+}
+
+.summary-card__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 14px;
+  background: #f3f6fc;
+  font-size: 1.15rem;
 }
 
 .summary-card span,
@@ -1829,7 +1972,7 @@ function exportCsv(fileName, headers, rows) {
 }
 
 .summary-card strong {
-  font-size: 2rem;
+  font-size: 1.85rem;
   line-height: 1;
   color: #111111;
 }
@@ -1850,12 +1993,12 @@ function exportCsv(fileName, headers, rows) {
 .toolbar {
   display: grid;
   grid-template-columns: minmax(260px, 1fr) repeat(3, minmax(140px, 200px)) auto;
-  gap: 1rem;
+  gap: 0.85rem;
 }
 
 .toolbar-field {
   display: grid;
-  gap: 0.45rem;
+  gap: 0.35rem;
   color: #111111;
   font-weight: 700;
 }
@@ -1863,10 +2006,10 @@ function exportCsv(fileName, headers, rows) {
 .toolbar-field input,
 .toolbar-field select {
   width: 100%;
-  border-radius: 18px;
+  border-radius: 16px;
   border: 1px solid rgba(33, 30, 26, 0.12);
   background: #fffdf9;
-  padding: 0.95rem 1rem;
+  padding: 0.85rem 0.95rem;
   font: inherit;
   color: #1f1b17;
 }
@@ -1874,6 +2017,20 @@ function exportCsv(fileName, headers, rows) {
 .table-panel {
   display: grid;
   gap: 1rem;
+}
+
+.panel-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-top: 0.35rem;
+}
+
+.results-copy {
+  margin: 0;
+  color: #5f6774;
+  font-weight: 600;
 }
 
 .provider-payments-summary {
@@ -2159,7 +2316,9 @@ function exportCsv(fileName, headers, rows) {
 .export-button,
 .pager-button,
 .ghost-button,
-.danger-button {
+.danger-button,
+.icon-button,
+.menu-item {
   border: 1px solid rgba(33, 30, 26, 0.12);
   border-radius: 14px;
   padding: 0.72rem 0.9rem;
@@ -2170,9 +2329,17 @@ function exportCsv(fileName, headers, rows) {
 
 .export-button,
 .pager-button,
-.ghost-button {
+.ghost-button,
+.icon-button,
+.menu-item {
   background: #fffdf9;
   color: #1f1b17;
+}
+
+.ghost-button--primary {
+  background: #eef4ff;
+  color: #1d4ed8;
+  border-color: rgba(29, 78, 216, 0.18);
 }
 
 .danger-button {
@@ -2245,14 +2412,14 @@ function exportCsv(fileName, headers, rows) {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: #7d766c;
-  padding: 0.9rem 1rem;
+  padding: 0.8rem 0.9rem;
   border-bottom: 1px solid rgba(33, 30, 26, 0.08);
 }
 
 .admin-table td {
-  padding: 1rem;
+  padding: 0.9rem;
   border-bottom: 1px solid rgba(33, 30, 26, 0.06);
-  vertical-align: top;
+  vertical-align: middle;
   color: #211d19;
 }
 
@@ -2260,6 +2427,24 @@ function exportCsv(fileName, headers, rows) {
 .stack-cell {
   display: grid;
   gap: 0.2rem;
+}
+
+.client-cell {
+  display: grid;
+  grid-template-columns: 2.75rem minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.client-avatar {
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #f4e8ff 0%, #eceeff 100%);
+  color: #27344a;
+  font-weight: 800;
 }
 
 .primary-cell span,
@@ -2310,9 +2495,56 @@ function exportCsv(fileName, headers, rows) {
   gap: 0.5rem;
 }
 
+.row-actions--compact {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.row-actions__menu-wrap {
+  position: relative;
+}
+
+.row-actions__menu {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  right: 0;
+  z-index: 5;
+  display: grid;
+  gap: 0.3rem;
+  min-width: 12rem;
+  padding: 0.45rem;
+  border-radius: 16px;
+  border: 1px solid rgba(33, 30, 26, 0.12);
+  background: #ffffff;
+  box-shadow: 0 16px 36px rgba(20, 18, 16, 0.12);
+}
+
+.menu-item {
+  width: 100%;
+  text-align: left;
+  padding: 0.72rem 0.8rem;
+}
+
+.menu-item--danger {
+  color: #b42318;
+  background: #fff4f2;
+  border-color: rgba(180, 35, 24, 0.14);
+}
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.8rem;
+  min-height: 2.8rem;
+  padding: 0.5rem;
+  font-size: 1rem;
+}
+
 .pagination-bar {
   display: flex;
-  justify-content: flex-end;
   align-items: center;
   gap: 0.8rem;
 }
@@ -2424,6 +2656,10 @@ function exportCsv(fileName, headers, rows) {
     display: grid;
   }
 
+  .summary-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .hero-actions {
     justify-content: flex-start;
   }
@@ -2444,6 +2680,11 @@ function exportCsv(fileName, headers, rows) {
     justify-content: flex-start;
   }
 
+  .panel-footer {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
   .evidence-modal__head {
     display: grid;
   }
@@ -2459,6 +2700,26 @@ function exportCsv(fileName, headers, rows) {
 
   .evidence-search {
     min-width: 100%;
+  }
+}
+
+@media (max-width: 720px) {
+  .summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .row-actions--compact {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 560px) {
+  .summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .client-cell {
+    grid-template-columns: 1fr;
   }
 }
 </style>

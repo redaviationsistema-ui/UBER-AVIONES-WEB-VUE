@@ -164,9 +164,29 @@ const router = createRouter({
       meta: buildAuthenticatedMeta('crew', { hideTopbar: true }),
     },
     {
+      path: '/admin/sobrecargos',
+      redirect: { name: 'admin', params: { section: 'sobrecargos' } },
+      meta: buildAuthenticatedMeta('admin', { hideTopbar: true }),
+    },
+    {
       path: '/admin/sobrecargos/disponibilidad',
       name: 'admin-sobrecargos-disponibilidad',
       component: DisponibilidadSobrecargosAdminView,
+      meta: buildAuthenticatedMeta('admin', { hideTopbar: true }),
+    },
+    {
+      path: '/admin/sobrecargos/operaciones',
+      redirect: { name: 'admin', params: { section: 'sobrecargo-operaciones' } },
+      meta: buildAuthenticatedMeta('admin', { hideTopbar: true }),
+    },
+    {
+      path: '/admin/sobrecargos/en-vuelo',
+      redirect: { name: 'admin', params: { section: 'sobrecargos-en-vuelo' } },
+      meta: buildAuthenticatedMeta('admin', { hideTopbar: true }),
+    },
+    {
+      path: '/admin/sobrecargos/incidencias',
+      redirect: { name: 'admin', params: { section: 'incidencias' } },
       meta: buildAuthenticatedMeta('admin', { hideTopbar: true }),
     },
     {

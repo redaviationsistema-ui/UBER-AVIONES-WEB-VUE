@@ -1,4 +1,4 @@
-const adminSectionDescriptions = {
+export const adminSectionDescriptions = {
   ejecutivo: 'Resumen ejecutivo del negocio, riesgos y actividad transversal.',
   importaciones: 'Conectores, carga masiva y trazabilidad de sincronizaciones.',
   usuarios: 'Altas, accesos, auditoria y permisos operativos.',
@@ -24,7 +24,7 @@ const adminSectionDescriptions = {
   configuracion: 'Reglas base del sistema, permisos e integraciones.',
 }
 
-const adminGroupDescriptors = {
+export const adminGroupDescriptors = {
   'Cliente y Comercial': {
     title: 'Mesa comercial',
     headline: 'Conversion, contratos y dinero bajo una misma lectura.',
