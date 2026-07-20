@@ -15,6 +15,7 @@ import {
 } from '../../services/disponibilidadService'
 import { useAuthStore } from '../../stores/auth'
 import { useUiStore } from '../../stores/ui'
+import { normalizeApiError } from '../../lib/apiError'
 import CrewAgendaSection from './CrewAgendaSection.vue'
 import CrewAvailabilitySection from './CrewAvailabilitySection.vue'
 import CrewAssignmentsSection from './CrewAssignmentsSection.vue'
@@ -23,6 +24,7 @@ import CrewHistorySection from './CrewHistorySection.vue'
 import CrewIncidentSection from './CrewIncidentSection.vue'
 import CrewProfileSection from './CrewProfileSection.vue'
 import CrewUiIcon from './CrewUiIcon.vue'
+import CrewNotificationCenter from './CrewNotificationCenter.vue'
 
 const props = defineProps({
   section: { type: String, required: true },
@@ -53,6 +55,18 @@ const portalDataLoading = reactive({
   documents: false,
   availability: false,
   incidents: false,
+})
+const portalDataErrors = reactive({
+  dashboard: '', assignments: '', profile: '', documents: '', availability: '', incidents: '',
+})
+const portalLoadState = computed(() => {
+  const keys = Object.keys(portalDataLoaded)
+  const failedSections = keys.filter((key) => portalDataErrors[key])
+  return {
+    hasErrors: failedSections.length > 0,
+    isPartial: failedSections.length > 0 && keys.some((key) => portalDataLoaded[key]),
+    failedSections,
+  }
 })
 
 if (IS_LOCAL_CREW_DEV && import.meta.hot) {
@@ -728,19 +742,33 @@ function normalizeAssignmentResponseStatus(raw = {}, missionStatus = 'Pendiente'
 
 function normalizeCrewLifecycleStatus(value = '') {
   const normalized = String(value || '').toLowerCase()
-  if (normalized === 'pending_crew_response') return 'Pendiente'
-  if (normalized === 'crew_confirmed') return 'Confirmado'
+  if (['pending_crew_response', 'pending_confirmation'].includes(normalized)) return 'Pendiente'
+  if (['crew_confirmed', 'confirmed'].includes(normalized)) return 'Confirmado'
   if (normalized === 'crew_declined') return 'Cancelado'
   if (normalized === 'crew_change_requested') return 'Incidencia'
   if (normalized === 'crew_enroute') return 'Preparacion'
   if (normalized === 'crew_active') return 'En servicio'
-  if (normalized === 'crew_completed') return 'Finalizado'
+  if (['preparation_pending', 'ready_for_operation', 'checked_in', 'preflight_in_progress'].includes(normalized)) return 'Preparacion'
+  if (normalized === 'cabin_ready') return 'Cabina revisada'
+  if (['boarding', 'boarding_completed'].includes(normalized)) return 'Pasajeros recibidos'
+  if (normalized === 'in_flight') return 'En servicio'
+  if (['landed', 'postflight_pending', 'report_pending'].includes(normalized)) return 'Reporte enviado'
+  if (['crew_completed', 'administratively_closed'].includes(normalized)) return 'Finalizado'
   if (normalized === 'crew_incident_reported') return 'Incidencia'
   return ''
 }
 
 function humanizeCrewLifecycleStatus(value = '') {
   const normalized = String(value || '').toLowerCase()
+  const labels = {
+    pending_confirmation: 'Pendiente de respuesta', confirmed: 'Asignacion confirmada', rejected: 'Rechazada',
+    preparation_pending: 'Preparacion pendiente', ready_for_operation: 'Lista para operar', checked_in: 'Check-in confirmado',
+    preflight_in_progress: 'Checklist pre-vuelo', cabin_ready: 'Cabina lista', boarding: 'Abordaje',
+    boarding_completed: 'Abordaje completado', in_flight: 'En vuelo', landed: 'Aterrizado',
+    postflight_pending: 'Postvuelo pendiente', report_pending: 'Reporte pendiente', crew_completed: 'Participacion completada',
+    administratively_closed: 'Cierre administrativo', cancelled: 'Cancelada', no_show: 'No presentada',
+  }
+  if (labels[normalized]) return labels[normalized]
   if (normalized === 'pending_crew_response') return 'Sin responder'
   if (normalized === 'crew_confirmed') return 'Confirmado'
   if (normalized === 'crew_declined') return 'Rechazado'
@@ -805,7 +833,7 @@ function normalizeAssignment(raw = {}, detail = {}, index = 0) {
   const latestTimelineStatus = resolveLatestTimelineStatus(detail)
   const operationStatus = latestTimelineStatus || detail.status || raw.status || ''
   const crewLifecycleStatus =
-    detail.crew_status || raw.crew_status || raw.crewStatus || raw.crew_status_label || ''
+    detail.workflow_status || raw.workflow_status || detail.crew_status || raw.crew_status || raw.crewStatus || raw.crew_status_label || ''
   const normalizedOperationStatus = String(operationStatus || '')
     .trim()
     .toLowerCase()
@@ -814,9 +842,10 @@ function normalizeAssignment(raw = {}, detail = {}, index = 0) {
   const timelineStatuses = buildTimelineStatusSet(detail)
   const hasCheckin =
     Boolean(raw.crew_checkin_at || detail.crew_checkin_at) ||
-    timelineStatuses.has('crew checkin')
-  const hasCabinReady = timelineStatuses.has('cabina lista')
-  const hasPassengersReady = timelineStatuses.has('pasajeros recibidos')
+    timelineStatuses.has('crew checkin') ||
+    ['checked_in', 'preflight_in_progress', 'cabin_ready', 'boarding', 'boarding_completed', 'in_flight', 'landed', 'postflight_pending', 'report_pending', 'crew_completed', 'administratively_closed'].includes(normalizedCrewLifecycleStatus)
+  const hasCabinReady = timelineStatuses.has('cabina lista') || ['cabin_ready', 'boarding', 'boarding_completed', 'in_flight', 'landed', 'postflight_pending', 'report_pending', 'crew_completed', 'administratively_closed'].includes(normalizedCrewLifecycleStatus)
+  const hasPassengersReady = timelineStatuses.has('pasajeros recibidos') || ['boarding_completed', 'in_flight', 'landed', 'postflight_pending', 'report_pending', 'crew_completed', 'administratively_closed'].includes(normalizedCrewLifecycleStatus)
   const hasServiceStarted =
     Boolean(raw.crew_service_started_at || detail.crew_service_started_at) ||
     timelineStatuses.has('servicio iniciado') ||
@@ -874,15 +903,16 @@ function normalizeAssignment(raw = {}, detail = {}, index = 0) {
     'crew_completed',
     'crew_incident_reported',
   ].includes(normalizedCrewLifecycleStatus)
-  const canRespondToAssignment = !responseLocked
+  const workflowStatus = normalizedCrewLifecycleStatus
+  const canRespondToAssignment = ['pending_confirmation', 'pending_crew_response'].includes(workflowStatus) || !responseLocked && missionStatus === 'Pendiente'
   const canCheckin =
-    ['crew_confirmed', 'crew_enroute', 'crew_active', 'crew_completed'].includes(normalizedCrewLifecycleStatus) &&
+    ['ready_for_operation'].includes(workflowStatus) &&
     !hasCheckin &&
     !hasIncidentReported
   const canMarkCabinReady = hasCheckin && !hasCabinReady && !hasServiceStarted && !hasIncidentReported
   const canReceivePassengers = hasCabinReady && !hasPassengersReady && !hasServiceStarted && !hasIncidentReported
-  const canStartService = hasPassengersReady && !hasServiceStarted && !hasIncidentReported
-  const canFinalizeService = hasServiceStarted && !hasServiceCompleted && !hasIncidentReported
+  const canStartService = false
+  const canFinalizeService = false
 
   return {
     id: raw.id || index + 1,
@@ -921,6 +951,10 @@ function normalizeAssignment(raw = {}, detail = {}, index = 0) {
     operationStatus,
     providerName: providerName.value,
     timeline: Array.isArray(detail.timeline) ? detail.timeline : [],
+    workflowStatus,
+    assignment: raw.assignment || detail.assignment || null,
+    checklists: Array.isArray(raw.checklists || detail.checklists) ? (raw.checklists || detail.checklists) : [],
+    finalReport: raw.final_report || detail.final_report || null,
     canRespondToAssignment,
     canCheckin,
     canMarkCabinReady,
@@ -1562,9 +1596,45 @@ async function confirmBriefing(id) {
           path: `/sobrecargo/operations/${assignment.operationId || id}/checkin`,
           body: {
             note: assignmentResponseForm.comment || 'Check-in operativo confirmado por sobrecargo.',
+            base: assignment.origin || assignment.originName || '',
+            fit_to_operate: true,
           },
         },
       ]),
+  })
+}
+
+async function transitionCrewOperation(id, status) {
+  await runAssignmentWorkflowAction(id, {
+    loadingTitle: 'Actualizando operacion', loadingDetail: 'Guardando el avance y su trazabilidad.',
+    successTitle: 'Avance registrado', successDetail: 'El nuevo estado ya esta sincronizado con operaciones.',
+    errorTitle: 'No se pudo avanzar', errorMessage: 'Revisa el estado actual y vuelve a intentarlo.',
+    request: (assignment) => requestWithCandidates([{
+      method: 'post', path: `/sobrecargo/operations/${assignment.operationId || id}/transition`, body: { status },
+    }]),
+  })
+}
+
+async function updateCrewChecklistItem({ assignmentId, checklistType, itemId, status, notes = '' }) {
+  await runAssignmentWorkflowAction(assignmentId, {
+    loadingTitle: 'Guardando checklist', loadingDetail: 'Registrando la verificacion operativa.',
+    successTitle: 'Checklist actualizado', successDetail: 'La verificacion quedo guardada.',
+    errorTitle: 'No se pudo actualizar', errorMessage: 'El elemento del checklist no pudo guardarse.',
+    request: (assignment) => requestWithCandidates([{
+      method: 'put', path: `/sobrecargo/operations/${assignment.operationId || assignmentId}/checklists/${checklistType}/items/${itemId}`,
+      body: { status, notes },
+    }]),
+  })
+}
+
+async function submitCrewReport({ assignmentId, report }) {
+  await runAssignmentWorkflowAction(assignmentId, {
+    loadingTitle: 'Enviando reporte final', loadingDetail: 'Cerrando tu participacion operativa.',
+    successTitle: 'Reporte enviado', successDetail: 'Tu participacion quedo completada; el cierre final corresponde a Admin.',
+    errorTitle: 'No se pudo enviar', errorMessage: 'Verifica los campos obligatorios del reporte.',
+    request: (assignment) => requestWithCandidates([{
+      method: 'post', path: `/sobrecargo/operations/${assignment.operationId || assignmentId}/report`, body: report,
+    }]),
   })
 }
 
@@ -2092,6 +2162,7 @@ async function loadPortal(options = {}) {
 
     requestEntries.forEach(([key]) => {
       portalDataLoading[key] = true
+      portalDataErrors[key] = ''
     })
 
     const results = await Promise.allSettled(requestEntries.map(([, request]) => request()))
@@ -2099,7 +2170,10 @@ async function loadPortal(options = {}) {
     results.forEach((result, index) => {
       const [key] = requestEntries[index]
 
-      if (result.status !== 'fulfilled') return
+      if (result.status !== 'fulfilled') {
+        portalDataErrors[key] = normalizeApiError(result.reason).message
+        return
+      }
 
       if (key === 'dashboard') {
         metrics.value = result.value.metrics || metrics.value
@@ -2160,6 +2234,11 @@ async function loadPortal(options = {}) {
   }
 }
 
+function retryPortalResource(resource) {
+  if (!resource || portalDataLoading[resource]) return
+  void loadPortal({ force: true, resources: [resource] })
+}
+
 watch(
   resolvedSection,
   () => {
@@ -2195,6 +2274,25 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="crew-portal-page">
+    <CrewNotificationCenter />
+    <aside v-if="portalLoadState.hasErrors" class="surface crew-partial-load-alert" role="alert">
+      <div>
+        <strong>{{ portalLoadState.isPartial ? 'El portal se cargó parcialmente' : 'No fue posible cargar el portal' }}</strong>
+        <p>No se mostraron datos vacíos para las secciones que fallaron. Puedes reintentarlas individualmente.</p>
+      </div>
+      <div class="crew-partial-load-actions">
+        <button
+          v-for="resource in portalLoadState.failedSections"
+          :key="resource"
+          type="button"
+          class="secondary-action"
+          :disabled="portalDataLoading[resource]"
+          @click="retryPortalResource(resource)"
+        >
+          {{ portalDataLoading[resource] ? 'Reintentando…' : `Reintentar ${resource}` }}
+        </button>
+      </div>
+    </aside>
     <section v-if="resolvedSection === 'dashboard' && isDashboardLoading" class="crew-loading-view">
       <div class="surface crew-loading-hero">
         <div>
@@ -2265,6 +2363,9 @@ onBeforeUnmount(() => {
       @mark-passengers-ready="markPassengersReceived"
       @start-service="startAssignedService"
       @finalize-service="finalizeAssignedService"
+      @transition="({ id, status }) => transitionCrewOperation(id, status)"
+      @update-checklist="updateCrewChecklistItem"
+      @submit-report="submitCrewReport"
     />
 
     <section v-else-if="resolvedSection === 'calendario' && isCalendarLoading" class="crew-loading-view">

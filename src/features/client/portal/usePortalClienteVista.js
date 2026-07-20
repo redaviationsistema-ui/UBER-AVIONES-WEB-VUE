@@ -5572,10 +5572,9 @@ async function ensureReservationForSelectedTrip(targetId = '') {
 async function handleOpenContract(targetId = '') {
   try {
     const reservation = await ensureReservationForSelectedTrip(targetId)
-    go(
-      'contrato',
-      resolveEntityIdentifier(reservation?.flight_request_id) || resolveEntityIdentifier(reservation?.id),
-    )
+    const reservationId = resolveEntityIdentifier(reservation?.id)
+    if (!reservationId) throw new Error('El backend no devolvió el identificador de la reserva.')
+    go('contrato', reservationId)
   } catch (error) {
     ui.pushToast({
       tone: 'error',
@@ -5616,8 +5615,7 @@ async function ensureContractReservationContext() {
   try {
     const reservation = await ensureReservationForSelectedTrip(targetId)
     const resolvedReservationId = resolveEntityIdentifier(reservation?.id)
-    const resolvedContractRouteId =
-      resolveEntityIdentifier(reservation?.flight_request_id) || resolvedReservationId
+    const resolvedContractRouteId = resolvedReservationId
 
     if (!resolvedReservationId) {
       throw new Error('No se pudo identificar la reserva del contrato.')

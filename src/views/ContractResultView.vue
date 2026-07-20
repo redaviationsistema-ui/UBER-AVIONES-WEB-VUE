@@ -66,7 +66,7 @@ const visualStatus = computed(() => {
 
 const statusTitle = computed(() => {
   if (visualStatus.value === 'loading') return 'Validando estado del contrato...'
-  if (visualStatus.value === 'success') return 'Firma confirmada correctamente'
+  if (visualStatus.value === 'success') return 'Contrato firmado correctamente.'
   return 'No pudimos validar la firma'
 })
 

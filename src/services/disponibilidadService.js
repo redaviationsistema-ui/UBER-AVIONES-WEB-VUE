@@ -1,4 +1,5 @@
 import { pickCollection, pickRecord, requestWithCandidates } from '../lib/backendCrud'
+import { getOperationalDate } from '../utils/operationalDate'
 
 const FALLBACK_STATUS_CATALOG = [
   { id: 'DISPONIBLE', clave: 'DISPONIBLE', nombre: 'Disponible', color: '#22c55e', permite_asignacion: true },
@@ -116,7 +117,7 @@ function getStatusCandidates(scope = 'crew') {
       {
         method: 'get',
         path: '/admin/sobrecargos/disponibilidad',
-        query: { from: new Date().toISOString().slice(0, 10), to: new Date().toISOString().slice(0, 10) },
+        query: { from: getOperationalDate(), to: getOperationalDate() },
       },
     ]
   }

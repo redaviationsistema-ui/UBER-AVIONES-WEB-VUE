@@ -2,16 +2,30 @@
 import { computed, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import SiteFooter from '../components/SiteFooter.vue'
+import { useAuthStore } from '../stores/auth'
+import { useRentalFlowStore } from '../stores/rentalFlow'
+import { continueRentalFlow, normalizeRentalSearch, RENTAL_AIRCRAFT_TYPES } from '../services/clientRentalService'
+import { addOperationalDays, compareOperationalDates, getOperationalDate } from '../utils/operationalDate'
 
 const router = useRouter()
+const auth = useAuthStore()
+const rentalFlow = useRentalFlowStore()
 const hasDifferentDropoff = ref(false)
+const submitting = ref(false)
+const submitError = ref('')
+const fieldErrors = reactive({})
+const today = getOperationalDate()
 
 const form = reactive({
-  pickup: 'Toluca / TLC',
-  dropoff: '',
-  departureDate: '2026-05-02',
-  returnDate: '2026-05-04',
+  tripType: 'round_trip',
+  origin: '',
+  destination: '',
+  returnOrigin: '',
+  returnDestination: '',
+  departureDate: addOperationalDays(new Date(), 1),
+  returnDate: addOperationalDays(new Date(), 3),
   aircraftType: 'Jet ejecutivo',
+  passengers: 1,
 })
 
 const rentalFleet = [
@@ -66,20 +80,50 @@ const bookingSteps = [
 ]
 
 const rentalSummary = computed(() => {
-  return `${form.pickup} · ${form.departureDate} al ${form.returnDate} · ${form.aircraftType}`
+  return `${form.origin || 'Origen'} → ${form.destination || 'Destino'} · ${form.departureDate}${form.tripType === 'round_trip' ? ` al ${form.returnDate}` : ''} · ${form.aircraftType}`
 })
 
-function searchRental() {
-  router.push({
-    name: 'login',
-    query: {
-      pickup: form.pickup,
-      dropoff: form.dropoff,
-      departureDate: form.departureDate,
-      returnDate: form.returnDate,
-      aircraftType: form.aircraftType,
-    },
-  })
+function validateRental() {
+  Object.keys(fieldErrors).forEach((key) => delete fieldErrors[key])
+  const search = normalizeRentalSearch({ ...form, differentReturnDestination: hasDifferentDropoff.value })
+  if (!search.origin) fieldErrors.origin = 'La base de salida es obligatoria.'
+  if (!search.destination) fieldErrors.destination = 'El destino es obligatorio.'
+  if (search.origin && search.destination && search.origin.toLowerCase() === search.destination.toLowerCase()) fieldErrors.destination = 'El origen y el destino deben ser diferentes.'
+  if (!search.departureDate) fieldErrors.departureDate = 'Selecciona la fecha de salida.'
+  else if (compareOperationalDates(search.departureDate, today) < 0) fieldErrors.departureDate = 'La fecha de salida no puede estar en el pasado.'
+  if (search.tripType === 'round_trip' && !search.returnDate) fieldErrors.returnDate = 'Selecciona la fecha de regreso.'
+  else if (search.returnDate && compareOperationalDates(search.returnDate, search.departureDate) < 0) fieldErrors.returnDate = 'El regreso no puede ser anterior a la salida.'
+  if (hasDifferentDropoff.value && !search.returnOrigin) fieldErrors.returnOrigin = 'Indica el origen del regreso.'
+  if (hasDifferentDropoff.value && !search.returnDestination) fieldErrors.returnDestination = 'Indica el destino del regreso.'
+  if (hasDifferentDropoff.value && search.returnOrigin && search.returnDestination && search.returnOrigin.toLowerCase() === search.returnDestination.toLowerCase()) fieldErrors.returnDestination = 'El origen y destino del regreso deben ser diferentes.'
+  if (!search.aircraftType || !RENTAL_AIRCRAFT_TYPES.includes(search.aircraftType)) fieldErrors.aircraftType = 'Selecciona una categoría válida.'
+  return Object.keys(fieldErrors).length ? null : search
+}
+
+function navigateRentalResult(result) {
+  if (result.reservationId) return router.push({ name: 'cliente-detalle', params: { section: 'reserva-confirmada', id: result.reservationId } })
+  return router.push({ name: 'cliente-detalle', params: { section: 'resultados', id: result.flightRequestId } })
+}
+
+async function searchRental() {
+  if (submitting.value) return
+  submitError.value = ''
+  const search = validateRental()
+  if (!search) return
+  rentalFlow.savePendingSearch(search)
+  if (!auth.isAuthenticated) {
+    await router.push({ name: 'login-cliente', query: { redirect: '/cliente/reservar', rental: 'continue' } })
+    return
+  }
+  submitting.value = true
+  try {
+    const result = await continueRentalFlow(search)
+    rentalFlow.setFlightRequestId(result.flightRequestId)
+    rentalFlow.setReservationId(result.reservationId)
+    rentalFlow.clearPendingSearch()
+    await navigateRentalResult(result)
+  } catch (error) { submitError.value = error?.message || 'No fue posible iniciar la renta.' }
+  finally { submitting.value = false }
 }
 </script>
 
@@ -103,26 +147,36 @@ function searchRental() {
           {{ hasDifferentDropoff ? 'Misma base de regreso' : 'Punto de devolución diferente' }}
         </button>
 
-        <label class="field-label">Tipo de aeronave</label>
-        <select v-model="form.aircraftType" class="select-box">
-          <option>Jet ejecutivo</option>
-          <option>Turbohélice</option>
-          <option>Helicóptero</option>
-          <option>Long Range Jet</option>
+        <label class="field-label">Tipo de viaje</label>
+        <select v-model="form.tripType" class="select-box">
+          <option value="round_trip">Viaje redondo</option>
+          <option value="one_way">Solo ida</option>
         </select>
 
-        <label class="field-label">Base operativa</label>
+        <label class="field-label">Tipo de aeronave</label>
+        <select v-model="form.aircraftType" class="select-box">
+          <option v-for="type in RENTAL_AIRCRAFT_TYPES" :key="type">{{ type }}</option>
+        </select>
+        <small v-if="fieldErrors.aircraftType" class="field-error">{{ fieldErrors.aircraftType }}</small>
+
+        <label class="field-label">Base de salida</label>
         <div class="input-box">
           <span>●</span>
-          <input v-model="form.pickup" placeholder="Punto de recolección" />
+          <input v-model="form.origin" placeholder="Ej. Toluca / TLC" />
         </div>
+        <small v-if="fieldErrors.origin" class="field-error">{{ fieldErrors.origin }}</small>
 
-        <template v-if="hasDifferentDropoff">
-          <label class="field-label">Base de regreso</label>
-          <div class="input-box">
-            <span>◎</span>
-            <input v-model="form.dropoff" placeholder="Punto de devolución" />
-          </div>
+        <label class="field-label">Destino</label>
+        <div class="input-box"><span>◎</span><input v-model="form.destination" placeholder="Ej. Cancún / CUN" /></div>
+        <small v-if="fieldErrors.destination" class="field-error">{{ fieldErrors.destination }}</small>
+
+        <template v-if="hasDifferentDropoff && form.tripType === 'round_trip'">
+          <label class="field-label">Origen del regreso</label>
+          <div class="input-box"><span>●</span><input v-model="form.returnOrigin" placeholder="Origen del regreso" /></div>
+          <small v-if="fieldErrors.returnOrigin" class="field-error">{{ fieldErrors.returnOrigin }}</small>
+          <label class="field-label">Destino del regreso</label>
+          <div class="input-box"><span>◎</span><input v-model="form.returnDestination" placeholder="Destino del regreso" /></div>
+          <small v-if="fieldErrors.returnDestination" class="field-error">{{ fieldErrors.returnDestination }}</small>
         </template>
 
         <div class="date-grid">
@@ -130,22 +184,25 @@ function searchRental() {
             <label class="field-label">Salida</label>
             <div class="input-box">
               <span>↗</span>
-              <input v-model="form.departureDate" type="date" />
+              <input v-model="form.departureDate" type="date" :min="today" />
             </div>
+            <small v-if="fieldErrors.departureDate" class="field-error">{{ fieldErrors.departureDate }}</small>
           </div>
 
-          <div>
+          <div v-if="form.tripType === 'round_trip'">
             <label class="field-label">Regreso</label>
             <div class="input-box">
               <span>↩</span>
-              <input v-model="form.returnDate" type="date" />
+              <input v-model="form.returnDate" type="date" :min="form.departureDate || today" />
             </div>
+            <small v-if="fieldErrors.returnDate" class="field-error">{{ fieldErrors.returnDate }}</small>
           </div>
         </div>
 
-        <button class="primary-btn" type="button" @click="searchRental">
-          Buscar disponibilidad
+        <button class="primary-btn" type="button" :disabled="submitting" @click="searchRental">
+          {{ submitting ? 'Consultando disponibilidad…' : 'Buscar disponibilidad' }}
         </button>
+        <p v-if="submitError" class="field-error" role="alert">{{ submitError }}</p>
 
         <p class="summary">{{ rentalSummary }}</p>
       </aside>
@@ -270,6 +327,19 @@ function searchRental() {
 </template>
 
 <style scoped>
+.field-error {
+  display: block;
+  margin-top: 0.4rem;
+  color: #b42318;
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.primary-btn:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
 .aviation-page {
   min-height: 100vh;
   background:

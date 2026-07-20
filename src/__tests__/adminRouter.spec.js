@@ -143,4 +143,27 @@ describe('admin router policy', () => {
     expect(authStore.loadCurrentUser).not.toHaveBeenCalled()
     expect(router.currentRoute.value.name).toBe('admin')
   })
+
+  it('uses the explicit admin check as the authority for admin routes', async () => {
+    const authStore = {
+      token: 'session-token',
+      loaded: true,
+      initialized: true,
+      isAuthenticated: true,
+      user: { id: 7 },
+      dashboardPath: '/admin/ejecutivo',
+      initialize: vi.fn(),
+      loadCurrentUser: vi.fn(),
+      hasAdminAccess: vi.fn(() => true),
+      hasRole: vi.fn(() => false),
+    }
+
+    const router = await loadRouterWithAuthStore(authStore)
+
+    await router.push('/admin/ejecutivo')
+
+    expect(router.currentRoute.value.name).toBe('admin')
+    expect(authStore.hasAdminAccess).toHaveBeenCalledTimes(1)
+    expect(authStore.hasRole).not.toHaveBeenCalled()
+  })
 })

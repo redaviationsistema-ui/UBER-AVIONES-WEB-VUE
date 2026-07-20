@@ -29,6 +29,9 @@ const emit = defineEmits([
   'mark-passengers-ready',
   'start-service',
   'finalize-service',
+  'transition',
+  'update-checklist',
+  'submit-report',
 ])
 
 const selectedAssignmentId = ref(null)
@@ -37,6 +40,8 @@ const selectedAssignment = computed(
   () => props.assignments.find((item) => item.id === selectedAssignmentId.value) || props.assignments[0] || null,
 )
 const expandedStageId = ref('availability')
+const checklistNotes = ref({})
+const reportForm = ref({ service_rating: 5, cabin_condition: 'Sin novedad', catering_condition: 'Sin novedad', passenger_observations: '', forgotten_items: '', damages: '', cleaning_required: false, restocking_required: false, general_notes: '' })
 const missionProgressSteps = [
   { id: 'availability', label: 'Disponibilidad' },
   { id: 'itinerary', label: 'Itinerario' },
@@ -78,6 +83,18 @@ const nextAction = computed(() => {
       event: 'confirm-briefing',
     }
   }
+
+  const transition = {
+    confirmed: ['Iniciar preparacion', 'preparation_pending'],
+    checked_in: ['Iniciar checklist pre-vuelo', 'preflight_in_progress'],
+    cabin_ready: ['Iniciar abordaje', 'boarding'],
+    boarding: ['Completar abordaje', 'boarding_completed'],
+    landed: ['Iniciar postvuelo', 'postflight_pending'],
+  }[item.workflowStatus]
+  if (transition) return { title: 'Siguiente accion', detail: 'Registra el avance real de la operacion para mantener la trazabilidad.', cta: transition[0], event: 'transition', status: transition[1] }
+  if (['preparation_pending', 'preflight_in_progress', 'postflight_pending'].includes(item.workflowStatus)) return { title: 'Checklist pendiente', detail: 'Completa todos los puntos obligatorios de la fase actual.', cta: '', event: '' }
+  if (item.workflowStatus === 'boarding_completed') return { title: 'Listos para salida', detail: 'El inicio del vuelo debe confirmarlo Admin / Operaciones.', cta: '', event: '' }
+  if (item.workflowStatus === 'report_pending') return { title: 'Reporte final pendiente', detail: 'Completa el reporte para cerrar tu participacion. El cierre administrativo permanece con Admin.', cta: '', event: '' }
 
   if (item.canMarkCabinReady) {
     return {
@@ -315,7 +332,13 @@ function toggleStage(stageId = '') {
 function triggerPrimaryAction() {
   const item = selectedAssignment.value
   if (!item || !nextAction.value?.event) return
-  emit(nextAction.value.event, item.id)
+  if (nextAction.value.event === 'transition') emit('transition', { id: item.id, status: nextAction.value.status })
+  else emit(nextAction.value.event, item.id)
+}
+
+function updateChecklist(item, status) {
+  const assignment = selectedAssignment.value
+  emit('update-checklist', { assignmentId: assignment.id, checklistType: assignment.checklists.find((list) => list.items?.some((entry) => entry.id === item.id))?.type, itemId: item.id, status, notes: checklistNotes.value[item.id] || '' })
 }
 
 function triggerSecondaryAction(actionId = '') {
@@ -582,6 +605,47 @@ function stageTone(state = '') {
               </div>
             </article>
           </div>
+
+          <template v-if="selectedAssignment.checklists?.length">
+            <div class="section-head">
+              <span class="mini-icon"><CrewUiIcon name="checklist" :size="17" /></span>
+              <h4>Verificaciones registrables</h4>
+            </div>
+            <div class="checklist-summary">
+              <article v-for="checklist in selectedAssignment.checklists" :key="checklist.id" class="checklist-stage" data-open="true">
+                <div class="checklist-stage__head">
+                  <div class="checklist-stage__title"><span>{{ checklist.type }}</span><strong>{{ checklist.status }}</strong></div>
+                </div>
+                <div class="checklist-stage__body">
+                  <div v-for="entry in checklist.items" :key="entry.id" class="detail-item detail-item--wide">
+                    <span>{{ entry.category }} <b v-if="entry.is_critical">· Critico</b></span>
+                    <strong>{{ entry.description }}</strong>
+                    <textarea v-if="entry.status === 'pending'" v-model="checklistNotes[entry.id]" rows="2" placeholder="Nota obligatoria si reportas una falla"></textarea>
+                    <div v-if="entry.status === 'pending'" class="secondary-actions">
+                      <button class="primary-action action-button" type="button" :disabled="props.actionState?.active" @click="updateChecklist(entry, 'completed')">Completar</button>
+                      <button class="ghost-button action-button" type="button" :disabled="props.actionState?.active" @click="updateChecklist(entry, 'not_applicable')">No aplica</button>
+                      <button class="ghost-button action-button" type="button" :disabled="props.actionState?.active || !checklistNotes[entry.id]" @click="updateChecklist(entry, 'failed')">Reportar falla</button>
+                    </div>
+                    <small v-else>{{ entry.status }}<template v-if="entry.notes"> · {{ entry.notes }}</template></small>
+                  </div>
+                </div>
+              </article>
+            </div>
+          </template>
+
+          <form v-if="selectedAssignment.workflowStatus === 'report_pending'" class="detail-grid" @submit.prevent="emit('submit-report', { assignmentId: selectedAssignment.id, report: { ...reportForm } })">
+            <div class="section-head detail-item--wide"><h4>Reporte final de vuelo</h4></div>
+            <label class="detail-item"><span>Calificacion del servicio</span><input v-model.number="reportForm.service_rating" required type="number" min="1" max="5" /></label>
+            <label class="detail-item"><span>Estado de cabina</span><input v-model="reportForm.cabin_condition" required /></label>
+            <label class="detail-item"><span>Estado de catering</span><input v-model="reportForm.catering_condition" required /></label>
+            <label class="detail-item detail-item--wide"><span>Observaciones de pasajeros</span><textarea v-model="reportForm.passenger_observations" rows="3"></textarea></label>
+            <label class="detail-item"><span>Objetos olvidados</span><input v-model="reportForm.forgotten_items" /></label>
+            <label class="detail-item"><span>Danos</span><input v-model="reportForm.damages" /></label>
+            <label class="detail-item"><span><input v-model="reportForm.cleaning_required" type="checkbox" /> Requiere limpieza</span></label>
+            <label class="detail-item"><span><input v-model="reportForm.restocking_required" type="checkbox" /> Requiere reposicion</span></label>
+            <label class="detail-item detail-item--wide"><span>Notas generales</span><textarea v-model="reportForm.general_notes" rows="3"></textarea></label>
+            <button class="primary-action action-button" type="submit" :disabled="props.actionState?.active">Enviar reporte final</button>
+          </form>
         </article>
         </template>
 

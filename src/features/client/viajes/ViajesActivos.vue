@@ -491,6 +491,14 @@ function workflowSupportLines(reservation = {}) {
   return lines
 }
 
+function aircraftReservationLabel(reservation = {}) {
+  const paymentStatus = String(reservation?.payment_status || reservation?.payment_order?.status || '').trim().toLowerCase()
+  const reservationStatus = String(reservation?.reservation_status || reservation?.status || '').trim().toLowerCase()
+  const paid = ['paid', 'pagado', 'payment_confirmed', 'confirmed', 'succeeded', 'completed'].includes(paymentStatus)
+  const operational = !['cancelled', 'canceled', 'rejected', 'expired'].includes(reservationStatus)
+  return paid && operational ? 'Pagado · Aeronave reservada' : ''
+}
+
 function extractImageCandidate(value) {
   if (!value) return ''
   if (typeof value === 'string') return value
@@ -1047,6 +1055,7 @@ watch(
             <span v-if="reservationAircraftName(reservation)">🛩 {{ reservationAircraftName(reservation) }}</span>
             <span v-if="itinerarySegments(reservation).length">✈ {{ itinerarySegments(reservation).length }} tramos</span>
             <span v-if="countdownLabel(reservation)">⏳ {{ countdownLabel(reservation) }}</span>
+            <span v-if="aircraftReservationLabel(reservation)">✓ {{ aircraftReservationLabel(reservation) }}</span>
           </div>
         </div>
         <span

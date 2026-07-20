@@ -1,5 +1,7 @@
 <script setup>
-import { computed, reactive } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { api } from '../../../../lib/api'
+import { normalizeApiError } from '../../../../lib/apiError'
 import CrewOperationsAuditLog from './CrewOperationsAuditLog.vue'
 import CrewOperationDetailDrawer from './CrewOperationDetailDrawer.vue'
 import CrewOperationsFilters from './CrewOperationsFilters.vue'
@@ -15,6 +17,30 @@ const props = defineProps({
 const emit = defineEmits(['assign-crew'])
 
 const controller = reactive(useCrewOperations(props, { viewMode: 'operations' }))
+const metricsPeriod = ref('month')
+const metricsLoading = ref(false)
+const metricsError = ref('')
+const operationalMetrics = ref(null)
+
+async function loadMetrics() {
+  metricsLoading.value = true
+  metricsError.value = ''
+  try {
+    const response = await api.get('/admin/crew/metrics', { query: { period: metricsPeriod.value } })
+    operationalMetrics.value = response.metrics || response.data?.metrics || null
+  } catch (error) {
+    operationalMetrics.value = null
+    metricsError.value = normalizeApiError(error).message
+  } finally {
+    metricsLoading.value = false
+  }
+}
+
+function rateLabel(rate) {
+  return rate?.percentage == null ? 'Sin datos' : `${rate.percentage}%`
+}
+
+onMounted(loadMetrics)
 
 function formatDateTime(value) {
   if (!value) return 'Por definir'
@@ -120,6 +146,24 @@ const selectedDraft = computed(() =>
           <p>{{ item.detail }}</p>
         </div>
       </article>
+    </section>
+
+    <section class="crew-metrics-panel" aria-labelledby="crew-metrics-title">
+      <header>
+        <div><h4 id="crew-metrics-title">Métricas operativas</h4><p>Datos persistentes · America/Mexico_City</p></div>
+        <label>Periodo
+          <select v-model="metricsPeriod" @change="loadMetrics"><option value="today">Hoy</option><option value="week">Semana</option><option value="month">Mes</option></select>
+        </label>
+      </header>
+      <p v-if="metricsLoading" aria-live="polite">Cargando métricas…</p>
+      <div v-else-if="metricsError" role="alert"><p>{{ metricsError }}</p><button type="button" @click="loadMetrics">Reintentar</button></div>
+      <div v-else-if="operationalMetrics" class="crew-metrics-grid">
+        <article><span>Tasa de aceptación</span><strong>{{ rateLabel(operationalMetrics.response?.acceptance_rate) }}</strong><small>{{ operationalMetrics.response?.acceptance_rate?.numerator }} de {{ operationalMetrics.response?.acceptance_rate?.denominator }} respuestas</small></article>
+        <article><span>Puntualidad</span><strong>{{ rateLabel(operationalMetrics.punctuality?.rate) }}</strong><small>{{ operationalMetrics.punctuality?.rate?.numerator }} de {{ operationalMetrics.punctuality?.rate?.denominator }} check-ins</small></article>
+        <article><span>Asignaciones pendientes</span><strong>{{ operationalMetrics.assignments?.pending ?? 0 }}</strong><small>{{ operationalMetrics.assignments?.created ?? 0 }} creadas</small></article>
+        <article><span>Incidencias abiertas</span><strong>{{ operationalMetrics.incidents?.open ?? 0 }}</strong><small>{{ operationalMetrics.incidents?.critical ?? 0 }} críticas</small></article>
+      </div>
+      <p v-else class="muted">Sin datos para el periodo.</p>
     </section>
 
     <CrewOperationsFilters
@@ -246,6 +290,7 @@ const selectedDraft = computed(() =>
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.8rem;
 }
+.crew-metrics-panel{display:grid;gap:.8rem;padding:1rem;border:1px solid var(--crew-border);border-radius:18px;background:#fff}.crew-metrics-panel header{display:flex;justify-content:space-between;align-items:flex-end;gap:1rem}.crew-metrics-panel h4,.crew-metrics-panel p{margin:0}.crew-metrics-panel label{display:grid;gap:.25rem;font-weight:700}.crew-metrics-panel select,.crew-metrics-panel button{min-height:44px}.crew-metrics-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.75rem}.crew-metrics-grid article{display:grid;gap:.3rem;padding:.85rem;border-radius:14px;background:#f8fafc}.crew-metrics-grid strong{font-size:1.4rem}.crew-metrics-grid small{color:var(--crew-muted)}@media(max-width:768px){.crew-metrics-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:390px){.crew-metrics-panel header{align-items:stretch;flex-direction:column}.crew-metrics-grid{grid-template-columns:1fr}}
 
 .signal-card {
   display: grid;

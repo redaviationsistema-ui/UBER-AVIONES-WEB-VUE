@@ -9,7 +9,9 @@ describe('api unauthorized handling', () => {
     window.sessionStorage.setItem('red_aviation_auth_token', 'session-token')
   })
 
-  it('throws a normalized unauthorized error without clearing session or redirecting', async () => {
+  it('clears the expired session and emits one central redirect signal', async () => {
+    const sessionExpired = vi.fn()
+    window.addEventListener('skygroup:session-expired', sessionExpired, { once: true })
     global.fetch = vi.fn(async () => ({
       ok: false,
       status: 401,
@@ -28,6 +30,8 @@ describe('api unauthorized handling', () => {
       code: 'UNAUTHORIZED',
     })
 
-    expect(window.sessionStorage.getItem('red_aviation_auth_token')).toBe('session-token')
+    expect(window.sessionStorage.getItem('red_aviation_auth_token')).toBeNull()
+    expect(sessionExpired).toHaveBeenCalledOnce()
+    expect(sessionExpired.mock.calls[0][0].detail.message).toContain('sesión terminó')
   })
 })

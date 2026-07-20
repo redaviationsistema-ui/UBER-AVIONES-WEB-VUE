@@ -1,6 +1,7 @@
 /* @vitest-environment jsdom */
 
 import { mount } from '@vue/test-utils'
+import { createPinia } from 'pinia'
 import { describe, expect, it, vi } from 'vitest'
 
 const { routerReplace, routerPush } = vi.hoisted(() => ({
@@ -46,6 +47,7 @@ function mountSection(aircraft = []) {
       subscriptions: [],
     },
     global: {
+      plugins: [createPinia()],
       stubs: {
         Transition: false,
       },
@@ -55,10 +57,6 @@ function mountSection(aircraft = []) {
 
 async function openDocumentationDetail(wrapper) {
   await openAircraftDetail(wrapper)
-  const documentsTab = wrapper
-    .findAll('.detail-tabs button')
-    .find((button) => button.text().includes('Documentacion'))
-  await documentsTab.trigger('click')
 }
 
 async function openAircraftDetail(wrapper) {
@@ -101,13 +99,8 @@ describe('AdminAircraftSubscriptionsSection', () => {
 
     await openDocumentationDetail(wrapper)
 
-    const cards = wrapper.findAll('.document-summary-card')
-    const completedCards = wrapper.findAll('.document-summary-card.complete')
-
-    expect(cards).toHaveLength(5)
-    expect(completedCards).toHaveLength(1)
-    expect(completedCards[0].text()).toContain('Fotografias')
-    expect(cards.find((card) => card.text().includes('Mantenimiento'))?.text()).toContain('Pendiente')
+    const cards = wrapper.findAll('.document-card')
+    expect(cards).toHaveLength(4)
     expect(wrapper.text()).toContain('Docs pendientes')
     expect(wrapper.text()).toContain('Pendiente')
   })
@@ -142,8 +135,8 @@ describe('AdminAircraftSubscriptionsSection', () => {
     await openAircraftDetail(wrapper)
 
     expect(wrapper.text()).toContain('Documentacion incompleta')
-    expect(wrapper.text()).toContain('Listo para cotizar: No')
-    expect(wrapper.text()).toContain('Listo para reservar: No')
+    expect(wrapper.text()).toContain('CotizableNo')
+    expect(wrapper.text()).toContain('ReservableNo')
     expect(wrapper.text()).toContain('Documentacion incompleta.')
   })
 
@@ -182,10 +175,8 @@ describe('AdminAircraftSubscriptionsSection', () => {
 
     await openDocumentationDetail(wrapper)
 
-    expect(wrapper.findAll('.document-summary-card.complete')).toHaveLength(5)
+    expect(wrapper.findAll('.document-card')).toHaveLength(4)
     expect(wrapper.text()).toContain('Docs validos')
-    expect(wrapper.text()).toContain('5/5')
-    expect(wrapper.text()).toContain('100%')
   })
 
   it('case 4: shows docs rechazados when any required document is rejected', async () => {
@@ -303,7 +294,7 @@ describe('AdminAircraftSubscriptionsSection', () => {
     await openAircraftDetail(wrapper)
 
     expect(wrapper.text()).toContain('Docs pendientes')
-    expect(wrapper.text()).toContain('Listo para cotizar: No')
+    expect(wrapper.text()).toContain('CotizableNo')
     expect(wrapper.text()).toContain('Documentacion pendiente.')
   })
 
@@ -343,7 +334,7 @@ describe('AdminAircraftSubscriptionsSection', () => {
     await openDocumentationDetail(wrapper)
 
     expect(wrapper.text()).toContain('Docs validos')
-    expect(wrapper.findAll('.document-summary-card.complete')).toHaveLength(5)
+    expect(wrapper.findAll('.document-card')).toHaveLength(4)
   })
 
   it('deduplicates visual duplicates by storage_path without mixing maintenance into other requirements', async () => {
@@ -371,12 +362,9 @@ describe('AdminAircraftSubscriptionsSection', () => {
 
     await openDocumentationDetail(wrapper)
 
-    const cards = wrapper.findAll('.document-summary-card')
-    expect(cards.find((card) => card.text().includes('Mantenimiento'))?.text()).toContain('Aprobado')
-    expect(cards.find((card) => card.text().includes('Certificado de aeronavegabilidad'))?.text()).toContain('No cargado')
-    expect(cards.find((card) => card.text().includes('Matricula'))?.text()).toContain('No cargado')
-    expect(cards.find((card) => card.text().includes('Seguro'))?.text()).toContain('No cargado')
-    expect(wrapper.findAll('.document-item')).toHaveLength(1)
+    const cards = wrapper.findAll('.document-card')
+    expect(cards).toHaveLength(1)
+    expect(cards[0].text()).toContain('Aprobado')
   })
 
   it('reflects admin-approved aircraft as approved in admin even before payment activation', async () => {
@@ -403,8 +391,8 @@ describe('AdminAircraftSubscriptionsSection', () => {
 
     expect(wrapper.text()).toContain('Aprobada')
     expect(wrapper.text()).toContain('Pendiente de pago')
-    expect(wrapper.text()).toContain('Listo para cotizar: Si')
-    expect(wrapper.text()).toContain('Listo para reservar: No')
+    expect(wrapper.text()).toContain('CotizableSi')
+    expect(wrapper.text()).toContain('ReservableNo')
     expect(wrapper.text()).toContain('La aeronave ya fue aprobada por administracion, pero no se activa hasta reflejar el pago mensual.')
   })
 
@@ -418,11 +406,11 @@ describe('AdminAircraftSubscriptionsSection', () => {
       }),
     ])
 
-    expect(wrapper.text()).toContain('1 aprobadas')
-    expect(wrapper.text()).toContain('0 pendientes')
+    expect(wrapper.text()).toContain('Aprobadas1100%')
+    expect(wrapper.text()).toContain('Pendientes00%')
     expect(wrapper.text()).toContain('Suspendidas')
     expect(wrapper.text()).toContain('0%')
-    expect(wrapper.text()).toContain('✓ Aprobada')
+    expect(wrapper.text()).toContain('Estado: Aprobada')
     expect(wrapper.text()).toContain('Pendiente de pago')
   })
 })

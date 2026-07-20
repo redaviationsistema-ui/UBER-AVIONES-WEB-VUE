@@ -11,7 +11,6 @@ const RAW_FALLBACK_API_BASE_URL = String(import.meta.env.VITE_FALLBACK_API_BASE_
   /\/$/,
   '',
 )
-const APP_BASE_PATH = String(import.meta.env.BASE_URL || '/').trim() || '/'
 const RAW_FALLBACK_BACKEND_ORIGIN = String(import.meta.env.VITE_FALLBACK_BACKEND_ORIGIN || '').replace(
   /\/$/,
   '',
@@ -402,16 +401,6 @@ function isUnauthorizedResponse(response, payload = {}) {
   return message === 'unauthenticated.' || message === 'unauthenticated'
 }
 
-function isForbiddenResponse(response, payload = {}) {
-  if (response?.status === 403) return true
-
-  const message = String(payload?.message || '')
-    .trim()
-    .toLowerCase()
-
-  return ['forbidden', 'forbidden.', 'this action is unauthorized.', 'access denied'].includes(message)
-}
-
 export function getStoredToken() {
   const sessionStorage = getSessionStorage()
   if (!memoryToken && sessionStorage) {
@@ -679,6 +668,14 @@ export async function apiRequest(path, options = {}) {
     error.payload = payload
     if (isUnauthorizedResponse(response, payload)) {
       error.code = 'UNAUTHORIZED'
+      clearStoredToken()
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('skygroup:session-expired', {
+            detail: { message: 'Tu sesión terminó. Inicia sesión nuevamente.' },
+          }),
+        )
+      }
     }
     throw error
   }

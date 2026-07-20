@@ -32,7 +32,11 @@ describe('admin dashboard normalization', () => {
     expect(payload.cards[0].label).toBe('Ingresos netos')
     expect(payload.cards[0].value).toContain('$')
     expect(payload.cards.some((item) => item.label === 'Reservas confirmadas')).toBe(true)
-    expect(payload.analytics.some((item) => item.label === 'Suscripciones vencidas')).toBe(true)
+    expect(payload.analytics.some((item) => item.label === 'Suscripciones activas')).toBe(true)
+    expect(payload.analytics.find((item) => item.label === 'Tasa de reembolso')).toMatchObject({
+      value: '17%',
+      score: expect.closeTo(16.67, 1),
+    })
     expect(payload.recentActivity[0].title).toBe('Pago confirmado')
   })
 

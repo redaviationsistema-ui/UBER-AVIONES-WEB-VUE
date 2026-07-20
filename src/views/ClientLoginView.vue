@@ -5,6 +5,7 @@ import BrandLogo from '../components/BrandLogo.vue'
 import { sanitizePostLoginRedirect } from '../lib/authRouting'
 import { useAuthStore } from '../stores/auth'
 import { useUiStore } from '../stores/ui'
+import { useRentalFlowStore } from '../stores/rentalFlow'
 
 const props = defineProps({
   loginRole: {
@@ -25,6 +26,7 @@ const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
 const ui = useUiStore()
+const rentalFlow = useRentalFlowStore()
 
 const form = reactive({
   email: '',
@@ -81,6 +83,18 @@ async function submit() {
       ...form,
       role: props.loginRole,
     })
+
+    if (route.query.rental === 'continue' || rentalFlow.restorePendingSearch()) {
+      const rentalResult = await rentalFlow.continueAfterAuthentication()
+      if (rentalResult?.reservationId) {
+        await router.replace({ name: 'cliente-detalle', params: { section: 'reserva-confirmada', id: rentalResult.reservationId } })
+        return
+      }
+      if (rentalResult?.flightRequestId) {
+        await router.replace({ name: 'cliente-detalle', params: { section: 'resultados', id: rentalResult.flightRequestId } })
+        return
+      }
+    }
 
     const fallbackRedirect = auth.dashboardPath || props.postLoginRedirect
     const redirect = sanitizePostLoginRedirect(route.query.redirect, fallbackRedirect)

@@ -250,8 +250,6 @@ const router = createRouter({
 router.beforeEach(async (to) => {
   const auth = useAuthStore(pinia)
   const accessMode = String(to.meta.access || '').trim()
-  const requiresAdmin =
-    to.meta.requiresAdmin === true || normalizeAuthRole(to.meta.role) === 'admin'
   const shouldResolveAuthBeforeEnter =
     accessMode === AUTHENTICATED_ACCESS ||
     accessMode === GUEST_ACCESS ||
@@ -293,15 +291,35 @@ router.beforeEach(async (to) => {
     return true
   }
 
-  if (normalizeAuthRole(to.meta.role) === 'admin' && !auth.hasAdminAccess()) {
-    return { name: 'access-denied', query: { reason: 'admin-role-required' } }
+  const requiredRole = normalizeAuthRole(to.meta.role)
+
+  if (requiredRole === 'admin') {
+    if (!auth.hasAdminAccess()) {
+      return { name: 'access-denied', query: { reason: 'admin-role-required' } }
+    }
+
+    return true
   }
 
-  if (!auth.hasRole(to.meta.role)) {
+  if (!auth.hasRole(requiredRole)) {
     return { name: 'access-denied', query: { reason: 'insufficient-role' } }
   }
 
   return true
 })
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('skygroup:session-expired', async () => {
+    const auth = useAuthStore(pinia)
+    const redirect = router.currentRoute.value.fullPath
+    await auth.logout()
+    if (!router.currentRoute.value.meta?.requiresAuth) return
+    const isClientRoute = normalizeAuthRole(router.currentRoute.value.meta?.role) === 'client'
+    await router.replace({
+      name: isClientRoute ? 'login-cliente' : 'login',
+      query: { redirect, session: 'expired' },
+    })
+  })
+}
 
 export default router

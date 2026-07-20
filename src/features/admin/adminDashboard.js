@@ -20,6 +20,12 @@ function formatPercent(value) {
   return `${numeric.toFixed(0)}%`
 }
 
+function percentage(numerator, denominator) {
+  const total = toNumber(denominator)
+  if (total <= 0) return 0
+  return Math.max(0, Math.min(100, (toNumber(numerator) / total) * 100))
+}
+
 function firstDefined(...values) {
   return values.find((value) => value !== undefined && value !== null && value !== '')
 }
@@ -52,7 +58,6 @@ export function normalizeAdminDashboardPayload(payload = {}) {
     0,
   )
   const paymentsPending = firstDefined(metrics.payments_pending, totals.payments_pending, 0)
-  const paymentsFailed = firstDefined(metrics.payments_failed, totals.payments_failed, 0)
   const activeAircraft = firstDefined(metrics.active_aircraft, totals.active_aircraft, kpis.aeronaves_activas, 0)
   const activeProviders = firstDefined(
     metrics.active_providers,
@@ -73,6 +78,15 @@ export function normalizeAdminDashboardPayload(payload = {}) {
     0,
   )
   const upcomingFlights = firstDefined(metrics.upcoming_flights, totals.upcoming_flights, 0)
+  const totalProviders = firstDefined(metrics.total_providers, totals.total_providers, activeProviders, 0)
+  const approvedProviders = firstDefined(metrics.approved_providers, totals.approved_providers, activeProviders, 0)
+  const totalSubscriptions = firstDefined(metrics.total_subscriptions, totals.total_subscriptions, activeSubscriptions + expiredSubscriptions, 0)
+  const totalFlightRequests = firstDefined(metrics.total_flight_requests, totals.total_flight_requests, quotesIssued, 0)
+  const totalReservations = firstDefined(metrics.total_reservations, totals.total_reservations, confirmedReservations, 0)
+  const paidReservations = firstDefined(metrics.paid_reservations, totals.paid_reservations, 0)
+  const approvedAircraft = firstDefined(metrics.approved_aircraft, totals.approved_aircraft, activeAircraft, 0)
+  const operationalAircraft = firstDefined(metrics.operational_aircraft, totals.operational_aircraft, activeAircraft, 0)
+  const period = firstDefined(payload?.period?.label, payload?.period_label, metrics.period, 'Periodo actual')
 
   const cards = [
     {
@@ -109,36 +123,40 @@ export function normalizeAdminDashboardPayload(payload = {}) {
 
   const analytics = [
     {
-      label: 'Reembolsos',
-      value: formatCurrency(refunds, currency),
-      score: Math.max(0, Math.min(100, 100 - toNumber(refunds))),
+      label: 'Tasa de reembolso',
+      value: formatPercent(percentage(refunds, chargedRevenue)),
+      score: percentage(refunds, chargedRevenue),
+      detail: `${formatCurrency(refunds, currency)} de ${formatCurrency(chargedRevenue, currency)} · ${period}`,
     },
     {
-      label: 'Pagos fallidos',
-      value: formatNumber(paymentsFailed),
-      score: Math.max(0, 100 - toNumber(paymentsFailed) * 5),
-    },
-    {
-      label: 'Proveedores activos',
-      value: formatNumber(activeProviders),
-      score: Math.min(100, toNumber(activeProviders) * 5),
+      label: 'Proveedores aprobados',
+      value: formatPercent(percentage(approvedProviders, totalProviders)),
+      score: percentage(approvedProviders, totalProviders),
+      detail: `${formatNumber(approvedProviders)} de ${formatNumber(totalProviders)} proveedores · ${period}`,
     },
     {
       label: 'Suscripciones activas',
-      value: formatNumber(activeSubscriptions),
-      score: Math.min(100, toNumber(activeSubscriptions) * 5),
+      value: formatPercent(percentage(activeSubscriptions, totalSubscriptions)),
+      score: percentage(activeSubscriptions, totalSubscriptions),
+      detail: `${formatNumber(activeSubscriptions)} de ${formatNumber(totalSubscriptions)} suscripciones · ${period}`,
     },
     {
-      label: 'Suscripciones vencidas',
-      value: formatNumber(expiredSubscriptions),
-      score: Math.max(0, 100 - toNumber(expiredSubscriptions) * 10),
+      label: 'Conversión a reserva',
+      value: formatPercent(percentage(confirmedReservations, totalFlightRequests)),
+      score: percentage(confirmedReservations, totalFlightRequests),
+      detail: `${formatNumber(confirmedReservations)} de ${formatNumber(totalFlightRequests)} solicitudes · ${period}`,
     },
     {
-      label: 'Ingreso por periodo',
-      value: normalizeSeriesPoints(series.revenue).at(-1)?.value
-        ? formatCurrency(normalizeSeriesPoints(series.revenue).at(-1)?.value, currency)
-        : formatCurrency(netRevenue, currency),
-      score: Math.min(100, Math.round(toNumber(netRevenue) / 1000)),
+      label: 'Conversión a pago',
+      value: formatPercent(percentage(paidReservations, totalReservations)),
+      score: percentage(paidReservations, totalReservations),
+      detail: `${formatNumber(paidReservations)} de ${formatNumber(totalReservations)} reservas · ${period}`,
+    },
+    {
+      label: 'Disponibilidad operativa',
+      value: formatPercent(percentage(operationalAircraft, approvedAircraft)),
+      score: percentage(operationalAircraft, approvedAircraft),
+      detail: `${formatNumber(operationalAircraft)} de ${formatNumber(approvedAircraft)} aeronaves aprobadas · ${period}`,
     },
   ]
 
