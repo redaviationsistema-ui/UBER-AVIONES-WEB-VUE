@@ -115,36 +115,6 @@ const summaryCards = computed(() => [
   { label: 'Bitacora', value: props.auditEntries.length },
 ])
 
-const signatureStatus = computed(() => {
-  const reservation = selectedReservation.value
-  if (!reservation) return { tone: 'neutral', title: 'Sin reserva seleccionada', detail: '' }
-
-  const contractStatus = String(reservation.contractStatus || '').trim().toLowerCase()
-  const workflowState = resolveWorkflowState(effectiveWorkflowValue(reservation)).id
-
-  if (workflowState === 'contract_pending') {
-    return {
-      tone: 'warning',
-      title: getSharedWorkflowActionCopy('contract_pending').title,
-      detail: getSharedWorkflowActionCopy('contract_pending').detail,
-    }
-  }
-
-  if (contractStatus === 'signed' || workflowState === 'contract_signed' || workflowState === 'payment_pending' || workflowState === 'payment_confirmed' || workflowState === 'flight_confirmed' || workflowState === 'tracking_live' || workflowState === 'completed') {
-    return {
-      tone: 'success',
-      title: 'Contrato ya firmado',
-      detail: 'La firma ya se completó. Por eso esta reserva ya no está en la parte de firma y avanzó a pago o una etapa posterior.',
-    }
-  }
-
-  return {
-    tone: 'neutral',
-    title: getSharedWorkflowActionCopy('provider_pending').title,
-    detail: getSharedWorkflowActionCopy('provider_pending').detail,
-  }
-})
-
 watch(
   () => activeReservations.value,
   (reservations) => {
@@ -192,13 +162,6 @@ function getFlowDraft(reservationId) {
     flowDrafts[reservationId] = { stage: 'reserved', note: '' }
   }
   return flowDrafts[reservationId]
-}
-
-function getHoldDraft(reservationId) {
-  if (!holdDrafts[reservationId]) {
-    holdDrafts[reservationId] = { mode: 'delayed', reason: '', eta: '', note: '', resumeNote: '' }
-  }
-  return holdDrafts[reservationId]
 }
 
 function normalizeStatusToken(value = '') {
@@ -276,26 +239,6 @@ function stepState(reservation, stepId) {
   return 'pending'
 }
 
-function stepDescription(reservation, step) {
-  const currentState = stepState(reservation, step.id)
-  const paymentStatus = humanizePaymentStatus(reservation?.paymentStatus || '')
-  const contractStatus = humanizeContractStatus(reservation?.contractStatus || '')
-
-  if (step.id === 'contract_pending' && currentState !== 'pending') {
-    return currentState === 'done'
-      ? `Contrato ${contractStatus.toLowerCase()} y flujo listo para continuar.`
-      : getSharedWorkflowStepDescription(step.id, 'current') || step.description
-  }
-
-  if (step.id === 'payment_pending' && currentState !== 'pending') {
-    return currentState === 'done'
-      ? `Pago ${paymentStatus.toLowerCase()} y validado dentro del flujo.`
-      : getSharedWorkflowStepDescription(step.id, 'current') || step.description
-  }
-
-  return getSharedWorkflowStepDescription(step.id, currentState) || step.description
-}
-
 function adminStateLabel(value) {
   if (value === 'blocked') return 'Bloqueada'
   if (value === 'delayed') return 'Retrasada'
@@ -310,21 +253,6 @@ function adminStateTone(value) {
 
 function reservationStageLabel(reservation) {
   return workflowStageTitle(effectiveWorkflowValue(reservation))
-}
-
-function formatReservationDate(value = '') {
-  const normalized = String(value || '').trim()
-  if (!normalized) return 'Sin fecha'
-
-  const parsed = new Date(normalized)
-  if (Number.isNaN(parsed.getTime())) return normalized
-
-  return new Intl.DateTimeFormat('es-MX', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    timeZone: 'UTC',
-  }).format(parsed)
 }
 
 function getProviderReleaseSource(reservation = {}) {
@@ -377,93 +305,6 @@ function getProviderReleaseStatusMeta(reservation = {}) {
     tone: 'muted',
     detail: 'El proveedor aun no cierra la liberacion operativa.',
   }
-}
-
-function hasProviderRelease(reservation = {}) {
-  return Boolean(getProviderReleaseSource(reservation))
-}
-
-function providerReleaseBooleanItems(reservation = {}) {
-  const source = getProviderReleaseSource(reservation) || {}
-  return [
-    { label: 'Aeronave disponible', done: Boolean(source.availability_confirmed) },
-    { label: 'Sin mantenimiento pendiente', done: Boolean(source.maintenance_clear) },
-    { label: 'Cobertura de ruta confirmada', done: Boolean(source.route_coverage_confirmed) },
-    { label: 'Horarios confirmados', done: Boolean(source.crew_schedule_confirmed) },
-    { label: 'Docs tripulacion listos', done: Boolean(source.crew_documents_ready) },
-    { label: 'Plan de vuelo listo', done: Boolean(source.flight_plan_ready) },
-    { label: 'Permisos / slots listos', done: Boolean(source.permits_ready) },
-    { label: 'Handling confirmado', done: Boolean(source.handling_ready) },
-    { label: 'Combustible listo', done: Boolean(source.fuel_ready) },
-    { label: 'Limpieza lista', done: Boolean(source.cleaning_ready) },
-    { label: 'Documentos listos', done: Boolean(source.documents_ready) },
-    { label: 'Seguro listo', done: Boolean(source.insurance_ready) },
-    { label: 'Matricula lista', done: Boolean(source.registration_ready) },
-    { label: 'Bitacora lista', done: Boolean(source.logbook_ready) },
-  ]
-}
-
-function providerReleaseCrewItems(reservation = {}) {
-  const source = getProviderReleaseSource(reservation) || {}
-  const confirmed = (value) => String(value || '').trim().toLowerCase() === 'confirmed'
-  return [
-    { label: 'Capitan asignado', done: confirmed(source.captain_status) },
-    { label: 'Copiloto asignado', done: confirmed(source.copilot_status) },
-    { label: 'Tripulacion disponible', done: confirmed(source.crew_availability_status) },
-    { label: 'Tripulacion cumple requisitos', done: confirmed(source.crew_requirements_status) },
-    {
-      label: 'Estado general',
-      done: ['confirmed', 'red_aviation_review'].includes(
-        String(source.crew_overall_status || '').trim().toLowerCase(),
-      ),
-      value: source.crew_overall_status || 'pending',
-    },
-  ]
-}
-
-function providerReleaseAircraftItems(reservation = {}) {
-  const source = getProviderReleaseSource(reservation) || {}
-  return [
-    { label: 'Aeronave disponible', done: Boolean(source.availability_confirmed) },
-    { label: 'Sin mantenimiento pendiente', done: Boolean(source.maintenance_clear) },
-    { label: 'Cobertura de ruta confirmada', done: Boolean(source.route_coverage_confirmed) },
-    { label: 'Combustible listo', done: Boolean(source.fuel_ready) },
-    { label: 'Limpieza lista', done: Boolean(source.cleaning_ready) },
-    { label: 'Seguro listo', done: Boolean(source.insurance_ready) },
-    { label: 'Matricula lista', done: Boolean(source.registration_ready) },
-  ]
-}
-
-function providerReleaseDispatchItems(reservation = {}) {
-  const source = getProviderReleaseSource(reservation) || {}
-  return [
-    { label: 'Plan de vuelo listo', done: Boolean(source.flight_plan_ready) },
-    { label: 'Permisos / slots listos', done: Boolean(source.permits_ready) },
-    { label: 'Handling confirmado', done: Boolean(source.handling_ready) },
-    { label: 'Horarios confirmados', done: Boolean(source.crew_schedule_confirmed) },
-    { label: 'Docs tripulacion listos', done: Boolean(source.crew_documents_ready) },
-    { label: 'Documentos operativos listos', done: Boolean(source.documents_ready) },
-    { label: 'Bitacora lista', done: Boolean(source.logbook_ready) },
-  ]
-}
-
-function providerReleaseProgress(reservation = {}) {
-  const items = providerReleaseBooleanItems(reservation)
-  const done = items.filter((item) => item.done).length
-  return { done, total: items.length }
-}
-
-function providerReleaseCrewLabel(reservation = {}) {
-  const source = getProviderReleaseSource(reservation) || {}
-  const overall = String(source.crew_overall_status || '').trim().toLowerCase()
-  if (overall === 'confirmed') return 'Confirmada'
-  if (overall === 'red_aviation_review') return 'En revision'
-  return 'Pendiente'
-}
-
-function getProviderReleaseNotes(reservation = {}) {
-  const source = getProviderReleaseSource(reservation) || {}
-  return String(source.notes || source.comment || '').trim() || 'Sin notas registradas.'
 }
 
 function clearFilters() {
@@ -559,26 +400,6 @@ function submitFlowUpdate(reservation) {
   draft.note = ''
 }
 
-function submitDelay(reservation) {
-  const draft = getHoldDraft(reservation.id)
-  emit('delay-flow', {
-    reservationId: reservation.id,
-    mode: draft.mode,
-    reason: draft.reason || '',
-    eta: draft.eta || '',
-    note: draft.note || '',
-  })
-  draft.note = ''
-}
-
-function submitResume(reservation) {
-  const draft = getHoldDraft(reservation.id)
-  emit('resume-flow', {
-    reservationId: reservation.id,
-    note: draft.resumeNote || '',
-  })
-  draft.resumeNote = ''
-}
 </script>
 
 <template>

@@ -149,6 +149,7 @@ export default defineComponent({
         @open-detail="goToReservationDetail($event)"
         @open-payment="goToPayment($event)"
         @payment-submit="handlePaymentSubmit"
+        @resolve-availability-conflict="handleResolveAvailabilityConflict"
         @select-assisted-payment-proof="handleAssistedPaymentProofSelection"
         @send-assisted-payment-email="handleSendAssistedPaymentOrderEmail"
         @update:payment-contact-email="paymentForm.contactEmail = $event"

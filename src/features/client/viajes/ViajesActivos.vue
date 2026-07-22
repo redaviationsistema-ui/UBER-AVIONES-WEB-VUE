@@ -25,6 +25,7 @@ const emit = defineEmits([
   'open-detail',
   'open-payment',
   'open-concierge',
+  'resolve-availability-conflict',
   'refresh',
 ])
 
@@ -305,6 +306,12 @@ function runPrimaryAction(reservation = {}) {
 
   if (!actionConfig.enabled || !reservationId || isPrimaryActionLoading(reservation)) return
 
+  if (actionConfig.type === 'availability_conflict') {
+    loadingActionReservationId.value = ''
+    actionConfig.action()
+    return
+  }
+
   loadingActionReservationId.value = reservationId
   actionConfig.action()
 }
@@ -341,11 +348,38 @@ function normalizedCurrentAction(reservation = {}) {
   return ''
 }
 
+function hasAvailabilityConflict(reservation = {}) {
+  return (
+    reservation?.frontend_state?.availability_conflict === true ||
+    String(reservation?.frontend_state?.availability_conflict_code || '').trim() === 'AIRCRAFT_NOT_AVAILABLE'
+  )
+}
+
 function primaryActionConfig(reservation = {}) {
   const workflowValue = reservationWorkflowValue(reservation)
   const stateId = workflowId(workflowValue)
   const actionTargetId = reservationActionTargetId(reservation)
   const currentAction = normalizedCurrentAction(reservation)
+
+  if (hasAvailabilityConflict(reservation)) {
+    return {
+      type: 'availability_conflict',
+      badge: 'Disponibilidad actualizada',
+      eyebrow: 'Siguiente paso',
+      title: 'Esta aeronave ya no esta disponible',
+      description:
+        reservation?.frontend_state?.availability_conflict_message ||
+        'Esta aeronave ya no esta disponible para el horario seleccionado.',
+      helperText: 'Concierge 24/7 disponible',
+      buttonLabel: 'Ver otras opciones',
+      buttonLoadingLabel: 'Ver otras opciones',
+      buttonIcon: '🎧',
+      illustration: 'contract',
+      enabled: true,
+      buttonDisabledReason: '',
+      action: () => emit('resolve-availability-conflict', actionTargetId),
+    }
+  }
 
   if (currentAction === 'contract' || ['provider_accepted', 'contract_pending'].includes(stateId)) {
     return {
@@ -450,45 +484,6 @@ function primaryActionConfig(reservation = {}) {
     buttonDisabledReason: '',
     action: () => emit('open-concierge', actionTargetId),
   }
-}
-
-function workflowSupportLines(reservation = {}) {
-  const workflowValue = reservationWorkflowValue(reservation)
-  const stateId = workflowId(workflowValue)
-  const paymentStatus = String(reservation.payment_status || '').trim().toLowerCase()
-  const lines = []
-
-  if (reservation.flight_package) {
-    lines.push(`🎟 ${reservation.flight_package}`)
-  }
-
-  if (stateId === 'contract_pending' || stateId === 'contract_signed') {
-    lines.push('📄 Contrato en gestion')
-  } else if (stateId === 'payment_pending' || stateId === 'payment_confirmed') {
-    lines.push(
-      `💳 ${
-        stateId === 'payment_confirmed' ? 'Pago confirmado' : reservation.payment_status || 'Pago en proceso'
-      }`,
-    )
-  } else if (stateId === 'flight_confirmed' || stateId === 'tracking_live') {
-    lines.push('🛫 Operacion en liberacion final')
-  }
-
-  if (stateId === 'payment_confirmed') {
-    lines.push('🛫 Vuelo en liberacion operativa')
-  }
-
-  if (paymentStatus === 'paid') {
-    lines.push('Pagado · Aeronave reservada')
-  }
-
-  if (reservation.operator) {
-    lines.push(`🏢 Operado por: ${reservation.operator}`)
-  }
-
-  lines.push('🎧 Concierge 24/7 disponible')
-
-  return lines
 }
 
 function aircraftReservationLabel(reservation = {}) {
@@ -801,17 +796,6 @@ function actionFooterConfig(reservation = {}) {
   }
 }
 
-function flightActionLabel(reservation = {}) {
-  const stateId = workflowId(reservationWorkflowValue(reservation))
-
-  if (stateId === 'completed') return '✅ Finalizado'
-  if (stateId === 'tracking_live') return '📡 Tracking en vivo'
-  if (stateId === 'flight_confirmed') return '🛫 Vuelo confirmado'
-  if (stateId === 'payment_confirmed') return '🛫 Vuelo en liberacion operativa'
-  if (stateId === 'payment_pending') return '🛫 Esperando validacion'
-  return '🛫 Vuelo por confirmar'
-}
-
 function stepStateLabel(step = {}) {
   if (step.state === 'done') return 'Completado'
   if (step.state === 'active') return 'En curso'
@@ -1003,6 +987,34 @@ watch(
     if (isRefreshing) return
     loadingActionReservationId.value = ''
   },
+)
+
+watch(
+  () =>
+    props.reservations
+      .map((reservation) =>
+        [
+          normalizeReservationActionId(reservation),
+          hasAvailabilityConflict(reservation) ? 'conflict' : 'ok',
+          reservation?.frontend_state?.next_action || '',
+          reservation?.current_action || '',
+        ].join(':'),
+      )
+      .join('|'),
+  () => {
+    if (!loadingActionReservationId.value) return
+
+    const conflictedReservation = props.reservations.find(
+      (reservation) =>
+        normalizeReservationActionId(reservation) === loadingActionReservationId.value &&
+        hasAvailabilityConflict(reservation),
+    )
+
+    if (conflictedReservation) {
+      loadingActionReservationId.value = ''
+    }
+  },
+  { immediate: true },
 )
 </script>
 

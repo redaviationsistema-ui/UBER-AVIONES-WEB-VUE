@@ -1430,35 +1430,6 @@ function deriveProvidersFromAircraft(records = []) {
   return [...catalog.values()]
 }
 
-function resolveRoleCandidates(item = {}) {
-  const directRoles = Array.isArray(item.roles)
-    ? item.roles.map((role) => role?.code || role?.key || role?.name || role).filter(Boolean)
-    : []
-  const loginContextRoles = Array.isArray(item.login_context?.roles)
-    ? item.login_context.roles
-    : Array.isArray(item.loginContext?.roles)
-      ? item.loginContext.roles
-      : []
-  const accessRoles = Array.isArray(item.access?.roles) ? item.access.roles : []
-
-  return [
-    item.effective_role,
-    item.login_context?.effective_role,
-    item.loginContext?.effective_role,
-    item.access?.effective_role,
-    item.role?.code,
-    item.role?.name,
-    item.operational_role,
-    item.role,
-    item.position,
-    ...directRoles,
-    ...loginContextRoles,
-    ...accessRoles,
-  ]
-    .map((value) => String(value || '').trim())
-    .filter(Boolean)
-}
-
 function normalizeAdminCrewMember(item = {}) {
   const profile = item.profile && typeof item.profile === 'object' ? item.profile : {}
   const taxData = profile.tax_data && typeof profile.tax_data === 'object' ? profile.tax_data : {}

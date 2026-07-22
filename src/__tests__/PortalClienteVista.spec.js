@@ -157,6 +157,7 @@ vi.mock('../features/client/clientBookingApi', () => ({
 }))
 
 import PortalClienteVista from '../features/client/portal/PortalClienteVista.vue'
+import ViajesActivos from '../features/client/viajes/ViajesActivos.vue'
 
 function buildReservation(overrides = {}) {
   return {
@@ -624,6 +625,199 @@ describe('PortalClienteVista reservation availability safeguards', () => {
     )
   })
 
+  it('marks the trip as unavailable when opening the contract returns AIRCRAFT_NOT_AVAILABLE', async () => {
+    routeMock.params.id = 'fr-77'
+
+    getClientTripsMock.mockResolvedValue([
+      buildReservation({
+        id: 'fr-77',
+        flight_request_id: '',
+        is_reservation: false,
+        status: 'provider_accepted',
+        workflow_status: 'contrato pendiente',
+        frontend_state: {
+          ready_for_payment: false,
+        },
+      }),
+    ])
+
+    ensureClientReservationMock.mockRejectedValueOnce({
+      status: 409,
+      message: 'Esta aeronave ya no esta disponible para el horario seleccionado.',
+      payload: {
+        code: 'AIRCRAFT_NOT_AVAILABLE',
+      },
+    })
+
+    const wrapper = await mountView({ section: 'viajes' })
+
+    await wrapper.vm.handleOpenContract('fr-77')
+    await flushPromises()
+
+    expect(routerMock.push).not.toHaveBeenCalledWith({
+      name: 'cliente-detalle',
+      params: { section: 'contrato', id: 'fr-77' },
+    })
+    expect(pushToastMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tone: 'error',
+        title: 'No se pudo abrir el contrato',
+        message: 'Esta aeronave ya no esta disponible para el horario seleccionado.',
+      }),
+    )
+    expect(wrapper.vm.reservations[0].frontend_state.availability_conflict).toBe(true)
+    expect(wrapper.vm.reservations[0].frontend_state.availability_conflict_code).toBe(
+      'AIRCRAFT_NOT_AVAILABLE',
+    )
+    expect(wrapper.vm.reservations[0].current_action).toBe('contact_concierge')
+  })
+
+  it('prevents opening payment when the selected reservation already has an availability conflict', async () => {
+    getClientTripsMock.mockResolvedValue([
+      buildReservation({
+        id: 'res-conflict',
+        flight_request_id: 'fr-conflict',
+        frontend_state: {
+          ready_for_payment: false,
+          availability_conflict: true,
+          availability_conflict_message:
+            'Esta aeronave ya no esta disponible para continuar con el pago.',
+        },
+      }),
+    ])
+    routeMock.params.id = 'res-conflict'
+
+    const wrapper = await mountView({ section: 'viajes' })
+
+    wrapper.vm.goToPayment('res-conflict')
+
+    expect(pushToastMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tone: 'warning',
+        title: 'Disponibilidad actualizada',
+        message: 'Esta aeronave ya no esta disponible para continuar con el pago.',
+      }),
+    )
+    expect(routerMock.push).toHaveBeenCalledWith({
+      name: 'cliente',
+      params: { section: 'reservar', id: undefined },
+    })
+  })
+
+  it('disables workflow rendering on contract and payment screens after an availability conflict', async () => {
+    getClientTripsMock.mockResolvedValue([
+      buildReservation({
+        id: 'res-locked',
+        flight_request_id: 'fr-locked',
+        frontend_state: {
+          ready_for_payment: false,
+          availability_conflict: true,
+          availability_conflict_message:
+            'La disponibilidad de esta aeronave cambio y ya no podemos continuar con este flujo.',
+        },
+      }),
+    ])
+    routeMock.params.id = 'res-locked'
+
+    const contractWrapper = await mountView({ section: 'contrato' })
+    expect(contractWrapper.vm.canRenderReservationWorkflow).toBe(false)
+
+    const paymentWrapper = await mountView({ section: 'pago' })
+    expect(paymentWrapper.vm.canRenderReservationWorkflow).toBe(false)
+  })
+
+  it('does not re-request the same reservation in a loop after an availability conflict', async () => {
+    routeMock.params.id = 'fr-loop'
+
+    getClientTripsMock.mockResolvedValue([
+      buildReservation({
+        id: 'fr-loop',
+        flight_request_id: '',
+        is_reservation: false,
+        status: 'provider_accepted',
+        workflow_status: 'contrato pendiente',
+        frontend_state: {
+          ready_for_payment: false,
+          availability_conflict: true,
+          availability_conflict_message:
+            'Esta aeronave ya no esta disponible para el horario seleccionado.',
+        },
+      }),
+    ])
+
+    const wrapper = await mountView({ section: 'contrato' })
+    await flushPromises()
+
+    expect(wrapper.vm.canRenderReservationWorkflow).toBe(false)
+    expect(ensureClientReservationMock).not.toHaveBeenCalled()
+  })
+
+  it('navigates to booking search while preserving itinerary after resolving the availability conflict', async () => {
+    getClientTripsMock.mockResolvedValue([
+      buildReservation({
+        id: 'res-search',
+        flight_request_id: 'fr-search',
+        origin: 'TLC',
+        destination: 'MTY',
+        date: '2026-07-20T09:00:00',
+        passengers: 3,
+        aircraft_id: '77',
+        frontend_state: {
+          availability_conflict: true,
+          availability_conflict_message:
+            'Esta aeronave ya no esta disponible para el horario seleccionado.',
+        },
+      }),
+    ])
+    routeMock.params.id = 'res-search'
+
+    const wrapper = await mountView({ section: 'viajes' })
+
+    await wrapper.vm.handleResolveAvailabilityConflict('res-search')
+    await flushPromises()
+
+    expect(routerMock.push).toHaveBeenCalledWith({
+      name: 'cliente',
+      params: { section: 'reservar' },
+    })
+    expect(wrapper.vm.searchForm.origin).toBe('TLC')
+    expect(wrapper.vm.searchForm.destination).toBe('MTY')
+    expect(wrapper.vm.searchForm.departureDate).toBe('2026-07-20')
+    expect(wrapper.vm.searchForm.passengers).toBe('3')
+  })
+
+  it('keeps the conflicted aircraft out of the visible options after resolving the conflict', async () => {
+    getClientTripsMock.mockResolvedValue([
+      buildReservation({
+        id: 'res-aircraft',
+        flight_request_id: 'fr-aircraft',
+        aircraft_id: '77',
+        frontend_state: {
+          availability_conflict: true,
+          availability_conflict_message:
+            'Esta aeronave ya no esta disponible para el horario seleccionado.',
+        },
+      }),
+    ])
+    routeMock.params.id = 'res-aircraft'
+
+    const wrapper = await mountView({ section: 'viajes' })
+    wrapper.vm.aircraftOptions = [
+      { id: 'aircraft-77', aircraft_id: '77', provider_id: 1, cabin: 'Light Jet' },
+      { id: 'aircraft-88', aircraft_id: '88', provider_id: 2, cabin: 'Midsize Jet' },
+    ]
+
+    await wrapper.vm.handleResolveAvailabilityConflict('res-aircraft')
+    await flushPromises()
+
+    const visibleIds = [
+      wrapper.vm.featuredAircraft?.aircraft_id,
+      ...wrapper.vm.secondaryAircraftOptions.map((item) => item.aircraft_id),
+    ].filter(Boolean)
+
+    expect(visibleIds).not.toContain('77')
+  })
+
   it('persists the flight request before requesting the aircraft hold with the accepted quote', async () => {
     const wrapper = await mountView({ section: 'reservar' })
 
@@ -855,7 +1049,7 @@ describe('PortalClienteVista checkout hold validation', () => {
   })
 
   it('blocks Stripe when backend reports hold_expired', async () => {
-    getClientReservationPaymentAvailabilityMock.mockResolvedValueOnce({
+    getClientReservationPaymentAvailabilityMock.mockResolvedValue({
       success: false,
       can_pay: false,
       hold_valid: false,
@@ -889,8 +1083,10 @@ describe('PortalClienteVista checkout hold validation', () => {
     })
 
     const wrapper = await mountView({ section: 'pago' })
+    await wrapper.vm.handlePaymentSubmit()
+    await flushPromises()
 
-    expect(wrapper.vm.paymentCanSubmit).toBe(false)
+    expect(createClientCheckoutMock).not.toHaveBeenCalled()
     expect(wrapper.vm.paymentInlineError).toContain('retencion vencio')
   })
 
@@ -1093,5 +1289,46 @@ describe('PortalClienteVista tracking navigation', () => {
     expect(routerMock.replace).not.toHaveBeenCalledWith('/cliente/viajes/res-1')
 
     vi.useRealTimers()
+  })
+})
+
+describe('ViajesActivos availability conflict CTA', () => {
+  it('releases CTA loading and emits the safe conflict action instead of staying in Cargando', async () => {
+    const reservation = buildReservation({
+      id: 'res-cta',
+      flight_request_id: 'fr-cta',
+      status: 'contract_pending',
+      workflow_status: 'contrato pendiente',
+      frontend_state: {
+        availability_conflict: true,
+        availability_conflict_message:
+          'Esta aeronave ya no esta disponible para el horario seleccionado.',
+      },
+    })
+
+    const wrapper = shallowMount(ViajesActivos, {
+      props: {
+        reservations: [reservation],
+        selectedId: 'res-cta',
+        timeline: [],
+        initialTab: 'proximos',
+        refreshing: false,
+      },
+      global: {
+        stubs: {
+          ReservationActionCard: true,
+        },
+      },
+    })
+
+    wrapper.vm.runPrimaryAction(reservation)
+    await flushPromises()
+
+    expect(wrapper.emitted('resolve-availability-conflict')).toEqual([['res-cta']])
+    expect(wrapper.vm.primaryActionConfig(reservation).title).toBe(
+      'Esta aeronave ya no esta disponible',
+    )
+    expect(wrapper.vm.primaryActionConfig(reservation).buttonLabel).toBe('Ver otras opciones')
+    expect(wrapper.vm.isPrimaryActionLoading(reservation)).toBe(false)
   })
 })

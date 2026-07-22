@@ -70,6 +70,7 @@ defineEmits([
   'open-detail',
   'open-payment',
   'payment-submit',
+  'resolve-availability-conflict',
   'select-assisted-payment-proof',
   'send-assisted-payment-email',
   'trigger-assisted-payment-proof-upload',
@@ -157,6 +158,14 @@ const isStripeBusy = computed(
 
 const hasAvailabilityError = computed(
   () => Boolean(props.paymentInlineError) && !props.paymentAvailabilityLoading,
+)
+const hasAvailabilityConflict = computed(
+  () => props.selectedReservation?.frontend_state?.availability_conflict === true,
+)
+const availabilityConflictMessage = computed(
+  () =>
+    props.selectedReservation?.frontend_state?.availability_conflict_message ||
+    'La disponibilidad de esta aeronave cambio y ya no podemos continuar con este flujo.',
 )
 
 const paymentStatusCopy = computed(() => {
@@ -384,14 +393,19 @@ const trackingSteps = computed(() => {
       class="document-panel confirmation-panel"
     >
       <span class="eyebrow">Contrato</span>
-      <h2>Cargando contrato</h2>
-      <p v-if="hasReservationsLoaded">
+      <h2>{{ hasAvailabilityConflict ? 'Aeronave no disponible' : 'Cargando contrato' }}</h2>
+      <p v-if="hasReservationsLoaded && hasAvailabilityConflict">
+        {{ availabilityConflictMessage }}
+      </p>
+      <p v-else-if="hasReservationsLoaded">
         Necesitamos una reserva valida para abrir el contrato. En cuanto tengas una reserva activa,
         aparecera aqui automaticamente.
       </p>
       <p v-else>Estamos sincronizando tus reservas para preparar el contrato correcto.</p>
       <div class="confirmation-actions">
-        <button type="button" @click="$emit('go', 'viajes')">Ver mis vuelos</button>
+        <button type="button" @click="$emit('go', hasAvailabilityConflict ? 'reservar' : 'viajes')">
+          {{ hasAvailabilityConflict ? 'Ver otras opciones' : 'Ver mis vuelos' }}
+        </button>
         <button class="secondary-button" type="button" @click="$emit('go', 'reservar')">
           Reservar vuelo
         </button>
@@ -510,14 +524,19 @@ const trackingSteps = computed(() => {
       <span class="eyebrow">Pago</span>
       <h2>
         {{
-          hasReservationsLoaded
+          hasAvailabilityConflict
+            ? 'Aeronave no disponible'
+            : hasReservationsLoaded
             ? selectedReservation?.is_reservation
               ? 'Pago disponible despues de la firma'
               : 'Preparando checkout'
             : 'Preparando checkout'
         }}
       </h2>
-      <p v-if="hasReservationsLoaded">
+      <p v-if="hasReservationsLoaded && hasAvailabilityConflict">
+        {{ availabilityConflictMessage }}
+      </p>
+      <p v-else-if="hasReservationsLoaded">
         {{
           selectedReservation?.is_reservation
             ? selectedReservationFrontendState.status_message ||
@@ -529,9 +548,15 @@ const trackingSteps = computed(() => {
       <div class="confirmation-actions">
         <button
           type="button"
-          @click="$emit('go', selectedReservation?.is_reservation ? 'contrato' : 'viajes', reservationContextId)"
+          @click="$emit('go', hasAvailabilityConflict ? 'reservar' : selectedReservation?.is_reservation ? 'contrato' : 'viajes', reservationContextId)"
         >
-          {{ selectedReservation?.is_reservation ? 'Volver al contrato' : 'Ver mis vuelos' }}
+          {{
+            hasAvailabilityConflict
+              ? 'Ver otras opciones'
+              : selectedReservation?.is_reservation
+                ? 'Volver al contrato'
+                : 'Ver mis vuelos'
+          }}
         </button>
         <button class="secondary-button" type="button" @click="$emit('go', 'reservar')">
           Reservar vuelo
@@ -662,6 +687,7 @@ const trackingSteps = computed(() => {
       @open-contract="$emit('open-contract', $event)"
       @open-detail="$emit('open-detail', $event)"
       @open-payment="$emit('open-payment', $event)"
+      @resolve-availability-conflict="$emit('resolve-availability-conflict', $event)"
     />
   </section>
 </template>

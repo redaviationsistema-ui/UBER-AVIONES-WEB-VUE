@@ -30,12 +30,17 @@ export function useClientPortalTrips({
 
   const canRenderReservationWorkflow = computed(() => {
     if (!needsReservationContext.value) return true
+    const hasAvailabilityConflict = selectedReservation.value?.frontend_state?.availability_conflict === true
+
     if (props.section === 'contrato') {
-      return Boolean(selectedReservation.value?.is_reservation)
+      return Boolean(selectedReservation.value?.is_reservation) && !hasAvailabilityConflict
     }
     if (props.section === 'pago') {
       if (commercialAccessCheckoutReturnMode.value) return true
-      return Boolean(selectedReservation.value) && paymentReadyForCheckout.value
+      return Boolean(selectedReservation.value) && paymentReadyForCheckout.value && !hasAvailabilityConflict
+    }
+    if (props.section === 'reserva-confirmada') {
+      return Boolean(selectedReservation.value) && !hasAvailabilityConflict
     }
     return Boolean(selectedReservation.value)
   })

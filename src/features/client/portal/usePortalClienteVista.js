@@ -90,6 +90,7 @@ const aircraftSidebarFilters = reactive({
 const technicalSheetOpen = ref(false)
 const technicalAircraft = ref(null)
 const aircraftHold = ref(null)
+const conflictedAircraftIds = ref([])
 const reservationDraftContexts = ref({})
 const holdCountdownNow = ref(Date.now())
 let removeWorkflowSyncSubscription = null
@@ -920,6 +921,10 @@ const activeReservationPaymentMethod = computed(() => {
 })
 
 function reservationQualifiesForCheckout(reservation = null) {
+  if (reservation?.frontend_state?.availability_conflict === true) {
+    return false
+  }
+
   const workflowStage = resolveWorkflowState(
     reservation?.workflow_status || reservation?.status || '',
   ).id
@@ -2189,6 +2194,7 @@ function aircraftServiceLabels(aircraft = {}) {
 
 const routeVisibleAircraftOptions = computed(() => {
   return aircraftOptions.value.filter((aircraft, index, all) =>
+    !conflictedAircraftIds.value.includes(String(resolveAircraftId(aircraft) || '').trim()) &&
     aircraftVisibleForRoute(aircraft, all, index),
   )
 })
@@ -2746,6 +2752,19 @@ function shouldRefreshAvailabilityResults(invalidReason = '') {
     'aircraft_booked_by_other_reservation',
     'hold_dates_mismatch',
   ].includes(String(invalidReason || '').trim())
+}
+
+function isAircraftAvailabilityConflictError(error = null) {
+  const invalidReason = String(error?.payload?.invalid_reason || error?.payload?.reason || '').trim()
+  const code = String(error?.payload?.code || '').trim()
+  const message = String(error?.message || error?.payload?.message || '').toLowerCase()
+
+  return (
+    code === 'AIRCRAFT_NOT_AVAILABLE' ||
+    (Number(error?.status || 0) === 409 && shouldRefreshAvailabilityResults(invalidReason)) ||
+    message.includes('aeronave ya no esta disponible') ||
+    message.includes('aeronave ya no está disponible')
+  )
 }
 
 function parseDateTimeCandidate(value = '') {
@@ -3908,6 +3927,23 @@ function go(section, id = '') {
   )
 }
 
+function rememberConflictedAircraftId(aircraftId = '') {
+  const normalizedAircraftId = String(aircraftId || '').trim()
+  if (!normalizedAircraftId) return
+
+  conflictedAircraftIds.value = [...new Set([...conflictedAircraftIds.value, normalizedAircraftId])]
+}
+
+function resetAvailabilityConflictLoadingState() {
+  signingContract.value = false
+  paymentSubmitting.value = false
+  paymentAvailabilityLoading.value = false
+  searching.value = false
+  reservingAircraftId.value = ''
+  activeContractReservationBootstrapKey.value = ''
+  reservationPaymentAvailabilityRequestPromise = null
+}
+
 function buildClientDetailLocation(section, id = '', subsection = '') {
   const normalizedSection = String(section || '').trim()
   const normalizedId = String(id || '').trim()
@@ -4060,6 +4096,18 @@ function alignReservationWorkflowRoute() {
 function goToPayment(reservationId = '') {
   const targetReservation =
     findReservationRecordById(reservationId || reservationContextId.value) || selectedReservation.value
+
+  if (targetReservation?.frontend_state?.availability_conflict === true) {
+    ui.pushToast({
+      tone: 'warning',
+      title: 'Disponibilidad actualizada',
+      message:
+        targetReservation?.frontend_state?.availability_conflict_message ||
+        'Esta aeronave ya no esta disponible para continuar con el pago.',
+    })
+    go('reservar')
+    return
+  }
 
   if (!reservationQualifiesForCheckout(targetReservation)) {
     ui.pushToast({
@@ -5559,6 +5607,18 @@ async function refreshReservationPaymentAvailability({ force = false } = {}) {
       const normalizedAvailability = normalizeReservationPaymentAvailability(response)
       paymentAvailabilityState.value = normalizedAvailability
 
+      if (!normalizedAvailability?.can_pay && shouldRefreshAvailabilityResults(normalizedAvailability?.invalid_reason)) {
+        markReservationAvailabilityConflict(reservationId, {
+          status: 409,
+          payload: {
+            code: 'AIRCRAFT_NOT_AVAILABLE',
+            invalid_reason: normalizedAvailability?.invalid_reason,
+            message: reservationPaymentAvailabilityMessage(normalizedAvailability),
+          },
+          message: reservationPaymentAvailabilityMessage(normalizedAvailability),
+        })
+      }
+
       if (normalizedAvailability?.hold?.id && normalizedAvailability.hold_valid) {
         setAircraftHold({
           hold_id: normalizedAvailability.hold.id,
@@ -5582,10 +5642,14 @@ async function refreshReservationPaymentAvailability({ force = false } = {}) {
 
       return normalizedAvailability
     } catch (error) {
+      if (isAircraftAvailabilityConflictError(error)) {
+        markReservationAvailabilityConflict(reservationId, error)
+      }
+
       const fallbackState = normalizeReservationPaymentAvailability({
         success: false,
         can_pay: false,
-        invalid_reason: 'network_error',
+        invalid_reason: isAircraftAvailabilityConflictError(error) ? 'aircraft_booked_by_other_reservation' : 'network_error',
         message: error?.message || '',
       })
       paymentAvailabilityState.value = fallbackState
@@ -5988,13 +6052,139 @@ async function ensureReservationForSelectedTrip(targetId = '') {
   }
 }
 
+function markReservationAvailabilityConflict(targetId = '', error = null) {
+  const normalizedTargetId = resolveEntityIdentifier(targetId)
+  const selectedTargetId = resolveEntityIdentifier(selectedReservation.value?.id || '')
+  const selectedFlightRequestId = resolveEntityIdentifier(selectedReservation.value?.flight_request_id || '')
+  const reservation =
+    reservations.value.find((item) => {
+      const reservationId = resolveEntityIdentifier(item?.id || '')
+      const flightRequestId = resolveEntityIdentifier(item?.flight_request_id || '')
+      return (
+        (normalizedTargetId && (reservationId === normalizedTargetId || flightRequestId === normalizedTargetId)) ||
+        (selectedTargetId && reservationId === selectedTargetId) ||
+        (selectedFlightRequestId && flightRequestId === selectedFlightRequestId)
+      )
+    }) || selectedReservation.value
+
+  const reservationId = resolveEntityIdentifier(reservation?.id || normalizedTargetId)
+  if (!reservationId) return
+
+  const conflictedAircraftId = resolveEntityIdentifier(
+    reservation?.aircraft_id ||
+      reservation?.assigned_aircraft_id ||
+      reservation?.frontend_state?.aircraft_hold?.aircraft_id ||
+      error?.payload?.aircraft_id ||
+      '',
+  )
+  rememberConflictedAircraftId(conflictedAircraftId)
+
+  mergeReservationUpdate({
+    ...(reservation && typeof reservation === 'object' ? reservation : {}),
+    id: reservationId,
+    frontend_state: {
+      ...(reservation?.frontend_state || {}),
+      availability_conflict: true,
+      availability_conflict_code: String(error?.payload?.code || 'AIRCRAFT_NOT_AVAILABLE').trim(),
+      availability_conflict_message: String(
+        error?.message || error?.payload?.message || 'Esta aeronave ya no esta disponible para el horario seleccionado.',
+      ).trim(),
+      next_action: 'contact_concierge',
+      ready_for_payment: false,
+    },
+    current_action: 'contact_concierge',
+    updated_at: new Date().toISOString(),
+  })
+}
+
+function hydrateSearchFormFromReservation(reservation = null) {
+  if (!reservation || typeof reservation !== 'object') return
+
+  const primaryLeg =
+    (Array.isArray(reservation.legs) && reservation.legs[0]) ||
+    (Array.isArray(reservation.requirements) && reservation.requirements[0]) ||
+    {}
+  const primaryDeparture = String(
+    primaryLeg.departure_datetime || reservation.departure_datetime || reservation.date || '',
+  ).trim()
+  const [departureDate = '', departureTime = ''] = primaryDeparture.split('T')
+
+  searchForm.origin = String(reservation.origin || primaryLeg.origin || searchForm.origin || '').trim()
+  searchForm.destination = String(
+    reservation.destination || primaryLeg.destination || searchForm.destination || '',
+  ).trim()
+  searchForm.departureDate = String(reservation.departure_date || departureDate || searchForm.departureDate || '').trim()
+  searchForm.departureTime = String(
+    reservation.departure_time || departureTime.slice(0, 5) || searchForm.departureTime || '',
+  ).trim()
+  searchForm.passengers = String(reservation.passengers || searchForm.passengers || '1').trim()
+}
+
+function clearInvalidAircraftSelection() {
+  technicalSheetOpen.value = false
+  technicalAircraft.value = null
+
+  if (['aeronave', 'reserva'].includes(activeSection.value)) {
+    router.replace({ name: 'cliente', params: { section: 'resultados' } })
+  }
+}
+
+async function handleResolveAvailabilityConflict(targetId = '') {
+  const reservation =
+    findReservationRecordById(targetId || reservationContextId.value) || selectedReservation.value
+
+  resetAvailabilityConflictLoadingState()
+  setAircraftHold(null)
+  clearReservationCheckoutContext()
+  clearInvalidAircraftSelection()
+
+  if (reservation) {
+    hydrateSearchFormFromReservation(reservation)
+    markReservationAvailabilityConflict(targetId || reservation.id || reservation.flight_request_id || '', {
+      payload: {
+        code: 'AIRCRAFT_NOT_AVAILABLE',
+        aircraft_id: reservation?.aircraft_id || reservation?.assigned_aircraft_id || '',
+      },
+      message:
+        reservation?.frontend_state?.availability_conflict_message ||
+        'Esta aeronave ya no esta disponible para el horario seleccionado.',
+    })
+  }
+
+  if (submittedQuotePayload.value) {
+    try {
+      await refreshSearchResults({ silent: true })
+      go('resultados')
+      return
+    } catch {
+      // Si no podemos refrescar resultados, llevamos al formulario con el itinerario precargado.
+    } finally {
+      resetAvailabilityConflictLoadingState()
+    }
+  }
+
+  go('reservar')
+}
+
 async function handleOpenContract(targetId = '') {
   try {
+    resetAvailabilityConflictLoadingState()
     const reservation = await ensureReservationForSelectedTrip(targetId)
     const reservationId = resolveEntityIdentifier(reservation?.id)
     if (!reservationId) throw new Error('El backend no devolvió el identificador de la reserva.')
     go('contrato', reservationId)
   } catch (error) {
+    if (isAircraftAvailabilityConflictError(error)) {
+      markReservationAvailabilityConflict(targetId, error)
+      resetAvailabilityConflictLoadingState()
+      await handleAircraftAvailabilityConflict({
+        title: 'No se pudo abrir el contrato',
+        message:
+          error?.message || 'Esta aeronave ya no esta disponible para el horario seleccionado.',
+      })
+      return
+    }
+
     ui.pushToast({
       tone: 'error',
       title: 'No se pudo abrir el contrato',
@@ -6007,6 +6197,7 @@ async function ensureContractReservationContext() {
   if (props.section !== 'contrato') return
   if (!hasReservationsLoaded.value) return
   if (commercialAccessCheckoutReturnMode.value) return
+  if (selectedReservation.value?.frontend_state?.availability_conflict === true) return
   if (selectedReservation.value?.is_reservation) {
     activeContractReservationBootstrapKey.value = ''
     lastContractReservationBootstrapKey.value = ''
@@ -6106,6 +6297,15 @@ watch(
       return
     }
 
+    if (selectedReservation.value?.frontend_state?.availability_conflict === true) {
+      paymentAvailabilityState.value = null
+      paymentAvailabilityLoading.value = false
+      paymentInlineError.value =
+        selectedReservation.value?.frontend_state?.availability_conflict_message ||
+        'Esta aeronave ya no esta disponible para el horario seleccionado.'
+      return
+    }
+
     void refreshReservationPaymentAvailability({ force: true })
   },
   { immediate: true },
@@ -6196,6 +6396,7 @@ watch(
     handleLogout,
     handleManualReservationsRefresh,
     handleOpenContract,
+    handleResolveAvailabilityConflict,
     handlePaymentMethodSelection,
     handlePaymentSubmit,
     handleSendAssistedPaymentOrderEmail,
@@ -6539,6 +6740,7 @@ async function handleAircraftAvailabilityConflict({
   message = 'Esta aeronave acaba de dejar de estar disponible para el horario seleccionado. Te mostramos otras opciones.',
   title = 'Aeronave no disponible',
 } = {}) {
+  resetAvailabilityConflictLoadingState()
   serverSearchError.value = message
   setAircraftHold(null)
   clearReservationCheckoutContext()
@@ -6547,9 +6749,13 @@ async function handleAircraftAvailabilityConflict({
     if (submittedQuotePayload.value) {
       await refreshSearchResults({ silent: true })
       go('resultados')
+    } else if (['contrato', 'pago', 'reserva-confirmada'].includes(props.section)) {
+      go('viajes', reservationContextId.value)
     }
   } catch {
     // Mantener el mensaje original si el refresco falla.
+  } finally {
+    resetAvailabilityConflictLoadingState()
   }
 
   ui.pushToast({
@@ -6669,6 +6875,9 @@ async function requestReservation(aircraft = selectedAircraft.value) {
     return
   }
 
+  let createdFlightRequestId = ''
+  let createdReservationId = ''
+
   try {
     await refreshCommercialAccessStatus({ forceSessionRefresh: false }).catch(() => null)
 
@@ -6782,7 +6991,7 @@ async function requestReservation(aircraft = selectedAircraft.value) {
         response: reservation,
       })
     }
-    const createdFlightRequestId =
+    createdFlightRequestId =
       reservation?.flight_request?.id ||
       reservation?.data?.flight_request?.id ||
       reservation?.data?.id ||
@@ -6861,7 +7070,7 @@ async function requestReservation(aircraft = selectedAircraft.value) {
       const normalizedCreatedReservation = normalizeTrip(createdReservation, {
         entityType: 'flight_request',
       })
-      const createdReservationId = String(
+      createdReservationId = String(
         normalizedCreatedReservation.id ||
           normalizedCreatedReservation.flight_request_id ||
           createdFlightRequestId ||
@@ -6917,9 +7126,7 @@ async function requestReservation(aircraft = selectedAircraft.value) {
       await auth.refreshSession({ force: true, preferCache: false })
     }
 
-    const isAircraftUnavailableConflict =
-      Number(error?.status || 0) === 409 ||
-      String(error?.payload?.code || '').trim() === 'AIRCRAFT_NOT_AVAILABLE'
+    const isAircraftUnavailableConflict = isAircraftAvailabilityConflictError(error)
 
     const message =
       Number(error?.status || 0) === 402
@@ -6936,6 +7143,7 @@ async function requestReservation(aircraft = selectedAircraft.value) {
       user: auth.user,
     })
     if (isAircraftUnavailableConflict) {
+      markReservationAvailabilityConflict(createdReservationId || createdFlightRequestId || aircraft?.id || '', error)
       await handleAircraftAvailabilityConflict({
         message,
         title: 'Disponibilidad actualizada',
@@ -7194,6 +7402,10 @@ async function hydrateSelectedReservationDetail() {
   const reservation = selectedReservation.value
   const directReservationId = String(reservation?.id || '').trim()
   const reservationId = String(reservation?.flight_request_id || directReservationId || '').trim()
+
+  if (reservation?.frontend_state?.availability_conflict === true) {
+    return
+  }
 
   const shouldHydrate = reservation?.summary_only || reservationNeedsMediaHydration(reservation)
 

@@ -772,7 +772,7 @@ function closeCommercialActionMenu() {
   commercialActionMenuId.value = 0
 }
 
-function openCommercialDetail(row) {
+function openCommercialDetail() {
   closeCommercialActionMenu()
   openAdminSection('usuarios')
 }
