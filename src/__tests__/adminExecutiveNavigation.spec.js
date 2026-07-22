@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 
-import { RouterLinkStub, mount } from '@vue/test-utils'
+import { mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const pushMock = vi.fn()
@@ -39,16 +39,11 @@ describe('AdminExecutiveSection navigation', () => {
         loading: false,
         errorMessage: '',
       },
-      global: {
-        stubs: {
-          RouterLink: RouterLinkStub,
-        },
-      },
     })
 
     const target = wrapper
-      .findAllComponents(RouterLinkStub)
-      .find((node) => node.props('to')?.name === 'admin' && node.props('to')?.params?.section === 'clientes')
+      .findAll('button')
+      .find((node) => node.text().includes('Clientes'))
 
     expect(target).toBeTruthy()
 

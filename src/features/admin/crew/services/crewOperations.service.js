@@ -24,18 +24,21 @@ export function operationProviderName(operation = {}) {
 }
 
 export function operationFlightBase(operation = {}) {
-  const presentationPlace = String(operation.presentationPlace || '').trim()
-  if (presentationPlace) return presentationPlace
-
   const raw = operation?.raw && typeof operation.raw === 'object' ? operation.raw : {}
   const visibilityPayload =
     raw.visibility_payload && typeof raw.visibility_payload === 'object' ? raw.visibility_payload : {}
   const briefing = raw.briefing && typeof raw.briefing === 'object' ? raw.briefing : {}
+  const operationPayload = raw.operation && typeof raw.operation === 'object' ? raw.operation : {}
 
   return String(
+    operation.base ||
     operation.origin ||
+      raw.base ||
       raw.origin ||
       raw.departure_airport ||
+      raw.base_airport ||
+      operationPayload.base ||
+      operationPayload.origin ||
       visibilityPayload.presentation_place ||
       visibilityPayload.presentation_location ||
       briefing.lugar_presentacion ||

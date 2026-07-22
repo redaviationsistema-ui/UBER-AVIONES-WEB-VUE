@@ -105,6 +105,47 @@ function buildAdminIdentifiers(record = {}) {
   }
 }
 
+function collectCrewSources(record = {}, nestedReservation = {}) {
+  const visibilityPayload =
+    record.visibility_payload && typeof record.visibility_payload === 'object'
+      ? record.visibility_payload
+      : {}
+  const nestedVisibilityPayload =
+    nestedReservation.visibility_payload && typeof nestedReservation.visibility_payload === 'object'
+      ? nestedReservation.visibility_payload
+      : {}
+  const directOperation = record.operation && typeof record.operation === 'object' ? record.operation : {}
+  const nestedOperation = nestedReservation.operation && typeof nestedReservation.operation === 'object'
+    ? nestedReservation.operation
+    : {}
+  const latestOperation = record.latestOperation && typeof record.latestOperation === 'object'
+    ? record.latestOperation
+    : {}
+  const nestedLatestOperation =
+    nestedReservation.latestOperation && typeof nestedReservation.latestOperation === 'object'
+      ? nestedReservation.latestOperation
+      : {}
+  const visibilityOperation =
+    visibilityPayload.operation && typeof visibilityPayload.operation === 'object'
+      ? visibilityPayload.operation
+      : {}
+  const nestedVisibilityOperation =
+    nestedVisibilityPayload.operation && typeof nestedVisibilityPayload.operation === 'object'
+      ? nestedVisibilityPayload.operation
+      : {}
+
+  return [
+    record,
+    nestedReservation,
+    directOperation,
+    nestedOperation,
+    latestOperation,
+    nestedLatestOperation,
+    visibilityOperation,
+    nestedVisibilityOperation,
+  ]
+}
+
 function buildAdminReservationRecord(record = {}) {
   const normalizedTrip = normalizeTrip(record, {
     entityType: record.is_reservation ? 'reservation' : 'flight_request',
@@ -159,6 +200,33 @@ function buildAdminReservationRecord(record = {}) {
     explicitWorkflowValue && explicitWorkflowId !== 'draft'
       ? resolveMostAdvancedWorkflowValue(explicitWorkflowValue, sharedWorkflowValue)
       : sharedWorkflowValue
+  const crewSources = collectCrewSources(record, nestedReservation)
+  const resolvedCrewName =
+    crewSources
+      .map((source) =>
+        source?.crew_name ||
+        source?.crew ||
+        source?.tripulation ||
+        source?.sobrecargo_name ||
+        source?.sobrecargo?.name ||
+        source?.crew_member?.name ||
+        source?.crew_user?.name ||
+        '',
+      )
+      .find((value) => String(value || '').trim()) || ''
+  const resolvedCrewId =
+    crewSources
+      .map((source) =>
+        source?.crew_id ||
+        source?.sobrecargo_user_id ||
+        source?.sobrecargo_id ||
+        source?.crew_member_id ||
+        source?.sobrecargo?.id ||
+        source?.crew_member?.id ||
+        source?.crew_user?.id ||
+        '',
+      )
+      .find((value) => String(value || '').trim()) || ''
 
   return {
     id: identifiers.reservationId || identifiers.requestId || normalizedTrip.id,
@@ -219,25 +287,8 @@ function buildAdminReservationRecord(record = {}) {
       record.aircraft?.id ||
       '',
     aircraft: normalizedTrip.aircraft || record.aircraft_model || 'Por definir',
-    crew:
-      record.crew_name ||
-      record.crew ||
-      record.tripulation ||
-      nestedReservation.crew_name ||
-      nestedReservation.crew ||
-      record.sobrecargo?.name ||
-      nestedReservation.sobrecargo?.name ||
-      '',
-    crewId:
-      record.crew_id ||
-      record.sobrecargo_id ||
-      record.crew_member_id ||
-      record.sobrecargo?.id ||
-      nestedReservation.crew_id ||
-      nestedReservation.sobrecargo_id ||
-      nestedReservation.crew_member_id ||
-      nestedReservation.sobrecargo?.id ||
-      '',
+    crew: resolvedCrewName,
+    crewId: resolvedCrewId,
     departure: departureValue,
     departureDate: String(departureValue).includes('T') ? String(departureValue).slice(0, 10) : String(departureValue).slice(0, 10),
     departureTime: String(departureValue).includes('T') ? String(departureValue).slice(11, 16) : '',
@@ -491,12 +542,12 @@ export async function updateAdminReservationStage(record, nextStage, note = '', 
 
   if (nextStage === 'payment_pending') {
     patch.contract_status = 'signed'
-    patch.payment_status = 'Pendiente de pago'
+    patch.payment_status = 'pending'
   }
 
   if (['payment_confirmed', 'flight_confirmed', 'tracking_live', 'completed'].includes(nextStage)) {
     patch.contract_status = 'signed'
-    patch.payment_status = 'Pagado'
+    patch.payment_status = 'paid'
   }
 
   return persistAdminReservationPatch(record, patch, options)

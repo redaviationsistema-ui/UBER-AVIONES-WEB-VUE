@@ -2954,14 +2954,14 @@ async function assignCrewToOperation({
     ? `${member.name} ya quedo ligada a la operacion #${operationId}, y su disponibilidad operativa se actualizo.`
     : `${member.name} ya quedo ligada a la operacion #${operationId}.`
   onSuccess?.({
-    title: 'Sobrecargo asignado',
+    title: 'Sobrecargo listo',
     message: successMessage,
   })
 
   if (!onSuccess) {
     ui.pushToast({
       tone: 'success',
-      title: 'Sobrecargo asignado',
+      title: 'Sobrecargo listo',
       message: successMessage,
     })
   }

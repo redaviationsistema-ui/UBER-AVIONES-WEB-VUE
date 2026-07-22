@@ -20,6 +20,7 @@ import {
   getClientAccessPaymentSuccess,
   getClientReservationCheckoutSuccess,
   getClientAccessStatus,
+  getClientReservationPaymentAvailability,
   ensureClientReservation,
   getClientDestinations,
   getClientFlightPackages,
@@ -95,6 +96,7 @@ let removeWorkflowSyncSubscription = null
 let workflowSyncRefreshTimer = null
 let reservationsRequestPromise = null
 let catalogRequestPromise = null
+let reservationPaymentAvailabilityRequestPromise = null
 const reservationDetailRequestIds = new Set()
 let signedContractSyncTimer = null
 let reservationConfirmedRedirectTimer = null
@@ -437,6 +439,7 @@ const tripTypeKey = computed(() => {
 })
 const routeId = computed(() => String(route.params.id || ''))
 const selectedTripId = computed(() => String(route.params.id || ''))
+const routeSubsection = computed(() => String(route.params.subsection || '').trim())
 function resolveEntityIdentifier(value) {
   if (value === null || value === undefined) return ''
 
@@ -523,7 +526,7 @@ const flightRequestContextId = computed(
     String(routeId.value || '').trim(),
 )
 const contractRouteContextId = computed(
-  () => flightRequestContextId.value || reservationContextId.value || String(routeId.value || '').trim(),
+  () => reservationContextId.value || flightRequestContextId.value || String(routeId.value || '').trim(),
 )
 const selectedReservationPriceLabel = computed(() => {
   const pricingContext =
@@ -634,16 +637,16 @@ const paymentBreakdownRows = computed(() => {
 
     return [
       baseAmount > 0
-        ? { key: 'base_amount', label: 'Base amount', value: formatDetailedCurrencyByCode(baseAmount, paymentBreakdownCurrency.value), amount: baseAmount }
+        ? { key: 'base_amount', label: 'Subtotal', value: formatDetailedCurrencyByCode(baseAmount, paymentBreakdownCurrency.value), amount: baseAmount }
         : null,
       stripeFee > 0
-        ? { key: 'stripe_fee', label: 'Stripe fee', value: formatDetailedCurrencyByCode(stripeFee, paymentBreakdownCurrency.value), amount: stripeFee }
+        ? { key: 'stripe_fee', label: 'Cargo Stripe', value: formatDetailedCurrencyByCode(stripeFee, paymentBreakdownCurrency.value), amount: stripeFee }
         : null,
       administrativeFee > 0
-        ? { key: 'administrative_fee', label: 'Administrative fee', value: formatDetailedCurrencyByCode(administrativeFee, paymentBreakdownCurrency.value), amount: administrativeFee }
+        ? { key: 'administrative_fee', label: 'Cargo administrativo', value: formatDetailedCurrencyByCode(administrativeFee, paymentBreakdownCurrency.value), amount: administrativeFee }
         : null,
       totalAmount > 0
-        ? { key: 'total_amount', label: 'Total amount', value: formatDetailedCurrencyByCode(totalAmount, paymentBreakdownCurrency.value), amount: totalAmount, total: true }
+        ? { key: 'total_amount', label: 'Total', value: formatDetailedCurrencyByCode(totalAmount, paymentBreakdownCurrency.value), amount: totalAmount, total: true }
         : null,
     ].filter(Boolean)
   }
@@ -693,16 +696,16 @@ const paymentBreakdownRows = computed(() => {
 
   return [
     flightCost > 0
-      ? { key: 'flight_cost', label: 'Flight cost', value: formatDetailedCurrencyByCode(flightCost, paymentBreakdownCurrency.value), amount: flightCost }
+      ? { key: 'flight_cost', label: 'Subtotal vuelo', value: formatDetailedCurrencyByCode(flightCost, paymentBreakdownCurrency.value), amount: flightCost }
       : null,
     resolvedStripeFee > 0
-      ? { key: 'stripe_fee', label: 'Stripe fee', value: formatDetailedCurrencyByCode(resolvedStripeFee, paymentBreakdownCurrency.value), amount: resolvedStripeFee }
+      ? { key: 'stripe_fee', label: 'Cargo Stripe', value: formatDetailedCurrencyByCode(resolvedStripeFee, paymentBreakdownCurrency.value), amount: resolvedStripeFee }
       : null,
     administrativeFee > 0
-      ? { key: 'administrative_fee', label: 'Administrative fee', value: formatDetailedCurrencyByCode(administrativeFee, paymentBreakdownCurrency.value), amount: administrativeFee }
+      ? { key: 'administrative_fee', label: 'Cargo administrativo', value: formatDetailedCurrencyByCode(administrativeFee, paymentBreakdownCurrency.value), amount: administrativeFee }
       : null,
     resolvedTotalAmount > 0
-      ? { key: 'total_amount', label: 'Total amount', value: formatDetailedCurrencyByCode(resolvedTotalAmount, paymentBreakdownCurrency.value), amount: resolvedTotalAmount, total: true }
+      ? { key: 'total_amount', label: 'Total', value: formatDetailedCurrencyByCode(resolvedTotalAmount, paymentBreakdownCurrency.value), amount: resolvedTotalAmount, total: true }
       : null,
   ].filter(Boolean)
 })
@@ -764,16 +767,30 @@ const customerPhone = computed(() => {
   const rawPhone = auth.user?.phone || auth.access?.phone || ''
   return String(rawPhone || '').trim()
 })
+const reservationPaymentStartAt = computed(() =>
+  resolveReservationPaymentStartAt(selectedReservation.value, paymentAvailabilityState.value),
+)
 const paymentRouteHeadline = computed(() =>
   commercialAccessCheckoutReturnMode.value
     ? 'Renovacion de acceso comercial SKY GROUP'
-    : itineraryHeadline(activeItinerarySummary.value),
+    : props.section === 'pago' && selectedReservation.value
+      ? selectedReservation.value.route || itineraryHeadline(selectedReservation.value)
+      : itineraryHeadline(activeItinerarySummary.value),
 )
 const paymentDateLabel = computed(() =>
   commercialAccessCheckoutReturnMode.value
     ? accessRenewalDateLabel.value
-    : itineraryDateLine(activeItinerarySummary.value),
+    : props.section === 'pago' && selectedReservation.value
+      ? formatPaymentDateTimeLabel(reservationPaymentStartAt.value)
+      : itineraryDateLine(activeItinerarySummary.value),
 )
+const paymentCanSubmit = computed(() => {
+  if (commercialAccessCheckoutReturnMode.value) return true
+  if (props.section !== 'pago') return true
+  if (paymentAvailabilityLoading.value) return false
+  if (!selectedReservation.value?.is_reservation) return true
+  return paymentAvailabilityState.value?.can_pay !== false
+})
 const paymentMethodCards = [
   {
     id: 'stripe',
@@ -797,6 +814,8 @@ const paymentCardBrand = ref('')
 const paymentSubmitting = ref(false)
 const paymentProofUploading = ref(false)
 const paymentInlineError = ref('')
+const paymentAvailabilityState = ref(null)
+const paymentAvailabilityLoading = ref(false)
 const paymentLastReference = ref('')
 const assistedPaymentOrderReady = ref(false)
 const assistedPaymentProofFile = ref(null)
@@ -2580,6 +2599,54 @@ function setAircraftHold(nextHold = null) {
   persistAircraftHoldContext(aircraftHold.value)
 }
 
+function buildResolvedAircraftHold(...sources) {
+  const normalizedHold = sources
+    .map((source) => normalizeAircraftHold(source))
+    .find((candidate) => candidate?.hold_id && candidate?.hold_expires_at)
+
+  if (!normalizedHold) return null
+
+  const fallbackQuoteId = resolveQuoteId(...sources)
+  const fallbackAircraftId = resolveAircraftId(...sources)
+  const fallbackReservationId = sources
+    .map((source) => resolveEntityIdentifier(source?.reservation_id || source?.reservationId || source))
+    .find(Boolean)
+  const fallbackFlightRequestId = sources
+    .map((source) =>
+      resolveEntityIdentifier(source?.flight_request_id || source?.flightRequestId || source),
+    )
+    .find(Boolean)
+  const fallbackQuoteKey = sources
+    .map((source) => String(source?.quote_key || source?.quoteKey || '').trim())
+    .find(Boolean)
+
+  return {
+    ...normalizedHold,
+    quote_id: normalizedHold.quote_id || String(fallbackQuoteId || '').trim(),
+    aircraft_id: normalizedHold.aircraft_id || String(fallbackAircraftId || '').trim(),
+    reservation_id: normalizedHold.reservation_id || fallbackReservationId || '',
+    flight_request_id: normalizedHold.flight_request_id || fallbackFlightRequestId || '',
+    quote_key: normalizedHold.quote_key || fallbackQuoteKey || '',
+  }
+}
+
+function resolveReservationAircraftHold({
+  reservation = null,
+  checkoutContext = null,
+  activeHold = null,
+} = {}) {
+  return buildResolvedAircraftHold(
+    reservation?.frontend_state?.aircraft_hold,
+    reservation?.aircraft_hold,
+    checkoutContext?.aircraftHold,
+    checkoutContext?.reservation?.frontend_state?.aircraft_hold,
+    activeHold,
+    reservation,
+    checkoutContext?.reservation,
+    checkoutContext,
+  )
+}
+
 function parsedHoldExpiry(value = '') {
   const normalized = String(value || '').trim()
   if (!normalized) return null
@@ -2587,6 +2654,154 @@ function parsedHoldExpiry(value = '') {
   const isoValue = normalized.includes('T') ? normalized : normalized.replace(' ', 'T')
   const parsed = new Date(isoValue)
   return Number.isFinite(parsed.getTime()) ? parsed : null
+}
+
+function normalizeReservationPaymentAvailability(payload = null) {
+  const source =
+    payload && typeof payload === 'object' && payload.data && typeof payload.data === 'object'
+      ? payload.data
+      : payload && typeof payload === 'object'
+        ? payload
+        : {}
+
+  const hold =
+    source.hold && typeof source.hold === 'object'
+      ? {
+          id: String(source.hold.id || source.hold.hold_id || '').trim(),
+          status: String(source.hold.status || '').trim().toLowerCase(),
+          aircraft_id: String(source.hold.aircraft_id || '').trim(),
+          quote_id: String(source.hold.quote_id || '').trim(),
+          flight_request_id: String(source.hold.flight_request_id || '').trim(),
+          reservation_id: String(source.hold.reservation_id || '').trim(),
+          start_at: String(source.hold.start_at || source.hold.starts_at || '').trim(),
+          end_at: String(source.hold.end_at || source.hold.ends_at || '').trim(),
+          expires_at: String(source.hold.expires_at || source.hold.hold_expires_at || '').trim(),
+          released_at: String(source.hold.released_at || '').trim(),
+          booked_at: String(source.hold.booked_at || '').trim(),
+          is_valid: source.hold.is_valid === true,
+          invalid_reason: String(source.hold.invalid_reason || '').trim(),
+        }
+      : null
+
+  return {
+    success: source.success === true,
+    can_pay: source.can_pay === true,
+    hold_valid: source.hold_valid === true,
+    reservation_booked: source.reservation_booked === true,
+    invalid_reason: String(source.invalid_reason || hold?.invalid_reason || '').trim(),
+    message: String(source.message || '').trim(),
+    hold,
+    availability:
+      source.availability && typeof source.availability === 'object'
+        ? {
+            available: source.availability.available === true,
+            conflict_type: String(source.availability.conflict_type || '').trim(),
+            conflicting_block_id: String(source.availability.conflicting_block_id || '').trim(),
+          }
+        : null,
+    schedule:
+      source.schedule && typeof source.schedule === 'object'
+        ? {
+            start_at: String(source.schedule.start_at || '').trim(),
+            end_at: String(source.schedule.end_at || '').trim(),
+            source: String(source.schedule.source || '').trim(),
+          }
+        : null,
+  }
+}
+
+function reservationPaymentAvailabilityMessage(state = null) {
+  const invalidReason = String(state?.invalid_reason || '').trim()
+  if (state?.can_pay) return ''
+
+  const explicitMessage = String(state?.message || '').trim()
+  if (explicitMessage) return explicitMessage
+
+  switch (invalidReason) {
+    case 'hold_expired':
+      return 'La retencion vencio. Estamos verificando nuevamente la disponibilidad de la aeronave.'
+    case 'hold_released':
+      return 'La retencion ya fue liberada y necesitamos validar una nueva disponibilidad.'
+    case 'hold_not_found':
+      return 'No encontramos una retencion valida asociada a esta reserva.'
+    case 'aircraft_booked_by_other_reservation':
+      return 'La aeronave ya fue reservada para ese horario. Selecciona otra opcion.'
+    case 'reservation_missing_schedule':
+    case 'hold_dates_missing':
+      return 'No se encontro una fecha y hora confirmadas para esta reserva.'
+    case 'hold_dates_mismatch':
+      return 'La ventana de la retencion no coincide con la reserva actual.'
+    case 'network_error':
+      return 'No fue posible validar la disponibilidad. Intenta nuevamente.'
+    default:
+      return 'No fue posible validar la disponibilidad actual de la aeronave.'
+  }
+}
+
+function shouldRefreshAvailabilityResults(invalidReason = '') {
+  return [
+    'hold_expired',
+    'hold_released',
+    'hold_not_found',
+    'aircraft_booked_by_other_reservation',
+    'hold_dates_mismatch',
+  ].includes(String(invalidReason || '').trim())
+}
+
+function parseDateTimeCandidate(value = '') {
+  const normalized = String(value || '').trim()
+  if (!normalized) return null
+
+  const parsed = new Date(normalized.includes('T') ? normalized : normalized.replace(' ', 'T'))
+  return Number.isFinite(parsed.getTime()) ? parsed : null
+}
+
+function formatPaymentDateTimeLabel(value = '') {
+  const parsed = parseDateTimeCandidate(value)
+  if (!parsed) return 'Fecha por confirmar'
+
+  const dateLabel = new Intl.DateTimeFormat('es-MX', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  }).format(parsed)
+  const timeLabel = new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(parsed)
+
+  return `${dateLabel} a las ${timeLabel}`
+}
+
+function resolveReservationPaymentStartAt(reservation = null, paymentAvailability = null) {
+  const explicitSchedule = String(paymentAvailability?.schedule?.start_at || '').trim()
+  if (explicitSchedule) return explicitSchedule
+
+  const holdSchedule = String(
+    paymentAvailability?.hold?.start_at ||
+      reservation?.frontend_state?.aircraft_hold?.start_at ||
+      reservation?.frontend_state?.aircraft_hold?.starts_at ||
+      '',
+  ).trim()
+  if (holdSchedule) return holdSchedule
+
+  const reservationDate = String(
+    reservation?.date ||
+      reservation?.departure_datetime ||
+      reservation?.legs?.[0]?.departure_datetime ||
+      '',
+  ).trim()
+  if (reservationDate) return reservationDate
+
+  const requirementDate = String(reservation?.requirements?.[0]?.date || '').trim()
+  if (!requirementDate) return ''
+
+  const requirementTime = String(
+    reservation?.requirements?.[0]?.time || reservation?.departure_time || '09:00',
+  ).trim()
+
+  return `${requirementDate}T${requirementTime}`
 }
 
 function persistReservationCheckoutContext(context = {}) {
@@ -3693,6 +3908,72 @@ function go(section, id = '') {
   )
 }
 
+function buildClientDetailLocation(section, id = '', subsection = '') {
+  const normalizedSection = String(section || '').trim()
+  const normalizedId = String(id || '').trim()
+  const normalizedSubsection = String(subsection || '').trim()
+
+  if (!normalizedSection) {
+    return {
+      name: 'cliente',
+      params: { section: 'viajes' },
+    }
+  }
+
+  if (!normalizedId) {
+    return {
+      name: 'cliente',
+      params: { section: normalizedSection },
+    }
+  }
+
+  if (normalizedSubsection) {
+    return {
+      name: 'cliente-subdetalle',
+      params: { section: normalizedSection, id: normalizedId, subsection: normalizedSubsection },
+    }
+  }
+
+  return {
+    name: 'cliente-detalle',
+    params: { section: normalizedSection, id: normalizedId },
+  }
+}
+
+function resolveReservationExperienceSubsection(reservation = {}) {
+  const workflowId = resolveWorkflowState(
+    reservation?.workflow_status || reservation?.status || reservation?.booking_status || '',
+  ).id
+
+  if (['flight_confirmed', 'tracking_live'].includes(workflowId)) return 'tracking'
+  if (workflowId === 'completed') return 'resumen'
+
+  return ''
+}
+
+function goToReservationDetail(reservationId = '') {
+  const targetReservation =
+    findReservationRecordById(reservationId || reservationContextId.value) || selectedReservation.value
+  const targetId =
+    resolveEntityIdentifier(targetReservation?.id) ||
+    resolveEntityIdentifier(targetReservation?.flight_request_id) ||
+    resolveEntityIdentifier(reservationId) ||
+    resolveEntityIdentifier(reservationContextId.value)
+
+  if (!targetId) {
+    go('viajes')
+    return
+  }
+
+  router.push(
+    buildClientDetailLocation(
+      'reserva-confirmada',
+      targetId,
+      resolveReservationExperienceSubsection(targetReservation || {}),
+    ),
+  )
+}
+
 function goToCommercialAccessPayment() {
   profileMenuOpen.value = false
   router.push({
@@ -3731,33 +4012,39 @@ function alignReservationWorkflowRoute() {
   if (!hasReservationsLoaded.value) return
 
   const currentReservationId = String(routeId.value || '').trim()
+  const currentSubsection = String(routeSubsection.value || '').trim()
   const fallbackReservationId =
     props.section === 'contrato' ? contractRouteContextId.value : reservationContextId.value
+  const fallbackSubsection =
+    props.section === 'reserva-confirmada'
+      ? resolveReservationExperienceSubsection(selectedReservation.value || {})
+      : ''
 
   if (
     currentReservationId &&
     selectedReservation.value &&
-    currentReservationId === fallbackReservationId
+    currentReservationId === fallbackReservationId &&
+    currentSubsection === fallbackSubsection
   )
     return
 
   if (!currentReservationId && fallbackReservationId) {
-    router.replace(`/cliente/${props.section}/${fallbackReservationId}`)
+    router.replace(buildClientDetailLocation(props.section, fallbackReservationId, fallbackSubsection))
     return
   }
 
   if (
     currentReservationId &&
     fallbackReservationId &&
-    currentReservationId !== fallbackReservationId
+    (currentReservationId !== fallbackReservationId || currentSubsection !== fallbackSubsection)
   ) {
-    router.replace(`/cliente/${props.section}/${fallbackReservationId}`)
+    router.replace(buildClientDetailLocation(props.section, fallbackReservationId, fallbackSubsection))
     return
   }
 
   if (currentReservationId && !selectedReservation.value) {
     if (fallbackReservationId) {
-      router.replace(`/cliente/${props.section}/${fallbackReservationId}`)
+      router.replace(buildClientDetailLocation(props.section, fallbackReservationId, fallbackSubsection))
       return
     }
 
@@ -3830,10 +4117,26 @@ function normalizeRouteQueryValue(value) {
 }
 
 function buildAbsoluteClientRoute(location = {}) {
-  const resolvedRoute = router.resolve(location)
   const baseUrl = window.location.origin || ''
+  const canResolveRoute = router && typeof router.resolve === 'function'
 
-  return new URL(resolvedRoute.href, baseUrl).toString()
+  if (canResolveRoute) {
+    const resolvedRoute = router.resolve(location)
+    return new URL(resolvedRoute.href, baseUrl).toString()
+  }
+
+  const section = String(location?.params?.section || 'reservar').trim()
+  const id = String(location?.params?.id || '').trim()
+  const path = id ? `/cliente/${section}/${id}` : `/cliente/${section}`
+  const searchParams = new URLSearchParams()
+
+  Object.entries(location?.query || {}).forEach(([key, value]) => {
+    if (value === null || value === undefined || value === '') return
+    searchParams.set(key, String(value))
+  })
+
+  const queryString = searchParams.toString()
+  return new URL(queryString ? `${path}?${queryString}` : path, baseUrl).toString()
 }
 
 function buildCommercialAccessCheckoutReturnUrl(checkoutState = '') {
@@ -4345,6 +4648,18 @@ function scheduleReservationConfirmedRedirect() {
 
   if (props.section !== 'reserva-confirmada') return
   if (!canRenderReservationWorkflow.value) return
+  if (routeSubsection.value) return
+
+  const currentWorkflowId = resolveWorkflowState(
+    selectedReservation.value?.workflow_status ||
+      selectedReservation.value?.status ||
+      selectedReservation.value?.booking_status ||
+      '',
+  ).id
+
+  if (['payment_confirmed', 'flight_confirmed', 'tracking_live', 'completed'].includes(currentWorkflowId)) {
+    return
+  }
 
   reservationConfirmedRedirectTimer = window.setTimeout(() => {
     reservationConfirmedRedirectTimer = null
@@ -4763,6 +5078,7 @@ async function finalizeReservationCheckoutReturn() {
         ))
     ) {
       clearReservationCheckoutContext()
+      clearQuotePreviewState()
       mergeReservationUpdate({
         ...successReservation,
         id:
@@ -4829,6 +5145,7 @@ async function finalizeReservationCheckoutReturn() {
 
     if (paidReservation) {
       clearReservationCheckoutContext()
+      clearQuotePreviewState()
       mergeReservationUpdate(paidReservation)
       setAircraftHold(null)
 
@@ -5214,6 +5531,75 @@ async function handleContractConfirm(contractPayload = {}) {
   }
 }
 
+async function refreshReservationPaymentAvailability({ force = false } = {}) {
+  if (commercialAccessCheckoutReturnMode.value || props.section !== 'pago') {
+    paymentAvailabilityState.value = null
+    paymentAvailabilityLoading.value = false
+    return null
+  }
+
+  const reservationId = resolveEntityIdentifier(selectedReservation.value?.id || reservationContextId.value)
+  if (!reservationId || !selectedReservation.value?.is_reservation) {
+    paymentAvailabilityState.value = null
+    paymentAvailabilityLoading.value = false
+    return null
+  }
+
+  if (reservationPaymentAvailabilityRequestPromise && !force) {
+    return reservationPaymentAvailabilityRequestPromise
+  }
+
+  paymentAvailabilityLoading.value = true
+
+  reservationPaymentAvailabilityRequestPromise = (async () => {
+    try {
+      const response = await getClientReservationPaymentAvailability(reservationId, {
+        timeoutMs: 30000,
+      })
+      const normalizedAvailability = normalizeReservationPaymentAvailability(response)
+      paymentAvailabilityState.value = normalizedAvailability
+
+      if (normalizedAvailability?.hold?.id && normalizedAvailability.hold_valid) {
+        setAircraftHold({
+          hold_id: normalizedAvailability.hold.id,
+          hold_expires_at: normalizedAvailability.hold.expires_at,
+          aircraft_id: normalizedAvailability.hold.aircraft_id,
+          quote_id: normalizedAvailability.hold.quote_id,
+          reservation_id: normalizedAvailability.hold.reservation_id,
+          flight_request_id: normalizedAvailability.hold.flight_request_id,
+          status: normalizedAvailability.hold.status,
+        })
+      } else if (!normalizedAvailability?.reservation_booked) {
+        setAircraftHold(null)
+      }
+
+      if (normalizedAvailability?.can_pay) {
+        paymentInlineError.value = ''
+        serverSearchError.value = ''
+      } else {
+        paymentInlineError.value = reservationPaymentAvailabilityMessage(normalizedAvailability)
+      }
+
+      return normalizedAvailability
+    } catch (error) {
+      const fallbackState = normalizeReservationPaymentAvailability({
+        success: false,
+        can_pay: false,
+        invalid_reason: 'network_error',
+        message: error?.message || '',
+      })
+      paymentAvailabilityState.value = fallbackState
+      paymentInlineError.value = reservationPaymentAvailabilityMessage(fallbackState)
+      return fallbackState
+    } finally {
+      paymentAvailabilityLoading.value = false
+      reservationPaymentAvailabilityRequestPromise = null
+    }
+  })()
+
+  return reservationPaymentAvailabilityRequestPromise
+}
+
 async function handlePaymentSubmit() {
   if (paymentSubmitting.value) return
 
@@ -5291,11 +5677,7 @@ async function handlePaymentSubmit() {
   }
 
   paymentInlineError.value = ''
-
-  if (!selectedPaymentMethod.value) {
-    paymentInlineError.value = 'Selecciona primero si pagaras con Stripe o en efectivo.'
-    return
-  }
+  if (!selectedPaymentMethod.value) selectedPaymentMethod.value = 'stripe'
 
   if (!paymentForm.contactEmail.trim()) {
     paymentInlineError.value = 'Agrega un correo electronico de contacto para continuar.'
@@ -5370,34 +5752,54 @@ async function handlePaymentSubmit() {
 
     destroyStripePaymentElement()
 
-    const reservationHold =
-      normalizeAircraftHold(selectedReservation.value?.frontend_state?.aircraft_hold) ||
-      normalizeAircraftHold(readReservationCheckoutContext()?.aircraftHold) ||
-      aircraftHold.value
+    const paymentAvailability = await refreshReservationPaymentAvailability({ force: true })
+    const paymentAvailabilityMessage = reservationPaymentAvailabilityMessage(paymentAvailability)
+    const reservationBooked = paymentAvailability?.reservation_booked === true
 
-    if (!reservationHold?.hold_id || !reservationHold?.hold_expires_at) {
-      throw new Error(
-        'La retencion de esta aeronave ya no esta disponible. Verificaremos nuevamente la disponibilidad.',
-      )
+    if (!paymentAvailability?.can_pay) {
+      if (shouldRefreshAvailabilityResults(paymentAvailability?.invalid_reason)) {
+        await handleAircraftAvailabilityConflict({
+          message: paymentAvailabilityMessage,
+          title: 'Disponibilidad actualizada',
+        })
+        paymentInlineError.value = serverSearchError.value
+        return
+      }
+
+      paymentInlineError.value = paymentAvailabilityMessage
+      ui.pushToast({
+        tone: 'error',
+        title: 'No se pudo iniciar el pago',
+        message: paymentAvailabilityMessage,
+      })
+      return
     }
 
-    if (parsedHoldExpiry(reservationHold.hold_expires_at)?.getTime() <= Date.now()) {
-      throw new Error(
-        'La retencion expiro. Verificaremos nuevamente la disponibilidad para mostrarte opciones vigentes.',
-      )
-    }
+    const checkoutContext = readReservationCheckoutContext()
+    const reservationHold = resolveReservationAircraftHold({
+      reservation: selectedReservation.value,
+      checkoutContext,
+      activeHold: aircraftHold.value,
+    })
+    const activeCheckoutHold = paymentAvailability?.hold_valid
+      ? buildResolvedAircraftHold(
+          {
+            hold_id: paymentAvailability?.hold?.id,
+            hold_expires_at: paymentAvailability?.hold?.expires_at,
+            quote_id: paymentAvailability?.hold?.quote_id,
+            aircraft_id: paymentAvailability?.hold?.aircraft_id,
+            reservation_id: paymentAvailability?.hold?.reservation_id,
+            flight_request_id: paymentAvailability?.hold?.flight_request_id,
+            status: paymentAvailability?.hold?.status,
+          },
+          reservationHold,
+          selectedReservation.value,
+        )
+      : null
 
-    await validateClientAircraftHold(
-      reservationHold.hold_id,
-      {
-        quote_id: reservationHold.quote_id || undefined,
-        reservation_id: reservationId || undefined,
-        flight_request_id: flightRequestId || undefined,
-        aircraft_id: reservationHold.aircraft_id || undefined,
-        quote_key: reservationHold.quote_key || undefined,
-      },
-      { timeoutMs: 30000 },
-    )
+    if (activeCheckoutHold?.hold_id) {
+      setAircraftHold(activeCheckoutHold)
+    }
 
     const successUrl = buildReservationCheckoutReturnUrl('success', reservationId || flightRequestId)
     const cancelUrl = buildReservationCheckoutReturnUrl('cancelled', reservationId || flightRequestId)
@@ -5407,7 +5809,7 @@ async function handlePaymentSubmit() {
         reservation_id: reservationId || undefined,
         reservation: reservationId || undefined,
         booking_id: reservationId || flightRequestId,
-        hold_id: reservationHold.hold_id,
+        hold_id: reservationBooked ? undefined : activeCheckoutHold?.hold_id || undefined,
         contact_email: paymentForm.contactEmail.trim() || customerEmail.value,
         success_url: successUrl,
         cancel_url: cancelUrl,
@@ -5450,7 +5852,7 @@ async function handlePaymentSubmit() {
       reservationId,
       flightRequestId,
       checkoutSessionId,
-      aircraftHold: reservationHold,
+      aircraftHold: activeCheckoutHold,
       reservation: {
         ...(selectedReservation.value && typeof selectedReservation.value === 'object'
           ? selectedReservation.value
@@ -5479,8 +5881,12 @@ async function handlePaymentSubmit() {
     window.location.assign(redirectUrl)
     return
   } catch (error) {
+    const invalidReason = String(
+      error?.payload?.invalid_reason || error?.payload?.reason || '',
+    ).trim()
+
     if (
-      Number(error?.status || 0) === 409 ||
+      (Number(error?.status || 0) === 409 && shouldRefreshAvailabilityResults(invalidReason)) ||
       String(error?.payload?.code || '').trim() === 'AIRCRAFT_NOT_AVAILABLE' ||
       String(error?.message || '').toLowerCase().includes('retencion')
     ) {
@@ -5491,6 +5897,19 @@ async function handlePaymentSubmit() {
         title: 'Disponibilidad actualizada',
       })
       paymentInlineError.value = serverSearchError.value
+      return
+    }
+
+    if (Number(error?.status || 0) === 409 && invalidReason) {
+      paymentInlineError.value = reservationPaymentAvailabilityMessage({
+        invalid_reason: invalidReason,
+        message: error?.message || error?.payload?.message || '',
+      })
+      ui.pushToast({
+        tone: 'error',
+        title: 'No se pudo iniciar el pago',
+        message: paymentInlineError.value,
+      })
       return
     }
 
@@ -5657,23 +6076,16 @@ watch(
   () => {
     if (props.section !== 'pago' || commercialAccessCheckoutReturnMode.value) return
 
-    const persistedMethod = resolveReservationPaymentMethod(selectedReservation.value)
-    if (persistedMethod === 'assisted_cash') {
-      selectedPaymentMethod.value = 'assisted'
-    } else if (persistedMethod === 'stripe') {
-      selectedPaymentMethod.value = 'stripe'
-    } else {
-      selectedPaymentMethod.value = ''
-    }
-    paymentMethodExplicitlySelected.value = false
-    assistedPaymentOrderReady.value = persistedMethod === 'assisted_cash'
+    selectedPaymentMethod.value = 'stripe'
+    paymentMethodExplicitlySelected.value = true
+    assistedPaymentOrderReady.value = false
   },
   { immediate: true },
 )
 
 function handlePaymentMethodSelection(method = '') {
-  selectedPaymentMethod.value = method
-  paymentMethodExplicitlySelected.value = Boolean(method)
+  selectedPaymentMethod.value = method === 'assisted' ? 'stripe' : method || 'stripe'
+  paymentMethodExplicitlySelected.value = true
 }
 
 watch(
@@ -5683,6 +6095,20 @@ watch(
       paymentInlineError.value = ''
     }
   },
+)
+
+watch(
+  () => [props.section, selectedReservation.value?.id, selectedReservation.value?.updated_at],
+  () => {
+    if (props.section !== 'pago') {
+      paymentAvailabilityState.value = null
+      paymentAvailabilityLoading.value = false
+      return
+    }
+
+    void refreshReservationPaymentAvailability({ force: true })
+  },
+  { immediate: true },
 )
 
 watch(
@@ -5759,6 +6185,7 @@ watch(
     featuredAircraft,
     formatDetailedCurrencyByCode,
     go,
+    goToReservationDetail,
     goToCommercialAccessPayment,
     goToConcierge,
     goToPayment,
@@ -5788,8 +6215,10 @@ watch(
     paymentDateLabel,
     paymentFeatureList,
     paymentForm,
+    paymentCanSubmit,
     paymentHeroCopy,
     paymentHeroTitle,
+    paymentAvailabilityLoading,
     paymentInlineError,
     paymentLastReference,
     paymentMethodCards,
@@ -5815,6 +6244,7 @@ watch(
     reservingAircraftId,
     resultFilterOptions,
     routeDistanceKmForAircraft,
+    routeSubsection,
     searchForm,
     searching,
     secondaryAircraftOptions,
@@ -6555,7 +6985,7 @@ async function refreshReservations({ silent = false } = {}) {
         query: { per_page: 10 },
         requireReservations: needsReservationContext.value,
       })
-      reservations.value = trips
+      reservations.value = dedupeClientReservations(trips)
       hasBootstrappedReservations.value = true
       return trips
     } finally {
@@ -6569,6 +6999,63 @@ async function refreshReservations({ silent = false } = {}) {
   })()
 
   return reservationsRequestPromise
+}
+
+function dedupeClientReservations(items = []) {
+  const normalizedItems = Array.isArray(items) ? items.filter(Boolean) : []
+  const deduped = []
+
+  normalizedItems.forEach((item) => {
+    const reservationId = String(item?.id || '').trim()
+    const flightRequestId = String(item?.flight_request_id || '').trim()
+    const identityKey = flightRequestId || reservationId
+
+    if (!identityKey) {
+      deduped.push(item)
+      return
+    }
+
+    const existingIndex = deduped.findIndex((current) => {
+      const currentReservationId = String(current?.id || '').trim()
+      const currentFlightRequestId = String(current?.flight_request_id || '').trim()
+
+      return (
+        identityKey === currentReservationId ||
+        identityKey === currentFlightRequestId ||
+        (reservationId &&
+          (reservationId === currentReservationId || reservationId === currentFlightRequestId)) ||
+        (flightRequestId &&
+          (flightRequestId === currentReservationId || flightRequestId === currentFlightRequestId))
+      )
+    })
+
+    if (existingIndex === -1) {
+      deduped.push(item)
+      return
+    }
+
+    const current = deduped[existingIndex]
+    const preferred = item?.is_reservation && !current?.is_reservation ? item : current
+    const secondary = preferred === item ? current : item
+
+    deduped[existingIndex] = {
+      ...secondary,
+      ...preferred,
+      frontend_state: {
+        ...(secondary?.frontend_state || {}),
+        ...(preferred?.frontend_state || {}),
+      },
+      is_reservation: Boolean(current?.is_reservation || item?.is_reservation),
+      entity_type:
+        current?.entity_type === 'reservation' || item?.entity_type === 'reservation'
+          ? 'reservation'
+          : preferred?.entity_type || secondary?.entity_type || '',
+      flight_request_id:
+        preferred?.flight_request_id || secondary?.flight_request_id || flightRequestId || '',
+    }
+  })
+
+  return deduped
 }
 
 function upsertReservationDetail(reservation) {
@@ -6586,9 +7073,50 @@ function upsertReservationDetail(reservation) {
   )
 
   if (index >= 0) {
+    const currentReservation = nextReservations[index] || {}
+    const mergedAircraftHold = buildResolvedAircraftHold(
+      reservation?.frontend_state?.aircraft_hold,
+      reservation?.aircraft_hold,
+      currentReservation?.frontend_state?.aircraft_hold,
+      currentReservation?.aircraft_hold,
+      reservation,
+      currentReservation,
+    )
     nextReservations[index] = {
-      ...nextReservations[index],
+      ...currentReservation,
       ...reservation,
+      frontend_state:
+        currentReservation.frontend_state || reservation.frontend_state || mergedAircraftHold
+          ? {
+              ...(currentReservation.frontend_state || {}),
+              ...(reservation.frontend_state || {}),
+              ...(mergedAircraftHold ? { aircraft_hold: mergedAircraftHold } : {}),
+              ...(String(
+                reservation?.frontend_state?.quote_key ||
+                  currentReservation?.frontend_state?.quote_key ||
+                  mergedAircraftHold?.quote_key ||
+                  '',
+              ).trim()
+                ? {
+                    quote_key: String(
+                      reservation?.frontend_state?.quote_key ||
+                        currentReservation?.frontend_state?.quote_key ||
+                        mergedAircraftHold?.quote_key ||
+                        '',
+                    ).trim(),
+                  }
+                : {}),
+            }
+          : undefined,
+      entity_type:
+        currentReservation.entity_type === 'reservation' || reservation.is_reservation
+          ? 'reservation'
+          : reservation.entity_type || currentReservation.entity_type || '',
+      is_reservation: Boolean(currentReservation.is_reservation || reservation.is_reservation),
+      flight_request_id:
+        reservation.flight_request_id ||
+        currentReservation.flight_request_id ||
+        '',
       summary_only: false,
     }
   } else {
@@ -6598,7 +7126,7 @@ function upsertReservationDetail(reservation) {
     })
   }
 
-  reservations.value = nextReservations
+  reservations.value = dedupeClientReservations(nextReservations)
 }
 
 function reservationHasAircraftImage(reservation = {}) {
@@ -6664,7 +7192,8 @@ function reservationNeedsMediaHydration(reservation = {}) {
 
 async function hydrateSelectedReservationDetail() {
   const reservation = selectedReservation.value
-  const reservationId = String(reservation?.flight_request_id || reservation?.id || '').trim()
+  const directReservationId = String(reservation?.id || '').trim()
+  const reservationId = String(reservation?.flight_request_id || directReservationId || '').trim()
 
   const shouldHydrate = reservation?.summary_only || reservationNeedsMediaHydration(reservation)
 
@@ -6675,9 +7204,17 @@ async function hydrateSelectedReservationDetail() {
   reservationDetailRequestIds.add(reservationId)
 
   try {
-    const detail = await getClientTrip(reservationId, {
-      timeoutMs: CLIENT_TRIPS_TIMEOUT_MS,
-    })
+    const shouldLoadReservationDetail =
+      Boolean(reservation?.is_reservation) ||
+      ['contrato', 'pago', 'reserva-confirmada', 'soporte'].includes(props.section)
+
+    const detail = shouldLoadReservationDetail
+      ? await getClientReservation(directReservationId || reservationId, {
+          timeoutMs: CLIENT_TRIPS_TIMEOUT_MS,
+        })
+      : await getClientTrip(reservationId, {
+          timeoutMs: CLIENT_TRIPS_TIMEOUT_MS,
+        })
     upsertReservationDetail(detail)
   } catch {
     // La vista puede seguir mostrando el resumen actual y reintentar despues.
@@ -6978,9 +7515,15 @@ watch(
   () => [
     props.section,
     routeId.value,
+    routeSubsection.value,
     reservations.value.length,
     loadingServerData.value,
     refreshingReservations.value,
+    selectedReservation.value?.id || '',
+    selectedReservation.value?.flight_request_id || '',
+    selectedReservation.value?.workflow_status || '',
+    selectedReservation.value?.status || '',
+    selectedReservation.value?.booking_status || '',
   ],
   () => {
     alignReservationWorkflowRoute()

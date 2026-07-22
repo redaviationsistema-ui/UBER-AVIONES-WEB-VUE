@@ -15,6 +15,7 @@ const {
   getClientTripsMock,
   getClientTripMock,
   getClientReservationMock,
+  getClientReservationPaymentAvailabilityMock,
   getClientDestinationsMock,
   getClientFlightPackagesMock,
   getClientAccessStatusMock,
@@ -35,6 +36,14 @@ const {
   routerMock: {
     push: vi.fn(),
     replace: vi.fn(),
+    resolve: vi.fn((location = {}) => {
+      const section = location?.params?.section ? `/${location.params.section}` : ''
+      const id = location?.params?.id ? `/${location.params.id}` : ''
+      const query = new URLSearchParams(location?.query || {}).toString()
+      return {
+        href: `/renta${section}${id}${query ? `?${query}` : ''}`,
+      }
+    }),
   },
   pushToastMock: vi.fn(),
   subscribeWorkflowSyncMock: vi.fn(() => vi.fn()),
@@ -63,6 +72,7 @@ const {
   getClientTripsMock: vi.fn(),
   getClientTripMock: vi.fn(),
   getClientReservationMock: vi.fn(),
+  getClientReservationPaymentAvailabilityMock: vi.fn(),
   getClientDestinationsMock: vi.fn(),
   getClientFlightPackagesMock: vi.fn(),
   getClientAccessStatusMock: vi.fn(),
@@ -132,6 +142,7 @@ vi.mock('../features/client/clientBookingApi', () => ({
   getClientDestinations: getClientDestinationsMock,
   getClientFlightPackages: getClientFlightPackagesMock,
   getClientReservation: getClientReservationMock,
+  getClientReservationPaymentAvailability: getClientReservationPaymentAvailabilityMock,
   getClientReservationCheckoutSuccess: getClientReservationCheckoutSuccessMock,
   getClientTrip: getClientTripMock,
   getClientTrips: getClientTripsMock,
@@ -151,6 +162,7 @@ function buildReservation(overrides = {}) {
   return {
     id: 'res-1',
     flight_request_id: 'fr-1',
+    is_reservation: true,
     status: 'payment_pending',
     workflow_status: 'contrato firmado',
     payment_status: 'pending',
@@ -191,11 +203,42 @@ beforeEach(() => {
   vi.clearAllMocks()
 
   routeMock.params.id = 'res-1'
+  routeMock.params.subsection = undefined
   routeMock.query = {}
 
   getClientTripsMock.mockResolvedValue([buildReservation()])
   getClientTripMock.mockResolvedValue(buildReservation())
   getClientReservationMock.mockResolvedValue(buildReservation())
+  getClientReservationPaymentAvailabilityMock.mockResolvedValue({
+    success: true,
+    can_pay: true,
+    hold_valid: true,
+    reservation_booked: false,
+    invalid_reason: null,
+    hold: {
+      id: 'hold-1',
+      status: 'held',
+      aircraft_id: '77',
+      quote_id: '123',
+      flight_request_id: 'fr-1',
+      reservation_id: 'res-1',
+      start_at: '2026-07-20T09:00:00Z',
+      end_at: '2026-07-20T13:00:00Z',
+      expires_at: '2099-07-20T09:15:00Z',
+      is_valid: true,
+      invalid_reason: null,
+    },
+    availability: {
+      available: true,
+      conflict_type: null,
+      conflicting_block_id: null,
+    },
+    schedule: {
+      start_at: '2026-07-20T09:00:00Z',
+      end_at: '2026-07-20T13:00:00Z',
+      source: 'hold_block',
+    },
+  })
   getClientDestinationsMock.mockResolvedValue([])
   getClientFlightPackagesMock.mockResolvedValue([{ code: 'essential', name: 'Essential' }])
   getClientAccessStatusMock.mockResolvedValue({
@@ -285,10 +328,11 @@ describe('PortalClienteVista assisted payment notifications', () => {
         aircraft: 'LEARJET 31A',
         aircraft_model: 'LEARJET 31A',
         aircraft_image: '',
-        summary_only: false,
+        summary_only: true,
+        is_reservation: true,
       }),
     ])
-    getClientTripMock.mockResolvedValue(
+    getClientReservationMock.mockResolvedValue(
       buildReservation({
         aircraft: 'LEARJET 31A',
         aircraft_model: 'LEARJET 31A',
@@ -298,8 +342,8 @@ describe('PortalClienteVista assisted payment notifications', () => {
 
     await mountView()
 
-    expect(getClientTripMock).toHaveBeenCalledWith(
-      'fr-1',
+    expect(getClientReservationMock).toHaveBeenCalledWith(
+      'res-1',
       expect.objectContaining({
         timeoutMs: expect.any(Number),
       }),
@@ -464,6 +508,62 @@ describe('PortalClienteVista contract bootstrap', () => {
     expect(sendToDocuSignMock).not.toHaveBeenCalled()
     expect(persistPendingContractContextMock).toHaveBeenCalled()
   })
+
+  it('keeps the contract workflow renderable when reservation detail hydration runs in contract mode', async () => {
+    routeMock.params.id = '177'
+
+    getClientTripsMock.mockResolvedValue([
+      buildReservation({
+        id: '177',
+        flight_request_id: '29',
+        is_reservation: true,
+        summary_only: true,
+        status: 'reserved',
+        workflow_status: 'contrato pendiente',
+      }),
+    ])
+    getClientReservationMock.mockResolvedValue({
+      id: '177',
+      flight_request_id: '29',
+      status: 'reserved',
+      workflow_status: 'contrato pendiente',
+      contract: {
+        id: 'contract-177',
+        status: 'generated',
+      },
+    })
+
+    const wrapper = await mountView({ section: 'contrato' })
+
+    expect(getClientReservationMock).toHaveBeenCalledWith(
+      '177',
+      expect.objectContaining({ timeoutMs: expect.any(Number) }),
+    )
+    expect(getClientTripMock).not.toHaveBeenCalledWith(
+      '29',
+      expect.objectContaining({ timeoutMs: expect.any(Number) }),
+    )
+    expect(wrapper.vm.selectedReservation?.is_reservation).toBe(true)
+    expect(wrapper.vm.canRenderReservationWorkflow).toBe(true)
+  })
+
+  it('keeps the contract route pinned to the reservation id instead of the flight request id', async () => {
+    routeMock.params.id = '177'
+
+    getClientTripsMock.mockResolvedValue([
+      buildReservation({
+        id: '177',
+        flight_request_id: '29',
+        is_reservation: true,
+        status: 'reserved',
+        workflow_status: 'contrato pendiente',
+      }),
+    ])
+
+    await mountView({ section: 'contrato' })
+
+    expect(routerMock.replace).not.toHaveBeenCalledWith('/cliente/contrato/29')
+  })
 })
 
 describe('PortalClienteVista reservation availability safeguards', () => {
@@ -597,12 +697,9 @@ describe('PortalClienteVista reservation availability safeguards', () => {
 })
 
 describe('PortalClienteVista checkout hold validation', () => {
-  it('validates the active hold before creating Stripe checkout', async () => {
+  it('uses backend payment availability before creating Stripe checkout', async () => {
     const wrapper = await mountView({ section: 'pago' })
 
-    wrapper.vm.selectedPaymentMethod = 'stripe'
-    wrapper.vm.paymentMethodExplicitlySelected = true
-    wrapper.vm.paymentForm.contactEmail = 'cliente@skygroup.com'
     wrapper.vm.reservations = [
       buildReservation({
         id: 'res-1',
@@ -617,19 +714,221 @@ describe('PortalClienteVista checkout hold validation', () => {
         },
       }),
     ]
+    await flushPromises()
+
+    wrapper.vm.handlePaymentMethodSelection('stripe')
+    wrapper.vm.paymentForm.contactEmail = 'cliente@skygroup.com'
 
     await wrapper.vm.handlePaymentSubmit()
 
-    expect(validateClientAircraftHoldMock).toHaveBeenCalledWith(
-      'hold-1',
+    expect(getClientReservationPaymentAvailabilityMock).toHaveBeenCalledWith(
+      'res-1',
+      expect.any(Object),
+    )
+    expect(createClientCheckoutMock).toHaveBeenCalledWith(
+      'fr-1',
       expect.objectContaining({
         reservation_id: 'res-1',
-        flight_request_id: 'fr-1',
-        aircraft_id: '77',
+        hold_id: 'hold-1',
       }),
       expect.any(Object),
     )
     expect(wrapper.vm.paymentInlineError).not.toContain('retencion')
+  })
+
+  it('rebuilds the hold from checkout session context when the hydrated reservation no longer includes frontend_state.aircraft_hold', async () => {
+    window.sessionStorage.setItem(
+      'red_aviation_client_reservation_checkout_context_v1',
+      JSON.stringify({
+        routeId: 'res-1',
+        reservationId: 'res-1',
+        flightRequestId: 'fr-1',
+        aircraftHold: {
+          hold_id: 'hold-session-1',
+          hold_expires_at: '2099-07-20T09:15:00Z',
+          aircraft_id: '77',
+        },
+        reservation: buildReservation({
+          id: 'res-1',
+          flight_request_id: 'fr-1',
+          accepted_quote: {
+            id: 123,
+            quote_id: 123,
+          },
+        }),
+        savedAt: new Date().toISOString(),
+      }),
+    )
+
+    const wrapper = await mountView({ section: 'pago' })
+
+    wrapper.vm.reservations = [
+      buildReservation({
+        id: 'res-1',
+        flight_request_id: 'fr-1',
+        accepted_quote: {
+          id: 123,
+          quote_id: 123,
+        },
+        frontend_state: {
+          ready_for_payment: true,
+        },
+      }),
+    ]
+    await flushPromises()
+
+    wrapper.vm.handlePaymentMethodSelection('stripe')
+    wrapper.vm.paymentForm.contactEmail = 'cliente@skygroup.com'
+
+    await wrapper.vm.handlePaymentSubmit()
+
+    expect(getClientReservationPaymentAvailabilityMock).toHaveBeenCalledWith(
+      'res-1',
+      expect.any(Object),
+    )
+    expect(createClientCheckoutMock).toHaveBeenCalledWith(
+      'fr-1',
+      expect.objectContaining({
+        reservation_id: 'res-1',
+        hold_id: 'hold-1',
+      }),
+      expect.any(Object),
+    )
+    expect(wrapper.vm.paymentInlineError).not.toContain('retencion')
+  })
+
+  it('preserves a known hold when reservation detail hydration updates the record without aircraft_hold', async () => {
+    getClientTripsMock.mockResolvedValueOnce([
+      buildReservation({
+        id: 'res-1',
+        flight_request_id: 'fr-1',
+        summary_only: true,
+        accepted_quote: {
+          id: 123,
+          quote_id: 123,
+        },
+        frontend_state: {
+          ready_for_payment: true,
+          aircraft_hold: {
+            hold_id: 'hold-preserved-1',
+            hold_expires_at: '2099-07-20T09:15:00Z',
+            aircraft_id: '77',
+          },
+        },
+      }),
+    ])
+    getClientReservationMock.mockResolvedValueOnce(
+      buildReservation({
+        id: 'res-1',
+        flight_request_id: 'fr-1',
+        accepted_quote: {
+          id: 123,
+          quote_id: 123,
+        },
+        frontend_state: {
+          ready_for_payment: true,
+        },
+      }),
+    )
+
+    const wrapper = await mountView({ section: 'pago' })
+
+    await flushPromises()
+    await flushPromises()
+    wrapper.vm.handlePaymentMethodSelection('stripe')
+    wrapper.vm.paymentForm.contactEmail = 'cliente@skygroup.com'
+    await wrapper.vm.handlePaymentSubmit()
+
+    expect(getClientReservationPaymentAvailabilityMock).toHaveBeenCalledWith(
+      'res-1',
+      expect.any(Object),
+    )
+    expect(createClientCheckoutMock).toHaveBeenCalledWith(
+      'fr-1',
+      expect.objectContaining({
+        reservation_id: 'res-1',
+        hold_id: 'hold-1',
+      }),
+      expect.any(Object),
+    )
+    expect(wrapper.vm.paymentInlineError).not.toContain('retencion')
+  })
+
+  it('blocks Stripe when backend reports hold_expired', async () => {
+    getClientReservationPaymentAvailabilityMock.mockResolvedValueOnce({
+      success: false,
+      can_pay: false,
+      hold_valid: false,
+      reservation_booked: false,
+      invalid_reason: 'hold_expired',
+      message:
+        'La retencion vencio. Estamos verificando nuevamente la disponibilidad de la aeronave.',
+      hold: {
+        id: 'hold-expired-1',
+        status: 'expired',
+        aircraft_id: '77',
+        quote_id: '123',
+        flight_request_id: 'fr-1',
+        reservation_id: 'res-1',
+        start_at: '2026-07-20T09:00:00Z',
+        end_at: '2026-07-20T13:00:00Z',
+        expires_at: '2026-07-20T09:15:00Z',
+        is_valid: false,
+        invalid_reason: 'hold_expired',
+      },
+      availability: {
+        available: true,
+        conflict_type: null,
+        conflicting_block_id: null,
+      },
+      schedule: {
+        start_at: '2026-07-20T09:00:00Z',
+        end_at: '2026-07-20T13:00:00Z',
+        source: 'hold_block',
+      },
+    })
+
+    const wrapper = await mountView({ section: 'pago' })
+
+    expect(wrapper.vm.paymentCanSubmit).toBe(false)
+    expect(wrapper.vm.paymentInlineError).toContain('retencion vencio')
+  })
+
+  it('omits hold_id when backend reports the reservation is already booked for its own window', async () => {
+    getClientReservationPaymentAvailabilityMock.mockResolvedValue({
+      success: true,
+      can_pay: true,
+      hold_valid: false,
+      reservation_booked: true,
+      invalid_reason: null,
+      hold: null,
+      availability: {
+        available: true,
+        conflict_type: null,
+        conflicting_block_id: null,
+      },
+      schedule: {
+        start_at: '2026-07-20T09:00:00Z',
+        end_at: '2026-07-20T13:00:00Z',
+        source: 'booked_block',
+      },
+    })
+
+    const wrapper = await mountView({ section: 'pago' })
+
+    wrapper.vm.handlePaymentMethodSelection('stripe')
+    wrapper.vm.paymentForm.contactEmail = 'cliente@skygroup.com'
+
+    await wrapper.vm.handlePaymentSubmit()
+
+    expect(createClientCheckoutMock).toHaveBeenCalledWith(
+      'fr-1',
+      expect.objectContaining({
+        reservation_id: 'res-1',
+        hold_id: undefined,
+      }),
+      expect.any(Object),
+    )
   })
 })
 
@@ -658,7 +957,7 @@ describe('PortalClienteVista reservation checkout return flow', () => {
       {
         session_id: 'cs_test_success_1',
         reservation_id: 'res-1',
-        flight_request_id: 'res-1',
+        flight_request_id: 'fr-1',
       },
       { timeoutMs: 30000 },
     )
@@ -744,5 +1043,55 @@ describe('PortalClienteVista reservation checkout return flow', () => {
         title: 'Pago confirmado',
       }),
     )
+  })
+})
+
+describe('PortalClienteVista tracking navigation', () => {
+  it('routes the flight detail CTA to the reservation detail tracking view', async () => {
+    getClientTripsMock.mockResolvedValueOnce([
+      buildReservation({
+        id: 'res-1',
+        flight_request_id: 'fr-1',
+        status: 'flight_confirmed',
+        workflow_status: 'flight_confirmed',
+        payment_status: 'paid',
+      }),
+    ])
+
+    const wrapper = await mountView({ section: 'viajes' })
+
+    wrapper.findComponent({ name: 'PortalClienteTripsScreen' }).vm.$emit('open-detail', 'res-1')
+    await flushPromises()
+
+    expect(routerMock.push).toHaveBeenCalledWith({
+      name: 'cliente-subdetalle',
+      params: { section: 'reserva-confirmada', id: 'res-1', subsection: 'tracking' },
+    })
+  })
+
+  it('keeps the reservation detail screen open when the reservation is already in tracking flow', async () => {
+    vi.useFakeTimers()
+    routeMock.params = { id: 'res-1' }
+    getClientTripsMock.mockResolvedValue([
+      buildReservation({
+        id: 'res-1',
+        flight_request_id: 'fr-1',
+        status: 'tracking_live',
+        workflow_status: 'tracking_live',
+        payment_status: 'paid',
+      }),
+    ])
+
+    await mountView({ section: 'reserva-confirmada' })
+    vi.advanceTimersByTime(3000)
+    await flushPromises()
+
+    expect(routerMock.push).not.toHaveBeenCalledWith({
+      name: 'cliente-detalle',
+      params: { section: 'viajes', id: 'res-1' },
+    })
+    expect(routerMock.replace).not.toHaveBeenCalledWith('/cliente/viajes/res-1')
+
+    vi.useRealTimers()
   })
 })

@@ -1,5 +1,5 @@
 <script setup>
-import { reactive, ref } from 'vue'
+import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { searchAirports } from '../../../lib/airportSearch'
 import { formatAirportOption } from '../../../utils/airports'
 
@@ -7,11 +7,14 @@ const activeLegIndex = ref(0)
 const airportSuggestions = reactive({})
 const airportLoading = reactive({})
 const activeAirportKey = ref('')
-const showDepartureTime = ref(false)
+const activeTimePickerKey = ref('')
+const pickerViews = reactive({})
+const dateTimePickerRefs = reactive({})
 const airportTimers = {}
 const hourOptions = Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, '0'))
-const minuteOptions = Array.from({ length: 60 }, (_, index) => String(index).padStart(2, '0'))
+const minuteOptions = Array.from({ length: 12 }, (_, index) => String(index * 5).padStart(2, '0'))
 const periodOptions = ['AM', 'PM']
+const weekdayHeaders = ['L', 'M', 'M', 'J', 'V', 'S', 'D']
 
 const props = defineProps({
   form: { type: Object, required: true },
@@ -157,10 +160,6 @@ function chooseLegAirport(index, field, airport) {
   activeAirportKey.value = ''
 }
 
-function revealDepartureTime() {
-  showDepartureTime.value = true
-}
-
 function splitTimeParts(value = '') {
   const normalized = String(value || '').trim()
 
@@ -210,6 +209,222 @@ function buildTimeValue(part, value, currentParts) {
   }
 
   return `${String(hours24).padStart(2, '0')}:${nextParts.minute}`
+}
+
+function formatTimeLabel(value = '') {
+  const parts = splitTimeParts(value)
+  if (!parts.hour) return 'Selecciona hora'
+  return `${parts.hour}:${parts.minute} ${parts.period}`
+}
+
+function formatDisplayDate(value = '') {
+  if (!value) return 'Selecciona fecha'
+
+  const parsedDate = new Date(`${value}T00:00:00`)
+  if (Number.isNaN(parsedDate.getTime())) return value
+
+  return new Intl.DateTimeFormat('es-MX', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  }).format(parsedDate)
+}
+
+function todayDateValue() {
+  const today = new Date()
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+}
+
+function parseDateValue(value = '') {
+  if (!value) return null
+  const [yearRaw, monthRaw, dayRaw] = String(value).split('-')
+  const year = Number(yearRaw)
+  const month = Number(monthRaw)
+  const day = Number(dayRaw)
+
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null
+
+  const date = new Date(year, month - 1, day)
+  if (Number.isNaN(date.getTime())) return null
+
+  return date
+}
+
+function formatDateValue(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return ''
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+function formatTriggerDateTime(dateValue = '', timeValue = '') {
+  const dateCopy = dateValue ? formatDisplayDate(dateValue) : 'dd/mm/aaaa'
+  const timeCopy = timeValue ? formatTimeLabel(timeValue).toLowerCase() : '--:-- ----'
+  return `${dateCopy}, ${timeCopy}`
+}
+
+function hasDateTimeSelection(dateValue = '', timeValue = '') {
+  return Boolean(String(dateValue || '').trim()) && Boolean(String(timeValue || '').trim())
+}
+
+function monthLabel(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return ''
+
+  const label = new Intl.DateTimeFormat('es-MX', {
+    month: 'long',
+    year: 'numeric',
+  }).format(date)
+
+  return label.charAt(0).toUpperCase() + label.slice(1)
+}
+
+function ensurePickerView(key, dateValue = '') {
+  const parsed = parseDateValue(dateValue) || parseDateValue(todayDateValue()) || new Date()
+
+  if (!pickerViews[key]) {
+    pickerViews[key] = {
+      month: parsed.getMonth(),
+      year: parsed.getFullYear(),
+    }
+  }
+
+  return pickerViews[key]
+}
+
+function openDateTimePicker(key, dateValue = '') {
+  ensurePickerView(key, dateValue)
+  activeTimePickerKey.value = activeTimePickerKey.value === key ? '' : key
+}
+
+function changePickerMonth(key, step, dateValue = '') {
+  const view = ensurePickerView(key, dateValue)
+  const nextDate = new Date(view.year, view.month + step, 1)
+  view.month = nextDate.getMonth()
+  view.year = nextDate.getFullYear()
+}
+
+function calendarDays(key, selectedDateValue = '') {
+  const view = ensurePickerView(key, selectedDateValue)
+  const firstOfMonth = new Date(view.year, view.month, 1)
+  const firstWeekday = (firstOfMonth.getDay() + 6) % 7
+  const gridStart = new Date(view.year, view.month, 1 - firstWeekday)
+  const selectedDate = parseDateValue(selectedDateValue)
+  const today = parseDateValue(todayDateValue())
+  const days = []
+
+  for (let index = 0; index < 42; index += 1) {
+    const date = new Date(gridStart)
+    date.setDate(gridStart.getDate() + index)
+
+    const dateValue = formatDateValue(date)
+    const sameMonth = date.getMonth() === view.month
+    const isSelected =
+      selectedDate &&
+      date.getFullYear() === selectedDate.getFullYear() &&
+      date.getMonth() === selectedDate.getMonth() &&
+      date.getDate() === selectedDate.getDate()
+    const isToday =
+      today &&
+      date.getFullYear() === today.getFullYear() &&
+      date.getMonth() === today.getMonth() &&
+      date.getDate() === today.getDate()
+
+    days.push({
+      key: `${key}-${dateValue}`,
+      label: String(date.getDate()),
+      value: dateValue,
+      isCurrentMonth: sameMonth,
+      isSelected: Boolean(isSelected),
+      isToday: Boolean(isToday),
+    })
+  }
+
+  return days
+}
+
+function pickerMonthLabel(key, dateValue = '') {
+  const view = ensurePickerView(key, dateValue)
+  return monthLabel(new Date(view.year, view.month, 1))
+}
+
+function timePickerKey(scope, index = '') {
+  return [scope, index].filter((part) => part !== '').join(':')
+}
+
+function toggleTimePicker(key) {
+  activeTimePickerKey.value = activeTimePickerKey.value === key ? '' : key
+}
+
+function closeTimePicker() {
+  activeTimePickerKey.value = ''
+}
+
+function registerDateTimePickerRef(key, element) {
+  if (element) {
+    dateTimePickerRefs[key] = element
+    return
+  }
+
+  delete dateTimePickerRefs[key]
+}
+
+function handleDocumentPointerDown(event) {
+  const activeKey = activeTimePickerKey.value
+
+  if (!activeKey) return
+
+  const activeElement = dateTimePickerRefs[activeKey]
+  if (activeElement?.contains(event.target)) return
+
+  closeTimePicker()
+}
+
+function handleDocumentKeydown(event) {
+  if (event.key === 'Escape') {
+    closeTimePicker()
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('mousedown', handleDocumentPointerDown)
+  document.addEventListener('keydown', handleDocumentKeydown)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('mousedown', handleDocumentPointerDown)
+  document.removeEventListener('keydown', handleDocumentKeydown)
+})
+
+function selectFormTimePart(field, part, value) {
+  updateFormTime(field, part, value)
+}
+
+function selectLegTimePart(index, part, value) {
+  updateLegTime(index, part, value)
+}
+
+function selectFormDate(field, value) {
+  emit('update-form-field', { field, value })
+}
+
+function selectLegDate(index, value) {
+  emit('update-leg-field', { index, field: 'date', value })
+}
+
+function clearFormDateTime(dateField, timeField) {
+  emit('update-form-field', { field: dateField, value: '' })
+  emit('update-form-field', { field: timeField, value: '' })
+}
+
+function clearLegDateTime(index) {
+  emit('update-leg-field', { index, field: 'date', value: '' })
+  emit('update-leg-field', { index, field: 'time', value: '' })
+}
+
+function setFormToday(dateField) {
+  emit('update-form-field', { field: dateField, value: todayDateValue() })
+}
+
+function setLegToday(index) {
+  emit('update-leg-field', { index, field: 'date', value: todayDateValue() })
 }
 
 function routePreview(origin = '', destination = '') {
@@ -351,8 +566,13 @@ function legStatusClass(leg = {}) {
           </div>
 
           <template v-if="tripType === 'Ida'">
-          <label class="airport-field">
-            <span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 1 7 7c0 5.25-7 13-7 13S5 14.25 5 9a7 7 0 0 1 7-7Zm0 9a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" fill="currentColor"/></svg></span>Origen</span>
+          <label class="airport-field airport-field--compact">
+            <span class="field-label">
+              <span class="field-label__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s6-5.4 6-11a6 6 0 1 0-12 0c0 5.6 6 11 6 11Z"/><circle cx="12" cy="10" r="2.5"/></svg>
+              </span>
+              <span class="field-label__copy"><strong>Origen</strong><small>Base de salida</small></span>
+            </span>
             <input
               :value="form.origin"
               autocomplete="off"
@@ -374,8 +594,13 @@ function legStatusClass(leg = {}) {
               </button>
             </div>
           </label>
-          <label class="airport-field">
-            <span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 1 7 7c0 5.25-7 13-7 13S5 14.25 5 9a7 7 0 0 1 7-7Zm0 9a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" fill="currentColor"/></svg></span>Destino</span>
+          <label class="airport-field airport-field--compact">
+            <span class="field-label">
+              <span class="field-label__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s6-5.4 6-11a6 6 0 1 0-12 0c0 5.6 6 11 6 11Z"/><circle cx="12" cy="10" r="2.5"/></svg>
+              </span>
+              <span class="field-label__copy"><strong>Destino</strong><small>Aeropuerto de llegada</small></span>
+            </span>
             <input
               :value="form.destination"
               autocomplete="off"
@@ -397,28 +622,110 @@ function legStatusClass(leg = {}) {
               </button>
             </div>
           </label>
-          <label class="date-field"><span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 2h2v2h6V2h2v2h3v18H4V4h3V2Zm12 8H5v10h14V10Z" fill="currentColor"/></svg></span>Fecha</span><input :value="form.departureDate" type="date" @input="updateFormField('departureDate', $event)" /></label>
-          <button
-            v-if="!showDepartureTime && !form.departureTime"
-            class="time-toggle"
-            type="button"
-            @click="revealDepartureTime"
+          <label
+            class="schedule-field schedule-field--full"
+            :ref="(element) => registerDateTimePickerRef(timePickerKey('form'), element)"
           >
-            Agregar hora especifica
-          </button>
-          <label v-else class="time-field">
-            <span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20Zm1 5h-2v6l5 3 1-1.73-4-2.37V7Z" fill="currentColor"/></svg></span>Hora</span>
-            <div class="time-parts">
-              <select :value="splitTimeParts(form.departureTime).hour" @change="updateFormTime('departureTime', 'hour', $event.target.value)">
-                <option value="">Hora</option>
-                <option v-for="hour in hourOptions" :key="`departure-hour-${hour}`" :value="hour">{{ hour }}</option>
-              </select>
-              <select :value="splitTimeParts(form.departureTime).minute" @change="updateFormTime('departureTime', 'minute', $event.target.value)">
-                <option v-for="minute in minuteOptions" :key="`departure-minute-${minute}`" :value="minute">{{ minute }}</option>
-              </select>
-              <select :value="splitTimeParts(form.departureTime).period" @change="updateFormTime('departureTime', 'period', $event.target.value)">
-                <option v-for="period in periodOptions" :key="`departure-period-${period}`" :value="period">{{ period }}</option>
-              </select>
+            <span class="field-label">
+              <span class="field-label__copy"><strong>Fecha y hora de salida</strong><small>Selecciona la salida ejecutiva en un solo bloque</small></span>
+            </span>
+            <button
+              type="button"
+              class="schedule-field__trigger"
+              :class="{ 'schedule-field__trigger--active': activeTimePickerKey === timePickerKey('form') }"
+              @click="openDateTimePicker(timePickerKey('form'), form.departureDate)"
+            >
+              <span class="schedule-field__trigger-copy">{{ formatTriggerDateTime(form.departureDate, form.departureTime) }}</span>
+              <span class="schedule-field__trigger-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg>
+              </span>
+            </button>
+            <div v-if="activeTimePickerKey === timePickerKey('form')" class="datetime-popover">
+              <section class="datetime-popover__calendar">
+                <header class="datetime-popover__header">
+                  <button type="button" class="datetime-nav" @click="changePickerMonth(timePickerKey('form'), -1, form.departureDate)">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 6-6 6 6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  </button>
+                  <strong>{{ pickerMonthLabel(timePickerKey('form'), form.departureDate) }}</strong>
+                  <button type="button" class="datetime-nav" @click="changePickerMonth(timePickerKey('form'), 1, form.departureDate)">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  </button>
+                </header>
+                <div class="datetime-popover__weekdays">
+                  <span v-for="weekday in weekdayHeaders" :key="`form-weekday-${weekday}`">{{ weekday }}</span>
+                </div>
+                <div class="datetime-popover__days">
+                  <button
+                    v-for="day in calendarDays(timePickerKey('form'), form.departureDate)"
+                    :key="day.key"
+                    type="button"
+                    class="datetime-day"
+                    :class="{
+                      'datetime-day--muted': !day.isCurrentMonth,
+                      'datetime-day--selected': day.isSelected,
+                      'datetime-day--today': day.isToday,
+                    }"
+                    @click="selectFormDate('departureDate', day.value)"
+                  >
+                    {{ day.label }}
+                  </button>
+                </div>
+                <footer class="datetime-popover__footer">
+                  <div class="datetime-popover__footer-actions">
+                    <button type="button" class="datetime-link" @click="clearFormDateTime('departureDate', 'departureTime')">Borrar</button>
+                    <button type="button" class="datetime-link" @click="setFormToday('departureDate')">Hoy</button>
+                  </div>
+                  <div class="datetime-popover__footer-actions">
+                    <button type="button" class="datetime-close" @click="closeTimePicker">Cerrar</button>
+                    <button
+                      type="button"
+                      class="datetime-accept"
+                      :disabled="!hasDateTimeSelection(form.departureDate, form.departureTime)"
+                      @click="closeTimePicker"
+                    >
+                      Aceptar
+                    </button>
+                  </div>
+                </footer>
+              </section>
+              <section class="datetime-popover__time">
+                <div class="datetime-column">
+                  <button
+                    v-for="hour in hourOptions"
+                    :key="`form-hour-${hour}`"
+                    type="button"
+                    class="datetime-time-chip"
+                    :class="{ 'datetime-time-chip--selected': splitTimeParts(form.departureTime).hour === hour }"
+                    @click="selectFormTimePart('departureTime', 'hour', hour)"
+                  >
+                    {{ hour }}
+                  </button>
+                </div>
+                <div class="datetime-column">
+                  <button
+                    v-for="minute in minuteOptions"
+                    :key="`form-minute-${minute}`"
+                    type="button"
+                    class="datetime-time-chip"
+                    :class="{ 'datetime-time-chip--selected': splitTimeParts(form.departureTime).minute === minute }"
+                    @click="selectFormTimePart('departureTime', 'minute', minute)"
+                  >
+                    {{ minute }}
+                  </button>
+                </div>
+                <div class="datetime-column datetime-column--period">
+                  <button
+                    v-for="period in periodOptions"
+                    :key="`form-period-${period}`"
+                    type="button"
+                    class="datetime-time-chip"
+                    :class="{ 'datetime-time-chip--selected': splitTimeParts(form.departureTime).period === period }"
+                    @click="selectFormTimePart('departureTime', 'period', period)"
+                  >
+                    {{ period === 'AM' ? 'a.m.' : 'p.m.' }}
+                  </button>
+                </div>
+              </section>
             </div>
           </label>
           </template>
@@ -432,8 +739,8 @@ function legStatusClass(leg = {}) {
                 <small>{{ routePreview(form.origin, form.destination) }}</small>
               </div>
               <div class="trip-panel__body">
-                <label class="airport-field">
-                  <span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 1 7 7c0 5.25-7 13-7 13S5 14.25 5 9a7 7 0 0 1 7-7Zm0 9a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" fill="currentColor"/></svg></span>Origen</span>
+                <label class="airport-field airport-field--compact">
+                  <span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s6-5.4 6-11a6 6 0 1 0-12 0c0 5.6 6 11 6 11Z"/><circle cx="12" cy="10" r="2.5"/></svg></span><span class="field-label__copy"><strong>Origen</strong><small>Base de salida</small></span></span>
                   <input
                     :value="form.origin"
                     autocomplete="off"
@@ -455,8 +762,8 @@ function legStatusClass(leg = {}) {
                     </button>
                   </div>
                 </label>
-                <label class="airport-field">
-                  <span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 1 7 7c0 5.25-7 13-7 13S5 14.25 5 9a7 7 0 0 1 7-7Zm0 9a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" fill="currentColor"/></svg></span>Destino</span>
+                <label class="airport-field airport-field--compact">
+                  <span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s6-5.4 6-11a6 6 0 1 0-12 0c0 5.6 6 11 6 11Z"/><circle cx="12" cy="10" r="2.5"/></svg></span><span class="field-label__copy"><strong>Destino</strong><small>Aeropuerto de llegada</small></span></span>
                   <input
                     :value="form.destination"
                     autocomplete="off"
@@ -478,20 +785,108 @@ function legStatusClass(leg = {}) {
                     </button>
                   </div>
                 </label>
-                <label class="date-field"><span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 2h2v2h6V2h2v2h3v18H4V4h3V2Zm12 8H5v10h14V10Z" fill="currentColor"/></svg></span>Fecha salida</span><input :value="form.departureDate" type="date" @input="updateFormField('departureDate', $event)" /></label>
-                <label class="time-field">
-                  <span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20Zm1 5h-2v6l5 3 1-1.73-4-2.37V7Z" fill="currentColor"/></svg></span>Hora salida</span>
-                  <div class="time-parts">
-                    <select :value="splitTimeParts(form.departureTime).hour" @change="updateFormTime('departureTime', 'hour', $event.target.value)">
-                      <option value="">Hora</option>
-                      <option v-for="hour in hourOptions" :key="`round-departure-hour-${hour}`" :value="hour">{{ hour }}</option>
-                    </select>
-                    <select :value="splitTimeParts(form.departureTime).minute" @change="updateFormTime('departureTime', 'minute', $event.target.value)">
-                      <option v-for="minute in minuteOptions" :key="`round-departure-minute-${minute}`" :value="minute">{{ minute }}</option>
-                    </select>
-                    <select :value="splitTimeParts(form.departureTime).period" @change="updateFormTime('departureTime', 'period', $event.target.value)">
-                      <option v-for="period in periodOptions" :key="`round-departure-period-${period}`" :value="period">{{ period }}</option>
-                    </select>
+                <label
+                  class="schedule-field schedule-field--full"
+                  :ref="(element) => registerDateTimePickerRef(timePickerKey('round-form'), element)"
+                >
+                  <span class="field-label"><span class="field-label__copy"><strong>Fecha y hora de salida</strong><small>Define despegue en un solo control</small></span></span>
+                  <button
+                    type="button"
+                    class="schedule-field__trigger"
+                    :class="{ 'schedule-field__trigger--active': activeTimePickerKey === timePickerKey('round-form') }"
+                    @click="openDateTimePicker(timePickerKey('round-form'), form.departureDate)"
+                  >
+                    <span class="schedule-field__trigger-copy">{{ formatTriggerDateTime(form.departureDate, form.departureTime) }}</span>
+                    <span class="schedule-field__trigger-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg>
+                    </span>
+                  </button>
+                  <div v-if="activeTimePickerKey === timePickerKey('round-form')" class="datetime-popover">
+                    <section class="datetime-popover__calendar">
+                      <header class="datetime-popover__header">
+                        <button type="button" class="datetime-nav" @click="changePickerMonth(timePickerKey('round-form'), -1, form.departureDate)">
+                          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 6-6 6 6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                        <strong>{{ pickerMonthLabel(timePickerKey('round-form'), form.departureDate) }}</strong>
+                        <button type="button" class="datetime-nav" @click="changePickerMonth(timePickerKey('round-form'), 1, form.departureDate)">
+                          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                      </header>
+                      <div class="datetime-popover__weekdays">
+                        <span v-for="weekday in weekdayHeaders" :key="`round-weekday-${weekday}`">{{ weekday }}</span>
+                      </div>
+                      <div class="datetime-popover__days">
+                        <button
+                          v-for="day in calendarDays(timePickerKey('round-form'), form.departureDate)"
+                          :key="day.key"
+                          type="button"
+                          class="datetime-day"
+                          :class="{
+                            'datetime-day--muted': !day.isCurrentMonth,
+                            'datetime-day--selected': day.isSelected,
+                            'datetime-day--today': day.isToday,
+                          }"
+                          @click="selectFormDate('departureDate', day.value)"
+                        >
+                          {{ day.label }}
+                        </button>
+                      </div>
+                      <footer class="datetime-popover__footer">
+                        <div class="datetime-popover__footer-actions">
+                          <button type="button" class="datetime-link" @click="clearFormDateTime('departureDate', 'departureTime')">Borrar</button>
+                          <button type="button" class="datetime-link" @click="setFormToday('departureDate')">Hoy</button>
+                        </div>
+                        <div class="datetime-popover__footer-actions">
+                          <button type="button" class="datetime-close" @click="closeTimePicker">Cerrar</button>
+                          <button
+                            type="button"
+                            class="datetime-accept"
+                            :disabled="!hasDateTimeSelection(form.departureDate, form.departureTime)"
+                            @click="closeTimePicker"
+                          >
+                            Aceptar
+                          </button>
+                        </div>
+                      </footer>
+                    </section>
+                    <section class="datetime-popover__time">
+                      <div class="datetime-column">
+                        <button
+                          v-for="hour in hourOptions"
+                          :key="`round-form-hour-${hour}`"
+                          type="button"
+                          class="datetime-time-chip"
+                          :class="{ 'datetime-time-chip--selected': splitTimeParts(form.departureTime).hour === hour }"
+                          @click="selectFormTimePart('departureTime', 'hour', hour)"
+                        >
+                          {{ hour }}
+                        </button>
+                      </div>
+                      <div class="datetime-column">
+                        <button
+                          v-for="minute in minuteOptions"
+                          :key="`round-form-minute-${minute}`"
+                          type="button"
+                          class="datetime-time-chip"
+                          :class="{ 'datetime-time-chip--selected': splitTimeParts(form.departureTime).minute === minute }"
+                          @click="selectFormTimePart('departureTime', 'minute', minute)"
+                        >
+                          {{ minute }}
+                        </button>
+                      </div>
+                      <div class="datetime-column datetime-column--period">
+                        <button
+                          v-for="period in periodOptions"
+                          :key="`round-form-period-${period}`"
+                          type="button"
+                          class="datetime-time-chip"
+                          :class="{ 'datetime-time-chip--selected': splitTimeParts(form.departureTime).period === period }"
+                          @click="selectFormTimePart('departureTime', 'period', period)"
+                        >
+                          {{ period === 'AM' ? 'a.m.' : 'p.m.' }}
+                        </button>
+                      </div>
+                    </section>
                   </div>
                 </label>
               </div>
@@ -504,7 +899,7 @@ function legStatusClass(leg = {}) {
                 <small>{{ routePreview(form.destination, form.origin) }}</small>
               </div>
               <div class="trip-panel__body trip-panel__body--return">
-                <label class="date-field"><span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 2h2v2h6V2h2v2h3v18H4V4h3V2Zm12 8H5v10h14V10Z" fill="currentColor"/></svg></span>Fecha regreso</span><input :value="form.returnDate" type="date" @input="updateFormField('returnDate', $event)" /></label>
+                <label class="date-field airport-field--compact"><span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg></span><span class="field-label__copy"><strong>Fecha regreso</strong><small>Ruta inversa automatica</small></span></span><input :value="form.returnDate" type="date" @input="updateFormField('returnDate', $event)" /></label>
                 <div class="trip-panel__note">
                   <span>Tomamos automaticamente la ruta inversa del tramo de salida para que solo definas la fecha estimada de regreso.</span>
                 </div>
@@ -539,8 +934,8 @@ function legStatusClass(leg = {}) {
               </button>
 
               <div v-if="activeLegIndex === index" class="leg-editor">
-                <label class="airport-field">
-                  <span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 1 7 7c0 5.25-7 13-7 13S5 14.25 5 9a7 7 0 0 1 7-7Zm0 9a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" fill="currentColor"/></svg></span>Desde</span>
+                <label class="airport-field airport-field--compact">
+                  <span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s6-5.4 6-11a6 6 0 1 0-12 0c0 5.6 6 11 6 11Z"/><circle cx="12" cy="10" r="2.5"/></svg></span><span class="field-label__copy"><strong>Desde</strong><small>Inicio del tramo</small></span></span>
                   <input
                     :value="leg.origin"
                     autocomplete="off"
@@ -564,8 +959,8 @@ function legStatusClass(leg = {}) {
                     </button>
                   </div>
                 </label>
-                <label class="airport-field">
-                  <span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 1 7 7c0 5.25-7 13-7 13S5 14.25 5 9a7 7 0 0 1 7-7Zm0 9a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" fill="currentColor"/></svg></span>Hacia</span>
+                <label class="airport-field airport-field--compact">
+                  <span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s6-5.4 6-11a6 6 0 1 0-12 0c0 5.6 6 11 6 11Z"/><circle cx="12" cy="10" r="2.5"/></svg></span><span class="field-label__copy"><strong>Hacia</strong><small>Destino del tramo</small></span></span>
                   <input
                     :value="leg.destination"
                     autocomplete="off"
@@ -587,20 +982,108 @@ function legStatusClass(leg = {}) {
                     </button>
                   </div>
                 </label>
-                <label class="date-field"><span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 2h2v2h6V2h2v2h3v18H4V4h3V2Zm12 8H5v10h14V10Z" fill="currentColor"/></svg></span>Fecha</span><input :value="leg.date" type="date" @input="updateLegField(index, 'date', $event)" /></label>
-                <label class="time-field">
-                  <span class="field-label"><span class="field-label__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20Zm1 5h-2v6l5 3 1-1.73-4-2.37V7Z" fill="currentColor"/></svg></span>Hora</span>
-                  <div class="time-parts">
-                    <select :value="splitTimeParts(leg.time).hour" @change="updateLegTime(index, 'hour', $event.target.value)">
-                      <option value="">Hora</option>
-                      <option v-for="hour in hourOptions" :key="`leg-${index}-hour-${hour}`" :value="hour">{{ hour }}</option>
-                    </select>
-                    <select :value="splitTimeParts(leg.time).minute" @change="updateLegTime(index, 'minute', $event.target.value)">
-                      <option v-for="minute in minuteOptions" :key="`leg-${index}-minute-${minute}`" :value="minute">{{ minute }}</option>
-                    </select>
-                    <select :value="splitTimeParts(leg.time).period" @change="updateLegTime(index, 'period', $event.target.value)">
-                      <option v-for="period in periodOptions" :key="`leg-${index}-period-${period}`" :value="period">{{ period }}</option>
-                    </select>
+                <label
+                  class="schedule-field schedule-field--full"
+                  :ref="(element) => registerDateTimePickerRef(timePickerKey('leg', index), element)"
+                >
+                  <span class="field-label"><span class="field-label__copy"><strong>Fecha y hora de salida</strong><small>Bloque unificado del tramo</small></span></span>
+                  <button
+                    type="button"
+                    class="schedule-field__trigger"
+                    :class="{ 'schedule-field__trigger--active': activeTimePickerKey === timePickerKey('leg', index) }"
+                    @click="openDateTimePicker(timePickerKey('leg', index), leg.date)"
+                  >
+                    <span class="schedule-field__trigger-copy">{{ formatTriggerDateTime(leg.date, leg.time) }}</span>
+                    <span class="schedule-field__trigger-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg>
+                    </span>
+                  </button>
+                  <div v-if="activeTimePickerKey === timePickerKey('leg', index)" class="datetime-popover">
+                    <section class="datetime-popover__calendar">
+                      <header class="datetime-popover__header">
+                        <button type="button" class="datetime-nav" @click="changePickerMonth(timePickerKey('leg', index), -1, leg.date)">
+                          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 6-6 6 6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                        <strong>{{ pickerMonthLabel(timePickerKey('leg', index), leg.date) }}</strong>
+                        <button type="button" class="datetime-nav" @click="changePickerMonth(timePickerKey('leg', index), 1, leg.date)">
+                          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                      </header>
+                      <div class="datetime-popover__weekdays">
+                        <span v-for="weekday in weekdayHeaders" :key="`leg-${index}-weekday-${weekday}`">{{ weekday }}</span>
+                      </div>
+                      <div class="datetime-popover__days">
+                        <button
+                          v-for="day in calendarDays(timePickerKey('leg', index), leg.date)"
+                          :key="day.key"
+                          type="button"
+                          class="datetime-day"
+                          :class="{
+                            'datetime-day--muted': !day.isCurrentMonth,
+                            'datetime-day--selected': day.isSelected,
+                            'datetime-day--today': day.isToday,
+                          }"
+                          @click="selectLegDate(index, day.value)"
+                        >
+                          {{ day.label }}
+                        </button>
+                      </div>
+                      <footer class="datetime-popover__footer">
+                        <div class="datetime-popover__footer-actions">
+                          <button type="button" class="datetime-link" @click="clearLegDateTime(index)">Borrar</button>
+                          <button type="button" class="datetime-link" @click="setLegToday(index)">Hoy</button>
+                        </div>
+                        <div class="datetime-popover__footer-actions">
+                          <button type="button" class="datetime-close" @click="closeTimePicker">Cerrar</button>
+                          <button
+                            type="button"
+                            class="datetime-accept"
+                            :disabled="!hasDateTimeSelection(leg.date, leg.time)"
+                            @click="closeTimePicker"
+                          >
+                            Aceptar
+                          </button>
+                        </div>
+                      </footer>
+                    </section>
+                    <section class="datetime-popover__time">
+                      <div class="datetime-column">
+                        <button
+                          v-for="hour in hourOptions"
+                          :key="`leg-datetime-hour-${index}-${hour}`"
+                          type="button"
+                          class="datetime-time-chip"
+                          :class="{ 'datetime-time-chip--selected': splitTimeParts(leg.time).hour === hour }"
+                          @click="selectLegTimePart(index, 'hour', hour)"
+                        >
+                          {{ hour }}
+                        </button>
+                      </div>
+                      <div class="datetime-column">
+                        <button
+                          v-for="minute in minuteOptions"
+                          :key="`leg-datetime-minute-${index}-${minute}`"
+                          type="button"
+                          class="datetime-time-chip"
+                          :class="{ 'datetime-time-chip--selected': splitTimeParts(leg.time).minute === minute }"
+                          @click="selectLegTimePart(index, 'minute', minute)"
+                        >
+                          {{ minute }}
+                        </button>
+                      </div>
+                      <div class="datetime-column datetime-column--period">
+                        <button
+                          v-for="period in periodOptions"
+                          :key="`leg-datetime-period-${index}-${period}`"
+                          type="button"
+                          class="datetime-time-chip"
+                          :class="{ 'datetime-time-chip--selected': splitTimeParts(leg.time).period === period }"
+                          @click="selectLegTimePart(index, 'period', period)"
+                        >
+                          {{ period === 'AM' ? 'a.m.' : 'p.m.' }}
+                        </button>
+                      </div>
+                    </section>
                   </div>
                 </label>
               </div>
@@ -625,7 +1108,12 @@ function legStatusClass(leg = {}) {
 
           
 
-          <button class="primary-action" type="submit">Cotizar vuelo</button>
+          <button class="primary-action" type="submit">
+            <span class="primary-action__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16.5 13 12l8-4.5-8-1.5L10.5 2H9l1 4-7 1.5L1 9l7 3-1 4h1.5L13 12l8 4.5Z"/></svg>
+            </span>
+            <span>Cotizar vuelo</span>
+          </button>
         </form>
       </div>
 
@@ -809,44 +1297,45 @@ p {
   position: relative;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.9rem 0.85rem;
+  gap: 0.72rem 0.72rem;
   overflow: visible;
 }
 
 .flight-form label {
   position: relative;
   display: grid;
-  gap: 0.4rem;
+  gap: 0.38rem;
   color: #2d2922;
   font-size: 0.82rem;
   font-weight: 600;
 }
 
 .flight-form input {
-  min-height: 3.2rem;
+  min-height: 3.6rem;
   width: 100%;
   min-width: 0;
   border: 1px solid #dfd4bf;
-  border-radius: 14px;
-  padding: 0 0.85rem;
+  border-radius: 18px;
+  padding: 0 1rem;
   background: #fffefb;
   color: rgba(7, 27, 54, 0.86);
   font: inherit;
-  font-size: 0.76rem;
-  font-weight: 600;
+  font-size: 1.05rem;
+  font-weight: 500;
 }
 
 .flight-form select {
-  min-height: 3.2rem;
+  min-height: 3.6rem;
   width: 100%;
   border: 1px solid #dfd4bf;
-  border-radius: 14px;
-  padding: 0 0.85rem;
+  border-radius: 18px;
+  padding: 0 1rem;
   background: #fffefb;
   color: rgba(7, 27, 54, 0.86);
   font: inherit;
-  font-size: 0.76rem;
-  font-weight: 600;
+  font-size: 1.05rem;
+  font-weight: 500;
+  appearance: none;
 }
 
 .flight-form textarea {
@@ -866,12 +1355,6 @@ p {
   grid-column: 1 / -1;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.75rem 0.7rem;
-}
-
-.time-parts {
-  display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr) minmax(0, 0.9fr);
-  gap: 0.55rem;
 }
 
 .airport-field {
@@ -922,7 +1405,7 @@ p {
 .field-label {
   display: inline-flex;
   align-items: center;
-  gap: 0.45rem;
+  gap: 0.7rem;
 }
 
 .field-label__icon,
@@ -934,17 +1417,282 @@ p {
 }
 
 .field-label__icon {
-  width: 1.9rem;
-  height: 1.9rem;
+  width: 2.1rem;
+  height: 2.1rem;
   border-radius: 999px;
-  background: #f4e8cb;
-  color: #8b6a24;
+  background: #f5efe2;
+  color: #7f8fa6;
 }
 
 .field-label__icon svg,
 .control-icon svg {
-  width: 0.9rem;
-  height: 0.9rem;
+  width: 1rem;
+  height: 1rem;
+}
+
+.field-label__copy {
+  display: grid;
+  gap: 0.08rem;
+}
+
+.field-label__copy strong {
+  color: #1c2b43;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.15;
+}
+
+.field-label__copy small {
+  color: #7d8491;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.airport-field--compact,
+.schedule-field {
+  align-self: start;
+}
+
+.schedule-field {
+  padding: 0.1rem 0 0;
+  position: relative;
+}
+
+.schedule-field--full {
+  grid-column: 1 / -1;
+}
+
+.schedule-field__trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 3.75rem;
+  padding: 0 1rem 0 1.15rem;
+  border: 1px solid #dfd4bf;
+  border-radius: 20px;
+  background: #ffffff;
+  color: #16263f;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.schedule-field__trigger-copy {
+  color: #2f3d53;
+  font-size: 1rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.schedule-field__trigger-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #121212;
+}
+
+.schedule-field__trigger-icon svg {
+  width: 1.2rem;
+  height: 1.2rem;
+}
+
+.schedule-field__trigger--active,
+.airport-field input:focus,
+.date-field input:focus,
+.time-field select:focus,
+.flight-form input:focus,
+.flight-form select:focus {
+  border-color: #1f57c3;
+  box-shadow: 0 0 0 4px rgba(31, 87, 195, 0.08);
+  outline: none;
+}
+
+.schedule-field__trigger:hover,
+.flight-form input:hover,
+.flight-form select:hover {
+  border-color: #1f57c3;
+}
+
+.datetime-popover {
+  position: absolute;
+  top: calc(100% + 0.55rem);
+  left: 0;
+  min-width: min(31rem, 82vw);
+  z-index: 50;
+  display: grid;
+  grid-template-columns: minmax(12.5rem, 1fr) minmax(6.8rem, 0.52fr);
+  gap: 0.65rem;
+  padding: 0.65rem;
+  border: 1px solid #cfd8e6;
+  border-radius: 0;
+  background: #ffffff;
+  box-shadow: 0 24px 40px rgba(17, 31, 56, 0.16);
+}
+
+.datetime-popover__calendar {
+  display: grid;
+  gap: 0.42rem;
+}
+
+.datetime-popover__header {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.datetime-popover__header strong {
+  color: #121212;
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: lowercase;
+}
+
+.datetime-nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.55rem;
+  min-width: 1.55rem;
+  padding: 0;
+  background: transparent;
+  color: #202834;
+}
+
+.datetime-nav svg {
+  width: 0.82rem;
+  height: 0.82rem;
+}
+
+.datetime-popover__weekdays,
+.datetime-popover__days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.2rem;
+}
+
+.datetime-popover__weekdays span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.15rem;
+  color: #111111;
+  font-size: 0.62rem;
+  font-weight: 500;
+}
+
+.datetime-day {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.72rem;
+  padding: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #151515;
+  font-size: 0.72rem;
+  font-weight: 500;
+}
+
+.datetime-day--muted {
+  color: #7e7e7e;
+}
+
+.datetime-day--selected {
+  background: #1f73e8;
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.datetime-day--today:not(.datetime-day--selected) {
+  box-shadow: inset 0 0 0 1px rgba(31, 115, 232, 0.38);
+}
+
+.datetime-popover__footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 0.05rem;
+}
+
+.datetime-popover__footer-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.datetime-link {
+  min-height: auto;
+  padding: 0;
+  background: transparent;
+  color: #1f73e8;
+  font-size: 0.68rem;
+  font-weight: 500;
+}
+
+.datetime-close {
+  min-height: 1.9rem;
+  padding: 0 0.75rem;
+  border: 1px solid #d6dfec;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #42536d;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.datetime-close:hover {
+  border-color: #1f57c3;
+  color: #1f57c3;
+}
+
+.datetime-accept {
+  min-height: 1.9rem;
+  padding: 0 0.8rem;
+  border-radius: 999px;
+  background: #1f73e8;
+  color: #ffffff;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.datetime-accept:disabled {
+  background: #d7deea;
+  color: #7e8898;
+  cursor: not-allowed;
+}
+
+.datetime-popover__time {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.32rem;
+  align-items: start;
+}
+
+.datetime-column {
+  display: grid;
+  gap: 0.25rem;
+  max-height: 14.5rem;
+  overflow-y: auto;
+  padding-right: 0.1rem;
+}
+
+.datetime-column--period {
+  max-height: none;
+}
+
+.datetime-time-chip {
+  min-height: 1.95rem;
+  border-radius: 6px;
+  background: transparent;
+  color: #171717;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.datetime-time-chip--selected {
+  background: #1f73e8;
+  color: #ffffff;
 }
 
 .segmented-control {
@@ -1129,22 +1877,10 @@ button {
 .trip-panel__body {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.9rem 0.75rem;
-}
-
-.trip-panel__body > .time-field,
-.trip-panel__body > .time-toggle {
-  grid-column: 1 / -1;
-}
-
-.trip-panel__body--return > .time-field,
-.trip-panel__body--return > .time-toggle {
-  grid-column: auto;
+  gap: 0.72rem;
 }
 
 .trip-panel__body > .date-field,
-.trip-panel__body > .time-field,
-.trip-panel__body > .time-toggle,
 .trip-panel__body > .trip-panel__note {
   align-self: start;
 }
@@ -1352,7 +2088,7 @@ button {
 .leg-editor {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.85rem 0.65rem;
+  gap: 0.72rem;
   padding: 1rem;
   border: 1px solid #eadfcb;
   border-radius: 22px;
@@ -1387,11 +2123,41 @@ button {
 }
 
 .primary-action {
-  min-height: 3.5rem;
-  border-radius: 16px;
-  font-size: 0.9rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7rem;
+  min-height: 3.7rem;
+  border-radius: 18px;
+  color: #ffffff !important;
+  font-size: 0.98rem;
   font-weight: 800;
-  box-shadow: 0 18px 34px rgba(17, 17, 17, 0.18);
+  box-shadow: 0 14px 24px rgba(17, 17, 17, 0.14);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+
+.primary-action span,
+.primary-action svg {
+  color: #ffffff !important;
+  fill: none;
+  stroke: currentColor;
+}
+
+.primary-action:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 18px 28px rgba(17, 17, 17, 0.18);
+  filter: brightness(1.02);
+}
+
+.primary-action__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.primary-action__icon svg {
+  width: 1rem;
+  height: 1rem;
 }
 
 .form-assurance {
@@ -1550,6 +2316,15 @@ button {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .datetime-popover {
+    grid-template-columns: 1fr;
+    min-width: min(24rem, 90vw);
+  }
+
+  .datetime-popover__time {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .hero-copy-panel {
     padding-top: 0;
     margin-left: 0;
@@ -1623,7 +2398,7 @@ button {
   .flight-form input,
   .flight-form select,
   .flight-form textarea {
-    min-height: 2.8rem;
+    min-height: 3.5rem;
   }
 
   .segmented-control {
@@ -1670,6 +2445,28 @@ button {
   .roundtrip-grid,
   .trip-panel__body {
     grid-template-columns: 1fr;
+  }
+
+  .datetime-popover {
+    left: 0;
+    right: auto;
+    min-width: min(18rem, calc(100vw - 1rem));
+    padding: 0.6rem;
+    gap: 0.6rem;
+  }
+
+  .datetime-popover__time {
+    grid-template-columns: 1fr;
+  }
+
+  .datetime-column {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    max-height: none;
+    overflow: visible;
+  }
+
+  .datetime-column--period {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .mode-intro,

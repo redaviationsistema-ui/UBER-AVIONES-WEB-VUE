@@ -21,6 +21,7 @@ const metricsPeriod = ref('month')
 const metricsLoading = ref(false)
 const metricsError = ref('')
 const operationalMetrics = ref(null)
+const assignmentSuccessMessage = ref('')
 
 async function loadMetrics() {
   metricsLoading.value = true
@@ -92,6 +93,7 @@ async function handleAssign(operationId) {
 
   const error = controller.validateAssignmentDraft(operation)
   controller.assignmentErrors[operationId] = error
+  assignmentSuccessMessage.value = ''
   if (error) return
 
   const payload = controller.assignmentPayloadFor(operation)
@@ -107,6 +109,7 @@ async function handleAssign(operationId) {
     note: controller.getDraft(operationId).note || '',
     onSuccess: ({ title, message } = {}) => {
       controller.clearAssignmentError(operationId)
+      assignmentSuccessMessage.value = message || title || 'Sobrecargo listo.'
       controller.updateOperationLocalState(operationId, {
         crew: controller.selectedDraftCrew(operation)?.name || operation.crew,
         crewId: payload.sobrecargo_user_id,
@@ -241,6 +244,7 @@ const selectedDraft = computed(() =>
         :tone-class="controller.toneClass"
         :operation-status-label="operationStatusLabel"
         :operation-crew-state-label="operationCrewStateLabel"
+        :assignment-success-message="assignmentSuccessMessage"
         @update-draft="(operationId, key, value) => controller.updateDraft(operationId, key, value)"
         @assign="handleAssign"
         @load-available="controller.ensureAvailableCrewForOperation(controller.selectedOperation)"
@@ -254,10 +258,35 @@ const selectedDraft = computed(() =>
   display: grid;
   gap: 0.85rem;
   --crew-primary: #1e4ed8;
-  --crew-ink: #10233d;
-  --crew-muted: #6b7a93;
+  --crew-ink: #000000;
+  --crew-muted: #000000;
   --crew-border: rgba(155, 176, 212, 0.24);
   --crew-shadow: 0 18px 40px rgba(17, 34, 68, 0.08);
+  color: #000000;
+}
+
+.crew-workspace :deep(*),
+.crew-workspace :deep(input),
+.crew-workspace :deep(select),
+.crew-workspace :deep(textarea),
+.crew-workspace :deep(option),
+.crew-workspace :deep(button),
+.crew-workspace :deep(label),
+.crew-workspace :deep(span),
+.crew-workspace :deep(small),
+.crew-workspace :deep(strong),
+.crew-workspace :deep(h3),
+.crew-workspace :deep(h4),
+.crew-workspace :deep(p),
+.crew-workspace :deep(td),
+.crew-workspace :deep(th) {
+  color: #000000;
+}
+
+.crew-workspace :deep(input::placeholder),
+.crew-workspace :deep(textarea::placeholder) {
+  color: #000000;
+  opacity: 1;
 }
 
 .workspace-head {

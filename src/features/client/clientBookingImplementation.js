@@ -48,6 +48,15 @@ const CLIENT_TRIP_SHOW_PATHS = CLIENT_TRIPS_PATHS.filter((path) => path.includes
 const CLIENT_RESERVATION_SHOW_PATHS = [
   ...new Set(['/cliente/reservas/:id', '/client/reservations/:id', '/cliente/historial/:id'].filter(Boolean)),
 ]
+const CLIENT_RESERVATION_PAYMENT_AVAILABILITY_PATHS = [
+  ...new Set(
+    [
+      '/cliente/reservas/:id/payment-availability',
+      '/cliente/solicitudes/:id/payment-availability',
+      '/client/reservations/:id/payment-availability',
+    ].filter(Boolean),
+  ),
+]
 const CLIENT_TRIP_CREATE_PATH =
   configuredTripCreatePath ||
   (configuredTripsPath && !configuredTripsPath.includes('/historial') ? configuredTripsPath : '') ||
@@ -1874,37 +1883,59 @@ export function normalizeTrip(request = {}, options = {}) {
       : request
   const explicitWorkflowValue =
     request.workflow_status || request.work_flow_status || request.workflow || nestedFlightRequest?.workflow_status || ''
+  const deriveDateAndTimeFromDateTime = (value = '') => {
+    const normalized = String(value || '').trim()
+    if (!normalized) return { date: '', time: '' }
+
+    const [datePart, timePart = ''] = normalized.replace('T', ' ').split(' ')
+    const cleanTime = String(timePart || '').trim().slice(0, 5)
+
+    return {
+      date: String(datePart || '').trim(),
+      time: cleanTime,
+    }
+  }
   const originAirport = normalizedTripAirport(baseRequest, 'origin')
   const destinationAirport = normalizedTripAirport(baseRequest, 'destination')
   const legs = Array.isArray(baseRequest.legs)
     ? baseRequest.legs
-        .map((leg) => ({
-          id: leg.id || '',
-          leg_order: leg.leg_order || '',
-          origin: leg.origin || normalizedTripAirport(leg, 'origin')?.code || '',
-          destination: leg.destination || normalizedTripAirport(leg, 'destination')?.code || '',
-          originAirport: normalizedTripAirport(leg, 'origin'),
-          destinationAirport: normalizedTripAirport(leg, 'destination'),
-          departure_datetime: leg.departure_datetime || '',
-          arrival_datetime: leg.arrival_datetime || '',
-          passengers: leg.passengers || '',
-          distance_km: leg.distance_km || '',
-        }))
+        .map((leg) => {
+          const derivedDateTime = deriveDateAndTimeFromDateTime(leg.departure_datetime || '')
+
+          return {
+            id: leg.id || '',
+            leg_order: leg.leg_order || '',
+            origin: leg.origin || normalizedTripAirport(leg, 'origin')?.code || '',
+            destination: leg.destination || normalizedTripAirport(leg, 'destination')?.code || '',
+            originAirport: normalizedTripAirport(leg, 'origin'),
+            destinationAirport: normalizedTripAirport(leg, 'destination'),
+            date: leg.date || derivedDateTime.date || '',
+            time: leg.time || derivedDateTime.time || '',
+            departure_datetime: leg.departure_datetime || '',
+            arrival_datetime: leg.arrival_datetime || '',
+            passengers: leg.passengers || '',
+            distance_km: leg.distance_km || '',
+          }
+        })
         .filter((leg) => leg.origin && leg.destination)
     : []
   const requirements = Array.isArray(baseRequest.requirements)
     ? baseRequest.requirements
-        .map((leg, index) => ({
-          id: leg.id || '',
-          leg_order: leg.leg_order || index + 2,
-          origin: leg.origin || '',
-          destination: leg.destination || '',
-          date: leg.date || '',
-          time: leg.time || '',
-          departure_datetime: leg.departure_datetime || '',
-          originAirport: leg.originAirport || null,
-          destinationAirport: leg.destinationAirport || null,
-        }))
+        .map((leg, index) => {
+          const derivedDateTime = deriveDateAndTimeFromDateTime(leg.departure_datetime || '')
+
+          return {
+            id: leg.id || '',
+            leg_order: leg.leg_order || index + 2,
+            origin: leg.origin || '',
+            destination: leg.destination || '',
+            date: leg.date || derivedDateTime.date || '',
+            time: leg.time || derivedDateTime.time || '',
+            departure_datetime: leg.departure_datetime || '',
+            originAirport: leg.originAirport || null,
+            destinationAirport: leg.destinationAirport || null,
+          }
+        })
         .filter((leg) => leg.origin && leg.destination)
     : []
   const route = legs.length
@@ -2641,6 +2672,22 @@ export async function getClientReservation(reservationId, options = {}) {
   }
 
   throw new Error('No se pudo cargar la reserva del cliente.')
+}
+
+export async function getClientReservationPaymentAvailability(reservationId, options = {}) {
+  const normalizedReservationId = normalizeEntityIdentifier(reservationId)
+
+  if (!normalizedReservationId) {
+    throw new Error('No encontramos la reserva para validar la disponibilidad del pago.')
+  }
+
+  return requestWithCandidates(
+    CLIENT_RESERVATION_PAYMENT_AVAILABILITY_PATHS.map((path) => ({
+      method: 'get',
+      path: replaceRouteId(path, normalizedReservationId),
+      timeoutMs: options.timeoutMs,
+    })),
+  )
 }
 
 function replaceRouteId(path, reservationId) {

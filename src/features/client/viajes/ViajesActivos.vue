@@ -726,7 +726,6 @@ function aircraftPlaceholderDataUri(reservation = {}) {
       <text x="56" y="360" fill="rgba(246,237,222,0.72)" font-size="24" font-family="Manrope, Arial, sans-serif">${subtitle}</text>
     </svg>
   `
-
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`
 }
 

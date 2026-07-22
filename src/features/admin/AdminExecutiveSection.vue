@@ -1,7 +1,7 @@
 <script setup>
 import { computed, defineComponent, h } from 'vue'
 import { useRouter } from 'vue-router'
-import { roleSections, resolveRoleSectionPath, resolveRoleSectionRoute } from '../../data/roleFlows'
+import { roleSections, resolveRoleSectionPath } from '../../data/roleFlows'
 
 const props = defineProps({
   kpis: { type: Array, required: true },
@@ -293,7 +293,11 @@ function recentActivityIcon(entryId = '') {
 
 async function navigateToAdminSection(section, event) {
   const targetPath = resolveRoleSectionPath('admin', section)
-  const targetRoute = resolveRoleSectionRoute('admin', section)
+  const sectionId = section?.id || section || ''
+  const targetRoute = {
+    name: 'admin',
+    params: sectionId ? { section: sectionId } : {},
+  }
   const currentPath = router.currentRoute.value.fullPath
 
   if (!targetPath || currentPath === targetPath) return
@@ -334,10 +338,10 @@ async function navigateToAdminSection(section, event) {
       </div>
 
       <div v-if="quickSections.length" class="dashboard-quick-actions">
-        <RouterLink
+        <button
           v-for="section in quickSections"
           :key="section.id"
-          :to="resolveRoleSectionRoute('admin', section)"
+          type="button"
           class="quick-action-card"
           :data-action="section.id"
           @click="navigateToAdminSection(section, $event)"
@@ -347,7 +351,7 @@ async function navigateToAdminSection(section, event) {
           </span>
           <strong>{{ section.label }}</strong>
           <small>Entrar al modulo</small>
-        </RouterLink>
+        </button>
       </div>
     </section>
 
@@ -413,10 +417,10 @@ async function navigateToAdminSection(section, event) {
           </div>
 
           <div class="link-grid">
-            <RouterLink
+            <button
               v-for="section in operationalSections"
               :key="section.id"
-              :to="resolveRoleSectionRoute('admin', section)"
+              type="button"
               class="module-card"
               @click="navigateToAdminSection(section, $event)"
             >
@@ -425,7 +429,7 @@ async function navigateToAdminSection(section, event) {
               </span>
               <strong>{{ section.label }}</strong>
               <span>Ver modulo</span>
-            </RouterLink>
+            </button>
           </div>
         </article>
       </div>

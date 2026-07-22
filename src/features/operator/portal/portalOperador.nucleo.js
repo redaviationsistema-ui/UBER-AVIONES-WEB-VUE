@@ -311,7 +311,7 @@ const OPERATOR_BOOT_TIMEOUT_MS = 45000
 
 const OPERATOR_SECTION_TIMEOUT_MS = 45000
 
-const OPERATOR_BACKGROUND_TIMEOUT_MS = 15000
+const OPERATOR_BACKGROUND_TIMEOUT_MS = 30000
 const PROVIDER_RELEASE_REQUEST_TIMEOUT_MS = 45000
 
 const PROVIDER_OPERATIONAL_RELEASE_AUTOSAVE_MS = 700
@@ -6037,6 +6037,11 @@ async function loadRealtimeNotifications(
       notificationsRouteUnavailable.value = true
       return
     }
+
+    if (isTransientNotificationLoadError(error)) {
+      notificationsRouteUnavailable.value = false
+      return
+    }
   }
 }
 
@@ -6631,12 +6636,23 @@ function isSkippableNotificationLoadError(error) {
   const message = String(error?.message || '').toLowerCase()
 
   return (
-    status === 0 ||
     [401, 403, 404, 405].includes(status) ||
     (status >= 500 && status <= 599) ||
     (message.includes('route') && message.includes('could not be found')) ||
-    message.includes('notifications') ||
-    message.includes('notificaciones')
+    (status > 0 && (message.includes('notifications') || message.includes('notificaciones')))
+  )
+}
+
+function isTransientNotificationLoadError(error) {
+  const status = Number(error?.status || 0)
+  const message = String(error?.message || '').toLowerCase()
+
+  return (
+    status === 0 ||
+    error?.name === 'AbortError' ||
+    message.includes('timeout after') ||
+    message.includes('network error') ||
+    message.includes('failed to fetch')
   )
 }
 

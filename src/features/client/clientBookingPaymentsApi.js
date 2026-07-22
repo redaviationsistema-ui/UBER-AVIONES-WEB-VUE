@@ -4,6 +4,7 @@ export {
   saveClientAssistedPayment,
   uploadClientPaymentProof,
   ensureClientReservation,
+  getClientReservationPaymentAvailability,
   downloadClientReservationContract,
   createClientAircraftHold,
   validateClientAircraftHold,

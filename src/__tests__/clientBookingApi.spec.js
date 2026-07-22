@@ -788,6 +788,36 @@ describe('normalizeTrip', () => {
     expect(trip.final_price).toBe(15400)
     expect(trip.formatted_final_price).toContain('15,400')
   })
+
+  it('derives leg date and time from departure_datetime when the backend omits split fields', () => {
+    const trip = normalizeTrip({
+      id: 29,
+      origin: 'MMTO',
+      destination: 'MMMM',
+      departure_datetime: '2026-07-22T11:00:00Z',
+      legs: [
+        {
+          id: 1,
+          origin: 'MMTO',
+          destination: 'MMMM',
+          departure_datetime: '2026-07-22 11:00:00',
+        },
+      ],
+      requirements: [
+        {
+          id: 2,
+          origin: 'MMTO',
+          destination: 'MMMM',
+          departure_datetime: '2026-07-22 11:00:00',
+        },
+      ],
+    })
+
+    expect(trip.legs[0].date).toBe('2026-07-22')
+    expect(trip.legs[0].time).toBe('11:00')
+    expect(trip.requirements[0].date).toBe('2026-07-22')
+    expect(trip.requirements[0].time).toBe('11:00')
+  })
 })
 
 describe('getClientTrips', () => {

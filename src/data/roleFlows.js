@@ -222,8 +222,11 @@ export function resolveRoleSectionRoute(role, sectionOrItem) {
     return { name: 'sobrecargo-disponibilidad' }
   }
 
-  if (role === 'admin' && sectionItem?.path) {
-    return { path: sectionItem.path }
+  if (role === 'admin') {
+    return {
+      name: 'admin',
+      params: sectionId ? { section: sectionId } : {},
+    }
   }
 
   const routeNameByRole = {

@@ -13,7 +13,6 @@ import {
 import {
   isAdminAircraftActive,
   isAdminAircraftApproved,
-  isProviderApprovedForAdminAircraft,
   normalizeAdminAircraftStatus,
   resolvePrimaryAdminAircraftAction,
 } from '../../utils/adminAircraftStatus'
@@ -88,7 +87,6 @@ const checklistLoadedAircraftId = ref(0)
 const checklistDirty = ref(false)
 const checklistUnsupported = ref(false)
 const checklistDraft = reactive({})
-const checklistExpandedSections = ref(['general', 'documents', 'operations', 'pricing'])
 
 function providerName(item) {
   return (
@@ -369,65 +367,6 @@ function compactToken(value = '') {
     .replace(/[\s-]+/g, '_')
 }
 
-function formatDateTime(value) {
-  if (!value) return 'Sin registro'
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return String(value)
-
-  return new Intl.DateTimeFormat('es-MX', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(parsed)
-}
-
-function providerApprovalState(item = {}) {
-  const providerStatus = compactToken(
-    item.provider?.approval_status ||
-      item.provider?.status ||
-      item.provider?.state ||
-      item.provider_status ||
-      '',
-  )
-
-  return ['approved', 'active', 'aprobado', 'aprobada', 'activo', 'activa'].includes(providerStatus)
-}
-
-function currentAircraftSubscription(item = {}) {
-  const aircraftId = Number(item.id || item.aircraft_id || 0)
-  if (item.current_subscription && typeof item.current_subscription === 'object') {
-    return item.current_subscription
-  }
-
-  return (
-    props.subscriptions.find((subscription) => {
-      const candidateAircraftId = Number(
-        subscription?.aircraft_id || subscription?.aircraft?.id || subscription?.aircraft?.aircraft_id || 0,
-      )
-      return candidateAircraftId > 0 && candidateAircraftId === aircraftId
-    }) || null
-  )
-}
-
-function hasActiveSubscription(item = {}) {
-  const subscription = currentAircraftSubscription(item)
-  if (subscription && !isExpiredAircraftSubscription(subscription)) {
-    const status = compactToken(subscription.status || subscription.subscription_status || '')
-    if (!status || ['active', 'approved', 'vigente'].includes(status)) return true
-  }
-  return false
-}
-
-function resolveAircraftDescription(item = {}) {
-  return (
-    item.description ||
-    item.commercial_description ||
-    item.marketplace_description ||
-    item.summary ||
-    item.notes ||
-    ''
-  )
-}
-
 function aircraftImagesByToken(item = {}, token = '') {
   const normalizedToken = compactToken(token)
   return aircraftImages(item).filter((image) => {
@@ -439,15 +378,6 @@ function aircraftImagesByToken(item = {}, token = '') {
 function hasExteriorPhotos(item = {}) {
   const exteriorImages = aircraftImagesByToken(item, 'exterior')
   if (exteriorImages.length) return true
-  return aircraftImages(item).length > 0
-}
-
-function hasInteriorPhotos(item = {}) {
-  const interiorImages = aircraftImagesByToken(item, 'interior')
-  return interiorImages.length > 0
-}
-
-function hasApprovedPhotos(item = {}) {
   return aircraftImages(item).length > 0
 }
 
@@ -1328,10 +1258,6 @@ function normalizeAircraftPaymentStatus(value = '') {
   return normalized
 }
 
-function hasApprovedMarker(item = {}) {
-  return Boolean(item.approved_at || item.approvedAt || item.approved === true)
-}
-
 function isApproved(item) {
   return isAdminAircraftApproved(item)
 }
@@ -1442,7 +1368,6 @@ function aircraftMissingFields(item) {
 
 function aircraftReadiness(item) {
   const snapshot = adminAircraftSnapshot(item)
-  const activationState = adminAircraftActivationState(item)
   const missing = aircraftMissingFields(item)
   const approved = isApproved(item)
   const suspended = isSuspended(item)
@@ -1506,17 +1431,6 @@ function readinessDescription(item) {
   if (!documentValidation.allApproved) return `${documentValidation.label}.`
   if (readiness.missing.length) return `Faltan ${readiness.missing.slice(0, 3).join(', ')}${readiness.missing.length > 3 ? '...' : ''}.`
   return 'Requiere revision administrativa antes de habilitarla comercialmente.'
-}
-
-function readinessChecklist(item) {
-  const readiness = aircraftReadiness(item)
-  return [
-    { label: 'Aprobada', complete: readiness.approved && !readiness.suspended },
-    { label: 'Documentada', complete: readiness.documented },
-    { label: 'Pago activo', complete: readiness.billingActive },
-    { label: 'Marketplace', complete: readiness.marketplaceReady },
-    { label: 'Base registrada', complete: readiness.baseRegistered },
-  ]
 }
 
 function missingFieldLabel(field) {
@@ -1588,7 +1502,6 @@ function checklistDocumentEvidence(item = {}, requirement = {}) {
 }
 
 function automaticChecklistSections(item = {}) {
-  const summary = resolveAircraftDocumentValidation(item)
   const readiness = aircraftReadiness(item)
 
   return [
@@ -1787,31 +1700,6 @@ function updateChecklistItemState(itemId, nextState) {
   checklistDirty.value = true
 }
 
-function updateChecklistItemNotes(itemId, nextNotes) {
-  const current = checklistDraftRecord(itemId) || {}
-  checklistDraft[itemId] = {
-    ...current,
-    id: itemId,
-    state: normalizeChecklistState(current.state || 'pending'),
-    notes: String(nextNotes || ''),
-  }
-  checklistDirty.value = true
-}
-
-function toggleChecklistSection(sectionId) {
-  checklistExpandedSections.value = checklistExpandedSections.value.includes(sectionId)
-    ? checklistExpandedSections.value.filter((value) => value !== sectionId)
-    : [...checklistExpandedSections.value, sectionId]
-}
-
-function markChecklistSectionComplete(section) {
-  section.items.forEach((item) => {
-    if (!item.completed) {
-      updateChecklistItemState(item.id, 'approved')
-    }
-  })
-}
-
 async function saveChecklist() {
   if (!selectedAircraft.value) return
 
@@ -1843,10 +1731,6 @@ async function saveChecklist() {
   } finally {
     checklistSaving.value = false
   }
-}
-
-function canApproveAircraftByChecklist(item = {}) {
-  return selectedAircraftChecklistSummary.value.mandatoryPendingCount === 0
 }
 
 function approvalState(item) {
@@ -2240,10 +2124,6 @@ function aircraftIsActive(item = {}) {
   return isAdminAircraftActive(item)
 }
 
-function providerApproved(item = {}) {
-  return isProviderApprovedForAdminAircraft(item)
-}
-
 function activationRequirements(item = {}) {
   const activationState = adminAircraftActivationState(item)
   return Array.isArray(activationState.missing_requirements) ? activationState.missing_requirements : []
@@ -2261,29 +2141,12 @@ function primaryAdminAction(item = {}) {
   return resolvePrimaryAdminAircraftAction(item)
 }
 
-function primaryAdminActionLabel(item = {}) {
-  return ({
-    approve_provider: 'Aprobar proveedor',
-    approve_aircraft: 'Aprobar aeronave',
-    activate_aircraft: 'Activar aeronave',
-    deactivate_aircraft: 'Desactivar aeronave',
-  })[primaryAdminAction(item)] || ''
-}
-
 const selectedAircraftIndex = computed(() =>
   selectedAircraft.value ? filteredAircraft.value.findIndex((item) => item.id === selectedAircraft.value.id) : -1,
 )
 
 const selectedAircraftDocuments = computed(() =>
   selectedAircraft.value ? aircraftDocuments(selectedAircraft.value) : [],
-)
-
-const selectedAircraftImages = computed(() =>
-  selectedAircraft.value ? aircraftImages(selectedAircraft.value) : [],
-)
-
-const selectedAircraftDocumentSummary = computed(() =>
-  selectedAircraft.value ? documentSummaryItems(selectedAircraft.value) : [],
 )
 
 const selectedAircraftMediaAssets = computed(() =>

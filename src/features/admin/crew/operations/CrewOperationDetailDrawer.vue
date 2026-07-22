@@ -7,6 +7,7 @@ defineProps({
   assignableCrew: { type: Array, default: () => [] },
   selectedCrewMember: { type: Object, default: null },
   assignmentError: { type: String, default: '' },
+  assignmentSuccessMessage: { type: String, default: '' },
   canAssign: { type: Boolean, default: false },
   isClosed: { type: Boolean, default: false },
   isInFlight: { type: Boolean, default: false },
@@ -166,6 +167,12 @@ defineEmits(['update-draft', 'assign', 'load-available'])
         <span class="eyebrow">Disponibilidad</span>
         <strong>{{ selectedCrewMember.isAvailableToday ? 'Disponible para esta fecha' : 'Revisar disponibilidad' }}</strong>
         <p>Base: {{ selectedCrewMember.base || 'Sin base' }}</p>
+      </div>
+
+      <div v-if="assignmentSuccessMessage" class="success-card" role="status" aria-live="polite">
+        <span class="eyebrow">Asignacion confirmada</span>
+        <strong>Sobrecargo listo</strong>
+        <p>{{ assignmentSuccessMessage }}</p>
       </div>
 
       <p v-if="assignmentError" class="inline-error">{{ assignmentError }}</p>
@@ -444,6 +451,30 @@ defineEmits(['update-draft', 'assign', 'load-available'])
 .availability-card p,
 .inline-error {
   margin: 0;
+}
+
+.success-card {
+  display: grid;
+  gap: 0.22rem;
+  padding: 0.9rem 0.95rem;
+  border-radius: 16px;
+  background: rgba(236, 253, 245, 0.92);
+  border: 1px solid rgba(16, 185, 129, 0.18);
+}
+
+.success-card .eyebrow,
+.success-card strong,
+.success-card p {
+  margin: 0;
+}
+
+.success-card strong {
+  color: #047857;
+  font-size: 1.08rem;
+}
+
+.success-card p {
+  color: #065f46;
 }
 
 .inline-error {
