@@ -134,6 +134,161 @@ describe('adminReservationsApi', () => {
     expect(api.patch.mock.calls[0][1]).toMatchObject({
       reservation_id: '28',
       flight_request_id: '176',
+      status: 'reserved',
+    })
+  })
+
+  it('uses a request-safe status when the admin workflow update hits request endpoints', async () => {
+    api.put.mockResolvedValueOnce({
+      request: {
+        id: 176,
+        flight_request_id: 176,
+        reservation_id: 28,
+        payment_status: 'pending',
+        workflow_status: 'pago pendiente',
+      },
+    })
+
+    await updateAdminReservationStage(
+      {
+        id: 28,
+        reservationId: 28,
+        requestId: 176,
+        raw: {
+          id: 28,
+          flight_request_id: 176,
+          reservation_id: 28,
+        },
+      },
+      'payment_pending',
+    )
+
+    expect(api.put.mock.calls[0][0]).toBe('/admin/requests/176/workflow')
+    expect(api.put.mock.calls[0][1]).toMatchObject({
+      reservation_id: '28',
+      flight_request_id: '176',
+      status: 'reserved',
+      workflow_status: 'pago pendiente',
+    })
+  })
+
+  it('prefers the reservation id for reservation endpoints after request routes are unavailable', async () => {
+    api.put.mockRejectedValue({
+      status: 404,
+      message: 'The route could not be found.',
+    })
+    api.post.mockRejectedValue({
+      status: 404,
+      message: 'The route could not be found.',
+    })
+    api.patch
+      .mockRejectedValueOnce({
+        status: 404,
+        message: 'The route api/v1/admin/requests/177/workflow could not be found.',
+      })
+      .mockRejectedValueOnce({
+        status: 404,
+        message: 'The route api/v1/admin/requests/177 could not be found.',
+      })
+      .mockRejectedValueOnce({
+        status: 404,
+        message: 'The route api/v1/admin/reservas/29 could not be found.',
+      })
+      .mockRejectedValueOnce({
+        status: 404,
+        message: 'The route api/v1/admin/reservations/29 could not be found.',
+      })
+      .mockResolvedValueOnce({
+        reservation: {
+          id: 29,
+          reservation_id: 29,
+          flight_request_id: 177,
+          payment_status: 'pending',
+          workflow_status: 'pago pendiente',
+        },
+      })
+
+    await updateAdminReservationStage(
+      {
+        id: 29,
+        reservationId: 29,
+        requestId: 177,
+        raw: {
+          id: 29,
+          reservation_id: 29,
+          flight_request_id: 177,
+        },
+      },
+      'payment_pending',
+    )
+
+    const attemptedPaths = [
+      ...api.patch.mock.calls.map(([path]) => path),
+      ...api.put.mock.calls.map(([path]) => path),
+      ...api.post.mock.calls.map(([path]) => path),
+    ]
+    const firstReservationPathIndex = attemptedPaths.findIndex((path) => path === '/admin/reservas/29')
+    const fallbackReservationPathIndex = attemptedPaths.findIndex((path) => path === '/admin/reservas/177')
+
+    expect(attemptedPaths).toContain('/admin/reservas/29')
+    expect(firstReservationPathIndex).toBeGreaterThan(-1)
+    expect(fallbackReservationPathIndex).toBeGreaterThan(firstReservationPathIndex)
+    expect(api.patch.mock.calls[4][1]).toMatchObject({
+      reservation_id: '29',
+      flight_request_id: '177',
+      status: 'pending_payment',
+    })
+  })
+
+  it('uses a reservation-safe status when the admin update falls back to reservation endpoints', async () => {
+    api.patch
+      .mockRejectedValueOnce({
+        status: 404,
+        message: 'The route api/v1/admin/requests/177/workflow could not be found.',
+      })
+      .mockRejectedValueOnce({
+        status: 404,
+        message: 'The route api/v1/admin/requests/177 could not be found.',
+      })
+      .mockRejectedValueOnce({
+        status: 404,
+        message: 'The route api/v1/admin/solicitudes/177 could not be found.',
+      })
+      .mockResolvedValueOnce({
+        reservation: {
+          id: 29,
+          reservation_id: 29,
+          flight_request_id: 177,
+          payment_status: 'pending',
+          workflow_status: 'pago pendiente',
+        },
+      })
+
+    await updateAdminReservationStage(
+      {
+        id: 29,
+        reservationId: 29,
+        requestId: 177,
+        raw: {
+          id: 29,
+          reservation_id: 29,
+          flight_request_id: 177,
+        },
+      },
+      'payment_pending',
+    )
+
+    const reservationPaths = api.patch.mock.calls.map(([path]) => path)
+    const canonicalReservationPathIndex = reservationPaths.findIndex((path) => path === '/admin/reservations/29')
+    const fallbackReservationPathIndex = reservationPaths.findIndex((path) => path === '/admin/reservations/177')
+
+    expect(canonicalReservationPathIndex).toBeGreaterThan(-1)
+    expect(fallbackReservationPathIndex).toBeGreaterThan(canonicalReservationPathIndex)
+    expect(api.patch.mock.calls[canonicalReservationPathIndex][1]).toMatchObject({
+      reservation_id: '29',
+      flight_request_id: '177',
+      status: 'pending_payment',
+      workflow_status: 'pago pendiente',
     })
   })
 })

@@ -34,14 +34,13 @@ const ADMIN_RELEASES_PATH_CANDIDATES = [
 ]
 
 const ADMIN_UPDATE_PATH_CANDIDATES = [
-  '/admin/solicitudes/:id',
-  '/admin/requests/:id',
-  normalizedConfiguredAdminRequestDetailPath,
-  '/admin/reservas/:id',
-  '/admin/reservations/:id',
-  '/admin/solicitudes/:id/workflow',
   '/admin/requests/:id/workflow',
   normalizedConfiguredWorkflowPath,
+  '/admin/requests/:id',
+  normalizedConfiguredAdminRequestDetailPath,
+  '/admin/solicitudes/:id',
+  '/admin/reservations/:id',
+  '/admin/reservas/:id',
 ].filter(Boolean)
 
 function shouldTryNextWorkflowCandidate(error) {
@@ -76,11 +75,19 @@ function replaceRouteId(path, reservationId) {
 function buildTargetIds(record = {}, rawPath = '') {
   const identifiers = buildAdminIdentifiers(record)
 
-  if (String(rawPath).includes('/requests/') || String(rawPath).includes('/workflow')) {
+  if (
+    String(rawPath).includes('/requests/') ||
+    String(rawPath).includes('/solicitudes/') ||
+    String(rawPath).includes('/workflow')
+  ) {
     return [...new Set([identifiers.requestId].filter(Boolean))]
   }
 
-  return [...new Set([identifiers.requestId, identifiers.reservationId].filter(Boolean))]
+  if (String(rawPath).includes('/reservas/') || String(rawPath).includes('/reservations/')) {
+    return [...new Set([identifiers.reservationId, identifiers.requestId].filter(Boolean))]
+  }
+
+  return [...new Set([identifiers.reservationId, identifiers.requestId].filter(Boolean))]
 }
 
 function buildCandidatePaths(rawPath, targetIds = []) {
@@ -411,6 +418,157 @@ function buildUnifiedReservationPayload(record, patch = {}) {
   }
 }
 
+function normalizeWorkflowToken(value = '') {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+}
+
+function resolveFlightRequestStatusForAdminPatch(statusValue = '', workflowValue = '') {
+  const normalizedStatus = normalizeWorkflowToken(statusValue)
+  const normalizedWorkflow = normalizeWorkflowToken(workflowValue || statusValue)
+
+  if (['pending', 'matched', 'quoted', 'reserved', 'cancelled', 'expired'].includes(normalizedStatus)) {
+    return normalizedStatus
+  }
+
+  switch (normalizedWorkflow) {
+    case 'quoted':
+    case 'cotizada':
+      return 'quoted'
+    case 'cancelled':
+    case 'cancelada':
+      return 'cancelled'
+    case 'expired':
+    case 'expirada':
+      return 'expired'
+    case 'provider accepted':
+    case 'provider accepted':
+    case 'provider accepted ':
+    case 'provider_accepted':
+    case 'proveedor aceptado':
+    case 'accepted':
+    case 'aceptada':
+    case 'operador asignado':
+    case 'operador asignado ':
+    case 'operador_asignado':
+      return 'matched'
+    case 'contract pending':
+    case 'contract_pending':
+    case 'contrato pendiente':
+    case 'contract signed':
+    case 'contract_signed':
+    case 'contrato firmado':
+    case 'payment pending':
+    case 'payment_pending':
+    case 'pago pendiente':
+    case 'pending payment':
+    case 'pending_payment':
+    case 'payment confirmed':
+    case 'payment_confirmed':
+    case 'pago confirmado':
+    case 'flight confirmed':
+    case 'flight_confirmed':
+    case 'vuelo confirmado':
+    case 'tracking live':
+    case 'tracking_live':
+    case 'tracking en vivo':
+    case 'completed':
+    case 'finalizada':
+      return 'reserved'
+    default:
+      return ''
+  }
+}
+
+function resolveReservationStatusForAdminPatch(statusValue = '', workflowValue = '', paymentStatus = '') {
+  const normalizedStatus = normalizeWorkflowToken(statusValue)
+  const normalizedWorkflow = normalizeWorkflowToken(workflowValue || statusValue)
+  const normalizedPayment = normalizeWorkflowToken(paymentStatus)
+
+  if (['cancelled', 'completed', 'confirmed', 'in progress', 'in_progress', 'paid', 'pending payment', 'pending_payment'].includes(normalizedStatus)) {
+    if (normalizedStatus === 'pending payment') return 'pending_payment'
+    if (normalizedStatus === 'in progress') return 'in_progress'
+    return normalizedStatus
+  }
+
+  if (['paid', 'pagado', 'payment confirmed', 'payment_confirmed', 'pago confirmado'].includes(normalizedPayment)) {
+    return 'confirmed'
+  }
+
+  switch (normalizedWorkflow) {
+    case 'cancelled':
+    case 'cancelada':
+      return 'cancelled'
+    case 'completed':
+    case 'finalizada':
+      return 'completed'
+    case 'tracking live':
+    case 'tracking_live':
+    case 'tracking en vivo':
+      return 'in_progress'
+    case 'payment confirmed':
+    case 'payment_confirmed':
+    case 'pago confirmado':
+    case 'flight confirmed':
+    case 'flight_confirmed':
+    case 'vuelo confirmado':
+      return 'confirmed'
+    case 'contract pending':
+    case 'contract_pending':
+    case 'contrato pendiente':
+    case 'contract signed':
+    case 'contract_signed':
+    case 'contrato firmado':
+    case 'payment pending':
+    case 'payment_pending':
+    case 'pago pendiente':
+    case 'pending payment':
+    case 'pending_payment':
+    case 'provider accepted':
+    case 'provider_accepted':
+    case 'proveedor aceptado':
+    case 'reserved':
+      return 'pending_payment'
+    default:
+      return ''
+  }
+}
+
+function buildScopedAdminPatch(rawPath = '', patch = {}) {
+  const scopedPatch = { ...patch }
+  const normalizedPath = String(rawPath || '')
+
+  if (
+    normalizedPath.includes('/requests/') ||
+    normalizedPath.includes('/solicitudes/') ||
+    normalizedPath.includes('/workflow')
+  ) {
+    const nextStatus = resolveFlightRequestStatusForAdminPatch(scopedPatch.status, scopedPatch.workflow_status)
+    if (nextStatus) {
+      scopedPatch.status = nextStatus
+    } else {
+      delete scopedPatch.status
+    }
+    return scopedPatch
+  }
+
+  const reservationStatus = resolveReservationStatusForAdminPatch(
+    scopedPatch.status,
+    scopedPatch.workflow_status,
+    scopedPatch.payment_status,
+  )
+
+  if (reservationStatus) {
+    scopedPatch.status = reservationStatus
+  } else {
+    delete scopedPatch.status
+  }
+
+  return scopedPatch
+}
+
 function extractUpdatedRecord(payload = {}, fallback = {}) {
   return (
     payload?.reservation ||
@@ -453,7 +611,6 @@ export async function getAdminReleases(options = {}) {
 }
 
 export async function persistAdminReservationPatch(record, patch = {}, options = {}) {
-  const unifiedPayload = buildUnifiedReservationPayload(record, patch)
   const targetIds = buildTargetIds(record)
 
   if (!targetIds.length) {
@@ -473,6 +630,8 @@ export async function persistAdminReservationPatch(record, patch = {}, options =
 
       for (const method of methods) {
         try {
+          const scopedPatch = buildScopedAdminPatch(rawPath, patch)
+          const unifiedPayload = buildUnifiedReservationPayload(record, scopedPatch)
           const payload =
             method === 'patch'
               ? await api.patch(path, unifiedPayload, options)
@@ -506,6 +665,9 @@ export async function persistAdminReservationPatch(record, patch = {}, options =
 
 export async function updateAdminReservationStage(record, nextStage, note = '', options = {}) {
   const workflowPayload = buildWorkflowApiPayload(nextStage)
+  if (workflowPayload.status === 'payment_pending') {
+    workflowPayload.status = 'pending_payment'
+  }
   const patch = {
     ...workflowPayload,
     admin_flow_state: 'active',
