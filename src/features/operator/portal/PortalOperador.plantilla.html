@@ -2856,10 +2856,10 @@
               la sobrecargo y centraliza toda actualizacion al cliente.
             </p>
             <div v-if="releaseProviderRequest" class="flight-release-badges">
-              <span>Operador</span>
-              <span>Aeronave</span>
-              <span>Estado</span>
-              <span>Ruta</span>
+              <span>Proveedor activo</span>
+              <span>Ruta confirmada</span>
+              <span>Checklist guiado</span>
+              <span>Coordinacion centralizada</span>
             </div>
           </div>
           <div class="requests-head-actions">
@@ -2878,17 +2878,17 @@
 
         <template v-if="releaseProviderRequest">
           <div class="request-summary-grid">
-            <article class="request-summary-card">
+            <article class="request-summary-card" data-summary="route">
               <span class="mini-label">Ruta</span>
               <strong>{{ getRequestRouteLabel(releaseProviderRequest) }}</strong>
               <p class="muted">{{ formatDateTimeDisplay(releaseProviderRequest.date) }}</p>
             </article>
-            <article class="request-summary-card">
+            <article class="request-summary-card" data-summary="status">
               <span class="mini-label">Etapa compartida</span>
               <strong>{{ normalizeWorkflowLabel(resolveRequestWorkflowValue(releaseProviderRequest)) }}</strong>
               <p class="muted">Aqui el proveedor valida operacion y la plataforma coordina sobrecargo y cliente.</p>
             </article>
-            <article class="request-summary-card">
+            <article class="request-summary-card" data-summary="aircraft">
               <span class="mini-label">Aeronave</span>
               <strong>{{ getProviderOperationalReleaseAircraftLabel() }}</strong>
               <p class="muted">{{ releaseProviderRequest.passengers || 0 }} pax · {{ getRequestServiceTierLabel(releaseProviderRequest) }}</p>
@@ -2926,10 +2926,14 @@
                 <div>
                   <span class="mini-label">Progreso</span>
                   <strong>{{ getProviderOperationalReleaseProgress().percentage }}%</strong>
+                  <span class="provider-release-progress__caption">Preparacion operacional</span>
                 </div>
-                <span class="muted">
-                  {{ getProviderOperationalReleaseStatusMeta(getProviderOperationalReleaseCurrentStatus()).detail }}
-                </span>
+                <div class="provider-release-progress-track" aria-hidden="true">
+                  <span
+                    class="provider-release-progress-track__fill"
+                    :style="{ width: `${getProviderOperationalReleaseProgress().percentage}%` }"
+                  ></span>
+                </div>
               </div>
 
               <div class="provider-release-status-strip">
@@ -2978,6 +2982,7 @@
                     'provider-release-step--active': providerOperationalReleaseActiveStep === step.id,
                     'provider-release-step--locked': step.locked,
                   }"
+                  :data-step="step.id"
                   @click="setProviderOperationalActiveStep(step.id)"
                 >
                   <span class="flight-release-step-icon" :data-step="step.id" aria-hidden="true"></span>
@@ -3393,6 +3398,7 @@
               <button
                 type="button"
                 class="primary-action"
+                :class="{ 'is-loading': savingProviderOperationalRelease }"
                 :disabled="
                   !canManageProviderOperationalRelease(releaseProviderRequest) ||
                   !isProviderOperationalReady() ||
@@ -3401,7 +3407,14 @@
                 "
                 @click="submitProviderReleasePrimaryAction()"
               >
-                {{ getProviderReleasePrimaryActionLabel(releaseProviderRequest) }}
+                <span
+                  v-if="savingProviderOperationalRelease"
+                  class="primary-action__spinner"
+                  aria-hidden="true"
+                ></span>
+                <span>
+                  {{ savingProviderOperationalRelease ? 'Procesando vuelo...' : getProviderReleasePrimaryActionLabel(releaseProviderRequest) }}
+                </span>
               </button>
             </div>
           </article>

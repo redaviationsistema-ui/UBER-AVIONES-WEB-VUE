@@ -88,7 +88,7 @@ const paymentProgressPercent = computed(() =>
 )
 
 const paymentHeroEyebrow = computed(() =>
-  props.commercialAccessCheckoutScreenMode ? 'Paso 2 de 2' : 'Paso 2 de 2',
+  props.commercialAccessCheckoutScreenMode ? 'Paso 2 de 2 · 100%' : 'Paso 2 de 2 · 100%',
 )
 
 const paymentHeroHeading = computed(() =>
@@ -97,8 +97,8 @@ const paymentHeroHeading = computed(() =>
 
 const paymentHeroSupportingCopy = computed(() =>
   props.commercialAccessCheckoutScreenMode
-    ? ''
-    : 'Confirma los datos de tu reserva y realiza el pago de forma segura.',
+    ? 'Confirma el total y continúa en Stripe.'
+    : 'Confirma el total y continúa en Stripe.',
 )
 
 const compactCommercialFacts = computed(() => {
@@ -160,10 +160,22 @@ const paymentSummaryItems = computed(() => {
   if (props.paymentBreakdownRows.length) return props.paymentBreakdownRows
 
   return [
-    { key: 'flight_cost', label: 'Subtotal vuelo', value: props.paymentSummaryAmountLabel },
-    { key: 'total', label: 'Total', value: props.paymentSummaryAmountLabel, total: true },
+    { key: 'flight_cost', label: 'Subtotal del vuelo', value: props.paymentSummaryAmountLabel },
+    { key: 'total', label: 'Total a pagar', value: props.paymentSummaryAmountLabel, total: true },
   ]
 })
+
+const paymentSummaryTitle = computed(() =>
+  props.commercialAccessCheckoutScreenMode ? 'Resumen del pago' : 'Resumen del pago',
+)
+
+const shouldShowPaymentInfoCard = computed(
+  () =>
+    Boolean(props.activeAircraftHoldSummary?.countdownLabel) ||
+    props.paymentAvailabilityLoading ||
+    hasAvailabilityError.value ||
+    Boolean(props.activeAircraftHoldSummary?.isWarning),
+)
 
 const isStripeBusy = computed(
   () =>
@@ -190,10 +202,12 @@ const paymentStatusCopy = computed(() => {
     return 'Validando disponibilidad...'
   }
   if (props.paymentAvailabilityLoading) return 'Validando disponibilidad...'
-  if (props.paymentSubmitting) return 'No cierres esta ventana'
-  if (hasAvailabilityError.value) return 'Revisa la disponibilidad'
-  if (props.activeAircraftHoldSummary) return 'Aeronave apartada temporalmente'
-  return 'Listo para pagar con Stripe'
+  if (props.paymentSubmitting) return ''
+  if (hasAvailabilityError.value) return 'Revisa la disponibilidad antes de continuar.'
+  if (props.activeAircraftHoldSummary?.countdownLabel) {
+    return `Tiempo disponible: ${props.activeAircraftHoldSummary.countdownLabel}`
+  }
+  return ''
 })
 
 const reservationDetailWorkflow = computed(() =>
@@ -388,6 +402,48 @@ const trackingSteps = computed(() => {
     },
   ]
 })
+
+const completedReservationFacts = computed(() => [
+  {
+    label: 'Ruta',
+    value: props.selectedReservation?.route || 'Ruta completada',
+  },
+  {
+    label: 'Fecha del servicio',
+    value: formatTrackingDateTime(
+      props.selectedReservation?.date || props.selectedReservation?.departure_datetime || '',
+    ),
+  },
+  {
+    label: 'Aeronave',
+    value:
+      props.selectedReservation?.aircraft ||
+      props.selectedReservation?.aircraft_model ||
+      props.selectedReservation?.assigned_aircraft_model ||
+      'Aeronave ejecutiva confirmada',
+  },
+  {
+    label: 'Pasajeros',
+    value: props.selectedReservation?.passengers
+      ? `${props.selectedReservation.passengers} pax`
+      : 'Manifiesto resguardado',
+  },
+])
+
+const completedReservationStatusItems = computed(() => [
+  {
+    label: 'Estado del servicio',
+    value: reservationDetailContent.value.statusLabel,
+  },
+  {
+    label: 'Historial',
+    value: 'Disponible en Mis vuelos cuando lo necesites.',
+  },
+  {
+    label: 'Concierge',
+    value: 'Tu asesor privado sigue disponible 24/7.',
+  },
+])
 </script>
 
 <template>
@@ -447,14 +503,12 @@ const trackingSteps = computed(() => {
         </button>
 
         <div class="payment-checkout__hero">
-          <span v-if="commercialAccessCheckoutScreenMode" class="payment-checkout__eyebrow">Stripe Checkout</span>
           <h2>{{ paymentHeroHeading }}</h2>
           <div class="payment-progress payment-progress--compact">
             <span>{{ paymentHeroEyebrow }}</span>
             <div class="payment-progress__track" aria-hidden="true">
               <span class="payment-progress__bar" :style="{ width: `${paymentProgressPercent}%` }"></span>
             </div>
-            <strong>{{ paymentProgressPercent }}%</strong>
           </div>
           <p v-if="paymentHeroSupportingCopy">{{ paymentHeroSupportingCopy }}</p>
         </div>
@@ -472,55 +526,36 @@ const trackingSteps = computed(() => {
           </article>
         </section>
 
-        <section class="payment-commercial-grid" v-if="commercialAccessCheckoutScreenMode">
-          <div class="payment-commercial-grid__left">
-            <PaymentSummaryCard
-              :rows="paymentSummaryItems"
-              :total-label="paymentSummaryAmountLabel"
-            />
-
-            <PaymentCountdown
-              :compact="true"
-              :countdown-label="activeAircraftHoldSummary?.countdownLabel || ''"
-              :has-error="hasAvailabilityError"
-              :is-warning="Boolean(activeAircraftHoldSummary?.isWarning)"
-              :is-loading="paymentAvailabilityLoading"
-              :show-timer="false"
-            />
-          </div>
-
-          <div class="payment-commercial-grid__right">
-            <SecureStripeCard :contact-email="paymentForm.contactEmail" />
-
-            <article class="payment-email-card payment-email-card--interactive">
-              <div class="payment-email-card__header">
-                <span>Correo de confirmación</span>
-                <a href="#commercial-payment-email">Cambiar correo</a>
-              </div>
-              <strong>{{ paymentForm.contactEmail || 'Correo por confirmar' }}</strong>
-              <label id="commercial-payment-email" class="payment-email-card__field">
-                <span>Recibos y confirmación</span>
-                <input
-                  :value="paymentForm.contactEmail"
-                  type="email"
-                  placeholder="cliente@empresa.com"
-                  @input="$emit('update:payment-contact-email', $event.target.value)"
-                />
-              </label>
-            </article>
-          </div>
-        </section>
-
-        <section v-else class="payment-stripe-layout">
+        <section class="payment-stripe-layout">
           <PaymentSummaryCard
             :rows="paymentSummaryItems"
-            :total-label="paymentSummaryAmountLabel"
+            :title="paymentSummaryTitle"
           />
 
-          <SecureStripeCard :contact-email="paymentForm.contactEmail" />
+          <SecureStripeCard
+            :contact-email="paymentForm.contactEmail"
+            :editable="commercialAccessCheckoutScreenMode"
+            :input-value="paymentForm.contactEmail"
+            :show-change-action="commercialAccessCheckoutScreenMode"
+            change-href="#commercial-payment-email"
+            @update:contact-email="$emit('update:payment-contact-email', $event)"
+          />
+
+          <section class="payment-action-panel payment-action-panel--sticky">
+            <div class="payment-action-panel__button">
+              <PaymentActionButton
+                :disabled="isStripeBusy || !paymentCanSubmit || hasAvailabilityError"
+                :loading="paymentSubmitting"
+                :status-label="paymentStatusCopy"
+                :title="commercialAccessCheckoutScreenMode ? 'Completar pago con Stripe' : 'Completar pago con Stripe'"
+                @click="$emit('payment-submit')"
+              />
+            </div>
+          </section>
 
           <PaymentCountdown
-            :compact="commercialAccessCheckoutScreenMode"
+            v-if="shouldShowPaymentInfoCard"
+            :compact="true"
             :countdown-label="activeAircraftHoldSummary?.countdownLabel || ''"
             :has-error="hasAvailabilityError"
             :is-warning="Boolean(activeAircraftHoldSummary?.isWarning)"
@@ -528,51 +563,11 @@ const trackingSteps = computed(() => {
             :show-timer="!commercialAccessCheckoutScreenMode && Boolean(activeAircraftHoldSummary?.countdownLabel)"
           />
 
-          <div v-if="!commercialAccessCheckoutScreenMode && hasAvailabilityError" class="payment-error-card">
-            <strong>Estado error</strong>
+          <div v-if="hasAvailabilityError" class="payment-error-card">
+            <strong>No pudimos continuar con el checkout.</strong>
             <p>{{ paymentInlineError }}</p>
             <button type="button" @click="$emit('payment-submit')">Intentar nuevamente</button>
           </div>
-
-          <div class="payment-email-card payment-email-card--compact">
-            <span>Confirmaremos el pago en</span>
-            <strong>{{ paymentForm.contactEmail || 'Correo por confirmar' }}</strong>
-          </div>
-        </section>
-
-        <section
-          class="payment-action-panel payment-action-panel--sticky"
-          :class="{ 'payment-action-panel--commercial': commercialAccessCheckoutScreenMode }"
-        >
-          <div class="payment-action-panel__total">
-            <span>{{ commercialAccessCheckoutScreenMode ? 'Total a pagar' : 'Total' }}</span>
-            <strong>{{ paymentSummaryAmountLabel }}</strong>
-          </div>
-
-          <div v-if="commercialAccessCheckoutScreenMode" class="payment-action-panel__security">
-            <span class="payment-action-panel__security-icon" aria-hidden="true">🔒</span>
-            <div>
-              <strong>Transacción segura con Stripe</strong>
-              <span>Aceptamos Visa, Mastercard, Apple Pay y Google Pay</span>
-            </div>
-          </div>
-
-          <div class="payment-action-panel__button">
-            <PaymentActionButton
-              :amount-label="paymentSummaryAmountLabel"
-              :amount-caption="paymentSummaryAmountLabel"
-              :disabled="isStripeBusy || !paymentCanSubmit || hasAvailabilityError"
-              :loading="paymentSubmitting"
-              :status-label="paymentStatusCopy"
-              :title="commercialAccessCheckoutScreenMode ? 'Activar acceso comercial' : 'Completar pago con Stripe'"
-              @click="$emit('payment-submit')"
-            />
-          </div>
-
-          <footer v-if="!commercialAccessCheckoutScreenMode" class="payment-footer-trust">
-            <span>Stripe Checkout seguro</span>
-            <span>Visa • Mastercard • Apple Pay</span>
-          </footer>
         </section>
       </div>
 
@@ -583,7 +578,7 @@ const trackingSteps = computed(() => {
         :duration-label="paymentDurationLabel"
         :flight-type-label="paymentFlightTypeLabel"
         :route-label="paymentRouteSummary"
-        :rows="paymentSummaryItems"
+        :total-label="paymentSummaryAmountLabel"
       />
     </article>
 
@@ -701,22 +696,73 @@ const trackingSteps = computed(() => {
     <article
       v-else-if="propsSection === 'reserva-confirmada' && canRenderReservationWorkflow"
       class="document-panel confirmation-panel"
+      :class="{ 'confirmation-panel--completed': reservationDetailWorkflow.id === 'completed' }"
     >
-      <span class="eyebrow">{{ reservationDetailContent.eyebrow }}</span>
-      <h2>{{ reservationDetailContent.title }}</h2>
-      <p>{{ reservationDetailContent.description }}</p>
-      <div
-        v-if="activeAircraftHoldSummary"
-        class="hold-banner"
-        :class="{ 'hold-banner--warning': activeAircraftHoldSummary.isWarning }"
-      >
-        <strong>Aeronave apartada temporalmente</strong>
-        <p>Tiempo restante para completar el flujo: <strong>{{ activeAircraftHoldSummary.countdownLabel }}</strong></p>
-      </div>
-      <div class="signature-box confirmation-box">
-        <strong>Estado actual</strong>
-        <span>{{ reservationDetailContent.statusLabel }}</span>
-      </div>
+      <template v-if="reservationDetailWorkflow.id === 'completed'">
+        <section class="completion-hero">
+          <div class="completion-hero__copy">
+            <span class="eyebrow">{{ reservationDetailContent.eyebrow }}</span>
+            <h2>{{ reservationDetailContent.title }}</h2>
+            <p>{{ reservationDetailContent.description }}</p>
+            <div class="completion-hero__status">
+              <span class="completion-badge">Servicio cerrado</span>
+              <strong>{{ reservationDetailContent.statusLabel }}</strong>
+            </div>
+          </div>
+          <div class="completion-hero__orb" aria-hidden="true">
+            <span>✓</span>
+          </div>
+        </section>
+
+        <section class="completion-facts-grid">
+          <article
+            v-for="item in completedReservationFacts"
+            :key="item.label"
+            class="completion-fact-card"
+          >
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+          </article>
+        </section>
+
+        <section class="completion-summary-card">
+          <div class="completion-summary-card__head">
+            <div>
+              <span class="tracking-status-card__eyebrow">Resumen final</span>
+              <strong>Cierre de operacion resguardado</strong>
+            </div>
+            <span class="completion-pill">Listo</span>
+          </div>
+          <div class="completion-summary-card__items">
+            <article
+              v-for="item in completedReservationStatusItems"
+              :key="item.label"
+              class="completion-summary-card__item"
+            >
+              <span>{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
+            </article>
+          </div>
+        </section>
+      </template>
+
+      <template v-else>
+        <span class="eyebrow">{{ reservationDetailContent.eyebrow }}</span>
+        <h2>{{ reservationDetailContent.title }}</h2>
+        <p>{{ reservationDetailContent.description }}</p>
+        <div
+          v-if="activeAircraftHoldSummary"
+          class="hold-banner"
+          :class="{ 'hold-banner--warning': activeAircraftHoldSummary.isWarning }"
+        >
+          <strong>Aeronave apartada temporalmente</strong>
+          <p>Tiempo restante para completar el flujo: <strong>{{ activeAircraftHoldSummary.countdownLabel }}</strong></p>
+        </div>
+        <div class="signature-box confirmation-box">
+          <strong>Estado actual</strong>
+          <span>{{ reservationDetailContent.statusLabel }}</span>
+        </div>
+      </template>
       <div class="confirmation-actions">
         <button type="button" @click="$emit('go', reservationDetailContent.primaryAction, reservationContextId)">
           {{ reservationDetailContent.primaryLabel }}
@@ -789,6 +835,15 @@ const trackingSteps = computed(() => {
   gap: 1rem;
 }
 
+.confirmation-panel--completed {
+  gap: 1.35rem;
+  padding: 1.8rem;
+  background:
+    radial-gradient(circle at top right, rgba(37, 99, 235, 0.08), transparent 24%),
+    radial-gradient(circle at top left, rgba(200, 154, 50, 0.12), transparent 28%),
+    linear-gradient(180deg, #fffdfa, #f8f5ef);
+}
+
 .tracking-detail-panel {
   display: grid;
   gap: 1.25rem;
@@ -798,6 +853,190 @@ const trackingSteps = computed(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
+}
+
+.completion-hero,
+.completion-facts-grid,
+.completion-summary-card__items {
+  display: grid;
+  gap: 1rem;
+}
+
+.completion-hero {
+  grid-template-columns: minmax(0, 1.2fr) minmax(180px, 0.45fr);
+  align-items: center;
+  padding: 1.5rem;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at 85% 24%, rgba(200, 154, 50, 0.12), transparent 30%),
+    linear-gradient(135deg, #ffffff, #f7f2e8);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+.completion-hero__copy,
+.completion-summary-card,
+.completion-summary-card__head,
+.completion-summary-card__item,
+.completion-fact-card {
+  display: grid;
+}
+
+.completion-hero__copy {
+  gap: 0.7rem;
+}
+
+.completion-hero__copy h2,
+.completion-hero__copy p,
+.completion-summary-card__head strong,
+.completion-summary-card__item strong {
+  margin: 0;
+}
+
+.completion-hero__copy h2 {
+  font-size: clamp(2.35rem, 5vw, 4.4rem);
+  line-height: 0.94;
+  color: #111827;
+  max-width: 11ch;
+}
+
+.completion-hero__copy p {
+  max-width: 68ch;
+  color: #5b6472;
+  font-size: 1.02rem;
+  line-height: 1.55;
+}
+
+.completion-hero__status {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.completion-hero__status strong {
+  color: #1f2937;
+  font-size: 1.05rem;
+}
+
+.completion-badge,
+.completion-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  min-height: 2rem;
+  padding: 0 0.8rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.completion-badge {
+  border: 1px solid rgba(22, 163, 74, 0.16);
+  background: rgba(240, 253, 244, 0.95);
+  color: #166534;
+}
+
+.completion-pill {
+  border: 1px solid rgba(200, 154, 50, 0.2);
+  background: rgba(255, 248, 235, 0.96);
+  color: #8b6f3d;
+}
+
+.completion-hero__orb {
+  display: grid;
+  place-items: center;
+  justify-self: end;
+  width: clamp(9rem, 18vw, 12rem);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.28) 34%, transparent 36%),
+    linear-gradient(135deg, #163a63, #294f7b);
+  box-shadow:
+    0 28px 60px rgba(22, 58, 99, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.32);
+}
+
+.completion-hero__orb span {
+  color: #ffffff;
+  font-size: clamp(2.4rem, 5vw, 3.6rem);
+  font-weight: 900;
+}
+
+.completion-facts-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.completion-fact-card {
+  gap: 0.35rem;
+  min-height: 118px;
+  padding: 1.1rem 1.15rem;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.05);
+}
+
+.completion-fact-card span,
+.completion-summary-card__item span {
+  color: #8b6f3d;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.completion-fact-card strong {
+  color: #111827;
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.completion-summary-card {
+  gap: 1rem;
+  padding: 1.35rem;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  border-radius: 26px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.05);
+}
+
+.completion-summary-card__head {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.completion-summary-card__head > div {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.completion-summary-card__head strong {
+  color: #111827;
+  font-size: 1.55rem;
+  line-height: 1.05;
+}
+
+.completion-summary-card__items {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.completion-summary-card__item {
+  gap: 0.35rem;
+  min-height: 110px;
+  padding: 1rem 1.05rem;
+  border-radius: 20px;
+  background: #fffcf6;
+  border: 1px solid rgba(200, 154, 50, 0.12);
+}
+
+.completion-summary-card__item strong {
+  color: #25364d;
+  font-size: 1rem;
+  line-height: 1.45;
 }
 
 .eyebrow {
@@ -928,13 +1167,13 @@ const trackingSteps = computed(() => {
 
 .payment-checkout {
   display: grid;
-  grid-template-columns: minmax(0, 1.65fr) minmax(320px, 0.9fr);
-  gap: 1.25rem;
+  grid-template-columns: minmax(0, 1.7fr) minmax(320px, 0.95fr);
+  gap: 1.5rem;
   align-items: start;
-  width: min(88vw, 1460px);
+  width: min(94vw, 1500px);
   margin: 0 auto;
   padding: 1.25rem;
-  border-radius: 30px;
+  border-radius: 28px;
   background:
     radial-gradient(circle at top left, rgba(196, 209, 255, 0.4), transparent 34%),
     linear-gradient(180deg, #fbfcfe, #f3f6fb);
@@ -948,7 +1187,7 @@ const trackingSteps = computed(() => {
 .payment-checkout__main {
   position: relative;
   display: grid;
-  gap: 1rem;
+  gap: 0.9rem;
 }
 
 .payment-checkout__eyebrow {
@@ -1011,7 +1250,8 @@ const trackingSteps = computed(() => {
 
 .payment-checkout__hero {
   display: grid;
-  gap: 0.55rem;
+  gap: 0.45rem;
+  padding: 0.2rem 0 0.35rem;
 }
 
 .payment-checkout__hero h2,
@@ -1021,16 +1261,15 @@ const trackingSteps = computed(() => {
 }
 
 .payment-checkout__hero h2 {
-  font-size: clamp(1.45rem, 2.6vw, 2rem);
-  line-height: 1.08;
+  font-size: clamp(1.45rem, 2.3vw, 1.95rem);
+  line-height: 1.06;
   color: #0f172a;
 }
 
 .payment-checkout__hero p {
-  max-width: 52rem;
   color: #475467;
-  line-height: 1.5;
-  font-size: 0.94rem;
+  line-height: 1.45;
+  font-size: 0.9rem;
 }
 
 .payment-progress {
@@ -1040,10 +1279,13 @@ const trackingSteps = computed(() => {
 }
 
 .payment-progress--compact {
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 0.75rem;
-  max-width: 32rem;
+  max-width: 28rem;
+  color: #667085;
+  font-size: 0.88rem;
+  font-weight: 700;
 }
 
 .payment-progress__label {
@@ -1072,86 +1314,15 @@ const trackingSteps = computed(() => {
 .payment-stripe-layout,
 .payment-action-panel {
   display: grid;
-  gap: 1rem;
-}
-
-.payment-commercial-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(320px, 1fr);
-  gap: 1rem;
-  align-items: stretch;
-}
-
-.payment-commercial-grid__left,
-.payment-commercial-grid__right {
-  display: grid;
-  gap: 1rem;
-  align-items: stretch;
-}
-
-.payment-email-card {
-  display: grid;
-  gap: 0.35rem;
-  min-height: 100%;
-  padding: 1.2rem 1.25rem;
-  border-radius: 24px;
-  border: 1px solid rgba(17, 17, 17, 0.08);
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.05);
-}
-
-.payment-email-card--compact {
-  padding: 0.95rem 1rem;
-  border-radius: 18px;
-}
-
-.payment-email-card span {
-  color: #475467;
-  font-size: 0.84rem;
-  font-weight: 700;
-}
-
-.payment-email-card strong {
-  color: #101828;
-  font-size: 0.98rem;
-}
-
-.payment-email-card__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.8rem;
-}
-
-.payment-email-card__header a {
-  color: #163a63;
-  font-size: 0.84rem;
-  font-weight: 700;
-  text-decoration: none;
-}
-
-.payment-email-card__field {
-  display: grid;
-  gap: 0.45rem;
-  margin-top: 0.55rem;
-}
-
-.payment-email-card__field input {
-  width: 100%;
-  padding: 0.9rem 0.95rem;
-  border-radius: 16px;
-  border: 1px solid rgba(15, 23, 42, 0.1);
-  background: rgba(248, 250, 252, 0.9);
-  color: #0f172a;
-  font: inherit;
+  gap: 0.9rem;
 }
 
 .payment-error-card {
   display: grid;
-  gap: 0.75rem;
-  padding: 1.25rem 1.35rem;
+  gap: 0.6rem;
+  padding: 0.95rem 1rem;
   border: 1px solid rgba(185, 28, 28, 0.16);
-  border-radius: 24px;
+  border-radius: 18px;
   background: linear-gradient(180deg, #fff8f8 0%, #fff0f0 100%);
 }
 
@@ -1170,7 +1341,7 @@ const trackingSteps = computed(() => {
 
 .payment-error-card button {
   justify-self: start;
-  padding: 0.8rem 1rem;
+  padding: 0.7rem 0.95rem;
   border: 0;
   border-radius: 14px;
   background: #991b1b;
@@ -1178,25 +1349,9 @@ const trackingSteps = computed(() => {
   font-weight: 700;
 }
 
-.payment-footer-trust {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-  justify-content: center;
-}
-
-.payment-footer-trust span {
-  padding: 0.35rem 0.68rem;
-  border-radius: 999px;
-  background: rgba(15, 39, 71, 0.06);
-  color: #163a63;
-  font-size: 0.74rem;
-  font-weight: 700;
-}
-
 .commercial-payment-brief {
   display: grid;
-  gap: 1rem;
+  gap: 0.8rem;
 }
 
 .commercial-payment-brief__hero-card {
@@ -1204,7 +1359,7 @@ const trackingSteps = computed(() => {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0;
   padding: 0;
-  border-radius: 24px;
+  border-radius: 22px;
   border: 1px solid rgba(17, 17, 17, 0.08);
   background: rgba(255, 255, 255, 0.85);
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.05);
@@ -1213,8 +1368,8 @@ const trackingSteps = computed(() => {
 .commercial-payment-brief__hero-item {
   display: grid;
   gap: 0.28rem;
-  min-height: 108px;
-  padding: 1.15rem 1.25rem;
+  min-height: 88px;
+  padding: 0.95rem 1rem;
   align-content: center;
 }
 
@@ -1231,9 +1386,9 @@ const trackingSteps = computed(() => {
 }
 
 .commercial-payment-brief__hero-item strong {
-  font-size: 1.05rem;
+  font-size: 1rem;
   color: #171717;
-  line-height: 1.35;
+  line-height: 1.25;
 }
 
 .payment-action-panel--sticky {
@@ -1241,23 +1396,11 @@ const trackingSteps = computed(() => {
   bottom: 0.75rem;
   z-index: 3;
   padding: 0.95rem 1rem;
-  border-radius: 24px;
+  border-radius: 20px;
   border: 1px solid rgba(17, 17, 17, 0.08);
   background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 20px 44px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.1);
   backdrop-filter: blur(10px);
-}
-
-.payment-action-panel--commercial {
-  grid-template-columns: minmax(180px, 0.8fr) minmax(240px, 1fr) minmax(280px, 0.95fr);
-  align-items: center;
-  gap: 1rem;
-  width: 100%;
-  padding: 1rem 1.1rem;
-  border-radius: 24px;
-  background: linear-gradient(135deg, #102b4d 0%, #173d68 100%);
-  box-shadow: 0 22px 52px rgba(16, 43, 77, 0.28);
-  border-color: rgba(255, 255, 255, 0.08);
 }
 
 .payment-action-panel__total {
@@ -1277,66 +1420,12 @@ const trackingSteps = computed(() => {
 
 .payment-action-panel__total strong {
   color: #101828;
-  font-size: 1.18rem;
-}
-
-.payment-action-panel--commercial .payment-action-panel__total {
-  display: grid;
-  gap: 0.2rem;
-  align-items: start;
-  justify-content: start;
-}
-
-.payment-action-panel--commercial .payment-action-panel__total span,
-.payment-action-panel--commercial .payment-action-panel__total strong {
-  color: #ffffff;
-}
-
-.payment-action-panel--commercial .payment-action-panel__total strong {
-  font-size: clamp(1.7rem, 3vw, 2.2rem);
-}
-
-.payment-action-panel__security {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 0.8rem;
-  align-items: center;
-  color: #ffffff;
-}
-
-.payment-action-panel__security-icon {
-  display: grid;
-  place-items: center;
-  width: 2.7rem;
-  height: 2.7rem;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.14);
-  font-size: 1rem;
-}
-
-.payment-action-panel__security strong,
-.payment-action-panel__security span {
-  display: block;
-}
-
-.payment-action-panel__security strong {
-  font-size: 0.96rem;
-}
-
-.payment-action-panel__security span {
-  margin-top: 0.15rem;
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 0.84rem;
-  line-height: 1.45;
+  font-size: 1.15rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .payment-action-panel__button {
   min-width: 0;
-}
-
-.payment-action-panel--commercial :deep(.action-shell__status) {
-  color: rgba(255, 255, 255, 0.84);
-  text-align: left;
 }
 
 .hold-banner {
@@ -1367,25 +1456,29 @@ const trackingSteps = computed(() => {
 }
 
 @media (max-width: 1180px) {
+  .completion-facts-grid,
+  .completion-summary-card__items {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .payment-checkout {
     grid-template-columns: minmax(0, 1fr);
     width: min(92vw, 1320px);
   }
-
-  .payment-commercial-grid,
-  .payment-action-panel--commercial {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .payment-action-panel__button {
-    grid-column: 1 / -1;
-  }
 }
 
 @media (max-width: 860px) {
+  .completion-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .completion-hero__orb {
+    justify-self: start;
+  }
+
   .payment-checkout {
     width: min(94vw, 1120px);
-    padding: 1.15rem;
+    padding: 1rem;
     border-radius: 24px;
   }
 
@@ -1412,14 +1505,21 @@ const trackingSteps = computed(() => {
     border-radius: 24px;
   }
 
+  .confirmation-panel--completed {
+    padding: 1.15rem;
+  }
+
+  .completion-facts-grid,
+  .completion-summary-card__items {
+    grid-template-columns: 1fr;
+  }
+
   .payment-checkout__hero h2 {
     font-size: 1.6rem;
   }
 
   .payment-progress--compact,
-  .payment-action-panel__total,
-  .payment-action-panel--commercial,
-  .payment-commercial-grid {
+  .payment-action-panel__total {
     grid-template-columns: minmax(0, 1fr);
     display: grid;
   }
@@ -1433,8 +1533,8 @@ const trackingSteps = computed(() => {
     border-top: 1px solid rgba(17, 17, 17, 0.08);
   }
 
-  .payment-action-panel--commercial :deep(.action-shell__status) {
-    text-align: center;
+  .payment-action-panel--sticky {
+    bottom: 0;
   }
 }
 </style>

@@ -1,28 +1,28 @@
 /* Flight Operational Release Center */
 .operator-portal-page:has(.flight-release-luxury) {
   background:
-    radial-gradient(circle at 18% 8%, rgba(201, 160, 99, 0.12), transparent 32%),
-    radial-gradient(circle at 78% 12%, rgba(10, 35, 66, 0.5), transparent 40%),
-    #050a14;
-  color: #f6f3ef;
+    radial-gradient(circle at 12% 10%, rgba(15, 35, 71, 0.08), transparent 24%),
+    radial-gradient(circle at 86% 6%, rgba(59, 130, 246, 0.08), transparent 22%),
+    linear-gradient(180deg, #f8fafc 0%, #f4f6f9 100%);
+  color: #10233d;
 }
 
 .flight-release-luxury {
   position: relative;
-  color: #f6f3ef;
-  font-family: 'Inter', 'Manrope', 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+  color: #10233d;
+  font-family: 'Manrope', 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
 }
 
 .flight-release-luxury::before {
   content: '';
   position: absolute;
   inset: -6rem -2rem auto;
-  height: 28rem;
+  height: 24rem;
   pointer-events: none;
   background:
-    radial-gradient(circle at 30% 16%, rgba(201, 160, 99, 0.14), transparent 34%),
-    radial-gradient(circle at 82% 28%, rgba(70, 120, 180, 0.2), transparent 36%);
-  filter: blur(4px);
+    radial-gradient(circle at 20% 18%, rgba(15, 35, 71, 0.07), transparent 30%),
+    radial-gradient(circle at 82% 26%, rgba(148, 163, 184, 0.16), transparent 34%);
+  filter: blur(10px);
 }
 
 .flight-release-luxury > * {
@@ -41,13 +41,12 @@
 .flight-release-luxury .provider-release-summary__item,
 .flight-release-luxury .provider-release-alert,
 .flight-release-luxury .provider-release-lock {
-  border: 1px solid rgba(201, 160, 99, 0.12);
-  background:
-    linear-gradient(135deg, rgba(7, 27, 54, 0.95), rgba(5, 10, 20, 0.98));
+  border: 1px solid rgba(203, 213, 225, 0.95);
+  background: rgba(255, 255, 255, 0.96);
   box-shadow:
-    0 20px 50px rgba(0, 0, 0, 0.42),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  backdrop-filter: blur(20px);
+    0 18px 40px rgba(15, 23, 42, 0.08),
+    0 1px 0 rgba(255, 255, 255, 0.95) inset;
+  backdrop-filter: blur(14px);
 }
 
 .flight-release-luxury .surface {
@@ -59,8 +58,8 @@
   overflow: hidden;
   padding: clamp(1.4rem, 3vw, 2.3rem);
   background:
-    linear-gradient(135deg, rgba(5, 10, 20, 0.96), rgba(7, 27, 54, 0.88)),
-    radial-gradient(circle at 82% 20%, rgba(201, 160, 99, 0.16), transparent 32%);
+    linear-gradient(135deg, rgba(15, 35, 71, 0.98), rgba(20, 45, 84, 0.96)),
+    radial-gradient(circle at 82% 20%, rgba(148, 163, 184, 0.22), transparent 34%);
 }
 
 .flight-release-luxury .flight-release-hero::before {
@@ -72,10 +71,10 @@
   height: 8rem;
   border-radius: 999px;
   background:
-    linear-gradient(90deg, rgba(246, 243, 239, 0.04), rgba(246, 243, 239, 0.18), rgba(201, 160, 99, 0.08));
+    linear-gradient(90deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.18), rgba(148, 163, 184, 0.08));
   clip-path: polygon(0 52%, 56% 33%, 100% 43%, 100% 57%, 56% 62%, 0 68%);
   opacity: 0.72;
-  filter: drop-shadow(0 0 28px rgba(201, 160, 99, 0.12));
+  filter: drop-shadow(0 0 28px rgba(255, 255, 255, 0.08));
 }
 
 .flight-release-luxury .section-head {
@@ -89,15 +88,15 @@
 
 .flight-release-luxury .eyebrow,
 .flight-release-luxury .mini-label {
-  color: #c9a063;
+  color: #cbd5e1;
   letter-spacing: 0.16em;
 }
 
 .flight-release-luxury .flight-release-hero h2,
 .flight-release-luxury .provider-release-panel__head h4,
 .flight-release-luxury .provider-release-card__head strong {
-  color: #f6f3ef;
-  font-family: 'Playfair Display', 'Cormorant Garamond', Georgia, serif;
+  color: #0f2347;
+  font-family: 'Manrope', 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
   letter-spacing: 0;
 }
 
@@ -105,8 +104,9 @@
   max-width: 12ch;
   margin: 0;
   font-size: clamp(3.1rem, 8vw, 6.4rem);
-  font-weight: 700;
-  line-height: 0.88;
+  font-weight: 800;
+  line-height: 0.92;
+  color: #ffffff;
 }
 
 .flight-release-luxury .flight-release-hero-meta {
@@ -115,18 +115,18 @@
   gap: 0.7rem;
   align-items: center;
   margin-top: 0.95rem;
-  color: rgba(246, 243, 239, 0.82);
+  color: rgba(255, 255, 255, 0.82);
   font-weight: 800;
 }
 
 .flight-release-luxury .flight-release-hero-meta strong {
-  color: #c9a063;
+  color: #ffffff;
   font-size: clamp(1.25rem, 2vw, 1.75rem);
 }
 
 .flight-release-luxury .flight-release-hero-meta span {
   padding-left: 0.7rem;
-  border-left: 1px solid rgba(201, 160, 99, 0.24);
+  border-left: 1px solid rgba(255, 255, 255, 0.22);
 }
 
 .flight-release-luxury .flight-release-badges {
@@ -142,10 +142,10 @@
   gap: 0.4rem;
   min-height: 2.1rem;
   padding: 0 0.78rem;
-  border: 1px solid rgba(46, 139, 87, 0.34);
+  border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 999px;
-  background: rgba(46, 139, 87, 0.12);
-  color: #b9f2d0;
+  background: rgba(255, 255, 255, 0.1);
+  color: #f8fafc;
   font-size: 0.75rem;
   font-weight: 800;
   letter-spacing: 0.08em;
@@ -153,7 +153,7 @@
 }
 
 .flight-release-luxury .flight-release-badges span::before {
-  content: '✓';
+  content: '•';
 }
 
 .flight-release-luxury .muted,
@@ -162,7 +162,7 @@
 .flight-release-luxury .provider-release-step__main small,
 .flight-release-luxury .provider-release-summary__item small,
 .flight-release-luxury .provider-release-alert p {
-  color: rgba(255, 255, 255, 0.65);
+  color: #64748b;
 }
 
 .flight-release-luxury .requests-head-actions {
@@ -172,30 +172,39 @@
 
 .flight-release-luxury .status-pill,
 .flight-release-luxury .package-chip {
-  border: 1px solid rgba(201, 160, 99, 0.22);
-  background: rgba(255, 255, 255, 0.06);
-  color: #f6f3ef;
+  border: 1px solid rgba(203, 213, 225, 0.95);
+  background: #ffffff;
+  color: #0f2347;
 }
 
 .flight-release-luxury .status-pill[data-tone='success'],
 .flight-release-luxury .package-chip[data-tone='success'] {
-  border-color: rgba(46, 139, 87, 0.38);
-  background: rgba(46, 139, 87, 0.14);
-  color: #b9f2d0;
+  border-color: rgba(34, 197, 94, 0.28);
+  background: #ecfdf3;
+  color: #166534;
 }
 
 .flight-release-luxury .status-pill[data-tone='warning'],
 .flight-release-luxury .package-chip[data-tone='warning'] {
-  border-color: rgba(201, 160, 99, 0.38);
-  background: rgba(201, 160, 99, 0.12);
-  color: #e8c98f;
+  border-color: rgba(245, 158, 11, 0.3);
+  background: #fff8e1;
+  color: #b45309;
 }
 
 .flight-release-luxury .status-pill[data-tone='danger'],
 .flight-release-luxury .package-chip[data-tone='danger'] {
-  border-color: rgba(160, 64, 64, 0.4);
-  background: rgba(110, 24, 24, 0.22);
-  color: #f5b6ad;
+  border-color: rgba(239, 68, 68, 0.24);
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.flight-release-luxury .status-pill[data-tone='neutral'],
+.flight-release-luxury .package-chip[data-tone='neutral'],
+.flight-release-luxury .status-pill[data-tone='info'],
+.flight-release-luxury .package-chip[data-tone='info'] {
+  border-color: rgba(203, 213, 225, 0.95);
+  background: #f8fafc;
+  color: #475569;
 }
 
 .flight-release-luxury .request-summary-grid {
@@ -217,57 +226,68 @@
 }
 
 .flight-release-luxury .request-summary-card::before {
-  content: '';
-  display: block;
+  content: '↗';
+  display: grid;
+  place-items: center;
   width: 36px;
   height: 36px;
   margin-bottom: 0.65rem;
-  border: 1px solid rgba(201, 160, 99, 0.2);
+  border: 1px solid rgba(203, 213, 225, 0.95);
   border-radius: 15px;
   background:
-    linear-gradient(135deg, rgba(201, 160, 99, 0.2), rgba(201, 160, 99, 0.04)),
-    radial-gradient(circle at 65% 35%, rgba(246, 243, 239, 0.34), transparent 4px);
-  box-shadow: 0 0 18px rgba(201, 160, 99, 0.1);
+    linear-gradient(135deg, rgba(248, 250, 252, 0.98), rgba(241, 245, 249, 0.96));
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+  color: #0f2347;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.flight-release-luxury .request-summary-card[data-summary='status']::before {
+  content: '◌';
+}
+
+.flight-release-luxury .request-summary-card[data-summary='aircraft']::before {
+  content: '✈';
 }
 
 .flight-release-luxury .request-summary-card:hover,
 .flight-release-luxury .provider-release-step:hover,
 .flight-release-luxury .provider-release-card:hover {
-  border-color: rgba(201, 160, 99, 0.35);
+  border-color: rgba(148, 163, 184, 0.88);
   box-shadow:
-    0 26px 70px rgba(0, 0, 0, 0.44),
-    0 0 28px rgba(201, 160, 99, 0.12);
-  transform: translateY(-4px) scale(1.02);
+    0 22px 44px rgba(15, 23, 42, 0.1),
+    0 0 0 1px rgba(255, 255, 255, 0.8) inset;
+  transform: translateY(-3px);
 }
 
 .flight-release-luxury .request-summary-card strong,
 .flight-release-luxury .provider-release-summary__item strong {
-  color: #f6f3ef;
+  color: #0f172a;
 }
 
 .flight-release-luxury .provider-release-panel {
   margin-top: 1.25rem;
   gap: 1.25rem;
-  padding: 1.35rem;
+  padding: 1.5rem;
   border-radius: 26px;
 }
 
 .flight-release-luxury .provider-release-panel__head h4 {
   margin: 0;
-  font-size: clamp(2rem, 4vw, 3.4rem);
-  font-weight: 700;
+  font-size: clamp(2rem, 4vw, 3.5rem);
+  font-weight: 800;
 }
 
 .flight-release-luxury .provider-release-alert {
   padding: 1rem 1.1rem;
   border-radius: 20px;
-  border-color: rgba(201, 160, 99, 0.22);
-  background:
-    linear-gradient(135deg, rgba(50, 35, 15, 0.56), rgba(20, 12, 4, 0.82));
+  border-color: rgba(245, 158, 11, 0.28);
+  border-left: 4px solid #f59e0b;
+  background: #fff8e1;
 }
 
 .flight-release-luxury .provider-release-alert strong {
-  color: #c9a063;
+  color: #b45309;
 }
 
 .flight-release-luxury .provider-release-summary-shell {
@@ -278,27 +298,40 @@
 }
 
 .flight-release-luxury .provider-release-progress {
-  justify-content: flex-start;
+  display: grid;
   gap: 1rem;
-}
-
-.flight-release-luxury .provider-release-progress .mini-label::before {
-  content: 'Flight Readiness';
-  display: block;
-}
-
-.flight-release-luxury .provider-release-progress .mini-label {
-  font-size: 0;
+  justify-content: stretch;
 }
 
 .flight-release-luxury .provider-release-progress strong {
-  color: #f6f3ef;
+  color: #0f2347;
   font-size: 3rem;
   line-height: 1;
 }
 
-.flight-release-luxury .provider-release-progress > span {
-  display: none;
+.flight-release-luxury .provider-release-progress__caption {
+  display: block;
+  margin-top: 0.35rem;
+  color: #64748b;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.flight-release-luxury .provider-release-progress-track {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  height: 12px;
+  border-radius: 999px;
+  background: #e2e8f0;
+}
+
+.flight-release-luxury .provider-release-progress-track__fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #0f2347, #2563eb);
+  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.22);
 }
 
 .flight-release-luxury .provider-release-status-strip {
@@ -310,10 +343,10 @@
   min-height: 64px;
   justify-content: flex-start;
   gap: 0.55rem;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(203, 213, 225, 0.95);
   border-radius: 18px;
-  background: rgba(10, 20, 40, 0.85);
-  color: rgba(255, 255, 255, 0.74);
+  background: #ffffff;
+  color: #475569;
   font-weight: 800;
 }
 
@@ -324,32 +357,38 @@
   width: 28px;
   height: 28px;
   place-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(203, 213, 225, 0.95);
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.04);
+  background: #f8fafc;
 }
 
 .flight-release-luxury .provider-release-status-strip .progress-chip i::before,
 .flight-release-luxury .flight-release-step-icon::before {
   content: '○';
-  color: rgba(255, 255, 255, 0.5);
+  color: #94a3b8;
   font-size: 0.9rem;
 }
 
 .flight-release-luxury .provider-release-status-strip .progress-chip[data-tone='success'] i::before,
 .flight-release-luxury .provider-release-step:has(.package-chip[data-tone='success']) .flight-release-step-icon::before {
   content: '✓';
-  color: #b9f2d0;
+  color: #16a34a;
 }
 
 .flight-release-luxury .provider-release-status-strip .progress-chip[data-tone='warning'] i::before,
 .flight-release-luxury .provider-release-step:has(.package-chip[data-tone='warning']) .flight-release-step-icon::before {
-  content: '◐';
-  color: #c9a063;
+  content: '◔';
+  color: #d97706;
+}
+
+.flight-release-luxury .provider-release-status-strip .progress-chip[data-tone='danger'] i::before,
+.flight-release-luxury .provider-release-step:has(.package-chip[data-tone='danger']) .flight-release-step-icon::before {
+  content: '!';
+  color: #dc2626;
 }
 
 .flight-release-luxury .provider-release-layout {
-  grid-template-columns: minmax(0, 0.65fr) minmax(22rem, 0.35fr);
+  grid-template-columns: minmax(19rem, 0.34fr) minmax(0, 0.66fr);
   gap: 1.25rem;
 }
 
@@ -365,11 +404,11 @@
   bottom: 1rem;
   left: 2rem;
   width: 1px;
-  background: linear-gradient(180deg, rgba(46, 139, 87, 0.42), rgba(201, 160, 99, 0.32), rgba(255, 255, 255, 0.08));
+  background: linear-gradient(180deg, rgba(203, 213, 225, 0.1), rgba(203, 213, 225, 0.8), rgba(203, 213, 225, 0.1));
 }
 
 .flight-release-luxury .provider-release-sidebar__head strong {
-  color: #f6f3ef;
+  color: #0f172a;
   font-size: 1.1rem;
 }
 
@@ -378,7 +417,8 @@
   z-index: 1;
   min-height: 72px;
   padding: 0.9rem 1rem;
-  border-radius: 20px;
+  border-radius: 18px;
+  align-items: center;
   transition:
     transform 300ms cubic-bezier(0.4, 0, 0.2, 1),
     border-color 300ms cubic-bezier(0.4, 0, 0.2, 1),
@@ -386,14 +426,15 @@
 }
 
 .flight-release-luxury .provider-release-step--active {
-  border-color: rgba(201, 160, 99, 0.48);
+  border-color: rgba(15, 35, 71, 0.24);
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
   box-shadow:
-    0 22px 50px rgba(0, 0, 0, 0.38),
-    0 0 24px rgba(201, 160, 99, 0.16);
+    0 18px 38px rgba(15, 23, 42, 0.1),
+    0 0 0 1px rgba(15, 35, 71, 0.04) inset;
 }
 
 .flight-release-luxury .provider-release-step--locked {
-  opacity: 0.72;
+  opacity: 0.8;
 }
 
 .flight-release-luxury .provider-release-step__main {
@@ -401,11 +442,50 @@
 }
 
 .flight-release-luxury .provider-release-step__index {
-  display: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 0.8rem;
+  font-weight: 800;
 }
 
 .flight-release-luxury .provider-release-step__main strong {
-  color: #f6f3ef;
+  color: #0f172a;
+}
+
+.flight-release-luxury .provider-release-step[data-step='aircraft'] .flight-release-step-icon::after {
+  content: '✈';
+}
+
+.flight-release-luxury .provider-release-step[data-step='crew'] .flight-release-step-icon::after {
+  content: '⌘';
+}
+
+.flight-release-luxury .provider-release-step[data-step='dispatch'] .flight-release-step-icon::after {
+  content: '↗';
+}
+
+.flight-release-luxury .provider-release-step[data-step='readiness'] .flight-release-step-icon::after {
+  content: '✓';
+}
+
+.flight-release-luxury .provider-release-step[data-step='issue'] .flight-release-step-icon::after {
+  content: '!';
+}
+
+.flight-release-luxury .provider-release-step[data-step='summary'] .flight-release-step-icon::after {
+  content: '•';
+}
+
+.flight-release-luxury .flight-release-step-icon::after {
+  color: #0f2347;
+  font-size: 0.85rem;
+  font-weight: 800;
 }
 
 .flight-release-luxury .provider-release-detail {
@@ -413,8 +493,8 @@
 }
 
 .flight-release-luxury .provider-release-card {
-  border-radius: 24px;
-  padding: 1.25rem;
+  border-radius: 22px;
+  padding: 1.35rem;
   transition:
     transform 300ms cubic-bezier(0.4, 0, 0.2, 1),
     border-color 300ms cubic-bezier(0.4, 0, 0.2, 1),
@@ -422,13 +502,13 @@
 }
 
 .flight-release-luxury .provider-release-card__head {
-  padding-bottom: 0.85rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 0.95rem;
+  border-bottom: 1px solid #e2e8f0;
 }
 
 .flight-release-luxury .provider-release-card__head strong {
-  font-size: 1.45rem;
-  font-weight: 700;
+  font-size: 1.2rem;
+  font-weight: 800;
 }
 
 .flight-release-luxury .provider-release-inline-grid {
@@ -437,13 +517,13 @@
 
 .flight-release-luxury .provider-release-card label,
 .flight-release-luxury .provider-release-notes {
-  color: #f6f3ef;
+  color: #0f172a;
 }
 
 .flight-release-luxury .provider-release-card label > span,
 .flight-release-luxury .provider-release-notes > span {
-  color: rgba(201, 160, 99, 0.9);
-  font-size: 0.76rem;
+  color: #475569;
+  font-size: 0.74rem;
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -453,26 +533,26 @@
 .flight-release-luxury select,
 .flight-release-luxury textarea {
   min-height: 56px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid #cbd5e1;
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.03);
-  color: #f6f3ef;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  background: #ffffff;
+  color: #0f172a;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 
 .flight-release-luxury input:focus,
 .flight-release-luxury select:focus,
 .flight-release-luxury textarea:focus {
-  border-color: rgba(201, 160, 99, 0.44);
+  border-color: rgba(37, 99, 235, 0.55);
   box-shadow:
-    0 0 0 3px rgba(201, 160, 99, 0.12),
-    0 0 28px rgba(201, 160, 99, 0.1);
+    0 0 0 3px rgba(37, 99, 235, 0.12),
+    0 10px 24px rgba(37, 99, 235, 0.08);
   outline: none;
 }
 
 .flight-release-luxury select option {
-  background: #071b36;
-  color: #f6f3ef;
+  background: #ffffff;
+  color: #0f172a;
 }
 
 .flight-release-luxury .provider-release-list {
@@ -483,29 +563,33 @@
 .flight-release-luxury .provider-list-check {
   min-height: 3.2rem;
   border-radius: 16px;
-  color: rgba(246, 243, 239, 0.78);
+  color: #475569;
 }
 
 .flight-release-luxury .provider-release-list span::before {
   content: '○';
-  color: rgba(255, 255, 255, 0.48);
+  color: #94a3b8;
+}
+
+.flight-release-luxury .provider-list-check span::before {
+  content: none;
 }
 
 .flight-release-luxury .provider-release-list span.is-done,
 .flight-release-luxury .provider-list-check:has(input:checked) {
-  border-color: rgba(46, 139, 87, 0.34);
-  background: rgba(46, 139, 87, 0.12);
-  color: #b9f2d0;
+  border-color: rgba(34, 197, 94, 0.2);
+  background: #ecfdf3;
+  color: #166534;
   font-weight: 800;
 }
 
 .flight-release-luxury .provider-release-list span.is-done::before {
   content: '✓';
-  color: #b9f2d0;
+  color: #16a34a;
 }
 
 .flight-release-luxury .provider-list-check input {
-  accent-color: #c9a063;
+  accent-color: #2563eb;
 }
 
 .flight-release-luxury .provider-release-summary__item {
@@ -513,7 +597,7 @@
 }
 
 .flight-release-luxury .provider-release-summary__item span {
-  color: #c9a063;
+  color: #64748b;
 }
 
 .flight-release-luxury .provider-release-notes {
@@ -530,10 +614,10 @@
 .flight-release-luxury .provider-release-feedback {
   margin: 0;
   padding: 0.9rem 1rem;
-  border: 1px solid rgba(201, 160, 99, 0.2);
+  border: 1px solid rgba(59, 130, 246, 0.18);
   border-radius: 18px;
-  background: rgba(201, 160, 99, 0.1);
-  color: #e8c98f;
+  background: #eff6ff;
+  color: #1d4ed8;
 }
 
 .flight-release-luxury .ghost-button,
@@ -546,19 +630,39 @@
 }
 
 .flight-release-luxury .primary-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
   min-height: 60px;
-  padding: 0 1.5rem;
-  border: 1px solid rgba(201, 160, 99, 0.42);
-  background: linear-gradient(135deg, #c9a063, #a9844f);
-  color: #050a14;
+  min-width: min(100%, 24rem);
+  padding: 0 1.8rem;
+  border: 1px solid rgba(37, 99, 235, 0.28);
+  background: linear-gradient(135deg, #0f2347, #2563eb);
+  color: #ffffff;
   font-weight: 900;
-  box-shadow: 0 15px 40px rgba(201, 160, 99, 0.18);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  box-shadow: 0 16px 36px rgba(37, 99, 235, 0.22);
+}
+
+.flight-release-luxury .primary-action.is-loading {
+  cursor: wait;
+}
+
+.flight-release-luxury .primary-action__spinner {
+  width: 1.1rem;
+  height: 1.1rem;
+  border: 2px solid rgba(255, 255, 255, 0.28);
+  border-top-color: #ffffff;
+  border-radius: 999px;
+  animation: provider-release-button-spin 0.8s linear infinite;
 }
 
 .flight-release-luxury .primary-action:hover:not(:disabled),
 .flight-release-luxury .ghost-button:hover:not(:disabled) {
   transform: translateY(-3px);
-  box-shadow: 0 15px 40px rgba(201, 160, 99, 0.25);
+  box-shadow: 0 18px 40px rgba(37, 99, 235, 0.24);
 }
 
 .flight-release-luxury .primary-action:disabled {
@@ -566,7 +670,13 @@
 }
 
 .flight-release-luxury .empty-state {
-  color: rgba(255, 255, 255, 0.62);
+  color: #64748b;
+}
+
+@keyframes provider-release-button-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @media (max-width: 1180px) {

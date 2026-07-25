@@ -6,6 +6,7 @@ import { getBackendOrigin } from '../lib/api'
 import {
   isAdminDocumentRoute,
   resolveProviderCompanyDocumentAccess,
+  resolveUserLegacyIdentityImages,
   resolveUserOfficialIdentificationAccess,
 } from '../lib/documentAccess'
 
@@ -57,5 +58,26 @@ describe('documentAccess helpers', () => {
     expect(access.storagePath).toBe('registration/identification/doc-123.pdf')
     expect(access.viewUrl).toBe('https://bucket.example.com/registration/identification/doc-123.pdf')
     expect(access.downloadUrl).toBe('https://bucket.example.com/registration/identification/doc-123.pdf')
+  })
+
+  it('resolves legacy client identity images when only front and back paths exist', () => {
+    const images = resolveUserLegacyIdentityImages({
+      profile: {
+        ine_front_path: 'identity/ine/front/front.jpg',
+        ine_back_path: 'identity/ine/back/back.jpg',
+      },
+    })
+
+    expect(images).toHaveLength(2)
+    expect(images[0]).toMatchObject({
+      key: 'front',
+      label: 'INE frente',
+      path: 'identity/ine/front/front.jpg',
+    })
+    expect(images[1]).toMatchObject({
+      key: 'back',
+      label: 'INE reverso',
+      path: 'identity/ine/back/back.jpg',
+    })
   })
 })

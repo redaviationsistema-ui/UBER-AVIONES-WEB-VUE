@@ -89,3 +89,37 @@ export function resolveUserOfficialIdentificationAccess(raw = {}) {
     downloadUrl: resolveMediaUrl(preferredDirectUrl || fallbackDownloadUrl || ''),
   }
 }
+
+export function resolveUserLegacyIdentityImages(raw = {}) {
+  const frontPath = normalizeCandidate(
+    raw?.ine_front_path ||
+      raw?.ineFrontPath ||
+      raw?.profile?.ine_front_path ||
+      raw?.profile?.ineFrontPath,
+  )
+  const backPath = normalizeCandidate(
+    raw?.ine_back_path ||
+      raw?.ineBackPath ||
+      raw?.profile?.ine_back_path ||
+      raw?.profile?.ineBackPath,
+  )
+
+  return [
+    frontPath
+      ? {
+          key: 'front',
+          label: 'INE frente',
+          url: resolveMediaUrl(frontPath),
+          path: frontPath,
+        }
+      : null,
+    backPath
+      ? {
+          key: 'back',
+          label: 'INE reverso',
+          url: resolveMediaUrl(backPath),
+          path: backPath,
+        }
+      : null,
+  ].filter(Boolean)
+}

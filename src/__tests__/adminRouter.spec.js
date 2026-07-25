@@ -188,4 +188,28 @@ describe('admin router policy', () => {
     expect(authStore.hasAdminAccess).toHaveBeenCalledTimes(1)
     expect(authStore.hasRole).not.toHaveBeenCalled()
   })
+
+  it('lets admin sessions enter authenticated client rental routes without client role checks', async () => {
+    const authStore = {
+      token: 'session-token',
+      loaded: true,
+      initialized: true,
+      isAuthenticated: true,
+      user: { id: 7, role: 'admin' },
+      dashboardPath: '/admin/ejecutivo',
+      initialize: vi.fn(),
+      loadCurrentUser: vi.fn(),
+      hasAdminAccess: vi.fn(() => true),
+      hasRole: vi.fn(() => false),
+    }
+
+    const router = await loadRouterWithAuthStore(authStore)
+
+    await router.push('/cliente/resultados/123')
+
+    expect(router.currentRoute.value.name).toBe('cliente-detalle')
+    expect(router.currentRoute.value.params.section).toBe('resultados')
+    expect(authStore.hasAdminAccess).toHaveBeenCalledTimes(1)
+    expect(authStore.hasRole).not.toHaveBeenCalled()
+  })
 })

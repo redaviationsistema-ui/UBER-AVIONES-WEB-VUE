@@ -318,6 +318,10 @@ router.beforeEach(async (to) => {
     return true
   }
 
+  if (auth.hasAdminAccess()) {
+    return true
+  }
+
   if (!auth.hasRole(requiredRole)) {
     return { name: 'access-denied', query: { reason: 'insufficient-role' } }
   }

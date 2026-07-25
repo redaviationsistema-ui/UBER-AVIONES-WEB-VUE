@@ -4,7 +4,21 @@ export function normalizeAuthRole(role) {
   if (['client', 'cliente'].includes(normalized)) return 'client'
   if (['provider', 'operator', 'operador'].includes(normalized)) return 'operator'
   if (['sobrecargo', 'crew', 'cabina'].includes(normalized)) return 'crew'
-  if (['admin', 'administrador', 'administrator'].includes(normalized)) return 'admin'
+  if (
+    [
+      'admin',
+      'administrador',
+      'administrator',
+      'super_admin',
+      'super-admin',
+      'super admin',
+      'superadministrator',
+      'super-administrator',
+      'backoffice',
+    ].includes(normalized)
+  ) {
+    return 'admin'
+  }
 
   return ''
 }

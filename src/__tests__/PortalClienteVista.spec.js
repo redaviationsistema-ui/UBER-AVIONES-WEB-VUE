@@ -211,6 +211,21 @@ beforeEach(() => {
   routeMock.params.id = 'res-1'
   routeMock.params.subsection = undefined
   routeMock.query = {}
+  authStoreMock.user = {
+    id: 'user-1',
+    name: 'Cliente Prueba',
+    email: 'cliente@skygroup.com',
+    phone: '5555555555',
+  }
+  authStoreMock.userName = 'Cliente Prueba'
+  authStoreMock.access = {
+    commercial_access: {
+      has_paid_access: true,
+      remaining_free_quotes: 1,
+      free_quotes_used: 0,
+      status: 'active',
+    },
+  }
 
   getClientTripsMock.mockResolvedValue([buildReservation()])
   getClientTripMock.mockResolvedValue(buildReservation())
@@ -1012,6 +1027,32 @@ describe('PortalClienteVista commercial access checkout', () => {
     })
   })
 
+  it('uses the authenticated user email dynamically for commercial access checkout', async () => {
+    authStoreMock.user = {
+      ...authStoreMock.user,
+      email: 'otro.usuario@test.dev',
+    }
+    authStoreMock.access = {
+      commercial_access: {
+        has_paid_access: false,
+        remaining_free_quotes: 0,
+        free_quotes_used: 1,
+        status: 'trial_used',
+      },
+    }
+    routeMock.query = { accessPayment: '1' }
+
+    await mountView({ section: 'pago' })
+    await flushPromises()
+
+    expect(createClientAccessCheckoutMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contact_email: 'otro.usuario@test.dev',
+      }),
+      expect.objectContaining({ timeoutMs: 30000 }),
+    )
+  })
+
   it('auto-starts Stripe from the legacy accessPayment route without requiring a second click', async () => {
     routeMock.params.id = undefined
     routeMock.query = { accessPayment: '1' }
@@ -1038,6 +1079,71 @@ describe('PortalClienteVista commercial access checkout', () => {
 
     expect(createClientAccessCheckoutMock).toHaveBeenCalledTimes(1)
     expect(wrapper.vm.lastExternalRedirectUrl).toBe('https://checkout.stripe.com/pay/cs_test_access_1')
+  })
+
+  it('does not call the access checkout endpoint when the authenticated user lacks a valid email', async () => {
+    routeMock.query = { accessPayment: '1' }
+    authStoreMock.user = {
+      ...authStoreMock.user,
+      email: 'Cliente Prueba',
+    }
+    authStoreMock.access = {
+      commercial_access: {
+        has_paid_access: false,
+        remaining_free_quotes: 0,
+        free_quotes_used: 1,
+        status: 'trial_used',
+      },
+    }
+
+    const wrapper = await mountView({ section: 'pago' })
+    await flushPromises()
+
+    expect(createClientAccessCheckoutMock).not.toHaveBeenCalled()
+    expect(wrapper.vm.paymentInlineError).toBe('Tu cuenta no tiene un correo electrónico válido.')
+    expect(pushToastMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tone: 'warning',
+        title: 'Correo requerido',
+        message: 'Tu cuenta no tiene un correo electrónico válido.',
+      }),
+    )
+  })
+
+  it('shows the backend validation error instead of the generic Stripe error title body', async () => {
+    routeMock.query = { accessPayment: '1' }
+    authStoreMock.access = {
+      commercial_access: {
+        has_paid_access: false,
+        remaining_free_quotes: 0,
+        free_quotes_used: 1,
+        status: 'trial_used',
+      },
+    }
+    createClientAccessCheckoutMock.mockRejectedValueOnce({
+      status: 422,
+      message: 'Datos invalidos.',
+      payload: {
+        message: 'Datos invalidos.',
+        errors: {
+          contact_email: ['The contact email field must be a valid email address.'],
+        },
+      },
+    })
+
+    const wrapper = await mountView({ section: 'pago' })
+    await flushPromises()
+
+    expect(wrapper.vm.paymentInlineError).toBe(
+      'The contact email field must be a valid email address.',
+    )
+    expect(pushToastMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tone: 'error',
+        title: 'No se pudo abrir Stripe',
+        message: 'The contact email field must be a valid email address.',
+      }),
+    )
   })
 })
 

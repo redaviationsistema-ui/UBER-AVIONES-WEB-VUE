@@ -969,7 +969,7 @@ watch(
     const fallbackTab = tabOptions.find((tab) =>
       reservations.some((reservation) => reservationTab(reservation) === tab.key),
     )
-    activeTab.value = fallbackTab?.key || 'historial'
+    activeTab.value = fallbackTab?.key || normalizeTabKey(props.initialTab)
   },
   { immediate: true },
 )

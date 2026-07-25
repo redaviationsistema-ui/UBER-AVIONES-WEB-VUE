@@ -1,31 +1,27 @@
 <script setup>
-import { computed } from 'vue'
-
 const props = defineProps({
   rows: { type: Array, default: () => [] },
-  totalLabel: { type: String, required: true },
+  title: { type: String, default: 'Resumen del pago' },
+  supportingCopy: { type: String, default: '' },
 })
-
-const totalRow = computed(() => props.rows.find((item) => item?.total) || null)
 </script>
 
 <template>
   <article class="payment-summary">
     <header class="payment-summary__header">
-      <span class="payment-summary__eyebrow">Resumen del pago</span>
-      <strong>Activa tu acceso comercial con el total final antes de ir a Stripe.</strong>
+      <strong>{{ title }}</strong>
+      <p v-if="supportingCopy">{{ supportingCopy }}</p>
     </header>
 
     <div class="payment-summary__rows">
-      <p v-for="row in rows" :key="row.key" :class="{ 'payment-summary__row--total': row.total }">
+      <p
+        v-for="row in rows"
+        :key="row.key"
+        :class="{ 'payment-summary__row--total': row.total }"
+      >
         <span>{{ row.label }}</span>
         <strong>{{ row.value }}</strong>
       </p>
-    </div>
-
-    <div class="payment-summary__total">
-      <span>Total</span>
-      <strong>{{ totalRow?.value || totalLabel }}</strong>
     </div>
   </article>
 </template>
@@ -33,41 +29,39 @@ const totalRow = computed(() => props.rows.find((item) => item?.total) || null)
 <style scoped>
 .payment-summary {
   display: grid;
-  gap: 1rem;
+  gap: 0.95rem;
   height: 100%;
-  padding: 1.25rem 1.3rem;
+  padding: 1.15rem 1.2rem;
   border: 1px solid rgba(18, 25, 38, 0.08);
-  border-radius: 24px;
-  background: linear-gradient(180deg, #ffffff 0%, #f7f8fb 100%);
-  box-shadow: 0 14px 32px rgba(18, 25, 38, 0.06);
+  border-radius: 22px;
+  background: linear-gradient(180deg, #ffffff 0%, #f9fafc 100%);
+  box-shadow: 0 12px 28px rgba(18, 25, 38, 0.06);
 }
 
 .payment-summary__header,
 .payment-summary__rows {
   display: grid;
-  gap: 0.7rem;
-}
-
-.payment-summary__eyebrow {
-  color: #75819a;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  gap: 0.62rem;
 }
 
 .payment-summary__header strong {
   color: #101828;
-  font-size: 1.05rem;
-  line-height: 1.4;
+  font-size: 1.02rem;
+  line-height: 1.35;
+}
+
+.payment-summary__header p {
+  margin: 0;
+  color: #667085;
+  font-size: 0.88rem;
+  line-height: 1.45;
 }
 
 p {
   margin: 0;
 }
 
-.payment-summary__row,
-.payment-summary__total {
+.payment-summary__rows p {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 0.75rem;
@@ -76,35 +70,33 @@ p {
 
 .payment-summary__rows p span {
   color: #475467;
-  font-size: 0.92rem;
+  font-size: 0.9rem;
 }
 
 .payment-summary__rows p strong {
   color: #101828;
-  font-size: 1rem;
+  font-size: 0.98rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .payment-summary__rows p.payment-summary__row--total {
-  padding-top: 0.4rem;
+  margin-top: 0.1rem;
+  padding-top: 0.8rem;
   border-top: 1px solid rgba(16, 24, 40, 0.08);
+  align-items: end;
 }
 
-.payment-summary__total {
-  padding-top: 0.75rem;
-  border-top: 1px solid rgba(16, 24, 40, 0.08);
-}
-
-.payment-summary__total span {
+.payment-summary__rows p.payment-summary__row--total span {
   color: #0f172a;
-  font-size: 0.92rem;
-  font-weight: 700;
+  font-size: 0.88rem;
+  font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
 
-.payment-summary__total strong {
+.payment-summary__rows p.payment-summary__row--total strong {
   color: #0f172a;
-  font-size: clamp(1.55rem, 3vw, 2rem);
+  font-size: clamp(1.5rem, 2.8vw, 1.9rem);
   line-height: 1;
 }
 </style>

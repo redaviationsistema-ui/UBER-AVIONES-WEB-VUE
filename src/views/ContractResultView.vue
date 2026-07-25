@@ -8,6 +8,10 @@ import {
   normalizeContractFrontendState,
   readPendingContractContext,
 } from '../services/contractApi'
+import {
+  formatContractResultDate,
+  formatContractResultStatus,
+} from '../lib/contractResultFormatting'
 import { emitWorkflowSync } from '../lib/workflowSync'
 
 const route = useRoute()
@@ -83,6 +87,12 @@ const statusMessage = computed(() =>
     : frontendState.value.status_message ||
       'Te llevaremos a tu historial para que sigas el estado del contrato desde ahi.',
 )
+const signedAtDisplay = computed(() =>
+  formatContractResultDate(
+    contract.value?.signed_at || contract.value?.updated_at || contract.value?.contract?.signed_at,
+  ),
+)
+const normalizedStatusDisplay = computed(() => formatContractResultStatus(normalizedStatus.value))
 
 function clearContractStatusPollTimer() {
   if (!contractStatusPollTimer) return
@@ -447,11 +457,11 @@ onBeforeUnmount(() => {
           </div>
           <div v-if="contract?.signed_at || contract?.updated_at || contract?.contract?.signed_at" class="contract-result-detail">
             <span class="contract-result-detail__label">Fecha de firma</span>
-            <span class="contract-result-detail__value">{{ contract?.signed_at || contract?.updated_at || contract?.contract?.signed_at }}</span>
+            <span class="contract-result-detail__value">{{ signedAtDisplay }}</span>
           </div>
           <div v-if="normalizedStatus" class="contract-result-detail">
             <span class="contract-result-detail__label">Estado</span>
-            <span class="contract-result-detail__value">{{ normalizedStatus }}</span>
+            <span class="contract-result-detail__value">{{ normalizedStatusDisplay }}</span>
           </div>
         </div>
 

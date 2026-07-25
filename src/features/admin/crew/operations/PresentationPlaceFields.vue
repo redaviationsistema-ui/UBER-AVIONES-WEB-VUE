@@ -32,7 +32,7 @@ defineEmits(['update:typeValue', 'update:detailValue'])
         :value="detailValue"
         type="text"
         :disabled="disabled"
-        placeholder="Ej. FBO Toluca / Hangar 3 / Sala VIP"
+        placeholder=""
         @input="$emit('update:detailValue', $event.target.value)"
       />
       <small v-if="detailError" class="inline-error">{{ detailError }}</small>

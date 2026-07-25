@@ -2,7 +2,10 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { pickCollection, requestWithCandidates } from '../../lib/backendCrud'
 import { resolveMediaUrl } from '../../lib/api'
-import { resolveUserOfficialIdentificationAccess } from '../../lib/documentAccess'
+import {
+  resolveUserLegacyIdentityImages,
+  resolveUserOfficialIdentificationAccess,
+} from '../../lib/documentAccess'
 import { resolveProviderIdForUser } from '../../lib/providerContext'
 import { useUiStore } from '../../stores/ui'
 
@@ -738,6 +741,13 @@ function resolveOfficialIdentificationAccess(detail = {}) {
     profile: detail?.user?.profile,
     tax_data: detail?.user?.profile?.tax_data,
     taxData: detail?.user?.profile?.taxData,
+    ...detail?.user?.raw,
+  })
+}
+
+function resolveLegacyIdentityImages(detail = {}) {
+  return resolveUserLegacyIdentityImages({
+    profile: detail?.user?.profile,
     ...detail?.user?.raw,
   })
 }
@@ -2608,6 +2618,34 @@ function auditUser(user) {
                   </div>
                 </article>
               </div>
+              <div v-if="resolveLegacyIdentityImages(selectedUserDetail).length" class="detail-media-grid">
+                <article
+                  v-for="item in resolveLegacyIdentityImages(selectedUserDetail)"
+                  :key="item.key"
+                  class="detail-media-card"
+                >
+                  <span>{{ item.label }}</span>
+                  <img :src="item.url" :alt="item.label" class="detail-media-image" />
+                  <div class="inline-actions">
+                    <a
+                      class="admin-btn admin-btn-secondary"
+                      :href="item.url"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Ver imagen
+                    </a>
+                    <a
+                      class="admin-btn admin-btn-ghost"
+                      :href="item.url"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Descargar
+                    </a>
+                  </div>
+                </article>
+              </div>
             </section>
 
             <section class="detail-section">
@@ -3733,6 +3771,26 @@ function auditUser(user) {
   justify-content: flex-start;
 }
 
+.detail-media-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem;
+}
+
+.detail-media-card {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.85rem;
+  border: 1px solid #ece7da;
+  border-radius: 14px;
+  background: #ffffff;
+}
+
+.detail-media-card span {
+  color: #6b7280;
+  font-size: 0.9rem;
+}
+
 .detail-media-image {
   width: min(100%, 320px);
   max-height: 320px;
@@ -3740,6 +3798,11 @@ function auditUser(user) {
   border: 1px solid #ece7da;
   border-radius: 18px;
   background: #ffffff;
+}
+
+.detail-media-card .detail-media-image {
+  width: 100%;
+  max-height: 220px;
 }
 
 .detail-card,

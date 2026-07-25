@@ -61,6 +61,14 @@ describe('authRouting helpers', () => {
         },
       }),
     ).toBe(true)
+
+    expect(
+      hasAdminAccess({
+        user: {
+          role: 'super_admin',
+        },
+      }),
+    ).toBe(true)
   })
 
   it('extracts explicit roles without falling back to ambiguous user fields', () => {

@@ -36,6 +36,19 @@ describe('ViajesActivos', () => {
     vi.useRealTimers()
   })
 
+  it('keeps proximos as the default tab while trips are still empty', () => {
+    const wrapper = mountTrips({
+      reservations: [],
+      initialTab: 'proximos',
+    })
+
+    const activeTab = wrapper
+      .findAll('.tabs button')
+      .find((button) => button.classes().includes('active'))
+
+    expect(activeTab?.text()).toContain('Proximos')
+  })
+
   it('keeps pending reservations in proximos even when the departure date has passed', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-06-27T12:00:00'))

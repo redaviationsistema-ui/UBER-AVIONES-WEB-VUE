@@ -162,7 +162,7 @@ async function searchRental() {
         <label class="field-label">Base de salida</label>
         <div class="input-box">
           <span>●</span>
-          <input v-model="form.origin" placeholder="Ej. Toluca / TLC" />
+          <input v-model="form.origin" placeholder="" />
         </div>
         <small v-if="fieldErrors.origin" class="field-error">{{ fieldErrors.origin }}</small>
 

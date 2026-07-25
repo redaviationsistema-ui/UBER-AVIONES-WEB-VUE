@@ -1,11 +1,9 @@
 <script setup>
 defineProps({
-  amountLabel: { type: String, required: true },
   disabled: { type: Boolean, default: false },
   loading: { type: Boolean, default: false },
   statusLabel: { type: String, default: '' },
   title: { type: String, default: 'Activar acceso comercial' },
-  amountCaption: { type: String, default: '' },
 })
 
 defineEmits(['click'])
@@ -21,11 +19,10 @@ defineEmits(['click'])
       @click="$emit('click')"
     >
       <span v-if="loading" class="action-button__spinner" aria-hidden="true"></span>
-      <span v-else class="action-button__icon" aria-hidden="true">🔒</span>
+      <span v-else class="action-button__icon" aria-hidden="true">→</span>
 
       <span class="action-button__copy">
-        <strong>{{ loading ? 'No cierres esta ventana' : title }}</strong>
-        <small>{{ amountCaption || amountLabel }}</small>
+        <strong>{{ loading ? 'Abriendo Stripe…' : title }}</strong>
       </span>
     </button>
 
@@ -45,9 +42,10 @@ defineEmits(['click'])
   gap: 0.95rem;
   align-items: center;
   width: 100%;
-  padding: 1rem 1.2rem;
+  min-height: 3.85rem;
+  padding: 0.95rem 1.2rem;
   border: 0;
-  border-radius: 20px;
+  border-radius: 18px;
   background: linear-gradient(135deg, #102b4d 0%, #173d68 100%);
   color: #ffffff;
   box-shadow: 0 24px 48px rgba(16, 43, 77, 0.3);
@@ -73,8 +71,8 @@ defineEmits(['click'])
 .action-button__spinner {
   display: grid;
   place-items: center;
-  width: 2.45rem;
-  height: 2.45rem;
+  width: 2.3rem;
+  height: 2.3rem;
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.14);
 }
@@ -86,29 +84,24 @@ defineEmits(['click'])
 }
 
 .action-button__copy {
-  display: grid;
+  display: block;
   justify-items: start;
 }
 
-.action-button__copy strong,
-.action-button__copy small {
+.action-button__copy strong {
   color: #ffffff;
 }
 
 .action-button__copy strong {
   font-size: 1rem;
-}
-
-.action-button__copy small {
-  font-size: 0.94rem;
-  opacity: 1;
+  line-height: 1.2;
 }
 
 .action-shell__status {
   margin: 0;
   color: #667085;
   font-size: 0.84rem;
-  text-align: center;
+  text-align: left;
 }
 
 @keyframes spin {

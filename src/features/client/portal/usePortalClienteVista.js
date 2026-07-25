@@ -117,7 +117,7 @@ const lastContractReservationBootstrapKey = ref('')
 let commercialAccessStatusRequestPromise = null
 let aircraftHoldCountdownTimer = null
 const CLIENT_TRIPS_TIMEOUT_MS = Number(import.meta.env.VITE_CLIENT_TRIPS_TIMEOUT_MS || 45000)
-const CLIENT_QUOTES_TIMEOUT_MS = 15000
+const CLIENT_QUOTES_TIMEOUT_MS = Number(import.meta.env.VITE_CLIENT_QUOTES_TIMEOUT_MS || 45000)
 const externalContractFlowEnabled = String(
   import.meta.env.VITE_CLIENT_CONTRACT_EXTERNAL_ENABLED || 'true',
 )
@@ -833,14 +833,49 @@ const customerDisplayName = computed(() => {
 
   return String(rawName || '').trim() || 'Cliente SKY Group'
 })
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const customerEmail = computed(() => {
-  const rawEmail = auth.user?.email || auth.access?.email || ''
-  return String(rawEmail || '').trim() || 'cliente@skygroup.com'
+  const rawEmail =
+    auth?.user?.email ??
+    auth?.access?.email ??
+    auth?.access?.commercial_access?.email ??
+    ''
+  return String(rawEmail || '').trim().toLowerCase()
 })
 const customerPhone = computed(() => {
   const rawPhone = auth.user?.phone || auth.access?.phone || ''
   return String(rawPhone || '').trim()
 })
+
+function resolveAuthenticatedContactEmail() {
+  return String(
+    paymentForm.contactEmail?.trim() ||
+      auth?.user?.email ||
+      auth?.access?.email ||
+      auth?.access?.commercial_access?.email ||
+      '',
+  )
+    .trim()
+    .toLowerCase()
+}
+
+function hasValidEmailAddress(value = '') {
+  return EMAIL_REGEX.test(String(value || '').trim().toLowerCase())
+}
+
+function resolveValidationErrorMessage(error, fallbackMessage = '') {
+  const firstFieldErrors = Object.values(error?.payload?.errors || {}).find(
+    (value) => Array.isArray(value) && value.length,
+  )
+
+  return (
+    firstFieldErrors?.[0] ||
+    error?.payload?.message ||
+    error?.message ||
+    fallbackMessage ||
+    'No fue posible completar la operación.'
+  )
+}
 const reservationPaymentStartAt = computed(() =>
   resolveReservationPaymentStartAt(selectedReservation.value, paymentAvailabilityState.value),
 )
@@ -4114,17 +4149,30 @@ async function startCommercialAccessCheckout({
 
     const successUrl = buildReservationCheckoutReturnUrl('success')
     const cancelUrl = buildReservationCheckoutReturnUrl('cancelled')
-    const payload = await createClientAccessCheckout(
-      {
-        contact_email: paymentForm.contactEmail.trim() || customerEmail.value,
-        success_url: successUrl,
-        cancel_url: cancelUrl,
-        return_url: buildCommercialAccessReturnUrl(),
-        successUrl,
-        cancelUrl,
-      },
-      { timeoutMs: 30000 },
-    )
+    const contactEmail = resolveAuthenticatedContactEmail()
+
+    if (!hasValidEmailAddress(contactEmail)) {
+      paymentInlineError.value = 'Tu cuenta no tiene un correo electrónico válido.'
+      ui.pushToast({
+        tone: 'warning',
+        title: 'Correo requerido',
+        message: 'Tu cuenta no tiene un correo electrónico válido.',
+      })
+      return false
+    }
+
+    const requestPayload = {
+      contact_email: contactEmail,
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+      return_url: buildCommercialAccessReturnUrl(),
+      successUrl,
+      cancelUrl,
+    }
+
+    console.log('Access Payment Payload', JSON.stringify(requestPayload, null, 2))
+
+    const payload = await createClientAccessCheckout(requestPayload, { timeoutMs: 30000 })
 
     const redirectUrl = resolveStripeCheckoutRedirectUrl(payload)
     const alreadyActive = payload?.already_active === true || payload?.data?.already_active === true
@@ -4156,8 +4204,10 @@ async function startCommercialAccessCheckout({
     redirectToExternalUrl(redirectUrl)
     return true
   } catch (error) {
-    paymentInlineError.value =
-      error?.message || 'No fue posible iniciar el flujo de pago del acceso comercial.'
+    paymentInlineError.value = resolveValidationErrorMessage(
+      error,
+      'No fue posible iniciar el flujo de pago del acceso comercial.',
+    )
     ui.pushToast({
       tone: 'error',
       title: onErrorTitle,
@@ -6350,7 +6400,7 @@ async function ensureContractReservationContext() {
 watch(
   customerEmail,
   (value) => {
-    if (!paymentForm.contactEmail || paymentForm.contactEmail === 'cliente@skygroup.com') {
+    if (!paymentForm.contactEmail || !hasValidEmailAddress(paymentForm.contactEmail)) {
       paymentForm.contactEmail = value
     }
   },
@@ -7881,7 +7931,12 @@ watch(
     if (shouldAutoRefreshTrips()) {
       void refreshReservations({ silent: true })
     }
-    if (activeSection.value === 'resultados' && submittedQuotePayload.value && !aircraftOptions.value.length) {
+    if (
+      activeSection.value === 'resultados' &&
+      submittedQuotePayload.value &&
+      !aircraftOptions.value.length &&
+      !searching.value
+    ) {
       void refreshSearchResults({ silent: true })
     }
     if (activeSection.value === 'reservar' && !flightPackages.value.length) {
