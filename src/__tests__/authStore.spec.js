@@ -111,7 +111,7 @@ describe('auth store role resolution', () => {
     expect(resolveEffectiveRole(payload)).toBe('operator')
   })
 
-  it('does not infer admin from fallback user.role when explicit metadata is missing', () => {
+  it('preserves direct admin role signals from the session payload', () => {
     const roles = normalizeRoles({
       user: {
         role: 'admin',
@@ -128,5 +128,13 @@ describe('auth store role resolution', () => {
         },
       }).login_context,
     ).toBe(null)
+    expect(
+      resolveEffectiveRole({
+        user: {
+          id: 4,
+          role: 'admin',
+        },
+      }),
+    ).toBe('admin')
   })
 })

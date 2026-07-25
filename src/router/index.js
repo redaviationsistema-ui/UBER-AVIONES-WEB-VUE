@@ -28,6 +28,29 @@ const PUBLIC_ACCESS = 'public'
 const GUEST_ACCESS = 'guest'
 const AUTHENTICATED_ACCESS = 'authenticated'
 
+function buildLoginRedirectRoute(requiredRole, redirect) {
+  const normalizedRole = normalizeAuthRole(requiredRole)
+
+  if (normalizedRole === 'client') {
+    return {
+      name: 'login-cliente',
+      query: { redirect, session: 'expired' },
+    }
+  }
+
+  const roleQuery =
+    normalizedRole === 'admin'
+      ? 'admin'
+      : normalizedRole === 'crew'
+        ? 'sobrecargo'
+        : 'provider'
+
+  return {
+    name: 'login',
+    query: { redirect, session: 'expired', role: roleQuery },
+  }
+}
+
 function buildAuthenticatedMeta(role, extra = {}) {
   const normalizedRole = normalizeAuthRole(role)
 
@@ -274,17 +297,7 @@ router.beforeEach(async (to) => {
   }
 
   if (accessMode === AUTHENTICATED_ACCESS && !auth.isAuthenticated) {
-    if (normalizeAuthRole(to.meta.role) === 'client') {
-      return {
-        name: 'login-cliente',
-        query: { redirect: to.fullPath, session: 'expired' },
-      }
-    }
-
-    return {
-      name: 'login',
-      query: { redirect: to.fullPath, session: 'expired' },
-    }
+    return buildLoginRedirectRoute(to.meta.role, to.fullPath)
   }
 
   if (!to.meta.role || !auth.user) {
@@ -295,6 +308,10 @@ router.beforeEach(async (to) => {
 
   if (requiredRole === 'admin') {
     if (!auth.hasAdminAccess()) {
+      if (auth.isAuthenticated && auth.dashboardPath) {
+        return auth.dashboardPath
+      }
+
       return { name: 'access-denied', query: { reason: 'admin-role-required' } }
     }
 
@@ -314,11 +331,7 @@ if (typeof window !== 'undefined') {
     const redirect = router.currentRoute.value.fullPath
     await auth.logout()
     if (!router.currentRoute.value.meta?.requiresAuth) return
-    const isClientRoute = normalizeAuthRole(router.currentRoute.value.meta?.role) === 'client'
-    await router.replace({
-      name: isClientRoute ? 'login-cliente' : 'login',
-      query: { redirect, session: 'expired' },
-    })
+    await router.replace(buildLoginRedirectRoute(router.currentRoute.value.meta?.role, redirect))
   })
 }
 

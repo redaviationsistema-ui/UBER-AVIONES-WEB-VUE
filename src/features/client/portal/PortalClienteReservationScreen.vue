@@ -18,6 +18,7 @@ const props = defineProps({
   aircraftPriceCopy: { type: Function, required: true },
   aircraftSpeedLine: { type: Function, required: true },
   aircraftVisualStyle: { type: Function, required: true },
+  commercialAccessActionDisabled: { type: Boolean, required: true },
   commercialAccessCtaLabel: { type: String, required: true },
   commercialTrialNotice: { type: Object, required: true },
   featuredAircraft: { type: Object, default: null },
@@ -26,6 +27,7 @@ const props = defineProps({
   itinerarySummary: { type: Object, default: () => ({}) },
   itineraryDateLine: { type: Function, required: true },
   reservationActionLabel: { type: Function, required: true },
+  reservationLoadingState: { type: Object, required: true },
   reservingAircraftId: { type: String, default: '' },
   resultFilterOptions: { type: Array, required: true },
   searchForm: { type: Object, required: true },
@@ -39,9 +41,12 @@ const props = defineProps({
 defineEmits([
   'add-leg',
   'clear-aircraft-sidebar-filters',
+  'contact-concierge',
   'go-commercial-access-payment',
+  'modify-search',
   'remove-leg',
   'request-reservation',
+  'retry-search',
   'select-form-airport',
   'select-leg-airport',
   'submit-search',
@@ -101,6 +106,14 @@ const summaryHeadline = computed(() => props.itineraryHeadline(props.activeItine
 const summaryDateLine = computed(() => props.itineraryDateLine(props.activeItinerarySummary))
 const visibleAircraftCount = computed(
   () => props.secondaryAircraftOptions.length + (props.featuredAircraft ? 1 : 0),
+)
+const skeletonCards = Array.from({ length: 5 }, (_, index) => index)
+const showSearchSkeletons = computed(() => props.searching)
+const showSearchEmptyState = computed(
+  () => !props.searching && !props.serverSearchError && visibleAircraftCount.value === 0,
+)
+const resultsCountCopy = computed(() =>
+  props.searching ? 'Buscando aeronaves disponibles...' : `${visibleAircraftCount.value} opciones disponibles`,
 )
 
 function formatWholeCurrency(value = 0) {
@@ -174,6 +187,8 @@ const speedSliderStyle = computed(() => {
   <section v-if="!props.isResultsSection" class="screen">
     <FlightSearchHero
       :form="props.searchForm"
+      :submit-busy="props.searching || props.commercialAccessActionDisabled"
+      :submit-label="props.commercialAccessActionDisabled ? 'Abriendo Stripe...' : 'Cotizar vuelo'"
       :summary="props.itinerarySummary"
       :trip-type="props.tripType"
       @add-leg="$emit('add-leg')"
@@ -188,6 +203,35 @@ const speedSliderStyle = computed(() => {
   </section>
 
   <section v-else class="screen screen--results">
+    <transition name="reservation-loading-fade">
+      <div
+        v-if="props.reservationLoadingState?.active"
+        class="reservation-loading-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="reservation-loading-title"
+      >
+        <div class="reservation-loading-backdrop"></div>
+        <div class="reservation-loading-card">
+          <div class="reservation-loading-spinner" aria-hidden="true">
+            <span v-for="segment in 12" :key="`reservation-loading-segment-${segment}`"></span>
+          </div>
+          <span class="reservation-loading-eyebrow">
+            {{ props.reservationLoadingState?.eyebrow || 'SOLICITUDES' }}
+          </span>
+          <h3 id="reservation-loading-title">
+            {{ props.reservationLoadingState?.title || 'Cargando solicitudes' }}
+          </h3>
+          <p>
+            {{
+              props.reservationLoadingState?.message ||
+              'Estamos sincronizando oportunidades activas y el backlog operativo del proveedor.'
+            }}
+          </p>
+        </div>
+      </div>
+    </transition>
+
     <article
       class="commercial-access-banner"
       :class="`commercial-access-banner--${props.commercialTrialNotice.tone}`"
@@ -198,6 +242,7 @@ const speedSliderStyle = computed(() => {
         v-if="props.shouldShowCommercialAccessCta"
         type="button"
         class="commercial-access-banner__action"
+        :disabled="props.commercialAccessActionDisabled"
         @click="$emit('go-commercial-access-payment')"
       >
         {{ props.commercialAccessCtaLabel }}
@@ -221,7 +266,7 @@ const speedSliderStyle = computed(() => {
           <h2>{{ summaryHeadline }}</h2>
           <p class="results-hero__date">{{ summaryDateLine }}</p>
         </div>
-        <button type="button" class="results-hero__edit">
+        <button type="button" class="results-hero__edit" @click="$emit('modify-search')">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 17.25 9.06-9.06 3.75 3.75L7.75 21H4v-3.75Zm14.71-8.04a1 1 0 0 0 0-1.42l-2.5-2.5a1 1 0 0 0-1.42 0l-1.02 1.02 3.75 3.75 1.19-1.19Z" fill="currentColor"/></svg>
           Modificar busqueda
         </button>
@@ -242,8 +287,18 @@ const speedSliderStyle = computed(() => {
         </div>
       </div>
 
-      <div v-if="props.searching" class="loading-band">Haciendo match con operadores activos...</div>
-      <div v-else-if="props.serverSearchError" class="empty-state">{{ props.serverSearchError }}</div>
+      <div v-if="props.serverSearchError" class="empty-state">
+        <p>{{ props.serverSearchError }}</p>
+        <div class="empty-state__actions">
+          <button type="button" class="ghost-action ghost-action--detail" @click="$emit('modify-search')">
+            Modificar busqueda
+          </button>
+          <button type="button" @click="$emit('retry-search')">Intentar nuevamente</button>
+          <button type="button" class="ghost-action ghost-action--detail" @click="$emit('contact-concierge')">
+            Contactar Concierge
+          </button>
+        </div>
+      </div>
 
       <div class="results-body">
         <aside class="results-sidebar">
@@ -417,7 +472,7 @@ const speedSliderStyle = computed(() => {
 
         <div class="results-main">
           <div class="results-toolbar">
-            <strong>{{ visibleAircraftCount }} opciones disponibles</strong>
+            <strong>{{ resultsCountCopy }}</strong>
             <div class="results-toolbar__actions">
               <span>Ordenar por: <strong>Recomendado</strong></span>
               <button type="button" class="ghost-action">Comparar (0)</button>
@@ -430,12 +485,62 @@ const speedSliderStyle = computed(() => {
             </div>
           </div>
 
-          <div v-if="!visibleAircraftCount" class="empty-state">
-            No hay aeronaves que coincidan con los filtros seleccionados.
+          <section v-if="showSearchSkeletons" class="results-section results-section--skeleton" aria-live="polite" aria-busy="true">
+            <div class="aircraft-hero-card aircraft-hero-card--editorial aircraft-skeleton-card aircraft-skeleton-card--hero">
+              <div class="aircraft-skeleton-card__media skeleton-block"></div>
+              <div class="aircraft-skeleton-card__content">
+                <div class="aircraft-skeleton-line aircraft-skeleton-line--eyebrow skeleton-block"></div>
+                <div class="aircraft-skeleton-line aircraft-skeleton-line--title skeleton-block"></div>
+                <div class="aircraft-skeleton-line aircraft-skeleton-line--price skeleton-block"></div>
+                <div class="aircraft-skeleton-chips">
+                  <span v-for="chip in 3" :key="`hero-skeleton-chip-${chip}`" class="aircraft-skeleton-chip skeleton-block"></span>
+                </div>
+                <div class="aircraft-skeleton-line aircraft-skeleton-line--body skeleton-block"></div>
+                <div class="aircraft-skeleton-actions">
+                  <span class="aircraft-skeleton-button aircraft-skeleton-button--primary skeleton-block"></span>
+                  <span class="aircraft-skeleton-button skeleton-block"></span>
+                </div>
+              </div>
+            </div>
+
+            <div class="aircraft-list aircraft-list-compact aircraft-list-compact--refined">
+              <article
+                v-for="card in skeletonCards"
+                :key="`result-skeleton-${card}`"
+                class="aircraft-card aircraft-card-compact aircraft-card-compact--refined aircraft-skeleton-card"
+              >
+                <div class="aircraft-skeleton-card__media skeleton-block"></div>
+                <div class="aircraft-skeleton-card__content">
+                  <div class="aircraft-skeleton-line aircraft-skeleton-line--eyebrow skeleton-block"></div>
+                  <div class="aircraft-skeleton-line aircraft-skeleton-line--title skeleton-block"></div>
+                  <div class="aircraft-skeleton-line aircraft-skeleton-line--price skeleton-block"></div>
+                  <div class="aircraft-skeleton-chips">
+                    <span v-for="chip in 3" :key="`card-${card}-chip-${chip}`" class="aircraft-skeleton-chip skeleton-block"></span>
+                  </div>
+                  <div class="aircraft-skeleton-actions">
+                    <span class="aircraft-skeleton-button aircraft-skeleton-button--primary skeleton-block"></span>
+                    <span class="aircraft-skeleton-button skeleton-block"></span>
+                  </div>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <div v-else-if="showSearchEmptyState" class="empty-state">
+            <p>No encontramos aeronaves disponibles para esta ruta.</p>
+            <div class="empty-state__actions">
+              <button type="button" class="ghost-action ghost-action--detail" @click="$emit('modify-search')">
+                Modificar busqueda
+              </button>
+              <button type="button" @click="$emit('retry-search')">Intentar nuevamente</button>
+              <button type="button" class="ghost-action ghost-action--detail" @click="$emit('contact-concierge')">
+                Contactar Concierge
+              </button>
+            </div>
           </div>
 
           <article
-            v-if="props.featuredAircraft"
+            v-if="!showSearchSkeletons && props.featuredAircraft"
             class="aircraft-hero-card aircraft-hero-card--editorial"
             :class="{ 'aircraft-card--unavailable': !aircraftIsAvailable(props.featuredAircraft) }"
           >
@@ -510,7 +615,7 @@ const speedSliderStyle = computed(() => {
             </div>
           </article>
 
-          <section v-if="props.secondaryAircraftOptions.length" class="results-section">
+          <section v-if="!showSearchSkeletons && props.secondaryAircraftOptions.length" class="results-section">
             <div class="aircraft-list aircraft-list-compact aircraft-list-compact--refined">
               <article
                 v-for="(aircraft, index) in props.secondaryAircraftOptions"
@@ -622,6 +727,118 @@ const speedSliderStyle = computed(() => {
   width: calc(100vw - 2rem);
   margin-left: calc(50% - 50vw + 1rem);
   margin-right: calc(50% - 50vw + 1rem);
+}
+
+.reservation-loading-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+}
+
+.reservation-loading-backdrop {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 50% 20%, rgba(255, 244, 214, 0.22), transparent 34%),
+    linear-gradient(180deg, rgba(109, 119, 139, 0.82), rgba(92, 101, 121, 0.86));
+  backdrop-filter: blur(18px);
+}
+
+.reservation-loading-card {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 1rem;
+  width: min(100%, 830px);
+  padding: 2.75rem 2.5rem 2.4rem;
+  border: 1px solid rgba(195, 160, 81, 0.28);
+  border-radius: 2.35rem;
+  background:
+    radial-gradient(circle at 50% -20%, rgba(255, 255, 255, 0.08), transparent 40%),
+    linear-gradient(180deg, rgba(10, 24, 52, 0.98), rgba(8, 20, 44, 0.96));
+  box-shadow:
+    0 35px 90px rgba(8, 15, 31, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  text-align: center;
+}
+
+.reservation-loading-spinner {
+  position: relative;
+  width: clamp(9rem, 18vw, 13rem);
+  height: clamp(9rem, 18vw, 13rem);
+  filter: drop-shadow(0 18px 32px rgba(1, 10, 26, 0.36));
+}
+
+.reservation-loading-spinner span {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: clamp(1rem, 1.5vw, 1.25rem);
+  height: clamp(2.8rem, 5vw, 3.8rem);
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(145, 152, 168, 0.24));
+  transform-origin: center calc(clamp(4.5rem, 9vw, 6.5rem) * -1);
+  animation: reservation-loading-spinner-fade 1.2s linear infinite;
+}
+
+.reservation-loading-spinner span:nth-child(1) { transform: translate(-50%, -50%) rotate(0deg); animation-delay: -1.1s; }
+.reservation-loading-spinner span:nth-child(2) { transform: translate(-50%, -50%) rotate(30deg); animation-delay: -1s; }
+.reservation-loading-spinner span:nth-child(3) { transform: translate(-50%, -50%) rotate(60deg); animation-delay: -0.9s; }
+.reservation-loading-spinner span:nth-child(4) { transform: translate(-50%, -50%) rotate(90deg); animation-delay: -0.8s; }
+.reservation-loading-spinner span:nth-child(5) { transform: translate(-50%, -50%) rotate(120deg); animation-delay: -0.7s; }
+.reservation-loading-spinner span:nth-child(6) { transform: translate(-50%, -50%) rotate(150deg); animation-delay: -0.6s; }
+.reservation-loading-spinner span:nth-child(7) { transform: translate(-50%, -50%) rotate(180deg); animation-delay: -0.5s; }
+.reservation-loading-spinner span:nth-child(8) { transform: translate(-50%, -50%) rotate(210deg); animation-delay: -0.4s; }
+.reservation-loading-spinner span:nth-child(9) { transform: translate(-50%, -50%) rotate(240deg); animation-delay: -0.3s; }
+.reservation-loading-spinner span:nth-child(10) { transform: translate(-50%, -50%) rotate(270deg); animation-delay: -0.2s; }
+.reservation-loading-spinner span:nth-child(11) { transform: translate(-50%, -50%) rotate(300deg); animation-delay: -0.1s; }
+.reservation-loading-spinner span:nth-child(12) { transform: translate(-50%, -50%) rotate(330deg); animation-delay: 0s; }
+
+.reservation-loading-eyebrow {
+  color: #c79a3a;
+  font-size: 0.92rem;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.reservation-loading-card h3 {
+  margin: 0;
+  color: #fff7ea;
+  font-size: clamp(2.1rem, 4.5vw, 4rem);
+  line-height: 0.98;
+  letter-spacing: -0.06em;
+}
+
+.reservation-loading-card p {
+  width: min(100%, 36rem);
+  margin: 0;
+  color: rgba(250, 239, 220, 0.88);
+  font-size: clamp(1rem, 2vw, 1.65rem);
+  line-height: 1.2;
+}
+
+@keyframes reservation-loading-spinner-fade {
+  0%, 39%, 100% {
+    opacity: 0.18;
+  }
+
+  40% {
+    opacity: 1;
+  }
+}
+
+.reservation-loading-fade-enter-active,
+.reservation-loading-fade-leave-active {
+  transition: opacity 0.22s ease;
+}
+
+.reservation-loading-fade-enter-from,
+.reservation-loading-fade-leave-to {
+  opacity: 0;
 }
 
 .results-shell {
@@ -766,13 +983,150 @@ const speedSliderStyle = computed(() => {
   border-color: #14213d;
 }
 
-.loading-band,
 .empty-state {
   padding: 1rem 1.15rem;
   border-radius: 18px;
   border: 1px solid rgba(220, 210, 190, 0.8);
   background: #ffffff;
   color: #5b6471;
+}
+
+.empty-state {
+  display: grid;
+  gap: 1rem;
+}
+
+.empty-state p {
+  margin: 0;
+}
+
+.empty-state__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+}
+
+.empty-state__actions button {
+  min-height: 2.9rem;
+  padding: 0 1.1rem;
+  border-radius: 999px;
+  border: 1px solid rgba(28, 55, 108, 0.16);
+  background: #204286;
+  color: #ffffff;
+  font-size: 0.92rem;
+  font-weight: 800;
+}
+
+.empty-state__actions .ghost-action {
+  background: #ffffff;
+  color: #1c376c;
+}
+
+.results-section--skeleton {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.aircraft-skeleton-card {
+  overflow: hidden;
+}
+
+.aircraft-skeleton-card--hero {
+  display: grid;
+  grid-template-columns: minmax(280px, 1.25fr) minmax(320px, 1fr);
+  gap: 1.4rem;
+}
+
+.aircraft-skeleton-card__media {
+  min-height: 19rem;
+  border-radius: 2rem;
+}
+
+.aircraft-skeleton-card__content {
+  display: grid;
+  align-content: center;
+  gap: 0.95rem;
+  min-width: 0;
+}
+
+.aircraft-skeleton-line,
+.aircraft-skeleton-chip,
+.aircraft-skeleton-button,
+.skeleton-block {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(90deg, rgba(232, 236, 244, 0.95), rgba(245, 247, 251, 1), rgba(232, 236, 244, 0.95));
+}
+
+.aircraft-skeleton-line::after,
+.aircraft-skeleton-chip::after,
+.aircraft-skeleton-button::after,
+.skeleton-block::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.72), transparent);
+  animation: skeleton-shimmer 1.25s ease-in-out infinite;
+}
+
+.aircraft-skeleton-line {
+  border-radius: 999px;
+}
+
+.aircraft-skeleton-line--eyebrow {
+  width: 9rem;
+  height: 0.9rem;
+}
+
+.aircraft-skeleton-line--title {
+  width: min(100%, 18rem);
+  height: 2.1rem;
+}
+
+.aircraft-skeleton-line--price {
+  width: 10rem;
+  height: 1.4rem;
+}
+
+.aircraft-skeleton-line--body {
+  width: min(100%, 24rem);
+  height: 1rem;
+}
+
+.aircraft-skeleton-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+}
+
+.aircraft-skeleton-chip {
+  width: 7.4rem;
+  height: 2.7rem;
+  border-radius: 999px;
+}
+
+.aircraft-skeleton-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  margin-top: 0.2rem;
+}
+
+.aircraft-skeleton-button {
+  width: 10rem;
+  height: 3.3rem;
+  border-radius: 1rem;
+}
+
+.aircraft-skeleton-button--primary {
+  width: 12rem;
+}
+
+@keyframes skeleton-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
 }
 
 .results-body {

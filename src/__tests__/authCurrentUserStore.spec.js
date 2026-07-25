@@ -124,6 +124,19 @@ describe('auth current user loading', () => {
     expect(auth.sessionState).toBe('authenticated')
   })
 
+  it('builds the correct login route for admin and crew sessions', () => {
+    const auth = useAuthStore()
+
+    expect(auth.getLoginRouteByRole('admin')).toEqual({
+      name: 'login',
+      query: { role: 'admin' },
+    })
+    expect(auth.getLoginRouteByRole('sobrecargo')).toEqual({
+      name: 'login',
+      query: { role: 'sobrecargo' },
+    })
+  })
+
   it('derives provider operational access from the shared auth session state', async () => {
     api.get.mockResolvedValue({
       token: 'session-token',

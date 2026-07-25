@@ -4,6 +4,8 @@ defineProps({
   disabled: { type: Boolean, default: false },
   loading: { type: Boolean, default: false },
   statusLabel: { type: String, default: '' },
+  title: { type: String, default: 'Activar acceso comercial' },
+  amountCaption: { type: String, default: '' },
 })
 
 defineEmits(['click'])
@@ -22,8 +24,8 @@ defineEmits(['click'])
       <span v-else class="action-button__icon" aria-hidden="true">🔒</span>
 
       <span class="action-button__copy">
-        <strong>{{ loading ? 'No cierres esta ventana' : 'Pagar ahora' }}</strong>
-        <small>{{ amountLabel }}</small>
+        <strong>{{ loading ? 'No cierres esta ventana' : title }}</strong>
+        <small>{{ amountCaption || amountLabel }}</small>
       </span>
     </button>
 
@@ -34,7 +36,7 @@ defineEmits(['click'])
 <style scoped>
 .action-shell {
   display: grid;
-  gap: 0.85rem;
+  gap: 0.55rem;
 }
 
 .action-button {
@@ -43,9 +45,9 @@ defineEmits(['click'])
   gap: 0.95rem;
   align-items: center;
   width: 100%;
-  padding: 1.18rem 1.35rem;
+  padding: 1rem 1.2rem;
   border: 0;
-  border-radius: 24px;
+  border-radius: 20px;
   background: linear-gradient(135deg, #102b4d 0%, #173d68 100%);
   color: #ffffff;
   box-shadow: 0 24px 48px rgba(16, 43, 77, 0.3);
@@ -71,9 +73,9 @@ defineEmits(['click'])
 .action-button__spinner {
   display: grid;
   place-items: center;
-  width: 2.8rem;
-  height: 2.8rem;
-  border-radius: 16px;
+  width: 2.45rem;
+  height: 2.45rem;
+  border-radius: 14px;
   background: rgba(255, 255, 255, 0.14);
 }
 
@@ -94,18 +96,18 @@ defineEmits(['click'])
 }
 
 .action-button__copy strong {
-  font-size: 1.1rem;
+  font-size: 1rem;
 }
 
 .action-button__copy small {
-  font-size: 1rem;
+  font-size: 0.94rem;
   opacity: 1;
 }
 
 .action-shell__status {
   margin: 0;
   color: #667085;
-  font-size: 0.92rem;
+  font-size: 0.84rem;
   text-align: center;
 }
 

@@ -57,6 +57,28 @@ describe('admin router policy', () => {
     expect(crewIncidentsRoute.meta.requiresAuth).toBe(true)
   })
 
+  it('redirects unauthenticated admin access to the operational login with the admin role preserved', async () => {
+    const router = await loadRouterWithAuthStore({
+      token: null,
+      loaded: true,
+      initialized: true,
+      isAuthenticated: false,
+      user: null,
+      dashboardPath: '/cliente/reservar',
+      initialize: vi.fn(),
+      loadCurrentUser: vi.fn(),
+      hasAdminAccess: vi.fn(() => false),
+      hasRole: vi.fn(() => false),
+    })
+
+    await router.push('/admin/ejecutivo')
+
+    expect(router.currentRoute.value.name).toBe('login')
+    expect(router.currentRoute.value.query.role).toBe('admin')
+    expect(router.currentRoute.value.query.redirect).toBe('/admin/ejecutivo')
+    expect(router.currentRoute.value.query.session).toBe('expired')
+  })
+
   it('supports direct admin crew URLs through redirects to the canonical admin section route', async () => {
     const authStore = {
       token: 'session-token',

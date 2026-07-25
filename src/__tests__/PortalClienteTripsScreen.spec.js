@@ -16,6 +16,7 @@ function buildProps(overrides = {}) {
     canRenderReservationWorkflow: true,
     canUploadAssistedPaymentProof: false,
     commercialAccessCheckoutFacts: [],
+    commercialAccessCheckoutScreenMode: false,
     commercialAccessCheckoutReturnMode: false,
     commercialAccessCheckoutReturnPending: false,
     commercialAccessCtaLabel: 'Continuar',
@@ -120,5 +121,34 @@ describe('PortalClienteTripsScreen tracking detail', () => {
     expect(wrapper.text()).toContain('Tracking en curso')
     expect(wrapper.text()).toContain('22 de julio de 2026')
     expect(wrapper.text()).not.toContain('2026-07-22T11:00:00.000000Z')
+  })
+
+  it('keeps the Stripe action visible on the standalone commercial access screen', () => {
+    const wrapper = mount(PortalClienteTripsScreen, {
+      props: buildProps({
+        commercialAccessCheckoutFacts: [
+          { label: 'Estado de acceso', value: 'Prueba consumida', tone: 'warning' },
+        ],
+        commercialAccessCheckoutScreenMode: true,
+        commercialAccessCheckoutReturnMode: false,
+        paymentSummaryAmountLabel: 'USD 122.59',
+        propsSection: 'pago',
+      }),
+      global: {
+        stubs: {
+          ActiveTrips: true,
+          ClientContractPreview: true,
+          PaymentCountdown: true,
+          PaymentSummaryCard: true,
+          ReservationSummarySidebar: true,
+          SecureStripeCard: true,
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('Configura tu pago')
+    expect(wrapper.text()).toContain('Acceso comercial')
+    expect(wrapper.text()).toContain('Prueba consumida')
+    expect(wrapper.text()).toContain('USD 122.59')
   })
 })

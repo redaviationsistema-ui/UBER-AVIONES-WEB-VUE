@@ -3,6 +3,8 @@ import HeroeBusquedaVuelo from './cotizador/HeroeBusquedaVuelo.vue'
 
 defineProps({
   form: { type: Object, required: true },
+  submitBusy: { type: Boolean, default: false },
+  submitLabel: { type: String, default: 'Cotizar vuelo' },
   summary: { type: Object, required: true },
   tripType: { type: String, required: true },
 })

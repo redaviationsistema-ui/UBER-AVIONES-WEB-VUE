@@ -3,6 +3,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { requestWithCandidates, pickCollection, pickRecord } from '../../../lib/backendCrud'
 import { api, resolveMediaUrl } from '../../../lib/api'
 import { deleteAircraftDocument } from '../../../lib/operatorAircraftDocuments'
+import { resolveProviderCompanyDocumentAccess } from '../../../lib/documentAccess'
 import {
   resolveProviderIdForUser,
 } from '../../../lib/providerContext'
@@ -4826,16 +4827,7 @@ function normalizeCompany(raw = {}) {
 }
 
 function normalizeCompanyDocument(raw = {}, index = 0) {
-  const resolvedPath =
-    raw.download_url ||
-    raw.downloadUrl ||
-    raw.url ||
-    raw.file_url ||
-    raw.fileUrl ||
-    raw.path ||
-    raw.storage_path ||
-    raw.full_path ||
-    ''
+  const access = resolveProviderCompanyDocumentAccess(raw)
 
   return {
     id: raw.id || index + 1,
@@ -4849,8 +4841,9 @@ function normalizeCompanyDocument(raw = {}, index = 0) {
     originalName: raw.original_name || raw.document_name || raw.name || raw.file_name || '',
     fileName: raw.file_name || raw.filename || '',
     path: raw.path || raw.storage_path || '',
-    url: normalizeMediaUrl(resolvedPath),
-    downloadUrl: normalizeMediaUrl(raw.download_url || raw.downloadUrl || resolvedPath),
+    url: access.viewUrl,
+    downloadUrl: access.downloadUrl,
+    adminDownloadUrl: access.adminDownloadUrl,
     mimeType: raw.mime_type || raw.mime || raw.content_type || '',
     size: Number(raw.size || raw.file_size || 0),
     createdAt: raw.created_at || raw.uploaded_at || raw.updated_at || '',

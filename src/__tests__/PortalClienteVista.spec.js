@@ -23,6 +23,8 @@ const {
   getClientReservationCheckoutSuccessMock,
   ensureClientReservationMock,
   saveClientAssistedPaymentMock,
+  searchClientFlightsMock,
+  createClientAccessCheckoutMock,
   createClientFlightRequestMock,
   createClientAircraftHoldMock,
   validateClientAircraftHoldMock,
@@ -68,6 +70,7 @@ const {
     userName: 'Cliente Prueba',
     refreshSession: vi.fn(),
     logout: vi.fn(),
+    syncUserContext: vi.fn(),
   },
   getClientTripsMock: vi.fn(),
   getClientTripMock: vi.fn(),
@@ -80,6 +83,8 @@ const {
   getClientReservationCheckoutSuccessMock: vi.fn(),
   ensureClientReservationMock: vi.fn(),
   saveClientAssistedPaymentMock: vi.fn(),
+  searchClientFlightsMock: vi.fn(),
+  createClientAccessCheckoutMock: vi.fn(),
   createClientFlightRequestMock: vi.fn(),
   createClientAircraftHoldMock: vi.fn(),
   validateClientAircraftHoldMock: vi.fn(),
@@ -132,7 +137,7 @@ vi.mock('../features/client/clientBookingApi', () => ({
   })),
   cancelClientAccessPayment: vi.fn(),
   createClientAircraftHold: createClientAircraftHoldMock,
-  createClientAccessCheckout: vi.fn(),
+  createClientAccessCheckout: createClientAccessCheckoutMock,
   createClientCheckout: createClientCheckoutMock,
   createClientFlightRequest: createClientFlightRequestMock,
   createClientPaymentIntent: vi.fn(),
@@ -151,7 +156,7 @@ vi.mock('../features/client/clientBookingApi', () => ({
   normalizeTrip: vi.fn((value) => value),
   releaseClientAircraftHold: releaseClientAircraftHoldMock,
   saveClientAssistedPayment: saveClientAssistedPaymentMock,
-  searchClientFlights: vi.fn(),
+  searchClientFlights: searchClientFlightsMock,
   uploadClientPaymentProof: vi.fn(),
   validateClientAircraftHold: validateClientAircraftHoldMock,
 }))
@@ -296,6 +301,11 @@ beforeEach(() => {
     checkout_url: 'https://checkout.stripe.com/pay/cs_test_hold_1',
     checkout_session_id: 'cs_test_hold_1',
   })
+  createClientAccessCheckoutMock.mockResolvedValue({
+    checkout_url: 'https://checkout.stripe.com/pay/cs_test_access_1',
+    checkout_session_id: 'cs_test_access_1',
+  })
+  searchClientFlightsMock.mockResolvedValue([])
 
   globalThis.fetch = vi.fn().mockResolvedValue({
     ok: true,
@@ -568,6 +578,33 @@ describe('PortalClienteVista contract bootstrap', () => {
 })
 
 describe('PortalClienteVista reservation availability safeguards', () => {
+  it('deduplicates repeated trips that share the same aircraft and departure signature', async () => {
+    getClientTripsMock.mockResolvedValue([
+      buildReservation({
+        id: 'res-101',
+        flight_request_id: 'fr-dup-1',
+        assigned_aircraft_id: '77',
+        aircraft_id: '77',
+        origin: 'MMTO',
+        destination: 'MMMM',
+        date: '2026-07-25T17:00:00',
+      }),
+      buildReservation({
+        id: 'res-102',
+        flight_request_id: '',
+        assigned_aircraft_id: '77',
+        aircraft_id: '77',
+        origin: 'MMTO',
+        destination: 'MMMM',
+        date: '2026-07-25T17:00:00',
+      }),
+    ])
+
+    const wrapper = await mountView({ section: 'viajes' })
+
+    expect(wrapper.vm.reservations).toHaveLength(1)
+  })
+
   it('blocks reservation immediately when the selected aircraft is already unavailable', async () => {
     const wrapper = await mountView({ section: 'reservar' })
 
@@ -887,6 +924,120 @@ describe('PortalClienteVista reservation availability safeguards', () => {
     })
 
     await Promise.all([firstRequest, secondRequest])
+  })
+})
+
+describe('PortalClienteVista commercial access checkout', () => {
+  it('activates the quote loading state immediately before the access refresh resolves', async () => {
+    let resolveAccessStatus
+    getClientAccessStatusMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveAccessStatus = resolve
+        }),
+    )
+
+    const wrapper = await mountView({ section: 'reservar' })
+
+    wrapper.vm.searchForm.origin = 'MMMX'
+    wrapper.vm.searchForm.destination = 'MMUN'
+    wrapper.vm.searchForm.departureDate = '2026-07-30'
+    wrapper.vm.searchForm.departureTime = '09:00 AM'
+    wrapper.vm.searchForm.passengers = '2'
+
+    const pendingSearch = wrapper.vm.submitSearch()
+
+    expect(wrapper.vm.searching).toBe(true)
+
+    resolveAccessStatus({
+      commercial_access: {
+        has_paid_access: true,
+        remaining_free_quotes: 1,
+        free_quotes_used: 0,
+        status: 'active',
+      },
+    })
+
+    await pendingSearch
+    await flushPromises()
+  })
+
+  it('opens Stripe directly when quote preview responds with 402 for consumed trial', async () => {
+    authStoreMock.access = {
+      commercial_access: {
+        has_paid_access: false,
+        remaining_free_quotes: 1,
+        free_quotes_used: 0,
+        status: 'trial_active',
+      },
+    }
+    searchClientFlightsMock.mockRejectedValue({
+      status: 402,
+      message: 'Necesitas activar tu acceso comercial para cotizar de nuevo.',
+      payload: {
+        access: {
+          commercial_access: {
+            has_paid_access: false,
+            remaining_free_quotes: 0,
+            free_quotes_used: 1,
+            status: 'trial_used',
+          },
+        },
+      },
+    })
+
+    const wrapper = await mountView({ section: 'reservar' })
+
+    wrapper.vm.searchForm.origin = 'MMMX'
+    wrapper.vm.searchForm.destination = 'MMUN'
+    wrapper.vm.searchForm.departureDate = '2026-07-30'
+    wrapper.vm.searchForm.departureTime = '09:00 AM'
+    wrapper.vm.searchForm.passengers = '2'
+
+    await wrapper.vm.submitSearch()
+    await flushPromises()
+
+    expect(searchClientFlightsMock).toHaveBeenCalledTimes(1)
+    expect(createClientAccessCheckoutMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contact_email: 'cliente@skygroup.com',
+      }),
+      expect.objectContaining({ timeoutMs: 30000 }),
+    )
+    expect(wrapper.vm.lastExternalRedirectUrl).toBe('https://checkout.stripe.com/pay/cs_test_access_1')
+    expect(routerMock.push).not.toHaveBeenCalledWith({
+      name: 'cliente',
+      params: { section: 'pago' },
+      query: { accessPayment: '1' },
+    })
+  })
+
+  it('auto-starts Stripe from the legacy accessPayment route without requiring a second click', async () => {
+    routeMock.params.id = undefined
+    routeMock.query = { accessPayment: '1' }
+    authStoreMock.access = {
+      commercial_access: {
+        has_paid_access: false,
+        remaining_free_quotes: 0,
+        free_quotes_used: 1,
+        status: 'trial_used',
+      },
+    }
+    getClientAccessStatusMock.mockResolvedValue({
+      access: {
+        has_paid_access: false,
+        remaining_free_quotes: 0,
+        free_quotes_used: 1,
+        status: 'trial_used',
+      },
+    })
+
+    const wrapper = await mountView({ section: 'pago' })
+
+    await flushPromises()
+
+    expect(createClientAccessCheckoutMock).toHaveBeenCalledTimes(1)
+    expect(wrapper.vm.lastExternalRedirectUrl).toBe('https://checkout.stripe.com/pay/cs_test_access_1')
   })
 })
 

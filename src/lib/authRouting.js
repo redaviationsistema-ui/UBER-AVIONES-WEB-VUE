@@ -4,7 +4,7 @@ export function normalizeAuthRole(role) {
   if (['client', 'cliente'].includes(normalized)) return 'client'
   if (['provider', 'operator', 'operador'].includes(normalized)) return 'operator'
   if (['sobrecargo', 'crew', 'cabina'].includes(normalized)) return 'crew'
-  if (normalized === 'admin') return 'admin'
+  if (['admin', 'administrador', 'administrator'].includes(normalized)) return 'admin'
 
   return ''
 }
@@ -24,7 +24,18 @@ export function extractExplicitRoles(payload = {}) {
 }
 
 export function hasAdminAccess(payload = {}) {
-  return extractExplicitRoles(payload).includes('admin')
+  const explicitAdmin = extractExplicitRoles(payload).includes('admin')
+  if (explicitAdmin) return true
+
+  const fallbackAdminSignals = [
+    payload.user?.operational_role,
+    payload.user?.operationalRole,
+    payload.user?.role,
+    payload.user?.effective_role,
+    payload.user?.effectiveRole,
+  ]
+
+  return fallbackAdminSignals.some((role) => normalizeAuthRole(role) === 'admin')
 }
 
 export function resolveDashboardPathByRole(role) {

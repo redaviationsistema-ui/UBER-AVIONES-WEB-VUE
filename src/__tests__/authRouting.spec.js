@@ -37,7 +37,7 @@ describe('authRouting helpers', () => {
     expect(sanitizePostLoginRedirect('/registro', '/operador/dashboard')).toBe('/operador/dashboard')
   })
 
-  it('requires explicit admin metadata before allowing admin access', () => {
+  it('allows admin access when the session carries a direct admin role signal', () => {
     expect(
       hasAdminAccess({
         login_context: {
@@ -52,7 +52,15 @@ describe('authRouting helpers', () => {
           role: 'admin',
         },
       }),
-    ).toBe(false)
+    ).toBe(true)
+
+    expect(
+      hasAdminAccess({
+        user: {
+          operational_role: 'administrador',
+        },
+      }),
+    ).toBe(true)
   })
 
   it('extracts explicit roles without falling back to ambiguous user fields', () => {

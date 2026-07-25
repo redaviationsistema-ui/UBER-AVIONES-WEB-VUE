@@ -69,8 +69,24 @@ const form = reactive({
   issuingCountry: '',
   ineFront: null,
   ineFrontName: '',
+  ineFrontPreviewUrl: '',
   ineBack: null,
   ineBackName: '',
+  ineBackPreviewUrl: '',
+  identificationUploadStatus: 'pending',
+  identificationUploadError: '',
+  identificationDocumentId: '',
+  identificationStorageDisk: '',
+  identificationStoragePath: '',
+  identificationFileUrl: '',
+  identificationDocumentUrl: '',
+  identificationPdfName: '',
+  scanWarnings: [],
+  scanReviewFields: [],
+  scanDocumentType: '',
+  scanQuality: null,
+  scanProcessingTimeMs: 0,
+  scanProgressStages: [],
   selfieFile: null,
   selfieFileName: '',
   selfiePreviewUrl: '',
@@ -307,7 +323,7 @@ function validateCurrentStep() {
         errorMessage.value =
           form.role === 'sobrecargo'
             ? 'Sube la imagen de la licencia para escanearla.'
-            : 'Sube la imagen de frente y reverso de la INE para escanearla.'
+            : 'Sube frente y reverso de la identificación.'
         return false
       }
 
@@ -324,8 +340,12 @@ function validateCurrentStep() {
             'Completa tipo, numero, categoria, emision, vigencia y pais emisor de la licencia.'
           return false
         }
-      } else if (!form.documentNumber.trim() || !form.documentExpiration) {
-        errorMessage.value = 'Completa numero de documento y vigencia antes de continuar.'
+      } else if (!form.documentNumber.trim()) {
+        errorMessage.value = 'Completa el numero de documento antes de continuar.'
+        return false
+      } else if (form.identificationUploadStatus !== 'saved' || !form.identificationDocumentId) {
+        errorMessage.value =
+          form.identificationUploadError || 'Guarda la identificación en PDF antes de continuar.'
         return false
       }
     }
@@ -513,6 +533,12 @@ function buildRegistrationPayload() {
     document_issue_date: form.documentIssueDate,
     document_expiration: form.documentExpiration,
     document_status: form.documentStatus,
+    identification_document_id: form.identificationDocumentId,
+    identification_storage_disk: form.identificationStorageDisk,
+    identification_storage_path: form.identificationStoragePath,
+    identification_file_url: form.identificationFileUrl,
+    identification_document_url: form.identificationDocumentUrl,
+    identification_pdf_name: form.identificationPdfName,
     identity_validation_required: form.identityValidationRequired,
     curp: form.ineCurp,
     ine_curp: form.ineCurp,
@@ -520,6 +546,11 @@ function buildRegistrationPayload() {
     ine_ocr: form.ineOcr,
     ine_scan_raw: limitedScanRaw,
     ine_scan_status: form.ineScanStatus,
+    scan_document_type: form.scanDocumentType,
+    scan_warnings: JSON.stringify(form.scanWarnings || []),
+    scan_review_fields: JSON.stringify(form.scanReviewFields || []),
+    scan_quality: form.scanQuality ? JSON.stringify(form.scanQuality) : '',
+    scan_processing_time_ms: form.scanProcessingTimeMs,
     license_type: form.licenseType,
     license_number: form.documentNumber,
     license_category: form.licenseCategory,
@@ -560,13 +591,10 @@ function buildRegistrationPayload() {
 
   if (isCrewRole.value) {
     appendFormValue(formData, 'license_file', form.ineFront)
-  } else if (isProviderRole.value) {
-    appendFormValue(formData, 'ine_front', form.ineFront)
-    appendFormValue(formData, 'ine_back', form.ineBack)
   } else {
-    appendFormValue(formData, 'ine_front', form.ineFront)
-    appendFormValue(formData, 'ine_back', form.ineBack)
-    appendFormValue(formData, 'selfie_biometric', form.selfieFile)
+    if (!isProviderRole.value) {
+      appendFormValue(formData, 'selfie_biometric', form.selfieFile)
+    }
   }
 
   return formData

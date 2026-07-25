@@ -65,9 +65,17 @@ const selectedPriorityType = ref('essential')
 const profileMenuOpen = ref(false)
 const RESULTS_SURCHARGE_USD = 0
 const searching = ref(false)
+const isCreatingAccessCheckout = ref(false)
+const lastExternalRedirectUrl = ref('')
 const loadingServerData = ref(false)
 const serverSearchError = ref('')
 const reservingAircraftId = ref('')
+const reservationLoadingState = reactive({
+  active: false,
+  eyebrow: 'SOLICITUDES',
+  title: 'Cargando solicitudes',
+  message: 'Estamos sincronizando oportunidades activas y el backlog operativo del proveedor.',
+})
 const featuredDestinations = ref([])
 const flightPackages = ref([])
 const aircraftOptions = ref([])
@@ -109,7 +117,7 @@ const lastContractReservationBootstrapKey = ref('')
 let commercialAccessStatusRequestPromise = null
 let aircraftHoldCountdownTimer = null
 const CLIENT_TRIPS_TIMEOUT_MS = Number(import.meta.env.VITE_CLIENT_TRIPS_TIMEOUT_MS || 45000)
-const CLIENT_QUOTES_TIMEOUT_MS = Number(import.meta.env.VITE_CLIENT_QUOTES_TIMEOUT_MS || 45000)
+const CLIENT_QUOTES_TIMEOUT_MS = 15000
 const externalContractFlowEnabled = String(
   import.meta.env.VITE_CLIENT_CONTRACT_EXTERNAL_ENABLED || 'true',
 )
@@ -118,6 +126,51 @@ const externalContractFlowEnabled = String(
 const dedicatedDocusignSendPath = String(
   import.meta.env.VITE_CLIENT_CONTRACT_SEND_PATH || import.meta.env.VITE_CONTRACT_SEND_PATH || '',
 ).trim()
+
+function updateReservationLoadingState(overrides = {}) {
+  Object.assign(reservationLoadingState, overrides)
+}
+
+function startReservationLoadingState(overrides = {}) {
+  updateReservationLoadingState({
+    active: true,
+    eyebrow: 'SOLICITUDES',
+    title: 'Cargando solicitudes',
+    message: 'Estamos sincronizando oportunidades activas y el backlog operativo del proveedor.',
+    ...overrides,
+  })
+}
+
+function stopReservationLoadingState() {
+  updateReservationLoadingState({
+    active: false,
+    eyebrow: 'SOLICITUDES',
+    title: 'Cargando solicitudes',
+    message: 'Estamos sincronizando oportunidades activas y el backlog operativo del proveedor.',
+  })
+}
+
+function isSearchTimeoutError(error) {
+  const code = String(error?.code || '').trim().toLowerCase()
+  const message = String(error?.message || '').trim().toLowerCase()
+
+  return (
+    code === 'timeout' ||
+    message.includes('timeout') ||
+    message.includes('timed out') ||
+    message.includes('tiempo de espera') ||
+    message.includes('tardó demasiado') ||
+    message.includes('tardo demasiado')
+  )
+}
+
+function buildSearchResultsErrorMessage(error) {
+  if (isSearchTimeoutError(error)) {
+    return 'No pudimos consultar la disponibilidad. Intenta nuevamente.'
+  }
+
+  return error?.message || 'No pudimos consultar la disponibilidad. Intenta nuevamente.'
+}
 
 function waitForPortalFirstPaint() {
   if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
@@ -232,6 +285,24 @@ function resolveStripeCheckoutRedirectUrl(payload = {}) {
       payload?.data?.sessionUrl ||
       '',
   ).trim()
+}
+
+function isStripeHostedCheckoutUrl(url = '') {
+  if (!url) return false
+
+  try {
+    const parsed = new URL(url, window.location.origin)
+    return parsed.protocol === 'https:' && parsed.hostname.endsWith('stripe.com')
+  } catch {
+    return false
+  }
+}
+
+function redirectToExternalUrl(url = '') {
+  lastExternalRedirectUrl.value = String(url || '').trim()
+  if (!lastExternalRedirectUrl.value || typeof window === 'undefined') return
+
+  window.location.assign(lastExternalRedirectUrl.value)
 }
 
 function isApiCheckoutCreationUrl(url = '') {
@@ -484,13 +555,15 @@ const commercialAccessPaymentMode = computed(
 )
 const commercialAccessCheckoutReturnMode = computed(() => {
   if (props.section !== 'pago') return false
-  if (commercialAccessPaymentMode.value) return true
 
   const checkoutState = normalizeRouteQueryValue(route.query.checkout).toLowerCase()
   if (!checkoutState) return false
 
   return !routeId.value
 })
+const commercialAccessCheckoutScreenMode = computed(
+  () => props.section === 'pago' && (commercialAccessPaymentMode.value || commercialAccessCheckoutReturnMode.value),
+)
 const commercialAccessCheckoutReturnPending = computed(
   () =>
     commercialAccessCheckoutReturnMode.value &&
@@ -772,21 +845,21 @@ const reservationPaymentStartAt = computed(() =>
   resolveReservationPaymentStartAt(selectedReservation.value, paymentAvailabilityState.value),
 )
 const paymentRouteHeadline = computed(() =>
-  commercialAccessCheckoutReturnMode.value
+  commercialAccessCheckoutScreenMode.value
     ? 'Renovacion de acceso comercial SKY GROUP'
     : props.section === 'pago' && selectedReservation.value
       ? selectedReservation.value.route || itineraryHeadline(selectedReservation.value)
       : itineraryHeadline(activeItinerarySummary.value),
 )
 const paymentDateLabel = computed(() =>
-  commercialAccessCheckoutReturnMode.value
+  commercialAccessCheckoutScreenMode.value
     ? accessRenewalDateLabel.value
     : props.section === 'pago' && selectedReservation.value
       ? formatPaymentDateTimeLabel(reservationPaymentStartAt.value)
       : itineraryDateLine(activeItinerarySummary.value),
 )
 const paymentCanSubmit = computed(() => {
-  if (commercialAccessCheckoutReturnMode.value) return true
+  if (commercialAccessCheckoutScreenMode.value) return true
   if (props.section !== 'pago') return true
   if (paymentAvailabilityLoading.value) return false
   if (!selectedReservation.value?.is_reservation) return true
@@ -1625,6 +1698,8 @@ const shouldShowCommercialAccessCta = computed(() =>
 )
 
 const commercialAccessCtaLabel = computed(() => {
+  if (isCreatingAccessCheckout.value) return 'Abriendo Stripe...'
+
   const accessSource = auth.access?.commercial_access || auth.access
   const state = buildCommercialAccessUiState(accessSource)
   if (state.isSuspended) return 'Reactivar suscripción'
@@ -4010,13 +4085,88 @@ function goToReservationDetail(reservationId = '') {
   )
 }
 
-function goToCommercialAccessPayment() {
-  profileMenuOpen.value = false
-  router.push({
-    name: 'cliente',
-    params: { section: 'pago' },
-    query: { accessPayment: '1' },
-  })
+async function startCommercialAccessCheckout({
+  accessSource = auth.access?.commercial_access || auth.access,
+  onErrorTitle = 'No se pudo activar el acceso comercial',
+  syncStatusFirst = false,
+} = {}) {
+  if (isCreatingAccessCheckout.value) return false
+
+  isCreatingAccessCheckout.value = true
+  paymentInlineError.value = ''
+
+  try {
+    let resolvedAccessSource = accessSource
+
+    if (syncStatusFirst) {
+      const latestAccessStatus = await refreshCommercialAccessStatus({
+        forceSessionRefresh: false,
+      }).catch(() => null)
+      resolvedAccessSource = latestAccessStatus?.access || resolvedAccessSource
+    }
+
+    const requiresPayment = requiresCommercialAccessPayment(resolvedAccessSource)
+    if (!requiresPayment) {
+      await auth.refreshSession({ force: true, preferCache: false }).catch(() => null)
+      syncCommercialAccessState(auth.access?.commercial_access || auth.access)
+      return false
+    }
+
+    const successUrl = buildReservationCheckoutReturnUrl('success')
+    const cancelUrl = buildReservationCheckoutReturnUrl('cancelled')
+    const payload = await createClientAccessCheckout(
+      {
+        contact_email: paymentForm.contactEmail.trim() || customerEmail.value,
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+        return_url: buildCommercialAccessReturnUrl(),
+        successUrl,
+        cancelUrl,
+      },
+      { timeoutMs: 30000 },
+    )
+
+    const redirectUrl = resolveStripeCheckoutRedirectUrl(payload)
+    const alreadyActive = payload?.already_active === true || payload?.data?.already_active === true
+
+    if (!redirectUrl && alreadyActive) {
+      await auth.refreshSession({ force: true, preferCache: false }).catch(() => null)
+      syncCommercialAccessState(payload?.access || auth.access?.commercial_access || auth.access)
+      if (props.section === 'pago') {
+        await router.replace({
+          name: 'cliente',
+          params: { section: 'reservar' },
+        })
+      }
+      return false
+    }
+
+    if (!redirectUrl) {
+      throw new Error('No se recibio la URL de Stripe Checkout.')
+    }
+
+    if (isApiCheckoutCreationUrl(redirectUrl)) {
+      throw new Error('El backend devolvio el endpoint interno en lugar de la URL real de Stripe.')
+    }
+
+    if (!isStripeHostedCheckoutUrl(redirectUrl)) {
+      throw new Error('La URL recibida no corresponde a Stripe Checkout.')
+    }
+
+    redirectToExternalUrl(redirectUrl)
+    return true
+  } catch (error) {
+    paymentInlineError.value =
+      error?.message || 'No fue posible iniciar el flujo de pago del acceso comercial.'
+    ui.pushToast({
+      tone: 'error',
+      title: onErrorTitle,
+      message: paymentInlineError.value,
+    })
+    return false
+  } finally {
+    isCreatingAccessCheckout.value = false
+  }
 }
 
 function reservationActionLabel(aircraft = null) {
@@ -4185,17 +4335,6 @@ function buildAbsoluteClientRoute(location = {}) {
 
   const queryString = searchParams.toString()
   return new URL(queryString ? `${path}?${queryString}` : path, baseUrl).toString()
-}
-
-function buildCommercialAccessCheckoutReturnUrl(checkoutState = '') {
-  return buildAbsoluteClientRoute({
-    name: 'cliente',
-    params: { section: 'pago' },
-    query: {
-      accessPayment: '1',
-      checkout: checkoutState,
-    },
-  })
 }
 
 function buildCommercialAccessReturnUrl() {
@@ -5550,8 +5689,8 @@ async function handleContractConfirm(contractPayload = {}) {
         docusign_status: docusignStatus,
       },
     })
-    window.location.assign(signingUrl)
-    return
+      redirectToExternalUrl(signingUrl)
+      return
   } catch (error) {
     console.log('[docusign-init-error]', {
       error,
@@ -5580,7 +5719,7 @@ async function handleContractConfirm(contractPayload = {}) {
 }
 
 async function refreshReservationPaymentAvailability({ force = false } = {}) {
-  if (commercialAccessCheckoutReturnMode.value || props.section !== 'pago') {
+  if (commercialAccessCheckoutScreenMode.value || props.section !== 'pago') {
     paymentAvailabilityState.value = null
     paymentAvailabilityLoading.value = false
     return null
@@ -5678,58 +5817,11 @@ async function handlePaymentSubmit() {
   }
 
   if (commercialAccessPaymentMode.value) {
-    paymentInlineError.value = ''
-
-    if (!paymentForm.contactEmail.trim()) {
-      paymentInlineError.value = 'Agrega un correo electronico de contacto para continuar.'
-      return
-    }
-
-    paymentSubmitting.value = true
-
-    try {
-      destroyStripePaymentElement()
-      const successUrl = buildCommercialAccessCheckoutReturnUrl('success')
-      const cancelUrl = buildCommercialAccessCheckoutReturnUrl('cancelled')
-
-      const payload = await createClientAccessCheckout(
-        {
-          contact_email: paymentForm.contactEmail.trim() || customerEmail.value,
-          success_url: successUrl,
-          cancel_url: cancelUrl,
-          return_url: buildCommercialAccessReturnUrl(),
-          successUrl,
-          cancelUrl,
-        },
-        { timeoutMs: 30000 },
-      )
-
-      const redirectUrl = resolveStripeCheckoutRedirectUrl(payload)
-
-      if (!redirectUrl) {
-        throw new Error('El backend no devolvio la URL de Stripe para administrar o activar el acceso comercial.')
-      }
-
-      if (isApiCheckoutCreationUrl(redirectUrl)) {
-        throw new Error(
-          'El backend devolvio el endpoint de creacion del checkout en lugar del link real de Stripe.',
-        )
-      }
-
-      window.location.assign(redirectUrl)
-      return
-    } catch (error) {
-      paymentInlineError.value =
-        error?.message || 'No fue posible iniciar el flujo de pago del acceso comercial.'
-      ui.pushToast({
-        tone: 'error',
-        title: 'No se pudo activar el acceso comercial',
-        message: paymentInlineError.value,
-      })
-      return
-    } finally {
-      paymentSubmitting.value = false
-    }
+    await startCommercialAccessCheckout({
+      accessSource: auth.access?.commercial_access || auth.access,
+      onErrorTitle: 'No se pudo activar el acceso comercial',
+    })
+    return
   }
 
   const flightRequestId = flightRequestContextId.value
@@ -5826,7 +5918,7 @@ async function handlePaymentSubmit() {
           message: paymentAvailabilityMessage,
           title: 'Disponibilidad actualizada',
         })
-        paymentInlineError.value = serverSearchError.value
+        paymentInlineError.value = serverSearchError.value || paymentAvailabilityMessage
         return
       }
 
@@ -5942,7 +6034,7 @@ async function handlePaymentSubmit() {
       )
     }
 
-    window.location.assign(redirectUrl)
+    redirectToExternalUrl(redirectUrl)
     return
   } catch (error) {
     const invalidReason = String(
@@ -5960,7 +6052,10 @@ async function handlePaymentSubmit() {
           'La retencion expiro. Verificaremos nuevamente la disponibilidad para mostrarte opciones vigentes.',
         title: 'Disponibilidad actualizada',
       })
-      paymentInlineError.value = serverSearchError.value
+      paymentInlineError.value =
+        serverSearchError.value ||
+        error?.message ||
+        'La retencion expiro. Verificaremos nuevamente la disponibilidad para mostrarte opciones vigentes.'
       return
     }
 
@@ -6265,7 +6360,7 @@ watch(
 watch(
   () => [props.section, selectedReservation.value?.id, selectedReservation.value?.payment_method],
   () => {
-    if (props.section !== 'pago' || commercialAccessCheckoutReturnMode.value) return
+    if (props.section !== 'pago' || commercialAccessCheckoutScreenMode.value) return
 
     selectedPaymentMethod.value = 'stripe'
     paymentMethodExplicitlySelected.value = true
@@ -6318,10 +6413,11 @@ watch(
     routeId.value,
     route.query.accessPayment,
     route.query.checkout,
+    commercialAccessCheckoutScreenMode.value,
     commercialAccessCheckoutReturnMode.value,
   ],
   async ([section, method]) => {
-    if (commercialAccessCheckoutReturnMode.value) {
+    if (commercialAccessCheckoutScreenMode.value) {
       if (stripeViewContext !== 'client_access_checkout') {
         destroyStripePaymentElement()
         stripeViewContext = 'client_access_checkout'
@@ -6376,6 +6472,7 @@ watch(
     clearAircraftSidebarFilters,
     closeTechnicalSheet,
     commercialAccessCheckoutFacts,
+    commercialAccessCheckoutScreenMode,
     commercialAccessCheckoutReturnMode,
     commercialAccessCheckoutReturnPending,
     commercialAccessCtaLabel,
@@ -6386,7 +6483,6 @@ watch(
     formatDetailedCurrencyByCode,
     go,
     goToReservationDetail,
-    goToCommercialAccessPayment,
     goToConcierge,
     goToPayment,
     handleAssistedPaymentProofSelection,
@@ -6405,9 +6501,11 @@ watch(
     itineraryDateLine,
     itineraryHeadline,
     itinerarySummary,
+    isCreatingAccessCheckout,
     isCommercialAccessExpired,
     isResultsSection,
     loadingServerData,
+    lastExternalRedirectUrl,
     mobileNavItems,
     otherSectionCardCopy,
     paymentBreakdownAmountMap,
@@ -6439,6 +6537,7 @@ watch(
     removeLeg,
     requestReservation,
     reservationActionLabel,
+    reservationLoadingState,
     reservationCheckoutReturnPending,
     reservationContextId,
     reservations,
@@ -6458,6 +6557,7 @@ watch(
     serverSearchError,
     shouldShowCommercialAccessCta,
     signingContract,
+    startCommercialAccessCheckout,
     submitSearch,
     technicalAircraft,
     technicalSheetInsights,
@@ -6718,6 +6818,8 @@ function validateSearchForm() {
 async function refreshSearchResults({ silent = false } = {}) {
   if (!submittedQuotePayload.value) return []
 
+  serverSearchError.value = ''
+
   if (!silent) {
     searching.value = true
   }
@@ -6729,6 +6831,14 @@ async function refreshSearchResults({ silent = false } = {}) {
     aircraftOptions.value = Array.isArray(results) ? results : []
     persistQuotePreview()
     return aircraftOptions.value
+  } catch (error) {
+    aircraftOptions.value = []
+
+    if (!silent) {
+      serverSearchError.value = buildSearchResultsErrorMessage(error)
+    }
+
+    return []
   } finally {
     if (!silent) {
       searching.value = false
@@ -6766,7 +6876,12 @@ async function handleAircraftAvailabilityConflict({
 }
 
 async function submitSearch() {
+  if (searching.value) return
+
   serverSearchError.value = ''
+  if (!validateSearchForm()) return
+
+  searching.value = true
   await refreshCommercialAccessStatus({ forceSessionRefresh: false }).catch(() => null)
 
   if (!canQuoteFlights.value) {
@@ -6779,17 +6894,13 @@ async function submitSearch() {
       user: auth.user,
     })
     serverSearchError.value = blockedMessage
-    ui.pushToast({
-      tone: 'error',
-      title: 'Acceso comercial requerido',
-      message: blockedMessage,
+    searching.value = false
+    await startCommercialAccessCheckout({
+      accessSource: auth.access?.commercial_access || auth.access,
+      onErrorTitle: 'No se pudo abrir Stripe',
     })
     return
   }
-
-  if (!validateSearchForm()) return
-
-  searching.value = true
   quoteResultsVisible.value = true
   aircraftOptions.value = []
   const previousCommercialState = buildCommercialAccessUiState(
@@ -6816,9 +6927,10 @@ async function submitSearch() {
     submittedItinerary.value = buildItinerarySummary(quotePayload)
     submittedQuotePayload.value = quotePayload
     go('resultados')
-    aircraftOptions.value = await searchClientFlights(quotePayload, {
+    const results = await searchClientFlights(quotePayload, {
       timeoutMs: CLIENT_QUOTES_TIMEOUT_MS,
     })
+    aircraftOptions.value = Array.isArray(results) ? results : []
     persistQuotePreview()
     logRenderedQuoteBreakdown(aircraftOptions.value, quotePayload)
     const quoteWasConsumed =
@@ -6848,13 +6960,23 @@ async function submitSearch() {
       }
     }
 
-    if (!aircraftOptions.value.length) {
-      serverSearchError.value =
-        'No fue posible generar una cotizacion real para este itinerario con la informacion actual.'
-    }
   } catch (error) {
-    const message =
-      error?.message || 'No fue posible consultar el cotizador en este momento. Intenta de nuevo.'
+    if (error?.payload?.access) {
+      syncCommercialAccessState(error.payload.access?.commercial_access || error.payload.access)
+    }
+
+    if (Number(error?.status || 0) === 402) {
+      const accessSource = error?.payload?.access?.commercial_access || error?.payload?.access || auth.access
+      serverSearchError.value = buildCommercialAccessMessage(accessSource)
+      aircraftOptions.value = []
+      await startCommercialAccessCheckout({
+        accessSource,
+        onErrorTitle: 'No se pudo abrir Stripe',
+      })
+      return
+    }
+
+    const message = buildSearchResultsErrorMessage(error)
     aircraftOptions.value = []
     serverSearchError.value = message
     ui.pushToast({
@@ -6884,16 +7006,18 @@ async function requestReservation(aircraft = selectedAircraft.value) {
     if (!canReserveFlights.value) {
       const blockedMessage = buildReservationAccessMessage(auth.access?.commercial_access || auth.access)
       serverSearchError.value = blockedMessage
-      ui.pushToast({
-        tone: 'error',
-        title: 'No se pudo solicitar la reserva',
-        message: blockedMessage,
+      await startCommercialAccessCheckout({
+        accessSource: auth.access?.commercial_access || auth.access,
+        onErrorTitle: 'No se pudo abrir Stripe',
       })
-      goToCommercialAccessPayment()
       return
     }
 
     reservingAircraftId.value = aircraftReservationKey(aircraft)
+    startReservationLoadingState({
+      title: 'Validando solicitud',
+      message: 'Estamos preparando la aeronave seleccionada para apartarla sin duplicar registros.',
+    })
     const selectedAircraftModel =
       aircraft.aircraft || aircraft.model || aircraft.registration || aircraft.cabin || ''
     const resolvedAircraftId = resolveAircraftId(aircraft)
@@ -6954,6 +7078,10 @@ async function requestReservation(aircraft = selectedAircraft.value) {
       legs: activeItinerarySummary.value.legs.map((leg) => ({ ...leg })),
     }
     const previousCommercialState = buildCommercialAccessUiState(auth.access?.commercial_access || auth.access)
+    updateReservationLoadingState({
+      title: 'Cargando solicitudes',
+      message: 'Estamos registrando tu solicitud y validando la disponibilidad real de la operacion.',
+    })
     const reservation =
       previousDraftContext?.reservationResponse ||
       (await createClientFlightRequest(reservationPayload, {
@@ -7040,6 +7168,10 @@ async function requestReservation(aircraft = selectedAircraft.value) {
       endpoint: `/cliente/cotizaciones/${resolvedQuoteId}/aircraft-hold`,
       payload: holdPayload,
     })
+    updateReservationLoadingState({
+      title: 'Apartando aeronave',
+      message: 'Estamos bloqueando temporalmente esta opcion para que nadie la tome mientras avanzas.',
+    })
     const holdResponse = await createClientAircraftHold(holdPayload, { timeoutMs: 30000 })
     const finalHold = normalizeAircraftHold({
       ...holdResponse,
@@ -7117,6 +7249,10 @@ async function requestReservation(aircraft = selectedAircraft.value) {
         message: 'Ya consumiste tu cotizacion de prueba. La siguiente solicitud requerira acceso comercial.',
       })
     }
+    updateReservationLoadingState({
+      title: 'Abriendo tu siguiente paso',
+      message: 'Ya dejamos la solicitud lista. Estamos enviandote al contrato y al pago para completar la reserva.',
+    })
     go('reserva-confirmada', targetReservationId)
     await refreshSearchResults({ silent: true }).catch(() => null)
   } catch (error) {
@@ -7156,10 +7292,14 @@ async function requestReservation(aircraft = selectedAircraft.value) {
       })
     }
     if (Number(error?.status || 0) === 402) {
-      goToCommercialAccessPayment()
+      await startCommercialAccessCheckout({
+        accessSource: error?.payload?.access?.commercial_access || error?.payload?.access || auth.access,
+        onErrorTitle: 'No se pudo abrir Stripe',
+      })
     }
   } finally {
     reservingAircraftId.value = ''
+    stopReservationLoadingState()
   }
 }
 
@@ -7216,7 +7356,8 @@ function dedupeClientReservations(items = []) {
   normalizedItems.forEach((item) => {
     const reservationId = String(item?.id || '').trim()
     const flightRequestId = String(item?.flight_request_id || '').trim()
-    const identityKey = flightRequestId || reservationId
+    const businessKey = buildReservationBusinessDeduplicationKey(item)
+    const identityKey = flightRequestId || reservationId || businessKey
 
     if (!identityKey) {
       deduped.push(item)
@@ -7230,6 +7371,7 @@ function dedupeClientReservations(items = []) {
       return (
         identityKey === currentReservationId ||
         identityKey === currentFlightRequestId ||
+        (businessKey && businessKey === buildReservationBusinessDeduplicationKey(current)) ||
         (reservationId &&
           (reservationId === currentReservationId || reservationId === currentFlightRequestId)) ||
         (flightRequestId &&
@@ -7264,6 +7406,20 @@ function dedupeClientReservations(items = []) {
   })
 
   return deduped
+}
+
+function buildReservationBusinessDeduplicationKey(item = {}) {
+  const aircraftId = String(item?.assigned_aircraft_id || item?.aircraft_id || '').trim()
+  const origin = String(item?.origin || '').trim().toUpperCase()
+  const destination = String(item?.destination || '').trim().toUpperCase()
+  const departureDateTime = String(item?.date || item?.departure_datetime || '').trim()
+  const passengers = String(item?.passengers || '').trim()
+
+  if (!aircraftId || !origin || !destination || !departureDateTime) {
+    return ''
+  }
+
+  return [aircraftId, origin, destination, departureDateTime, passengers].join('::')
 }
 
 function upsertReservationDetail(reservation) {
@@ -7553,6 +7709,21 @@ watch(
   ],
   () => {
     ensureCommercialAccessPaymentRouteEligibility()
+  },
+  { immediate: true },
+)
+
+watch(
+  () => [props.section, route.query.accessPayment, commercialAccessPaymentMode.value],
+  () => {
+    if (!commercialAccessPaymentMode.value) return
+    if (commercialAccessCheckoutReturnPending.value) return
+
+    void startCommercialAccessCheckout({
+      accessSource: auth.access?.commercial_access || auth.access,
+      onErrorTitle: 'No se pudo abrir Stripe',
+      syncStatusFirst: true,
+    })
   },
   { immediate: true },
 )

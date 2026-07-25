@@ -18,6 +18,8 @@ const weekdayHeaders = ['L', 'M', 'M', 'J', 'V', 'S', 'D']
 
 const props = defineProps({
   form: { type: Object, required: true },
+  submitBusy: { type: Boolean, default: false },
+  submitLabel: { type: String, default: 'Cotizar vuelo' },
   summary: { type: Object, required: true },
   tripType: { type: String, required: true },
 })
@@ -81,10 +83,6 @@ function removeLastLeg(emit, legsLength) {
 
 function updateFormField(field, event) {
   emit('update-form-field', { field, value: event.target.value })
-}
-
-function updateLegField(index, field, event) {
-  emit('update-leg-field', { index, field, value: event.target.value })
 }
 
 function updateFormTime(field, part, value) {
@@ -347,10 +345,6 @@ function pickerMonthLabel(key, dateValue = '') {
 
 function timePickerKey(scope, index = '') {
   return [scope, index].filter((part) => part !== '').join(':')
-}
-
-function toggleTimePicker(key) {
-  activeTimePickerKey.value = activeTimePickerKey.value === key ? '' : key
 }
 
 function closeTimePicker() {
@@ -1108,11 +1102,11 @@ function legStatusClass(leg = {}) {
 
           
 
-          <button class="primary-action" type="submit">
+          <button class="primary-action" type="submit" :disabled="props.submitBusy">
             <span class="primary-action__icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16.5 13 12l8-4.5-8-1.5L10.5 2H9l1 4-7 1.5L1 9l7 3-1 4h1.5L13 12l8 4.5Z"/></svg>
             </span>
-            <span>Cotizar vuelo</span>
+            <span>{{ props.submitLabel }}</span>
           </button>
         </form>
       </div>

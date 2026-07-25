@@ -359,7 +359,21 @@ export const useAuthStore = defineStore('auth', () => {
   let currentUserRequestPromise = null
 
   function getLoginRouteByRole(role = '') {
-    return normalizeAuthRole(role) === 'client' ? { name: 'login-cliente' } : { name: 'login' }
+    const normalizedRole = normalizeAuthRole(role)
+
+    if (normalizedRole === 'client') {
+      return { name: 'login-cliente' }
+    }
+
+    if (normalizedRole === 'admin') {
+      return { name: 'login', query: { role: 'admin' } }
+    }
+
+    if (normalizedRole === 'crew') {
+      return { name: 'login', query: { role: 'sobrecargo' } }
+    }
+
+    return { name: 'login', query: { role: 'provider' } }
   }
 
   function persistResolvedAuth(resolvedPayload) {

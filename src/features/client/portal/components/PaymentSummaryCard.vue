@@ -12,8 +12,8 @@ const totalRow = computed(() => props.rows.find((item) => item?.total) || null)
 <template>
   <article class="payment-summary">
     <header class="payment-summary__header">
-      <span class="payment-summary__eyebrow">Card 1</span>
-      <h3>Resumen del pago</h3>
+      <span class="payment-summary__eyebrow">Resumen del pago</span>
+      <strong>Activa tu acceso comercial con el total final antes de ir a Stripe.</strong>
     </header>
 
     <div class="payment-summary__rows">
@@ -33,18 +33,19 @@ const totalRow = computed(() => props.rows.find((item) => item?.total) || null)
 <style scoped>
 .payment-summary {
   display: grid;
-  gap: 1.25rem;
-  padding: 1.5rem;
+  gap: 1rem;
+  height: 100%;
+  padding: 1.25rem 1.3rem;
   border: 1px solid rgba(18, 25, 38, 0.08);
-  border-radius: 28px;
+  border-radius: 24px;
   background: linear-gradient(180deg, #ffffff 0%, #f7f8fb 100%);
-  box-shadow: 0 24px 60px rgba(18, 25, 38, 0.08);
+  box-shadow: 0 14px 32px rgba(18, 25, 38, 0.06);
 }
 
 .payment-summary__header,
 .payment-summary__rows {
   display: grid;
-  gap: 0.9rem;
+  gap: 0.7rem;
 }
 
 .payment-summary__eyebrow {
@@ -55,14 +56,14 @@ const totalRow = computed(() => props.rows.find((item) => item?.total) || null)
   text-transform: uppercase;
 }
 
-h3,
-p {
-  margin: 0;
+.payment-summary__header strong {
+  color: #101828;
+  font-size: 1.05rem;
+  line-height: 1.4;
 }
 
-h3 {
-  font-size: 1.35rem;
-  color: #101828;
+p {
+  margin: 0;
 }
 
 .payment-summary__row,
@@ -75,6 +76,7 @@ h3 {
 
 .payment-summary__rows p span {
   color: #475467;
+  font-size: 0.92rem;
 }
 
 .payment-summary__rows p strong {
@@ -88,7 +90,7 @@ h3 {
 }
 
 .payment-summary__total {
-  padding-top: 1rem;
+  padding-top: 0.75rem;
   border-top: 1px solid rgba(16, 24, 40, 0.08);
 }
 
@@ -102,7 +104,7 @@ h3 {
 
 .payment-summary__total strong {
   color: #0f172a;
-  font-size: clamp(1.8rem, 4vw, 2.65rem);
+  font-size: clamp(1.55rem, 3vw, 2rem);
   line-height: 1;
 }
 </style>

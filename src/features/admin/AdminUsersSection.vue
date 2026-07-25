@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { pickCollection, requestWithCandidates } from '../../lib/backendCrud'
 import { resolveMediaUrl } from '../../lib/api'
+import { resolveUserOfficialIdentificationAccess } from '../../lib/documentAccess'
 import { resolveProviderIdForUser } from '../../lib/providerContext'
 import { useUiStore } from '../../stores/ui'
 
@@ -466,11 +467,20 @@ function normalizeUserRecord(user = {}, index = 0) {
     user.subscription ||
     access.subscription ||
     null
+  const password =
+    user.password ||
+    user.temporary_password_visible ||
+    user.temporary_password ||
+    user.plain_password ||
+    user.generated_password ||
+    user.raw_password ||
+    ''
 
   return {
     id: user.id ?? Date.now() + index,
     name: user.name || user.full_name || '',
     email: user.email || '',
+    password,
     phone: user.phone || user.phone_number || '',
     role: normalizeRoleKey(primaryRole || 'client'),
     provider_id: user.provider_id || user.proveedor_id || provider?.id || resolveProviderIdForUser(user) || '',
@@ -721,6 +731,15 @@ function resolveBiometricSelfieUrl(detail = {}) {
   }
 
   return ''
+}
+
+function resolveOfficialIdentificationAccess(detail = {}) {
+  return resolveUserOfficialIdentificationAccess({
+    profile: detail?.user?.profile,
+    tax_data: detail?.user?.profile?.tax_data,
+    taxData: detail?.user?.profile?.taxData,
+    ...detail?.user?.raw,
+  })
 }
 
 function biometricDetailRows(detail = {}) {
@@ -2276,6 +2295,7 @@ function auditUser(user) {
         <div class="table-row table-head-row">
           <span>Usuario</span>
           <span>Correo</span>
+          <span>Contrasena</span>
           <span>Rol</span>
           <span>Estado</span>
           <span>Acceso comercial</span>
@@ -2292,6 +2312,7 @@ function auditUser(user) {
           </div>
 
           <span class="email-cell">{{ user.email }}</span>
+          <span class="password-cell">{{ user.password || 'No disponible' }}</span>
           <span>{{ formatRoleName(user.role) }}</span>
           <span>
             <span
@@ -2553,6 +2574,38 @@ function auditUser(user) {
                 <article v-for="row in identityDetailRows(selectedUserDetail)" :key="row.label" class="detail-card">
                   <span>{{ row.label }}</span>
                   <strong>{{ row.value }}</strong>
+                </article>
+              </div>
+              <div v-if="resolveOfficialIdentificationAccess(selectedUserDetail).viewUrl" class="detail-list">
+                <article class="detail-list-row detail-list-row-document">
+                  <div>
+                    <strong>{{ resolveOfficialIdentificationAccess(selectedUserDetail).name }}</strong>
+                    <span>
+                      {{
+                        resolveOfficialIdentificationAccess(selectedUserDetail).storagePath ||
+                        resolveOfficialIdentificationAccess(selectedUserDetail).storageDisk ||
+                        'PDF de identificación guardado'
+                      }}
+                    </span>
+                  </div>
+                  <div class="inline-actions">
+                    <a
+                      class="admin-btn admin-btn-secondary"
+                      :href="resolveOfficialIdentificationAccess(selectedUserDetail).viewUrl"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Ver PDF
+                    </a>
+                    <a
+                      class="admin-btn admin-btn-ghost"
+                      :href="resolveOfficialIdentificationAccess(selectedUserDetail).downloadUrl"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Descargar
+                    </a>
+                  </div>
                 </article>
               </div>
             </section>
@@ -3292,7 +3345,7 @@ function auditUser(user) {
 
 .table-row {
   display: grid;
-  grid-template-columns: 1.1fr 1fr 0.7fr 0.7fr 1fr 1.2fr;
+  grid-template-columns: 1.1fr 1fr 0.9fr 0.7fr 0.7fr 1fr 1.2fr;
   gap: 1rem;
   align-items: center;
   padding: 1rem 1.1rem;
@@ -3392,6 +3445,14 @@ function auditUser(user) {
   overflow-wrap: anywhere;
   font-weight: 600;
   color: #111827;
+}
+
+.password-cell {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: 'SFMono-Regular', 'SF Mono', Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 0.84rem;
+  color: #4b5563;
 }
 
 .row-actions {
