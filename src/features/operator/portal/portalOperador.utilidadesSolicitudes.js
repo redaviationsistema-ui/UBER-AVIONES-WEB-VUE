@@ -22,7 +22,9 @@ const OPERATOR_TRACKING_ACTIVE_TOKENS = new Set([
   'activo',
   'live',
   'in_progress',
+  'in_flight',
   'en_curso',
+  'en_vuelo',
   'seguimiento',
 ])
 
@@ -40,6 +42,7 @@ export function hasOperatorTrackingActivity(request = {}) {
       request?.raw?.trackingStatus ||
       request?.raw?.operation?.tracking_status ||
       request?.raw?.operation?.trackingStatus ||
+      request?.raw?.operation?.status ||
       request?.raw?.reservation?.tracking_status ||
       request?.raw?.reservation?.trackingStatus ||
       '',

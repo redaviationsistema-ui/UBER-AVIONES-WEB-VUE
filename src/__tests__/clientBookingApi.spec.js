@@ -96,6 +96,122 @@ describe('inferEngineType', () => {
 })
 
 describe('buildFlightRequestPayload', () => {
+  it('preserves backend airport identity and ICAO for every selected leg', () => {
+    const payload = buildFlightRequestPayload({
+      trip_type: 'one_way',
+      passengers: 2,
+      legs: [
+        {
+          origin: 'MEX',
+          originAirport: { id: 10, code: ' mmmx ', iata: 'MEX', latitude: 99 },
+          destination: 'TLC',
+          destinationAirport: { id: 20, icao: 'mmto', iata: 'TLC', longitude: 99 },
+          date: '2026-08-20',
+          time: '09:00',
+        },
+      ],
+    })
+
+    expect(payload).toMatchObject({
+      origin_airport_id: 10,
+      origin_icao: 'MMMX',
+      destination_airport_id: 20,
+      destination_icao: 'MMTO',
+      legs: [
+        {
+          origin_airport_id: 10,
+          origin_icao: 'MMMX',
+          destination_airport_id: 20,
+          destination_icao: 'MMTO',
+        },
+      ],
+    })
+    expect(payload.origin_airport.latitude).toBeUndefined()
+    expect(payload.legs[0].destination_airport.longitude).toBeUndefined()
+  })
+
+  it('does not let a stale selected-airport object override distinct visible ICAO codes', () => {
+    const staleToluca = { id: 5828, code: 'MMTO', iata: 'TLC', name: 'Toluca' }
+    const payload = buildFlightRequestPayload({
+      trip_type: 'one_way',
+      passengers: 2,
+      legs: [
+        {
+          origin: 'MMTO',
+          originAirport: staleToluca,
+          destination: 'MMMM',
+          destinationAirport: staleToluca,
+          date: '2026-07-27',
+          time: '11:00',
+        },
+      ],
+    })
+
+    expect(payload.legs[0]).toMatchObject({
+      origin_airport_id: 5828,
+      origin_icao: 'MMTO',
+      destination_airport_id: null,
+      destination_icao: 'MMMM',
+    })
+    expect(payload.legs[0].destination_airport).toMatchObject({
+      id: null,
+      icao: 'MMMM',
+    })
+  })
+
+  it('keeps MMTO and MMMM distinct across initial search and refresh', async () => {
+    api.post.mockResolvedValue({
+      matches: [
+        {
+          id: 'preview-20',
+          aircraft_id: 20,
+          aircraft_name: 'Citation Test',
+          base_price: 1000,
+          taxes: 160,
+          total: 1160,
+          pricing_breakdown: {
+            subtotal: 1000,
+            taxes: 160,
+            total: 1160,
+            billable_hours: 1,
+            segment_count: 1,
+          },
+        },
+      ],
+    })
+    const staleToluca = { id: 5828, code: 'MMTO', iata: 'TLC', name: 'Toluca' }
+    const itinerary = {
+      trip_type: 'one_way',
+      passengers: 1,
+      legs: [
+        {
+          origin: 'MMTO',
+          originAirport: staleToluca,
+          destination: 'MMMM',
+          destinationAirport: staleToluca,
+          date: '2026-07-27',
+          time: '16:00',
+        },
+      ],
+    }
+
+    await searchClientFlights(itinerary)
+    await searchClientFlights(itinerary)
+
+    expect(api.post).toHaveBeenCalledTimes(2)
+    for (const [, payload] of api.post.mock.calls) {
+      expect(payload.legs[0]).toMatchObject({
+        origin: 'MMTO',
+        origin_icao: 'MMTO',
+        destination: 'MMMM',
+        destination_icao: 'MMMM',
+      })
+      expect(payload.legs[0].origin_airport_id).not.toBe(
+        payload.legs[0].destination_airport_id,
+      )
+    }
+  })
+
   it('preserves the exact selected aircraft model and omits client-side price fields', () => {
     const payload = buildFlightRequestPayload({
       trip_type: 'one_way',
@@ -189,6 +305,31 @@ describe('createClientCheckout', () => {
 })
 
 describe('searchClientFlights', () => {
+  it('returns an empty result without reporting a technical error when no local aircraft is eligible', async () => {
+    api.post.mockResolvedValue({
+      success: true,
+      matches: [],
+      options: [],
+    })
+
+    await expect(
+      searchClientFlights({
+        trip_type: 'one_way',
+        passengers: 4,
+        legs: [
+          {
+            origin: 'MMQT',
+            destination: 'MMMM',
+            date: '2026-07-28',
+            time: '05:00',
+          },
+        ],
+      }),
+    ).resolves.toEqual([])
+
+    expect(api.get).not.toHaveBeenCalled()
+  })
+
   it('uses overnight_cost as the applied overnight charge when backend fee is only informational', async () => {
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 
@@ -204,6 +345,9 @@ describe('searchClientFlights', () => {
           overnight_fee: 3000,
           overnight_cost: 0,
           overnight_nights: 0,
+          source_origin: 'TLC',
+          based_at_origin: true,
+          base_airport_match: true,
           pricing_breakdown: {
             overnight_fee: 3000,
             overnight_cost: 0,
@@ -236,6 +380,42 @@ describe('searchClientFlights', () => {
     expect(consoleSpy).toHaveBeenCalledWith('- Overnight cost:', 0)
 
     consoleSpy.mockRestore()
+  })
+
+  it('excludes backend matches whose aircraft base is not the requested origin', async () => {
+    api.post.mockResolvedValue({
+      matches: [
+        {
+          id: 'match-other-base',
+          aircraft_name: 'Gulfstream G-IV',
+          source_origin: 'MMTO',
+          based_at_origin: false,
+          base_airport_match: false,
+          requires_repositioning: true,
+          total: 20787,
+          pricing_breakdown: {
+            total_amount: 20787,
+            repositioning_hours: 1.2,
+          },
+        },
+      ],
+    })
+    api.get.mockResolvedValue({ aircraft: [] })
+
+    const results = await searchClientFlights({
+      trip_type: 'one_way',
+      passengers: 4,
+      legs: [
+        {
+          origin: 'MMQT',
+          destination: 'MMMM',
+          date: '2026-07-27',
+          time: '04:00',
+        },
+      ],
+    })
+
+    expect(results).toEqual([])
   })
 
   it('does not show catalog fallback quotes when the backend preview is unavailable', async () => {

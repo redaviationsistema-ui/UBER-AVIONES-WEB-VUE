@@ -1030,6 +1030,21 @@ function normalizeMatches(payload, itinerary = {}, requestMeta = {}) {
         aircraftRecord?.base ||
         aircraftRecord?.base_airport_code ||
         '',
+      base_airport_id: match.base_airport_id || aircraftRecord?.base_airport_id || null,
+      base_airport_code:
+        match.base_airport_code ||
+        match.source_origin ||
+        aircraftRecord?.base_airport_code ||
+        aircraftRecord?.base_airport ||
+        '',
+      base_airport_name: match.base_airport_name || aircraftRecord?.base_airport_name || '',
+      base_airport_city: match.base_airport_city || aircraftRecord?.base_airport_city || '',
+      based_at_origin: Boolean(match.based_at_origin ?? match.base_airport_match ?? false),
+      base_airport_match: Boolean(match.base_airport_match ?? match.based_at_origin ?? false),
+      requires_repositioning: Boolean(
+        match.requires_repositioning ??
+          (Number(match.repositioning_hours || backendPricing?.repositioning_hours || 0) > 0),
+      ),
       match_reason: match.match_reason || '',
       provider: match.provider || aircraftRecord?.provider || null,
     }
@@ -1311,10 +1326,19 @@ function mergeMatchesWithCatalogImages(matches = [], catalog = []) {
       source_database: catalogAircraft.source_database || match.source_database,
       source_table: catalogAircraft.source_table || match.source_table,
       source_endpoint: catalogAircraft.source_endpoint || match.source_endpoint,
-      source_origin: catalogAircraft.source_origin || match.source_origin,
-      match_reason: catalogAircraft.source_origin
-        ? catalogAircraft.match_reason
-        : match.match_reason,
+      source_origin: match.source_origin || catalogAircraft.source_origin,
+      base_airport_id: match.base_airport_id || catalogAircraft.base_airport_id || null,
+      base_airport_code:
+        match.base_airport_code || match.source_origin || catalogAircraft.base_airport_code || '',
+      base_airport_name: match.base_airport_name || catalogAircraft.base_airport_name || '',
+      base_airport_city: match.base_airport_city || catalogAircraft.base_airport_city || '',
+      based_at_origin: Boolean(match.based_at_origin ?? match.base_airport_match ?? false),
+      base_airport_match: Boolean(match.base_airport_match ?? match.based_at_origin ?? false),
+      requires_repositioning: Boolean(
+        match.requires_repositioning ??
+          (Number(match.repositioning_hours || match.pricing_breakdown?.repositioning_hours || 0) > 0),
+      ),
+      match_reason: match.match_reason || catalogAircraft.match_reason,
       status: match.status || catalogAircraft.status,
     }
   })
@@ -1646,30 +1670,37 @@ function filterAircraftByItinerary(aircraft = [], itinerary = {}) {
         !passengers || !Number(item.capacity || 0) || Number(item.capacity || 0) >= passengers,
     )
     .map((item) => {
-      const baseAirportMatches = airportBaseMatches(originRaw, item.source_origin, originAirport)
+      const hasCanonicalMatch = typeof item.base_airport_match === 'boolean'
+      const baseAirportMatches = hasCanonicalMatch
+        ? item.base_airport_match
+        : airportBaseMatches(originRaw, item.source_origin, originAirport)
 
       return {
         ...item,
         queried_base_airport: originRaw,
         base_airport_match: baseAirportMatches,
+        based_at_origin: baseAirportMatches,
         match_reason: baseAirportMatches
-          ? `Coincide con base_airport ${item.source_origin}`
+          ? item.match_reason || 'Aeronave con base en el aeropuerto de origen'
           : item.match_reason ||
             (item.source_origin
-              ? `Salida optimizada desde ${item.source_origin}`
-              : 'Opción verificada'),
+              ? `Requiere reposicionamiento desde ${item.source_origin}`
+              : 'Opción elegible con reposicionamiento'),
       }
     })
     .sort((first, second) => {
-      const firstMatchesOrigin = airportBaseMatches(originRaw, first.source_origin, originAirport)
-      const secondMatchesOrigin = airportBaseMatches(originRaw, second.source_origin, originAirport)
+      const firstMatchesOrigin = Boolean(first.base_airport_match)
+      const secondMatchesOrigin = Boolean(second.base_airport_match)
 
       if (firstMatchesOrigin !== secondMatchesOrigin) return firstMatchesOrigin ? -1 : 1
-      return Number(second.capacity || 0) - Number(first.capacity || 0)
+      const repositioningDifference =
+        Number(first.repositioning_hours || 0) - Number(second.repositioning_hours || 0)
+      if (repositioningDifference !== 0) return repositioningDifference
+      return Number(first.total || 0) - Number(second.total || 0)
     })
 
   const exactBaseAirportMatches = filteredAircraft.filter((item) => item.base_airport_match)
-  if (hasOrigin && exactBaseAirportMatches.length) {
+  if (hasOrigin) {
     return exactBaseAirportMatches
   }
 
@@ -2396,16 +2427,70 @@ function mergeTripRecords(baseRecord = {}, detailRecord = {}) {
   return merged
 }
 
+function normalizeSelectedAirportIdentity(value, airport = null) {
+  const visibleCode = String(value || '').trim().toUpperCase()
+  const visibleIsCode = /^[A-Z0-9]{3,4}$/.test(visibleCode)
+  const objectIcao = String(airport?.icao || airport?.icao_code || airport?.code || '')
+    .trim()
+    .toUpperCase()
+  const objectIata = String(airport?.iata || airport?.iata_code || '')
+    .trim()
+    .toUpperCase()
+  const objectMatchesVisible =
+    !visibleIsCode || [objectIcao, objectIata].filter(Boolean).includes(visibleCode)
+  const trustedObject = objectMatchesVisible ? airport : null
+  const icao = objectMatchesVisible
+    ? objectIcao
+    : visibleCode.length === 4
+      ? visibleCode
+      : ''
+  const iata = objectMatchesVisible
+    ? objectIata
+    : visibleCode.length === 3
+      ? visibleCode
+      : ''
+
+  return {
+    id: trustedObject?.id || trustedObject?.airport_id || null,
+    icao: icao || null,
+    iata: iata || null,
+    airport:
+      trustedObject || visibleIsCode
+        ? {
+            id: trustedObject?.id || trustedObject?.airport_id || null,
+            icao: icao || null,
+            iata: iata || null,
+            name: trustedObject?.name || null,
+          }
+        : null,
+  }
+}
+
 export function buildFlightRequestPayload(itinerary = {}) {
   const normalizedLegs = Array.isArray(itinerary.legs)
     ? itinerary.legs
         .map((leg) => {
           const date = normalizeFlightDateInput(leg?.date || '')
           const time = normalizeFlightTimeInput(leg?.time || '09:00')
+          const originAirport = leg?.originAirport || leg?.origin_airport || null
+          const destinationAirport = leg?.destinationAirport || leg?.destination_airport || null
+          const originIdentity = normalizeSelectedAirportIdentity(leg?.origin, originAirport)
+          const destinationIdentity = normalizeSelectedAirportIdentity(
+            leg?.destination,
+            destinationAirport,
+          )
 
           return {
             origin: leg?.origin || '',
             destination: leg?.destination || '',
+            origin_airport_id: originIdentity.id,
+            destination_airport_id: destinationIdentity.id,
+            origin_icao: originIdentity.icao,
+            destination_icao: destinationIdentity.icao,
+            origin_iata: originIdentity.iata,
+            destination_iata: destinationIdentity.iata,
+            origin_airport: originIdentity.airport,
+            destination_airport: destinationIdentity.airport,
             date,
             time,
             departure_datetime: buildFlightDateTime(date, time),
@@ -2468,8 +2553,16 @@ export function buildFlightRequestPayload(itinerary = {}) {
   ).trim()
   return {
     origin: firstLeg.origin || itinerary.origin || '',
+    origin_airport_id: firstLeg.origin_airport_id || null,
+    origin_icao: firstLeg.origin_icao || null,
+    origin_iata: firstLeg.origin_iata || null,
+    origin_airport: firstLeg.origin_airport || null,
     base_airport: firstLeg.origin || itinerary.origin || '',
     destination: firstLeg.destination || itinerary.destination || '',
+    destination_airport_id: firstLeg.destination_airport_id || null,
+    destination_icao: firstLeg.destination_icao || null,
+    destination_iata: firstLeg.destination_iata || null,
+    destination_airport: firstLeg.destination_airport || null,
     departure_date: departureDate || null,
     departure_time: departureTime || null,
     departure_datetime: departureDateTime || null,
@@ -2510,6 +2603,7 @@ export function buildFlightRequestPayload(itinerary = {}) {
       itinerary.include_overnight_in_billed_hours ?? false,
     source_database: itinerary.source_database || null,
     source_table: itinerary.source_table || null,
+    legs: normalizedLegs,
     requirements:
       normalizedLegs.length > 1
         ? inferredClosedRoute && tripType === 'multi_leg'
@@ -3299,9 +3393,7 @@ export async function searchClientFlights(itinerary, options = {}) {
       })
 
     }
-    if (!matches.length) {
-      throw new Error('No fue posible generar una cotizacion real para este itinerario.')
-    }
+    if (!matches.length) return []
 
     const aircraft = await getAircraftFromDatabase(aircraftQuery)
     if (matches.length) {

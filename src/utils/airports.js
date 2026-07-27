@@ -70,7 +70,9 @@ export function formatAirportOption(airport) {
 
 export function mapAirportPayload(payload = {}) {
   return {
+    id: payload.id ?? payload.airport_id ?? null,
     code: pickFirstValue(payload.code, payload.icao, payload.icao_code),
+    icao: pickFirstValue(payload.icao, payload.icao_code, payload.code),
     iata: pickFirstValue(payload.iata, payload.iata_code),
     name: pickFirstValue(payload.name),
     city: pickFirstValue(payload.city),

@@ -5796,6 +5796,7 @@ function normalizeRequest(raw = {}, index = 0) {
     raw.trackingStatus ||
     raw.operation?.tracking_status ||
     raw.operation?.trackingStatus ||
+    raw.operation?.status ||
     raw.reservation?.tracking_status ||
     raw.reservation?.trackingStatus ||
     ''

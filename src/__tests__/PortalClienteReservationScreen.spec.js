@@ -136,9 +136,57 @@ describe('PortalClienteReservationScreen', () => {
       },
     })
 
-    expect(wrapper.text()).toContain('No encontramos aeronaves disponibles para esta ruta.')
+    expect(wrapper.text()).toContain(
+      'No hay aeronaves activas y elegibles con base en el aeropuerto de origen.',
+    )
     expect(wrapper.text()).toContain('Modificar busqueda')
     expect(wrapper.text()).toContain('Intentar nuevamente')
     expect(wrapper.text()).toContain('Contactar Concierge')
+  })
+
+  it('identifies an aircraft whose canonical base matches the origin', () => {
+    const wrapper = mount(PortalClienteReservationScreen, {
+      props: buildProps({
+        featuredAircraft: {
+          id: 'aircraft-local',
+          aircraft: 'LEARJET 31A',
+          image_url: '',
+          is_available: true,
+          based_at_origin: true,
+          source_origin: 'MMTO',
+        },
+      }),
+      global: {
+        stubs: {
+          FlightSearchHero: true,
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('Base en origen')
+  })
+
+  it('shows the real base when an eligible aircraft needs repositioning', () => {
+    const wrapper = mount(PortalClienteReservationScreen, {
+      props: buildProps({
+        featuredAircraft: {
+          id: 'aircraft-repositioned',
+          aircraft: 'GULFSTREAM G-IV',
+          image_url: '',
+          is_available: true,
+          based_at_origin: false,
+          requires_repositioning: true,
+          source_origin: 'MMTO',
+        },
+      }),
+      global: {
+        stubs: {
+          FlightSearchHero: true,
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('Reposicionamiento desde MMTO')
+    expect(wrapper.text()).not.toContain('Base en origen')
   })
 })

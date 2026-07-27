@@ -49,6 +49,62 @@ describe('operator portal request filters', () => {
     ).toBe(true)
   })
 
+  it('classifies backend operations in flight as tracking', () => {
+    expect(
+      resolveOperatorRequestQueue({
+        workflowStatus: 'flight_confirmed',
+        raw: {
+          operation: {
+            status: 'en_vuelo',
+          },
+        },
+      }),
+    ).toBe('tracking')
+    expect(
+      hasOperatorTrackingActivity({
+        raw: {
+          operation: {
+            status: 'in_flight',
+          },
+        },
+      }),
+    ).toBe(true)
+  })
+
+  it('keeps pending requests in the pending queue when no tracking activity exists', () => {
+    expect(
+      resolveOperatorRequestQueue({
+        workflowStatus: 'provider_pending',
+        raw: {
+          operation: {
+            status: 'confirmada',
+          },
+        },
+      }),
+    ).toBe('pending')
+  })
+
+  it('does not treat confirmed or completed operations as active tracking', () => {
+    expect(
+      hasOperatorTrackingActivity({
+        raw: {
+          operation: {
+            status: 'confirmada',
+          },
+        },
+      }),
+    ).toBe(false)
+    expect(
+      hasOperatorTrackingActivity({
+        raw: {
+          operation: {
+            status: 'finalizada',
+          },
+        },
+      }),
+    ).toBe(false)
+  })
+
   it('keeps payment confirmed inside coordination when workflow_status is not tracking yet', () => {
     expect(
       resolveOperatorRequestQueue({

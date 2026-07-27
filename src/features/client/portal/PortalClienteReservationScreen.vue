@@ -69,6 +69,11 @@ function aircraftFactChips(aircraft, itinerary, helpers) {
     helpers.aircraftClassLabel(aircraft),
     helpers.aircraftCapacityLabel(aircraft),
     helpers.aircraftSpeedLine(aircraft, itinerary),
+    aircraft?.based_at_origin || aircraft?.base_airport_match
+      ? 'Base en origen'
+      : aircraft?.requires_repositioning && aircraft?.source_origin
+        ? `Reposicionamiento desde ${aircraft.source_origin}`
+        : '',
   ].filter(Boolean)
 }
 
@@ -527,7 +532,7 @@ const speedSliderStyle = computed(() => {
           </section>
 
           <div v-else-if="showSearchEmptyState" class="empty-state">
-            <p>No encontramos aeronaves disponibles para esta ruta.</p>
+            <p>No hay aeronaves activas y elegibles con base en el aeropuerto de origen.</p>
             <div class="empty-state__actions">
               <button type="button" class="ghost-action ghost-action--detail" @click="$emit('modify-search')">
                 Modificar busqueda
