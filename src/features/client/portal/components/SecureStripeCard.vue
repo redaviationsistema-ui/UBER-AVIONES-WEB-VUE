@@ -32,11 +32,12 @@ const cardBrands = [
 
 <template>
   <article class="secure-card">
-    <div class="secure-card__topline">
+    <div class="secure-card__line">
       <header class="secure-card__header">
         <span class="secure-card__icon" aria-hidden="true">🔒</span>
         <div class="secure-card__copy">
-          <strong>Pago seguro con Stripe Checkout</strong>
+          <strong>Stripe Checkout</strong>
+          <span>Pago seguro</span>
         </div>
       </header>
 
@@ -53,20 +54,20 @@ const cardBrands = [
           </svg>
         </span>
       </div>
-    </div>
 
-    <div v-if="contactEmail" class="secure-card__email">
-      <div class="secure-card__email-copy">
-        <span>Confirmación</span>
-        <strong>{{ contactEmail }}</strong>
+      <div v-if="contactEmail" class="secure-card__email">
+        <div class="secure-card__email-copy">
+          <span>Correo</span>
+          <strong>{{ contactEmail }}</strong>
+        </div>
+        <a
+          v-if="showChangeAction && changeHref"
+          :href="changeHref"
+          class="secure-card__change-link"
+        >
+          Cambiar
+        </a>
       </div>
-      <a
-        v-if="showChangeAction && changeHref"
-        :href="changeHref"
-        class="secure-card__change-link"
-      >
-        Cambiar
-      </a>
     </div>
 
     <label v-if="editable" class="secure-card__field">
@@ -84,26 +85,24 @@ const cardBrands = [
 <style scoped>
 .secure-card {
   display: grid;
-  gap: 0.9rem;
-  height: 100%;
-  padding: 1rem 1.15rem;
-  border-radius: 22px;
-  border: 1px solid rgba(18, 25, 38, 0.08);
-  background:
-    radial-gradient(circle at top right, rgba(37, 99, 235, 0.12), transparent 28%),
-    linear-gradient(180deg, #ffffff 0%, #f6f9ff 100%);
-  box-shadow: 0 12px 28px rgba(18, 25, 38, 0.06);
+  gap: 12px;
+  padding: 20px;
+  border-radius: 18px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
 }
 
-.secure-card__topline {
+.secure-card__line {
   display: grid;
-  gap: 0.8rem;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
 }
 
 .secure-card__header {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  gap: 0.8rem;
+  gap: 12px;
   align-items: center;
 }
 
@@ -112,102 +111,128 @@ const cardBrands = [
   place-items: center;
   width: 2.5rem;
   height: 2.5rem;
-  border-radius: 14px;
-  background: #0f2747;
+  border-radius: 12px;
+  background: #173a6a;
   color: #ffffff;
   font-size: 1rem;
 }
 
 .secure-card__copy {
   display: grid;
-  gap: 0.2rem;
+  gap: 2px;
 }
 
 .secure-card__copy strong {
-  color: #101828;
-  font-size: 0.98rem;
+  color: #0f172a;
+  font-size: 1rem;
 }
 
 .secure-card__copy span {
-  color: #475467;
-  font-size: 0.86rem;
-  line-height: 1.4;
+  color: #64748b;
+  font-size: 0.8125rem;
+  line-height: 1.2;
 }
 
 .secure-card__brands {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 0.85rem;
+  gap: 12px;
+  min-width: 0;
 }
 
 .secure-card__brand-logo {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 1.4rem;
+  height: 1.25rem;
 }
 
 .secure-card__brand-logo svg {
   display: block;
   width: auto;
   height: 100%;
-  max-width: 4rem;
+  max-width: 3.5rem;
 }
 
 .secure-card__email {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.85rem;
-  padding-top: 0.9rem;
-  border-top: 1px solid rgba(16, 24, 40, 0.08);
+  gap: 12px;
+  min-width: 0;
 }
 
 .secure-card__email-copy {
   display: grid;
-  gap: 0.1rem;
-  color: #667085;
-  font-size: 0.8rem;
+  gap: 2px;
+  color: #64748b;
+  font-size: 0.8125rem;
+  text-align: right;
 }
 
 .secure-card__email strong {
   color: #0f172a;
-  font-size: 0.98rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
 }
 
 .secure-card__change-link {
-  color: #163a63;
-  font-size: 0.85rem;
+  color: #173a6a;
+  font-size: 0.875rem;
   font-weight: 700;
   text-decoration: none;
+  white-space: nowrap;
 }
 
 .secure-card__field {
   display: grid;
-  gap: 0.4rem;
+  gap: 6px;
+  padding-top: 12px;
+  border-top: 1px solid #e2e8f0;
 }
 
 .secure-card__field span {
-  color: #667085;
-  font-size: 0.78rem;
+  color: #64748b;
+  font-size: 0.8125rem;
   font-weight: 700;
 }
 
 .secure-card__field input {
   width: 100%;
-  padding: 0.78rem 0.9rem;
+  padding: 12px 14px;
   border-radius: 14px;
-  border: 1px solid rgba(15, 23, 42, 0.1);
-  background: rgba(248, 250, 252, 0.92);
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
   color: #0f172a;
   font: inherit;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+.secure-card__field input:focus {
+  outline: none;
+  border-color: rgba(23, 58, 106, 0.35);
+  box-shadow: 0 0 0 3px rgba(23, 58, 106, 0.08);
+}
+
+@media (max-width: 880px) {
+  .secure-card__line {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .secure-card__email-copy {
+    text-align: left;
+  }
 }
 
 @media (max-width: 640px) {
   .secure-card__email {
     display: grid;
     justify-content: start;
+  }
+
+  .secure-card__brands {
+    flex-wrap: wrap;
   }
 }
 </style>

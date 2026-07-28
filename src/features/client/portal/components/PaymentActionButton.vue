@@ -33,75 +33,74 @@ defineEmits(['click'])
 <style scoped>
 .action-shell {
   display: grid;
-  gap: 0.55rem;
+  gap: 8px;
 }
 
 .action-button {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 0.95rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
   align-items: center;
   width: 100%;
-  min-height: 3.85rem;
-  padding: 0.95rem 1.2rem;
+  min-height: 48px;
+  padding: 0 18px 0 20px;
   border: 0;
-  border-radius: 18px;
-  background: linear-gradient(135deg, #102b4d 0%, #173d68 100%);
+  border-radius: 14px;
+  background: #173a6a;
   color: #ffffff;
-  box-shadow: 0 24px 48px rgba(16, 43, 77, 0.3);
+  box-shadow: 0 10px 24px rgba(23, 58, 106, 0.18);
   transition:
-    transform 160ms ease,
-    box-shadow 160ms ease,
-    opacity 160ms ease;
+    background-color 0.25s ease,
+    box-shadow 0.25s ease,
+    opacity 0.25s ease;
 }
 
 .action-button:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: 0 28px 56px rgba(16, 43, 77, 0.34);
+  background: #214d8f;
+  box-shadow: 0 12px 26px rgba(23, 58, 106, 0.22);
 }
 
 .action-button:disabled {
   cursor: not-allowed;
-  opacity: 1;
-  background: linear-gradient(135deg, #17385f 0%, #214a7b 100%);
-  box-shadow: 0 20px 42px rgba(16, 43, 77, 0.24);
+  opacity: 0.88;
+  background: #284c79;
+  box-shadow: 0 8px 18px rgba(23, 58, 106, 0.16);
 }
 
 .action-button__icon,
 .action-button__spinner {
   display: grid;
   place-items: center;
-  width: 2.3rem;
-  height: 2.3rem;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.14);
+  grid-column: 2;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 999px;
 }
 
 .action-button__spinner {
-  border: 3px solid rgba(255, 255, 255, 0.25);
+  border: 2px solid rgba(255, 255, 255, 0.25);
   border-top-color: #ffffff;
   animation: spin 0.85s linear infinite;
 }
 
 .action-button__copy {
   display: block;
-  justify-items: start;
+  grid-column: 1;
+  text-align: center;
 }
 
 .action-button__copy strong {
   color: #ffffff;
-}
-
-.action-button__copy strong {
   font-size: 1rem;
+  font-weight: 700;
   line-height: 1.2;
 }
 
 .action-shell__status {
   margin: 0;
-  color: #667085;
-  font-size: 0.84rem;
-  text-align: left;
+  color: #64748b;
+  font-size: 0.8125rem;
+  text-align: center;
 }
 
 @keyframes spin {

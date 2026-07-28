@@ -1869,6 +1869,12 @@ function exportCsv(fileName, headers, rows) {
 
 <style scoped>
 .subscriptions-shell {
+  --subscriptions-accent: #a97a16;
+  --subscriptions-accent-strong: #8b6410;
+  --subscriptions-accent-soft: #f7efd9;
+  --subscriptions-accent-surface: linear-gradient(135deg, #fffdfa 0%, #f8efdd 100%);
+  --subscriptions-accent-border: rgba(169, 122, 22, 0.22);
+  --subscriptions-text-muted: #6f6a61;
   display: grid;
   gap: 1.25rem;
   color: #111111;
@@ -1892,6 +1898,11 @@ function exportCsv(fileName, headers, rows) {
   justify-content: space-between;
   gap: 1.25rem;
   align-items: center;
+  background: var(--subscriptions-accent-surface);
+  border-color: var(--subscriptions-accent-border);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    0 18px 40px rgba(26, 22, 16, 0.05);
 }
 
 .subscriptions-hero__copy {
@@ -1909,7 +1920,7 @@ function exportCsv(fileName, headers, rows) {
 .subscriptions-hero p,
 .panel-head p {
   margin: 0;
-  color: #6f6a61;
+  color: var(--subscriptions-text-muted);
 }
 
 .eyebrow {
@@ -1917,7 +1928,7 @@ function exportCsv(fileName, headers, rows) {
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #a0791d;
+  color: var(--subscriptions-accent);
 }
 
 .hero-actions {
@@ -1928,9 +1939,9 @@ function exportCsv(fileName, headers, rows) {
 }
 
 .tab-button {
-  border: 1px solid rgba(33, 30, 26, 0.12);
-  background: #f6f2e8;
-  color: #1f1b17;
+  border: 1px solid rgba(169, 122, 22, 0.2);
+  background: rgba(255, 251, 243, 0.96);
+  color: var(--subscriptions-accent-strong);
   border-radius: 999px;
   padding: 0.72rem 1rem;
   font: inherit;
@@ -1939,8 +1950,9 @@ function exportCsv(fileName, headers, rows) {
 }
 
 .tab-button.active {
-  background: #171717;
-  color: #fff9ef;
+  background: var(--subscriptions-accent-strong);
+  border-color: var(--subscriptions-accent-strong);
+  color: #fffaf0;
 }
 
 .summary-grid {

@@ -6,7 +6,6 @@ import { resolveWorkflowState } from '../../../utils/flightWorkflow'
 import PaymentActionButton from './components/PaymentActionButton.vue'
 import PaymentCountdown from './components/PaymentCountdown.vue'
 import PaymentSummaryCard from './components/PaymentSummaryCard.vue'
-import ReservationSummarySidebar from './components/ReservationSummarySidebar.vue'
 import SecureStripeCard from './components/SecureStripeCard.vue'
 
 const props = defineProps({
@@ -100,22 +99,6 @@ const paymentHeroSupportingCopy = computed(() =>
     ? 'Confirma el total y continúa en Stripe.'
     : 'Confirma el total y continúa en Stripe.',
 )
-
-const compactCommercialFacts = computed(() => {
-  if (!props.commercialAccessCheckoutScreenMode) return []
-
-  const stateFact = props.commercialAccessCheckoutFacts[0] || {
-    label: 'Estado',
-    value: 'Pendiente',
-  }
-
-  return [
-    { label: 'Acceso', value: 'Acceso comercial' },
-    { label: stateFact.label || 'Estado', value: stateFact.value || 'Pendiente' },
-    { label: 'Método', value: props.paymentMethodSummaryLabel || 'Stripe Checkout' },
-    { label: 'Monto', value: props.paymentSummaryAmountLabel },
-  ]
-})
 
 const paymentRouteSummary = computed(
   () => props.paymentRouteHeadline || props.selectedReservation?.route || 'Ruta por confirmar',
@@ -488,7 +471,6 @@ const completedReservationStatusItems = computed(() => [
     <article
       v-else-if="propsSection === 'pago' && canRenderReservationWorkflow"
       class="payment-checkout"
-      :class="{ 'payment-checkout--commercial': commercialAccessCheckoutScreenMode }"
     >
       <div class="payment-checkout__main">
         <div v-if="paymentSubmitting" class="payment-overlay">
@@ -503,28 +485,17 @@ const completedReservationStatusItems = computed(() => [
         </button>
 
         <div class="payment-checkout__hero">
-          <h2>{{ paymentHeroHeading }}</h2>
+          <div class="payment-checkout__hero-topline">
+            <h2>{{ paymentHeroHeading }}</h2>
+            <span class="payment-checkout__step-label">{{ paymentHeroEyebrow }}</span>
+          </div>
           <div class="payment-progress payment-progress--compact">
-            <span>{{ paymentHeroEyebrow }}</span>
             <div class="payment-progress__track" aria-hidden="true">
               <span class="payment-progress__bar" :style="{ width: `${paymentProgressPercent}%` }"></span>
             </div>
           </div>
           <p v-if="paymentHeroSupportingCopy">{{ paymentHeroSupportingCopy }}</p>
         </div>
-
-        <section v-if="commercialAccessCheckoutScreenMode" class="commercial-payment-brief">
-          <article class="commercial-payment-brief__hero-card">
-            <div
-              v-for="item in compactCommercialFacts"
-              :key="item.label"
-              class="commercial-payment-brief__hero-item"
-            >
-              <span>{{ item.label }}</span>
-              <strong>{{ item.value }}</strong>
-            </div>
-          </article>
-        </section>
 
         <section class="payment-stripe-layout">
           <PaymentSummaryCard
@@ -570,16 +541,6 @@ const completedReservationStatusItems = computed(() => [
           </div>
         </section>
       </div>
-
-      <ReservationSummarySidebar
-        v-if="!commercialAccessCheckoutScreenMode"
-        :customer-display-name="customerDisplayName"
-        :date-label="paymentDateLabel"
-        :duration-label="paymentDurationLabel"
-        :flight-type-label="paymentFlightTypeLabel"
-        :route-label="paymentRouteSummary"
-        :total-label="paymentSummaryAmountLabel"
-      />
     </article>
 
     <article
@@ -1167,27 +1128,21 @@ const completedReservationStatusItems = computed(() => [
 
 .payment-checkout {
   display: grid;
-  grid-template-columns: minmax(0, 1.7fr) minmax(320px, 0.95fr);
-  gap: 1.5rem;
-  align-items: start;
-  width: min(94vw, 1500px);
-  margin: 0 auto;
-  padding: 1.25rem;
-  border-radius: 28px;
-  background:
-    radial-gradient(circle at top left, rgba(196, 209, 255, 0.4), transparent 34%),
-    linear-gradient(180deg, #fbfcfe, #f3f6fb);
-  box-shadow: 0 22px 56px rgba(15, 23, 42, 0.08);
-}
-
-.payment-checkout--commercial {
   grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  align-items: start;
+  width: min(94vw, 980px);
+  margin: 0 auto;
+  padding: 24px;
+  border-radius: 20px;
+  background: #ffffff;
+  box-shadow: 0 10px 40px rgba(15, 23, 42, 0.06);
 }
 
 .payment-checkout__main {
   position: relative;
   display: grid;
-  gap: 0.9rem;
+  gap: 16px;
 }
 
 .payment-checkout__eyebrow {
@@ -1237,7 +1192,7 @@ const completedReservationStatusItems = computed(() => [
 
 .payment-back {
   width: fit-content;
-  padding: 0.2rem 0;
+  padding: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -1250,8 +1205,8 @@ const completedReservationStatusItems = computed(() => [
 
 .payment-checkout__hero {
   display: grid;
-  gap: 0.45rem;
-  padding: 0.2rem 0 0.35rem;
+  gap: 6px;
+  padding: 0;
 }
 
 .payment-checkout__hero h2,
@@ -1260,29 +1215,43 @@ const completedReservationStatusItems = computed(() => [
   margin: 0;
 }
 
+.payment-checkout__hero-topline {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
 .payment-checkout__hero h2 {
-  font-size: clamp(1.45rem, 2.3vw, 1.95rem);
-  line-height: 1.06;
+  font-size: clamp(2rem, 4vw, 2.625rem);
+  line-height: 1;
   color: #0f172a;
+}
+
+.payment-checkout__step-label {
+  color: #64748b;
+  font-size: 0.95rem;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .payment-checkout__hero p {
   color: #475467;
-  line-height: 1.45;
-  font-size: 0.9rem;
+  line-height: 1.35;
+  font-size: 0.94rem;
 }
 
 .payment-progress {
   display: grid;
-  gap: 0.5rem;
-  max-width: 24rem;
+  gap: 0.35rem;
+  max-width: 100%;
 }
 
 .payment-progress--compact {
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
-  gap: 0.75rem;
-  max-width: 28rem;
+  gap: 0.5rem;
+  max-width: 100%;
   color: #667085;
   font-size: 0.88rem;
   font-weight: 700;
@@ -1299,7 +1268,7 @@ const completedReservationStatusItems = computed(() => [
 .payment-progress__track {
   position: relative;
   overflow: hidden;
-  height: 0.5rem;
+  height: 4px;
   border-radius: 999px;
   background: rgba(15, 23, 42, 0.08);
 }
@@ -1314,7 +1283,7 @@ const completedReservationStatusItems = computed(() => [
 .payment-stripe-layout,
 .payment-action-panel {
   display: grid;
-  gap: 0.9rem;
+  gap: 16px;
 }
 
 .payment-error-card {
@@ -1349,58 +1318,15 @@ const completedReservationStatusItems = computed(() => [
   font-weight: 700;
 }
 
-.commercial-payment-brief {
-  display: grid;
-  gap: 0.8rem;
-}
-
-.commercial-payment-brief__hero-card {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0;
-  padding: 0;
-  border-radius: 22px;
-  border: 1px solid rgba(17, 17, 17, 0.08);
-  background: rgba(255, 255, 255, 0.85);
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.05);
-}
-
-.commercial-payment-brief__hero-item {
-  display: grid;
-  gap: 0.28rem;
-  min-height: 88px;
-  padding: 0.95rem 1rem;
-  align-content: center;
-}
-
-.commercial-payment-brief__hero-item + .commercial-payment-brief__hero-item {
-  border-left: 1px solid rgba(17, 17, 17, 0.08);
-}
-
-.commercial-payment-brief__hero-item span {
-  color: #756858;
-  font-size: 0.72rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.commercial-payment-brief__hero-item strong {
-  font-size: 1rem;
-  color: #171717;
-  line-height: 1.25;
-}
-
 .payment-action-panel--sticky {
-  position: sticky;
-  bottom: 0.75rem;
-  z-index: 3;
-  padding: 0.95rem 1rem;
-  border-radius: 20px;
-  border: 1px solid rgba(17, 17, 17, 0.08);
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.1);
-  backdrop-filter: blur(10px);
+  position: static;
+  z-index: auto;
+  padding: 0;
+  border-radius: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
 }
 
 .payment-action-panel__total {
@@ -1462,8 +1388,7 @@ const completedReservationStatusItems = computed(() => [
   }
 
   .payment-checkout {
-    grid-template-columns: minmax(0, 1fr);
-    width: min(92vw, 1320px);
+    width: min(94vw, 980px);
   }
 }
 
@@ -1477,26 +1402,9 @@ const completedReservationStatusItems = computed(() => [
   }
 
   .payment-checkout {
-    width: min(94vw, 1120px);
-    padding: 1rem;
-    border-radius: 24px;
-  }
-
-  .commercial-payment-brief__hero-card {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .commercial-payment-brief__hero-item:nth-child(3),
-  .commercial-payment-brief__hero-item:nth-child(4) {
-    border-top: 1px solid rgba(17, 17, 17, 0.08);
-  }
-
-  .commercial-payment-brief__hero-item:nth-child(3) {
-    border-left: 0;
-  }
-
-  .payment-action-panel--sticky {
-    z-index: 3;
+    width: min(94vw, 980px);
+    padding: 20px;
+    border-radius: 20px;
   }
 }
 
@@ -1518,23 +1426,14 @@ const completedReservationStatusItems = computed(() => [
     font-size: 1.6rem;
   }
 
-  .payment-progress--compact,
-  .payment-action-panel__total {
-    grid-template-columns: minmax(0, 1fr);
+  .payment-checkout__hero-topline {
     display: grid;
+    align-items: start;
+    gap: 8px;
   }
 
-  .commercial-payment-brief__hero-card {
-    grid-template-columns: 1fr;
-  }
-
-  .commercial-payment-brief__hero-item + .commercial-payment-brief__hero-item {
-    border-left: 0;
-    border-top: 1px solid rgba(17, 17, 17, 0.08);
-  }
-
-  .payment-action-panel--sticky {
-    bottom: 0;
+  .payment-checkout {
+    padding: 18px;
   }
 }
 </style>

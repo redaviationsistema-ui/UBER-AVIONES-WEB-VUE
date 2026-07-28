@@ -34,6 +34,10 @@ function mountCalendar(props = {}) {
   })
 }
 
+function findFirstEventCell(wrapper) {
+  return wrapper.find('[data-has-event="true"]')
+}
+
 describe('AdminAircraftAvailabilityCalendarSection', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -168,14 +172,18 @@ describe('AdminAircraftAvailabilityCalendarSection', () => {
     const wrapper = mountCalendar()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Calendario operativo de flota')
+    expect(wrapper.text()).toContain('Calendario Operativo de Flota')
     expect(wrapper.text()).toContain('Red Aviation')
     expect(wrapper.text()).toContain('XA-RED1')
-    expect(wrapper.text()).toContain('Pagos pendientes')
+    expect(wrapper.text()).toContain('Pendientes')
     expect(wrapper.text()).toContain('Resumen')
-    expect(wrapper.text()).toContain('Bloqueo administrativo')
+    expect(wrapper.text()).toContain('Nuevo bloqueo')
+    expect(wrapper.text()).toContain('Disponible')
 
-    await wrapper.find('.calendar-event').trigger('click')
+    const firstEventCell = findFirstEventCell(wrapper)
+    expect(firstEventCell).toBeTruthy()
+    await firstEventCell?.trigger('click')
+    await flushPromises()
 
     expect(wrapper.text()).toContain('Detalle del evento')
     expect(wrapper.text()).toContain('Juan Perez')
@@ -240,11 +248,15 @@ describe('AdminAircraftAvailabilityCalendarSection', () => {
     expect(companyOptions.some((option) => option.text().includes('Fallback Operator'))).toBe(true)
     expect(aircraftOptions.some((option) => option.text().includes('XA-FALL'))).toBe(true)
     expect(wrapper.text()).toContain('XA-FALL')
-    expect(wrapper.text()).toContain('Sin vuelos bloqueados en la ventana actual.')
+    expect(wrapper.text()).toContain('Citation XLS')
+    expect(wrapper.text()).not.toContain('No hay aeronaves para este filtro.')
   })
 
   it('creates and releases manual aircraft blocks from the calendar workspace', async () => {
     const wrapper = mountCalendar()
+    await flushPromises()
+
+    await wrapper.find('.calendar-primary-button').trigger('click')
     await flushPromises()
 
     const selects = wrapper.findAll('select')
@@ -252,7 +264,7 @@ describe('AdminAircraftAvailabilityCalendarSection', () => {
     await selects.at(4)?.setValue('maintenance')
     await wrapper.find('input[type="datetime-local"]').setValue('2026-07-12T08:00')
     await wrapper.findAll('input[type="datetime-local"]').at(1)?.setValue('2026-07-12T18:00')
-    await wrapper.find('textarea').setValue('Mantenimiento preventivo')
+    await wrapper.find('input[type="text"]').setValue('Mantenimiento preventivo')
     await wrapper.find('.manual-block-form button').trigger('click')
     await flushPromises()
 
@@ -265,7 +277,10 @@ describe('AdminAircraftAvailabilityCalendarSection', () => {
       ]),
     )
 
-    await wrapper.find('.calendar-event').trigger('click')
+    const firstEventCell = findFirstEventCell(wrapper)
+    expect(firstEventCell).toBeTruthy()
+    await firstEventCell?.trigger('click')
+    await flushPromises()
     const releaseButton = wrapper
       .findAll('.calendar-modal__actions button')
       .find((button) => button.text().includes('Liberar bloqueo'))
@@ -280,5 +295,89 @@ describe('AdminAircraftAvailabilityCalendarSection', () => {
         }),
       ]),
     )
+  })
+
+  it('validates the manual block form before posting when end is before start', async () => {
+    const wrapper = mountCalendar()
+    await flushPromises()
+
+    await wrapper.find('.calendar-primary-button').trigger('click')
+    await flushPromises()
+
+    const selects = wrapper.findAll('select')
+    await selects.at(3)?.setValue('12')
+    await wrapper.find('input[type="datetime-local"]').setValue('2026-07-12T18:00')
+    await wrapper.findAll('input[type="datetime-local"]').at(1)?.setValue('2026-07-12T08:00')
+    await wrapper.find('.manual-block-form button').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('La fecha fin debe ser posterior al inicio.')
+    expect(requestWithCandidates).not.toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          method: 'post',
+          path: '/admin/operations/aircraft-blocks',
+        }),
+      ]),
+    )
+  })
+
+  it('keeps the calendar usable when the dashboard endpoint fails', async () => {
+    requestWithCandidates.mockImplementation(async (candidates = []) => {
+      const path = candidates[0]?.path || ''
+
+      if (path === '/admin/aircraft-calendar') {
+        return {
+          calendar: [
+            {
+              id: 101,
+              aircraft_id: 12,
+              aircraft_name: 'XA-RED1 · Learjet 31A',
+              registration: 'XA-RED1',
+              model: 'Learjet 31A',
+              company_id: 3,
+              company_name: 'Red Aviation',
+              reservation_id: 154,
+              reservation_code: 'PV-TEST-154',
+              client_name: 'Juan Perez',
+              origin: 'MMTO',
+              destination: 'MMMX',
+              start: '2026-07-10T09:00:00',
+              end: '2026-07-10T13:30:00',
+              start_date: '2026-07-10',
+              status: 'paid',
+              block_status: 'active',
+              payment_status: 'paid',
+              reason: 'Reserva pagada',
+              color: '#22c55e',
+            },
+          ],
+          aircraft: [
+            {
+              id: 12,
+              company_id: 3,
+              company_name: 'Red Aviation',
+              aircraft_name: 'XA-RED1 · Learjet 31A',
+              registration: 'XA-RED1',
+              model: 'Learjet 31A',
+            },
+          ],
+          companies: [{ id: 3, name: 'Red Aviation' }],
+        }
+      }
+
+      if (path === '/admin/operations/dashboard') {
+        throw new Error('dashboard unavailable')
+      }
+
+      return {}
+    })
+
+    const wrapper = mountCalendar()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('XA-RED1')
+    expect(wrapper.text()).toContain('Calendario operativo')
+    expect(wrapper.text()).not.toContain('No fue posible cargar el calendario de disponibilidad.')
   })
 })

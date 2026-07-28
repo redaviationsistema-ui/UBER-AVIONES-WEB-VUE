@@ -11,6 +11,109 @@ const props = defineProps({
 
 const router = useRouter()
 
+const STATUS_PRIORITY = {
+  out_of_service: 7,
+  maintenance: 6,
+  manual_block: 5,
+  in_flight: 4,
+  pending_payment: 3,
+  paid: 2,
+  reserved: 2,
+  available: 1,
+  released: 0,
+  cancelled: 0,
+}
+
+const STATUS_META = {
+  available: {
+    label: 'Disponible',
+    shortLabel: 'Disponible',
+    dot: '#22c55e',
+    chipBackground: '#dcfce7',
+    chipColor: '#166534',
+    cardTone: 'available',
+  },
+  paid: {
+    label: 'Reservada',
+    shortLabel: 'Reservada',
+    dot: '#14b8a6',
+    chipBackground: '#ccfbf1',
+    chipColor: '#115e59',
+    cardTone: 'occupied',
+  },
+  reserved: {
+    label: 'Reservada',
+    shortLabel: 'Reservada',
+    dot: '#14b8a6',
+    chipBackground: '#ccfbf1',
+    chipColor: '#115e59',
+    cardTone: 'occupied',
+  },
+  pending_payment: {
+    label: 'Pago pendiente',
+    shortLabel: 'Pago pendiente',
+    dot: '#eab308',
+    chipBackground: '#fef3c7',
+    chipColor: '#854d0e',
+    cardTone: 'pending',
+  },
+  in_flight: {
+    label: 'Vuelo en curso',
+    shortLabel: 'Vuelo',
+    dot: '#3b82f6',
+    chipBackground: '#dbeafe',
+    chipColor: '#1d4ed8',
+    cardTone: 'flight',
+  },
+  maintenance: {
+    label: 'Mantenimiento',
+    shortLabel: 'Mantenimiento',
+    dot: '#8b5cf6',
+    chipBackground: '#ede9fe',
+    chipColor: '#6d28d9',
+    cardTone: 'maintenance',
+  },
+  out_of_service: {
+    label: 'Fuera de servicio',
+    shortLabel: 'Fuera de servicio',
+    dot: '#ef4444',
+    chipBackground: '#fee2e2',
+    chipColor: '#b91c1c',
+    cardTone: 'out',
+  },
+  manual_block: {
+    label: 'Bloqueo manual',
+    shortLabel: 'Bloqueo manual',
+    dot: '#111827',
+    chipBackground: '#e2e8f0',
+    chipColor: '#334155',
+    cardTone: 'manual',
+  },
+  released: {
+    label: 'Liberada',
+    shortLabel: 'Liberada',
+    dot: '#94a3b8',
+    chipBackground: '#f1f5f9',
+    chipColor: '#475569',
+    cardTone: 'neutral',
+  },
+  cancelled: {
+    label: 'Cancelada',
+    shortLabel: 'Cancelada',
+    dot: '#94a3b8',
+    chipBackground: '#f1f5f9',
+    chipColor: '#475569',
+    cardTone: 'neutral',
+  },
+}
+
+const blockTypeOptions = [
+  { value: 'manual_block', label: 'Bloqueo manual' },
+  { value: 'maintenance', label: 'Mantenimiento' },
+  { value: 'inspection', label: 'Inspeccion' },
+  { value: 'out_of_service', label: 'Fuera de servicio' },
+]
+
 const filters = reactive({
   companyId: 'all',
   aircraftId: 'all',
@@ -25,14 +128,6 @@ const anchorDate = ref(toDateKey(new Date()))
 const calendarEvents = ref([])
 const aircraftOptions = ref([])
 const companyOptions = ref([])
-const summary = ref({
-  total_aircraft: 0,
-  available_aircraft: 0,
-  occupied_aircraft: 0,
-  maintenance_aircraft: 0,
-  upcoming_flights_today: 0,
-  flights_by_company: [],
-})
 const operationsDashboard = ref({
   flights_today: 0,
   aircraft_available: 0,
@@ -43,9 +138,8 @@ const operationsDashboard = ref({
   upcoming_flights: [],
   operational_alerts: [],
 })
-const operationHistory = ref([])
-const adminNotifications = ref([])
 const selectedEvent = ref(null)
+const manualBlockDrawerOpen = ref(false)
 const submittingManualBlock = ref(false)
 const submittingRelease = ref(false)
 const manualBlockError = ref('')
@@ -61,6 +155,7 @@ let latestRequestId = 0
 
 const statusOptions = [
   { value: 'all', label: 'Todos los estados' },
+  { value: 'available', label: 'Disponible' },
   { value: 'paid', label: 'Reserva pagada' },
   { value: 'pending_payment', label: 'Pago pendiente' },
   { value: 'in_flight', label: 'Vuelo en curso' },
@@ -70,15 +165,6 @@ const statusOptions = [
   { value: 'reserved', label: 'Reservada' },
   { value: 'released', label: 'Liberada' },
   { value: 'cancelled', label: 'Cancelada' },
-]
-
-const legendItems = [
-  { label: 'Reserva pagada', color: '#22c55e' },
-  { label: 'Pago pendiente', color: '#eab308' },
-  { label: 'Vuelo en curso', color: '#3b82f6' },
-  { label: 'Mantenimiento', color: '#f97316' },
-  { label: 'Fuera de servicio', color: '#ef4444' },
-  { label: 'Bloqueo manual', color: '#9ca3af' },
 ]
 
 function pad(value) {
@@ -94,7 +180,8 @@ function toDateKey(date) {
 function parseDate(value) {
   if (!value) return null
   if (value instanceof Date) return new Date(value.getTime())
-  const normalized = typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00` : value
+  const normalized =
+    typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00` : value
   const parsed = new Date(normalized)
   return Number.isNaN(parsed.getTime()) ? null : parsed
 }
@@ -125,6 +212,36 @@ function addMonths(value, amount) {
   if (!date) return null
   date.setMonth(date.getMonth() + amount)
   return date
+}
+
+function formatCalendarDay(value) {
+  const parsedDate = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(parsedDate.getTime())) return ''
+
+  const weekday = new Intl.DateTimeFormat('es-MX', {
+    weekday: 'short',
+  })
+    .format(parsedDate)
+    .replace('.', '')
+
+  const day = new Intl.DateTimeFormat('es-MX', {
+    day: '2-digit',
+  }).format(parsedDate)
+
+  const normalizedWeekday = weekday.charAt(0).toUpperCase() + weekday.slice(1)
+
+  return `${normalizedWeekday} ${day}`
+}
+
+function isTodayDate(value) {
+  return toDateKey(value) === toDateKey(new Date())
+}
+
+function isWeekendDate(value) {
+  const parsedDate = parseDate(value)
+  if (!parsedDate) return false
+  const day = parsedDate.getDay()
+  return day === 0 || day === 6
 }
 
 function startOfWeek(value) {
@@ -165,6 +282,87 @@ function formatDateTime(value) {
   }).format(date)
 }
 
+function normalizeMediaUrl(value = '') {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+  if (/^(https?:)?\/\//i.test(raw) || raw.startsWith('/')) return raw
+  return raw
+}
+
+function normalizeImageCollection(value) {
+  if (!value) return []
+  if (Array.isArray(value)) return value
+  if (typeof value === 'string') return [value]
+  if (typeof value === 'object') return [value]
+  return []
+}
+
+function getPrimaryImageValue(raw = {}) {
+  return normalizeMediaUrl(
+    raw.image_url ||
+      raw.imageUrl ||
+      raw.image ||
+      raw.image_path ||
+      raw.imagePath ||
+      raw.photo ||
+      raw.photo_url ||
+      raw.photoUrl ||
+      raw.cover_image ||
+      raw.coverImage ||
+      raw.cover_photo ||
+      raw.coverPhoto ||
+      raw.thumbnail ||
+      raw.thumbnail_url ||
+      raw.thumbnailUrl ||
+      raw.url ||
+      raw.path ||
+      raw.src ||
+      '',
+  )
+}
+
+function primaryAircraftImage(item = {}) {
+  const images = [
+    ...normalizeImageCollection(item.images),
+    ...normalizeImageCollection(item.aircraft_images),
+    ...normalizeImageCollection(item.aircraftImages),
+    ...normalizeImageCollection(item.gallery_images),
+    ...normalizeImageCollection(item.galleryImages),
+    ...normalizeImageCollection(item.gallery),
+    ...normalizeImageCollection(item.photos),
+    ...normalizeImageCollection(item.media),
+  ]
+
+  const firstImage = images
+    .map((image) => {
+      if (typeof image === 'string') return normalizeMediaUrl(image)
+      return getPrimaryImageValue(image || {})
+    })
+    .find(Boolean)
+
+  return getPrimaryImageValue(item) || firstImage || ''
+}
+
+function normalizeStatus(value = '') {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+
+  if (!normalized) return 'available'
+  if (normalized === 'inspection') return 'maintenance'
+  if (['blocked', 'manual', 'manualblock'].includes(normalized)) return 'manual_block'
+  if (normalized === 'fuera_de_servicio') return 'out_of_service'
+  if (normalized === 'pago_pendiente') return 'pending_payment'
+  if (normalized === 'vuelo_en_curso') return 'in_flight'
+  if (normalized === 'reserva_pagada') return 'paid'
+  return STATUS_META[normalized] ? normalized : 'manual_block'
+}
+
+function getStatusMeta(value = '') {
+  return STATUS_META[normalizeStatus(value)] || STATUS_META.manual_block
+}
+
 function normalizeAircraftOption(item = {}) {
   return {
     id: item.id || item.aircraft_id || null,
@@ -185,6 +383,7 @@ function normalizeAircraftOption(item = {}) {
     category: item.category || '',
     status: item.status || '',
     base_airport: item.base_airport || '',
+    photo_url: primaryAircraftImage(item),
   }
 }
 
@@ -209,23 +408,14 @@ const visibleRange = computed(() => {
   const base = parseDate(anchorDate.value) || new Date()
 
   if (viewMode.value === 'day') {
-    return {
-      start: startOfDay(base),
-      end: endOfDay(base),
-    }
+    return { start: startOfDay(base), end: endOfDay(base) }
   }
 
   if (viewMode.value === 'week') {
-    return {
-      start: startOfWeek(base),
-      end: endOfWeek(base),
-    }
+    return { start: startOfWeek(base), end: endOfWeek(base) }
   }
 
-  return {
-    start: startOfMonth(base),
-    end: endOfMonth(base),
-  }
+  return { start: startOfMonth(base), end: endOfMonth(base) }
 })
 
 const rangeTitle = computed(() => {
@@ -249,13 +439,10 @@ const rangeTitle = computed(() => {
     }).format(end)}`
   }
 
-  return new Intl.DateTimeFormat('es-MX', {
-    month: 'long',
-    year: 'numeric',
-  }).format(start)
+  return new Intl.DateTimeFormat('es-MX', { month: 'long', year: 'numeric' }).format(start)
 })
 
-const slotWidth = computed(() => (viewMode.value === 'day' ? 88 : viewMode.value === 'week' ? 120 : 44))
+const slotWidth = computed(() => (viewMode.value === 'day' ? 52 : 48))
 
 const timelineSlots = computed(() => {
   const { start, end } = visibleRange.value
@@ -268,48 +455,84 @@ const timelineSlots = computed(() => {
       return {
         key: `${toDateKey(date)}-${hour}`,
         primary: pad(hour),
-        secondary: 'h',
+        secondary: '',
+        start: new Date(date.getTime()),
+        end: new Date(date.getTime() + 60 * 60 * 1000 - 1),
       }
     })
   }
 
   const days = []
   let cursor = new Date(start.getTime())
+
   while (cursor <= end) {
     days.push({
       key: toDateKey(cursor),
-      primary: new Intl.DateTimeFormat('es-MX', { weekday: 'short' }).format(cursor),
-      secondary: new Intl.DateTimeFormat('es-MX', { day: '2-digit' }).format(cursor),
+      primary: new Intl.DateTimeFormat('es-MX', { day: 'numeric' }).format(cursor),
+      secondary: new Intl.DateTimeFormat('es-MX', { weekday: 'short' }).format(cursor),
+      start: startOfDay(cursor),
+      end: endOfDay(cursor),
     })
     cursor = addDays(cursor, 1)
   }
+
   return days
+})
+
+const mergedAircraftOptions = computed(() => {
+  const map = new Map()
+
+  ;[...props.aircraft.map(normalizeAircraftOption), ...aircraftOptions.value].forEach((item) => {
+    const key = String(item.id || '')
+    if (!key) return
+    const current = map.get(key) || {}
+
+    map.set(key, {
+      ...current,
+      ...item,
+      company_name: item.company_name || current.company_name || 'Operador sin nombre',
+      aircraft_name: item.aircraft_name || current.aircraft_name || 'Aeronave',
+      model: item.model || current.model || '',
+      registration: item.registration || current.registration || '',
+      category: item.category || current.category || '',
+      photo_url: item.photo_url || current.photo_url || '',
+    })
+  })
+
+  return Array.from(map.values())
 })
 
 const normalizedEvents = computed(() =>
   calendarEvents.value
     .map((item) => {
-      const start = parseDate(item.start)
-      const end = parseDate(item.end)
+      const start = parseDate(item.start || item.start_date)
+      const end = parseDate(item.end || item.end_date)
       if (!start || !end) return null
+
+      const status = normalizeStatus(item.status)
+      const statusMeta = getStatusMeta(status)
 
       return {
         ...item,
+        status,
+        statusMeta,
+        statusLabel: statusMeta.label,
         startDate: start,
         endDate: end,
+        aircraft_name: item.aircraft_name || item.model || item.registration || 'Aeronave',
+        registration: item.registration || '',
+        model: item.model || '',
+        company_name: item.company_name || 'Operador sin nombre',
+        origin: item.origin || 'Origen por confirmar',
+        destination: item.destination || 'Destino por confirmar',
       }
     })
     .filter(Boolean),
 )
 
-const filteredEvents = computed(() => {
-  if (filters.status === 'all') return normalizedEvents.value
-  return normalizedEvents.value.filter((event) => event.status === filters.status)
-})
-
 const activeAircraftOptions = computed(() => {
-  if (filters.companyId === 'all') return aircraftOptions.value
-  return aircraftOptions.value.filter((item) => String(item.company_id || '') === String(filters.companyId))
+  if (filters.companyId === 'all') return mergedAircraftOptions.value
+  return mergedAircraftOptions.value.filter((item) => String(item.company_id || '') === String(filters.companyId))
 })
 
 const visibleAircraftOptions = computed(() => {
@@ -319,7 +542,7 @@ const visibleAircraftOptions = computed(() => {
 
 const eventsByAircraft = computed(() => {
   const map = new Map()
-  filteredEvents.value.forEach((event) => {
+  normalizedEvents.value.forEach((event) => {
     const key = String(event.aircraft_id || '')
     if (!map.has(key)) map.set(key, [])
     map.get(key).push(event)
@@ -327,105 +550,100 @@ const eventsByAircraft = computed(() => {
   return map
 })
 
-const totalVisibleMs = computed(() => {
-  const { start, end } = visibleRange.value
-  return Math.max((end?.getTime() || 0) - (start?.getTime() || 0), 1)
-})
-
-function buildEventStyle(event, track) {
-  const startMs = Math.max(event.startDate.getTime(), visibleRange.value.start.getTime())
-  const endMs = Math.min(event.endDate.getTime(), visibleRange.value.end.getTime())
-  const left = ((startMs - visibleRange.value.start.getTime()) / totalVisibleMs.value) * 100
-  const width = Math.max(((endMs - startMs) / totalVisibleMs.value) * 100, 1.8)
-
-  return {
-    left: `${left}%`,
-    width: `${width}%`,
-    top: `${track * 40 + 8}px`,
-    backgroundColor: event.color || '#9ca3af',
-  }
+function eventOverlapsSlot(event, slot) {
+  return event.startDate.getTime() <= slot.end.getTime() && event.endDate.getTime() >= slot.start.getTime()
 }
 
-function assignTracks(events = []) {
-  const sorted = [...events].sort((left, right) => left.startDate - right.startDate)
-  const tracks = []
-  const items = []
+function pickPrimaryCellEvent(events = [], slot) {
+  return [...events]
+    .filter((event) => eventOverlapsSlot(event, slot))
+    .sort((left, right) => {
+      const priorityDelta = (STATUS_PRIORITY[right.status] || 0) - (STATUS_PRIORITY[left.status] || 0)
+      if (priorityDelta !== 0) return priorityDelta
+      return left.startDate.getTime() - right.startDate.getTime()
+    })[0] || null
+}
 
-  sorted.forEach((event) => {
-    let trackIndex = tracks.findIndex((trackEnd) => event.startDate.getTime() >= trackEnd)
-    if (trackIndex === -1) {
-      trackIndex = tracks.length
-      tracks.push(event.endDate.getTime())
-    } else {
-      tracks[trackIndex] = event.endDate.getTime()
-    }
-
-    items.push({
-      ...event,
-      track: trackIndex,
-      style: buildEventStyle(event, trackIndex),
-    })
-  })
-
-  return {
-    items,
-    trackCount: Math.max(tracks.length, 1),
-  }
+function rowMatchesStatus(row) {
+  if (filters.status === 'all') return true
+  return row.cells.some((cell) => cell.status === filters.status)
 }
 
 const calendarRows = computed(() =>
-  visibleAircraftOptions.value.map((aircraft) => {
-    const events = eventsByAircraft.value.get(String(aircraft.id || '')) || []
-    const trackLayout = assignTracks(events)
+  visibleAircraftOptions.value
+    .map((aircraft) => {
+      const events = eventsByAircraft.value.get(String(aircraft.id || '')) || []
+      const cells = timelineSlots.value.map((slot) => {
+        const matchingEvents = events.filter((event) => eventOverlapsSlot(event, slot))
+        const primaryEvent = pickPrimaryCellEvent(events, slot)
+        const status = primaryEvent?.status || 'available'
+        const meta = getStatusMeta(status)
 
-    return {
-      ...aircraft,
-      events: trackLayout.items,
-      rowHeight: Math.max(trackLayout.trackCount * 40 + 12, 54),
-    }
-  }),
+        return {
+          key: `${aircraft.id}-${slot.key}`,
+          slot,
+          event: primaryEvent,
+          events: matchingEvents,
+          status,
+          label: meta.shortLabel,
+          meta,
+        }
+      })
+
+      return {
+        ...aircraft,
+        typeLabel: aircraft.category || aircraft.model || 'Aviacion privada',
+        cells,
+      }
+    })
+    .filter(rowMatchesStatus),
 )
 
 const timelineStyle = computed(() => ({
   '--slots': timelineSlots.value.length || 1,
-  minWidth: `${Math.max((timelineSlots.value.length || 1) * slotWidth.value, 720)}px`,
+  '--slot-width': `${slotWidth.value}px`,
+  minWidth: `${Math.max(536 + (timelineSlots.value.length || 1) * slotWidth.value, 980)}px`,
 }))
 
-const flightsByCompany = computed(() => {
-  return Array.from(
-    filteredEvents.value.reduce((accumulator, event) => {
-      const key = String(event.company_id || 'sin-empresa')
-      const current = accumulator.get(key) || {
-        company_id: event.company_id || null,
-        company_name: event.company_name || 'Operador sin nombre',
-        total: 0,
-      }
-      current.total += 1
-      accumulator.set(key, current)
-      return accumulator
-    }, new Map()).values(),
-  )
-    .sort((left, right) => right.total - left.total)
-})
-
 const visibleSummary = computed(() => {
-  const visibleAircraftIds = new Set(visibleAircraftOptions.value.map((item) => String(item.id || '')))
-  const occupiedAircraftIds = new Set(filteredEvents.value.map((event) => String(event.aircraft_id || '')))
-  const maintenanceAircraftIds = new Set(
-    filteredEvents.value
-      .filter((event) => ['maintenance', 'out_of_service'].includes(event.status))
+  const visibleAircraftIds = new Set(calendarRows.value.map((item) => String(item.id || '')))
+  const occupiedAircraftIds = new Set(
+    normalizedEvents.value
+      .filter((event) => ['paid', 'reserved', 'pending_payment', 'in_flight'].includes(event.status))
       .map((event) => String(event.aircraft_id || '')),
   )
+  const maintenanceAircraftIds = new Set(
+    normalizedEvents.value
+      .filter((event) => ['maintenance', 'out_of_service', 'manual_block'].includes(event.status))
+      .map((event) => String(event.aircraft_id || '')),
+  )
+  const unavailableAircraftIds = new Set([...occupiedAircraftIds, ...maintenanceAircraftIds])
   const today = toDateKey(new Date())
 
   return {
-    total_aircraft: visibleAircraftOptions.value.length,
-    available_aircraft: Math.max(visibleAircraftIds.size - occupiedAircraftIds.size, 0),
+    total_aircraft: calendarRows.value.length,
+    available_aircraft: Math.max(visibleAircraftIds.size - unavailableAircraftIds.size, 0),
     occupied_aircraft: occupiedAircraftIds.size,
     maintenance_aircraft: maintenanceAircraftIds.size,
-    upcoming_flights_today: filteredEvents.value.filter((event) => event.start_date === today).length,
+    upcoming_flights_today: normalizedEvents.value.filter((event) => event.start_date === today).length,
   }
 })
+
+const stateLegendItems = computed(() =>
+  ['available', 'pending_payment', 'in_flight', 'maintenance', 'out_of_service', 'manual_block'].map((status) => {
+    const total =
+      status === 'available'
+        ? visibleSummary.value.available_aircraft
+        : normalizedEvents.value.filter((event) => event.status === status).length
+
+    return {
+      status,
+      label: getStatusMeta(status).label,
+      color: getStatusMeta(status).dot,
+      total,
+    }
+  }),
+)
 
 const lastUpdatedLabel = computed(() => {
   if (!lastUpdatedAt.value) return ''
@@ -436,6 +654,20 @@ const lastUpdatedLabel = computed(() => {
     minute: '2-digit',
   }).format(lastUpdatedAt.value)
 })
+
+const manualBlockValidationMessage = computed(() => {
+  if (manualBlockDraft.aircraftId === 'all') return 'Selecciona una aeronave para crear el bloqueo.'
+  if (!manualBlockDraft.start || !manualBlockDraft.end) return 'Define fecha de inicio y fin.'
+  const start = parseDate(manualBlockDraft.start)
+  const end = parseDate(manualBlockDraft.end)
+  if (!start || !end) return 'Revisa el formato de las fechas.'
+  if (end.getTime() <= start.getTime()) return 'La fecha fin debe ser posterior al inicio.'
+  return ''
+})
+
+const manualBlockCanSubmit = computed(
+  () => !submittingManualBlock.value && !manualBlockValidationMessage.value,
+)
 
 async function loadCalendar() {
   const requestId = ++latestRequestId
@@ -468,63 +700,54 @@ async function loadCalendar() {
       pickCollection(response, ['companies']).map(normalizeCompanyOption),
       (item) => String(item.id || item.name || ''),
     )
-    summary.value = response.summary || summary.value
-    lastUpdatedAt.value = new Date()
 
     if (!companyOptions.value.length) {
-      companyOptions.value = uniqueBy(props.providers.map(normalizeCompanyOption), (item) => String(item.id || item.name || ''))
+      companyOptions.value = uniqueBy(
+        props.providers.map(normalizeCompanyOption),
+        (item) => String(item.id || item.name || ''),
+      )
     }
 
     if (!aircraftOptions.value.length) {
-      aircraftOptions.value = uniqueBy(props.aircraft.map(normalizeAircraftOption), (item) => String(item.id || ''))
+      aircraftOptions.value = uniqueBy(
+        props.aircraft.map(normalizeAircraftOption),
+        (item) => String(item.id || ''),
+      )
     }
 
     if (manualBlockDraft.aircraftId === 'all' && aircraftOptions.value.length === 1) {
       manualBlockDraft.aircraftId = String(aircraftOptions.value[0].id)
     }
+
+    lastUpdatedAt.value = new Date()
   } catch (error) {
     if (requestId !== latestRequestId) return
     errorMessage.value = error?.message || 'No fue posible cargar el calendario de disponibilidad.'
   } finally {
-    if (requestId === latestRequestId) {
-      loading.value = false
-    }
+    if (requestId === latestRequestId) loading.value = false
   }
 }
 
 async function loadOperationalPanels() {
   const companyId = filters.companyId !== 'all' ? filters.companyId : undefined
 
-  const [dashboardResponse, historyResponse, notificationsResponse] = await Promise.all([
+  const [dashboardResponse] = await Promise.allSettled([
     requestWithCandidates([
       {
         method: 'get',
         path: '/admin/operations/dashboard',
-        query: (companyId ? { company_id: companyId } : {}),
-        timeoutMs: 20000,
-      },
-    ]),
-    requestWithCandidates([
-      {
-        method: 'get',
-        path: '/admin/operations/history',
-        query: { per_page: 8 },
-        timeoutMs: 20000,
-      },
-    ]),
-    requestWithCandidates([
-      {
-        method: 'get',
-        path: '/admin/operations/notifications',
-        query: { per_page: 8 },
+        query: companyId ? { company_id: companyId } : {},
         timeoutMs: 20000,
       },
     ]),
   ])
 
-  operationsDashboard.value = dashboardResponse.dashboard || operationsDashboard.value
-  operationHistory.value = pickCollection(historyResponse, ['history', 'data'])
-  adminNotifications.value = pickCollection(notificationsResponse, ['notifications', 'data'])
+  if (dashboardResponse.status === 'fulfilled') {
+    operationsDashboard.value = {
+      ...operationsDashboard.value,
+      ...(dashboardResponse.value?.dashboard || {}),
+    }
+  }
 }
 
 async function loadOperationalWorkspace() {
@@ -564,6 +787,15 @@ function closeEventModal() {
   releaseError.value = ''
 }
 
+function openManualBlockDrawer() {
+  manualBlockDrawerOpen.value = true
+}
+
+function closeManualBlockDrawer() {
+  manualBlockDrawerOpen.value = false
+  manualBlockError.value = ''
+}
+
 function openReservationFlow() {
   if (!selectedEvent.value?.reservation_id) return
   router.push({
@@ -578,6 +810,11 @@ async function submitManualBlock() {
   if (submittingManualBlock.value) return
 
   manualBlockError.value = ''
+  if (manualBlockValidationMessage.value) {
+    manualBlockError.value = manualBlockValidationMessage.value
+    return
+  }
+
   submittingManualBlock.value = true
 
   try {
@@ -607,10 +844,10 @@ async function submitManualBlock() {
       filters.aircraftId = String(block.aircraft_id)
     }
 
+    manualBlockDrawerOpen.value = false
     await loadOperationalWorkspace()
   } catch (error) {
-    manualBlockError.value =
-      error?.message || 'No fue posible crear el bloqueo administrativo.'
+    manualBlockError.value = error?.message || 'No fue posible crear el bloqueo administrativo.'
   } finally {
     submittingManualBlock.value = false
   }
@@ -633,6 +870,7 @@ async function releaseSelectedBlock() {
         timeoutMs: 20000,
       },
     ])
+
     closeEventModal()
     await loadOperationalWorkspace()
   } catch (error) {
@@ -667,11 +905,17 @@ watch(
 
 onMounted(() => {
   if (!aircraftOptions.value.length && props.aircraft.length) {
-    aircraftOptions.value = uniqueBy(props.aircraft.map(normalizeAircraftOption), (item) => String(item.id || ''))
+    aircraftOptions.value = uniqueBy(
+      props.aircraft.map(normalizeAircraftOption),
+      (item) => String(item.id || ''),
+    )
   }
 
   if (!companyOptions.value.length && props.providers.length) {
-    companyOptions.value = uniqueBy(props.providers.map(normalizeCompanyOption), (item) => String(item.id || item.name || ''))
+    companyOptions.value = uniqueBy(
+      props.providers.map(normalizeCompanyOption),
+      (item) => String(item.id || item.name || ''),
+    )
   }
 
   if (manualBlockDraft.aircraftId === 'all' && aircraftOptions.value.length === 1) {
@@ -682,17 +926,51 @@ onMounted(() => {
 
 <template>
   <section class="surface aircraft-calendar-page">
-    <header class="calendar-page__head">
-      <div>
+    <header class="calendar-header-card">
+      <div class="calendar-header-card__copy">
         <span class="eyebrow">Disponibilidad de aeronaves</span>
-        <h3>Calendario operativo de flota</h3>
-        <p>
-          Consulta ocupacion real por operador usando los bloques de disponibilidad y la reserva asociada.
-        </p>
+        <h3>Calendario Operativo de Flota</h3>
+        <p>Consulta ocupacion real por operador usando bloques de disponibilidad.</p>
       </div>
 
-      <div class="calendar-page__actions">
-        <div class="view-switch">
+      <button type="button" class="calendar-refresh-button" @click="refreshCalendar">
+        <span class="calendar-button__icon" aria-hidden="true">↻</span>
+        <span>Actualizar</span>
+      </button>
+    </header>
+
+    <section class="calendar-shell-card">
+      <div class="calendar-toolbar-row">
+        <label>
+          <span>Empresa</span>
+          <select v-model="filters.companyId">
+            <option value="all">Todas</option>
+            <option v-for="company in companyOptions" :key="company.id" :value="String(company.id)">
+              {{ company.name }}
+            </option>
+          </select>
+        </label>
+
+        <label>
+          <span>Aeronave</span>
+          <select v-model="filters.aircraftId">
+            <option value="all">Todas</option>
+            <option v-for="item in activeAircraftOptions" :key="item.id" :value="String(item.id)">
+              {{ item.aircraft_name }}
+            </option>
+          </select>
+        </label>
+
+        <label>
+          <span>Estado</span>
+          <select v-model="filters.status">
+            <option v-for="option in statusOptions" :key="option.value" :value="option.value">
+              {{ option.label }}
+            </option>
+          </select>
+        </label>
+
+        <div class="calendar-view-toggle">
           <button
             v-for="mode in ['month', 'week', 'day']"
             :key="mode"
@@ -700,227 +978,235 @@ onMounted(() => {
             :class="{ active: viewMode === mode }"
             @click="viewMode = mode"
           >
-            <span class="calendar-button__icon" aria-hidden="true">
-              {{ mode === 'month' ? '▦' : mode === 'week' ? '☰' : '◷' }}
-            </span>
-            <span>{{ mode === 'month' ? 'Mes' : mode === 'week' ? 'Semana' : 'Dia' }}</span>
+            {{ mode === 'month' ? 'Mes' : mode === 'week' ? 'Semana' : 'Dia' }}
           </button>
         </div>
 
-        <div class="range-switch">
-          <button type="button" @click="shiftRange(-1)">
-            <span class="calendar-button__icon" aria-hidden="true">←</span>
-            <span>Anterior</span>
-          </button>
+        <div class="calendar-nav-controls">
+          <button type="button" @click="shiftRange(-1)">Anterior</button>
           <strong>{{ rangeTitle }}</strong>
-          <button type="button" @click="shiftRange(1)">
-            <span>Siguiente</span>
-            <span class="calendar-button__icon" aria-hidden="true">→</span>
-          </button>
-          <button type="button" class="ghost" @click="goToday">
-            <span class="calendar-button__icon" aria-hidden="true">●</span>
-            <span>Hoy</span>
-          </button>
-          <button type="button" class="ghost" @click="refreshCalendar">
-            <span class="calendar-button__icon" aria-hidden="true">↻</span>
-            <span>Actualizar</span>
-          </button>
+          <button type="button" class="ghost" @click="goToday">Hoy</button>
+          <button type="button" @click="shiftRange(1)">Siguiente</button>
         </div>
+
+        <button type="button" class="calendar-primary-button" @click="openManualBlockDrawer">
+          Nuevo bloqueo
+        </button>
       </div>
-    </header>
 
-    <section class="calendar-toolbar">
-      <label>
-        <span>Empresa</span>
-        <select v-model="filters.companyId">
-          <option value="all">Todas</option>
-          <option v-for="company in companyOptions" :key="company.id" :value="String(company.id)">
-            {{ company.name }}
-          </option>
-        </select>
-      </label>
-
-      <label>
-        <span>Aeronave</span>
-        <select v-model="filters.aircraftId">
-          <option value="all">Todas</option>
-          <option v-for="item in activeAircraftOptions" :key="item.id" :value="String(item.id)">
-            {{ item.aircraft_name }}
-          </option>
-        </select>
-      </label>
-
-      <label>
-        <span>Estado</span>
-        <select v-model="filters.status">
-          <option v-for="option in statusOptions" :key="option.value" :value="option.value">
-            {{ option.label }}
-          </option>
-        </select>
-      </label>
-    </section>
-
-    <section class="calendar-legend">
-      <article v-for="item in legendItems" :key="item.label">
-        <span :style="{ backgroundColor: item.color }"></span>
-        <strong>{{ item.label }}</strong>
-      </article>
-    </section>
-
-    <div class="calendar-layout">
-      <section class="calendar-stage">
-        <div v-if="loading" class="calendar-state">Cargando disponibilidad de flota...</div>
-        <div v-else-if="errorMessage" class="calendar-state calendar-state--error">{{ errorMessage }}</div>
-        <div v-else-if="!calendarRows.length" class="calendar-state">
-          No hay aeronaves para este filtro.
-        </div>
-        <div v-else class="calendar-grid-wrap">
-          <div class="calendar-grid" :style="timelineStyle">
-            <div class="calendar-grid__row calendar-grid__row--head">
-              <div class="calendar-aircraft-head">Flota</div>
-              <div v-for="slot in timelineSlots" :key="slot.key" class="calendar-slot-head">
-                <strong>{{ slot.primary }}</strong>
-                <span>{{ slot.secondary }}</span>
-              </div>
+      <div class="calendar-layout">
+        <aside class="calendar-sidebar-card">
+          <section class="sidebar-section">
+            <div class="sidebar-section__head">
+              <strong>Estados</strong>
+              <span class="muted">Lectura operativa por estado actual.</span>
             </div>
 
-            <div
-              v-for="row in calendarRows"
-              :key="row.id"
-              class="calendar-grid__row calendar-grid__row--body"
-              :style="{ '--row-height': `${row.rowHeight}px` }"
-            >
-              <div class="calendar-aircraft-card">
-                <strong>{{ row.registration || row.model || row.aircraft_name }}</strong>
-                <span>{{ row.model || row.aircraft_name }}</span>
-                <small>{{ row.company_name }}</small>
-              </div>
-
-              <div
-                class="calendar-row-track"
-                :style="{ gridColumn: `span ${timelineSlots.length}`, minHeight: `${row.rowHeight}px` }"
-              >
-                <div class="calendar-row-track__slots">
-                  <div v-for="slot in timelineSlots" :key="`${row.id}-${slot.key}`" class="calendar-slot-cell"></div>
+            <div class="state-legend-list">
+              <article v-for="item in stateLegendItems" :key="item.status" class="state-legend-item">
+                <div class="state-legend-item__label">
+                  <span class="state-dot" :style="{ backgroundColor: item.color }"></span>
+                  <strong>{{ item.label }}</strong>
                 </div>
+                <small>{{ item.total }}</small>
+              </article>
+            </div>
+          </section>
 
-                <button
-                  v-for="event in row.events"
-                  :key="event.id"
-                  type="button"
-                  class="calendar-event"
-                  :style="event.style"
-                  @click="openEvent(event)"
-                >
-                  <strong>{{ event.registration || event.model || event.aircraft_name }}</strong>
-                  <span>{{ event.client_name || event.company_name }}</span>
-                  <small>{{ event.origin }} - {{ event.destination }}</small>
+          <section class="sidebar-section">
+            <div class="sidebar-section__head">
+              <strong>Resumen</strong>
+              <span v-if="lastUpdatedLabel" class="muted">Actualizado {{ lastUpdatedLabel }}</span>
+            </div>
+
+            <div class="sidebar-summary-grid">
+              <article class="summary-stat-card">
+                <span>Disponible</span>
+                <strong>{{ visibleSummary.available_aircraft || 0 }}</strong>
+              </article>
+              <article class="summary-stat-card">
+                <span>Ocupadas</span>
+                <strong>{{ visibleSummary.occupied_aircraft || 0 }}</strong>
+              </article>
+              <article class="summary-stat-card">
+                <span>Mantenimiento</span>
+                <strong>{{ visibleSummary.maintenance_aircraft || 0 }}</strong>
+              </article>
+              <article class="summary-stat-card">
+                <span>Pendientes</span>
+                <strong>{{ operationsDashboard.payments_pending || 0 }}</strong>
+              </article>
+            </div>
+          </section>
+        </aside>
+
+        <div class="calendar-main-column">
+          <article class="fleet-calendar-card">
+            <div class="fleet-calendar-card__head">
+              <div>
+                <strong>Calendario operativo</strong>
+                <p class="muted">Consulta la ocupacion de cada aeronave por ventana seleccionada.</p>
+              </div>
+              <div class="fleet-calendar-card__actions">
+                <span v-if="lastUpdatedLabel" class="fleet-calendar-card__stamp">Actualizado {{ lastUpdatedLabel }}</span>
+                <button type="button" class="calendar-primary-button" @click="openManualBlockDrawer">
+                  Nuevo bloqueo
                 </button>
               </div>
             </div>
-          </div>
+
+            <div v-if="loading" class="calendar-state">Cargando disponibilidad de flota...</div>
+            <div v-else-if="errorMessage" class="calendar-state calendar-state--error">{{ errorMessage }}</div>
+            <div v-else-if="!calendarRows.length" class="calendar-state">
+              No hay aeronaves para este filtro.
+            </div>
+            <div v-else class="fleet-calendar-wrap">
+              <div class="fleet-calendar-grid" :style="timelineStyle">
+                <div class="fleet-calendar-grid__row fleet-calendar-grid__row--head">
+                  <div class="fleet-calendar-grid__head fleet-calendar-grid__head--photo">Foto</div>
+                  <div class="fleet-calendar-grid__head fleet-calendar-grid__head--registration">Matricula</div>
+                  <div class="fleet-calendar-grid__head fleet-calendar-grid__head--model">Modelo</div>
+                  <div class="fleet-calendar-grid__head fleet-calendar-grid__head--type">Tipo</div>
+                  <div
+                    v-for="slot in timelineSlots"
+                    :key="slot.key"
+                    class="fleet-calendar-grid__head fleet-calendar-grid__head--slot"
+                    :title="viewMode === 'day' ? `${slot.primary}:00 horas` : formatCalendarDay(slot.start)"
+                  >
+                    <div
+                      v-if="viewMode !== 'day'"
+                      class="calendar-day-header"
+                      :class="{
+                        'is-today': isTodayDate(slot.start),
+                        'is-weekend': isWeekendDate(slot.start),
+                      }"
+                    >
+                      {{ formatCalendarDay(slot.start) }}
+                    </div>
+                    <strong v-else>{{ slot.primary }}</strong>
+                  </div>
+                </div>
+
+                <div
+                  v-for="row in calendarRows"
+                  :key="row.id"
+                  class="fleet-calendar-grid__row fleet-calendar-grid__row--body"
+                  data-testid="availability-row"
+                >
+                  <div class="fleet-aircraft fleet-aircraft--photo">
+                    <div class="fleet-aircraft__photo">
+                      <img v-if="row.photo_url" :src="row.photo_url" :alt="row.aircraft_name" />
+                      <span v-else>{{ (row.registration || row.model || 'AV').slice(0, 2) }}</span>
+                    </div>
+                  </div>
+
+                  <div class="fleet-aircraft fleet-aircraft--registration">
+                    <div class="fleet-aircraft__copy">
+                      <strong>{{ row.registration || row.aircraft_name }}</strong>
+                      <span>{{ row.company_name }}</span>
+                    </div>
+                  </div>
+
+                  <div class="fleet-aircraft fleet-aircraft--model">
+                    <div class="fleet-aircraft__copy">
+                      <strong>{{ row.model || row.aircraft_name }}</strong>
+                      <span>{{ row.aircraft_name }}</span>
+                    </div>
+                  </div>
+
+                  <div class="fleet-aircraft-type">
+                    <strong>{{ row.typeLabel }}</strong>
+                  </div>
+
+                  <component
+                    v-for="cell in row.cells"
+                    :is="cell.event ? 'button' : 'div'"
+                    :key="cell.key"
+                    class="fleet-calendar-cell"
+                    :class="{ 'is-empty': !cell.event, 'fleet-calendar-cell--interactive': cell.event }"
+                    :data-state="cell.meta.cardTone"
+                    :data-has-event="cell.event ? 'true' : 'false'"
+                    :title="cell.label"
+                    @click="cell.event && openEvent(cell.event)"
+                  >
+                    <span
+                      class="fleet-status-chip"
+                      :style="{ backgroundColor: cell.meta.chipBackground, color: cell.meta.chipColor }"
+                      :aria-label="cell.label"
+                    >
+                      <span class="fleet-status-chip__dot" :style="{ backgroundColor: cell.meta.dot }"></span>
+                    </span>
+                    <small v-if="cell.events.length > 1">+{{ cell.events.length - 1 }}</small>
+                  </component>
+                </div>
+              </div>
+            </div>
+          </article>
         </div>
-      </section>
+      </div>
+    </section>
 
-      <aside class="calendar-sidebar">
-        <article class="sidebar-card">
-          <span class="eyebrow">Resumen</span>
-          <p v-if="lastUpdatedLabel" class="muted">Actualizado: {{ lastUpdatedLabel }}</p>
-          <div class="sidebar-stats">
-            <div>
-              <span>Aeronaves disponibles</span>
-              <strong>{{ visibleSummary.available_aircraft || 0 }}</strong>
-            </div>
-            <div>
-              <span>Aeronaves ocupadas</span>
-              <strong>{{ visibleSummary.occupied_aircraft || 0 }}</strong>
-            </div>
-            <div>
-              <span>En mantenimiento</span>
-              <strong>{{ visibleSummary.maintenance_aircraft || 0 }}</strong>
-            </div>
-            <div>
-              <span>Proximos vuelos hoy</span>
-              <strong>{{ visibleSummary.upcoming_flights_today || 0 }}</strong>
-            </div>
-            <div>
-              <span>Pagos pendientes</span>
-              <strong>{{ operationsDashboard.payments_pending || 0 }}</strong>
-            </div>
-            <div>
-              <span>Contratos pendientes</span>
-              <strong>{{ operationsDashboard.contracts_pending || 0 }}</strong>
-            </div>
+    <div
+      v-show="manualBlockDrawerOpen"
+      class="calendar-modal-backdrop calendar-modal-backdrop--drawer"
+      @click.self="closeManualBlockDrawer"
+    >
+      <aside class="surface manual-block-drawer" aria-label="Crear bloqueo de disponibilidad">
+        <div class="calendar-modal__head">
+          <div>
+            <span class="eyebrow">Bloqueos</span>
+            <h4>Crear bloqueo de disponibilidad</h4>
+            <p>Completa el bloqueo sin salir del calendario operativo.</p>
           </div>
-        </article>
+          <button type="button" class="close-button" @click="closeManualBlockDrawer">Cerrar</button>
+        </div>
 
-        <article class="sidebar-card">
-          <span class="eyebrow">Bloqueo administrativo</span>
-          <div class="manual-block-form">
-            <label>
-              <span>Aeronave</span>
-              <select v-model="manualBlockDraft.aircraftId">
-                <option value="all" disabled>Selecciona una aeronave</option>
-                <option v-for="item in activeAircraftOptions" :key="`block-${item.id}`" :value="String(item.id)">
-                  {{ item.aircraft_name }}
-                </option>
-              </select>
-            </label>
-            <label>
-              <span>Tipo</span>
-              <select v-model="manualBlockDraft.blockType">
-                <option value="manual_block">Bloqueo manual</option>
-                <option value="maintenance">Mantenimiento</option>
-                <option value="inspection">Inspeccion</option>
-                <option value="out_of_service">Fuera de servicio</option>
-              </select>
-            </label>
-            <label>
-              <span>Inicio</span>
-              <input v-model="manualBlockDraft.start" type="datetime-local" />
-            </label>
-            <label>
-              <span>Fin</span>
-              <input v-model="manualBlockDraft.end" type="datetime-local" />
-            </label>
-            <label>
-              <span>Motivo</span>
-              <textarea v-model="manualBlockDraft.reason" rows="3" placeholder="Motivo operativo o administrativo"></textarea>
-            </label>
-            <p v-if="manualBlockError" class="calendar-inline-error">{{ manualBlockError }}</p>
-            <button
-              type="button"
-              :disabled="submittingManualBlock || manualBlockDraft.aircraftId === 'all' || !manualBlockDraft.start || !manualBlockDraft.end"
-              @click="submitManualBlock"
-            >
-              {{ submittingManualBlock ? 'Guardando...' : 'Crear bloqueo' }}
+        <div class="manual-block-form">
+          <label>
+            <span>Aeronave</span>
+            <select v-model="manualBlockDraft.aircraftId">
+              <option value="all" disabled>Seleccionar aeronave</option>
+              <option v-for="item in activeAircraftOptions" :key="`block-${item.id}`" :value="String(item.id)">
+                {{ item.aircraft_name }}
+              </option>
+            </select>
+          </label>
+
+          <label>
+            <span>Tipo</span>
+            <select v-model="manualBlockDraft.blockType">
+              <option v-for="item in blockTypeOptions" :key="item.value" :value="item.value">
+                {{ item.label }}
+              </option>
+            </select>
+          </label>
+
+          <label>
+            <span>Inicio</span>
+            <input v-model="manualBlockDraft.start" type="datetime-local" />
+          </label>
+
+          <label>
+            <span>Fin</span>
+            <input v-model="manualBlockDraft.end" type="datetime-local" />
+          </label>
+
+          <label>
+            <span>Motivo</span>
+            <input v-model="manualBlockDraft.reason" type="text" placeholder="Motivo operativo o administrativo" />
+          </label>
+
+          <div class="manual-block-action">
+            <button type="button" :disabled="!manualBlockCanSubmit" @click="submitManualBlock">
+              {{ submittingManualBlock ? 'Creando bloqueo...' : 'Crear bloqueo' }}
             </button>
           </div>
-        </article>
+        </div>
 
-        <article class="sidebar-card">
-          <span class="eyebrow">Vuelos por empresa</span>
-          <div v-if="flightsByCompany.length" class="company-totals">
-            <div v-for="item in flightsByCompany" :key="`${item.company_id}-${item.company_name}`">
-              <span>{{ item.company_name }}</span>
-              <strong>{{ item.total }}</strong>
-            </div>
-          </div>
-          <p v-else class="muted">Sin vuelos bloqueados en la ventana actual.</p>
-        </article>
-
-        <article class="sidebar-card">
-          <span class="eyebrow">Proximos vuelos</span>
-          <div v-if="operationsDashboard.upcoming_flights?.length" class="activity-list">
-            <div v-for="flight in operationsDashboard.upcoming_flights" :key="`flight-${flight.block_id}`">
-              <strong>{{ flight.aircraft_name || 'Aeronave' }}</strong>
-              <span>{{ flight.client_name || flight.company_name || 'Sin cliente' }}</span>
-              <small>{{ formatDateTime(flight.start) }}</small>
-            </div>
-          </div>
-          <p v-else class="muted">Sin salidas proximas registradas.</p>
-        </article>
-
+        <p class="muted">La aeronave quedara bloqueada en el rango seleccionado.</p>
+        <p v-if="manualBlockError || manualBlockValidationMessage" class="calendar-inline-error">
+          {{ manualBlockError || manualBlockValidationMessage }}
+        </p>
       </aside>
     </div>
 
@@ -932,7 +1218,7 @@ onMounted(() => {
             <h4>{{ selectedEvent.aircraft_name }}</h4>
             <p>{{ selectedEvent.company_name }}</p>
           </div>
-          <button type="button" class="button-reset close-button" @click="closeEventModal">Cerrar</button>
+          <button type="button" class="close-button" @click="closeEventModal">Cerrar</button>
         </div>
 
         <div class="calendar-modal__grid">
@@ -942,18 +1228,14 @@ onMounted(() => {
           <div><span>Ruta</span><strong>{{ selectedEvent.origin }} - {{ selectedEvent.destination }}</strong></div>
           <div><span>Salida</span><strong>{{ formatDateTime(selectedEvent.start) }}</strong></div>
           <div><span>Llegada</span><strong>{{ formatDateTime(selectedEvent.end) }}</strong></div>
-          <div><span>Estado</span><strong>{{ selectedEvent.status }}</strong></div>
+          <div><span>Estado</span><strong>{{ selectedEvent.statusLabel || selectedEvent.status }}</strong></div>
           <div><span>Motivo</span><strong>{{ selectedEvent.reason || 'Sin motivo' }}</strong></div>
           <div><span>Reserva</span><strong>{{ selectedEvent.reservation_code || selectedEvent.reservation_id || 'Sin reserva' }}</strong></div>
           <div><span>Pago</span><strong>{{ selectedEvent.payment_status || 'Sin dato' }}</strong></div>
         </div>
 
         <div class="calendar-modal__actions">
-          <button
-            type="button"
-            :disabled="!selectedEvent.reservation_id"
-            @click="openReservationFlow"
-          >
+          <button type="button" :disabled="!selectedEvent.reservation_id" @click="openReservationFlow">
             Ir al flujo de reserva
           </button>
           <button
@@ -966,6 +1248,7 @@ onMounted(() => {
             {{ submittingRelease ? 'Liberando...' : 'Liberar bloqueo' }}
           </button>
         </div>
+
         <p v-if="releaseError" class="calendar-inline-error">{{ releaseError }}</p>
       </section>
     </div>
@@ -973,360 +1256,633 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.aircraft-calendar-page {
-  display: grid;
-  gap: 1.25rem;
-  padding: 1.25rem;
-    background-color: #fff;
+:global(html),
+:global(body),
+:global(#app) {
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
-.calendar-page__head,
-.calendar-page__actions,
-.calendar-toolbar,
+.aircraft-calendar-page {
+  display: grid;
+  gap: 20px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  padding: 32px;
+  overflow-x: hidden;
+  background: #f8fafc;
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  box-sizing: border-box;
+}
+
+.calendar-header-card,
+.calendar-shell-card,
+.calendar-sidebar-card,
+.fleet-calendar-card,
+.calendar-modal,
+.manual-block-drawer {
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+}
+
+.calendar-header-card,
+.calendar-shell-card,
+.fleet-calendar-card,
+.calendar-modal,
+.manual-block-drawer {
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+.calendar-shell-card,
+.fleet-calendar-card,
+.calendar-main-column {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.calendar-shell-card,
+.fleet-calendar-card {
+  overflow: hidden;
+}
+
+.calendar-header-card,
 .calendar-layout,
-.calendar-legend,
-.range-switch,
-.view-switch,
-.sidebar-stats,
-.company-totals,
+.calendar-toolbar-row,
+.calendar-view-toggle,
+.calendar-nav-controls,
 .calendar-modal__grid,
 .calendar-modal__actions,
 .manual-block-form,
-.activity-list {
+.state-legend-list,
+.sidebar-summary-grid,
+.calendar-main-column {
   display: grid;
-  gap: 0.9rem;
+  gap: 16px;
 }
 
-.calendar-page__head {
-  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.9fr);
+.calendar-header-card {
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
 }
 
-.calendar-page__head h3,
+.calendar-header-card__copy,
+.fleet-calendar-card__head,
+.sidebar-section,
+.sidebar-section__head,
+.fleet-aircraft__copy,
+.manual-block-card__head {
+  display: grid;
+  gap: 6px;
+}
+
+.calendar-header-card h3,
+.manual-block-card h4,
 .calendar-modal__head h4 {
-  margin: 0.2rem 0 0;
+  margin: 0;
   color: #0f172a;
 }
 
-.calendar-page__head p,
-.calendar-modal__head p,
-.muted {
+.calendar-header-card h3 {
+  font-size: clamp(1.85rem, 4vw, 2.35rem);
+  line-height: 1;
+}
+
+.calendar-header-card p,
+.muted,
+.calendar-modal__head p {
   margin: 0;
   color: #64748b;
 }
 
-.calendar-page__actions {
-  justify-items: end;
+.eyebrow {
+  color: #0f2347;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
-.view-switch,
-.range-switch {
-  grid-auto-flow: column;
-  align-items: center;
-  justify-content: end;
-}
-
-.view-switch button,
-.range-switch button,
+.calendar-refresh-button,
+.calendar-view-toggle button,
+.calendar-nav-controls button,
+.calendar-primary-button,
+.manual-block-action button,
 .calendar-modal__actions button,
-.manual-block-form button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.45rem;
-  min-height: 42px;
-  padding: 0.7rem 1rem;
-  border-radius: 999px;
-  border: 1px solid rgba(148, 163, 184, 0.32);
-  background: #fff;
+.close-button {
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
   color: #0f172a;
+  font-weight: 700;
+  transition:
+    background-color 0.25s ease,
+    border-color 0.25s ease,
+    transform 0.25s ease,
+    box-shadow 0.25s ease;
+}
+
+.calendar-refresh-button:hover,
+.calendar-view-toggle button:hover,
+.calendar-nav-controls button:hover,
+.calendar-primary-button:hover,
+.manual-block-action button:hover,
+.calendar-modal__actions button:hover,
+.close-button:hover {
+  background: #f1f5f9;
+}
+
+.calendar-refresh-button,
+.calendar-view-toggle,
+.calendar-nav-controls,
+.calendar-primary-button,
+.state-legend-item,
+.fleet-aircraft,
+.fleet-aircraft__photo,
+.fleet-aircraft-type,
+.calendar-modal__head {
+  display: flex;
+  align-items: center;
+}
+
+.calendar-refresh-button,
+.calendar-view-toggle,
+.calendar-nav-controls {
+  gap: 12px;
+}
+
+.calendar-primary-button {
+  justify-content: center;
+}
+
+.calendar-primary-button,
+.manual-block-action button,
+.calendar-nav-controls button:last-child {
+  background: #0f2347;
+  border-color: #0f2347;
+  color: #ffffff;
+}
+
+.calendar-view-toggle {
+  padding: 4px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #ffffff;
+}
+
+.calendar-view-toggle button.active {
+  background: #0f2347;
+  border-color: #0f2347;
+  color: #ffffff;
+}
+
+.calendar-nav-controls {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.calendar-nav-controls strong {
+  color: #0f172a;
+  font-size: 0.95rem;
   font-weight: 700;
 }
 
-.view-switch button.active {
-  background: #0f172a;
-  border-color: #0f172a;
-  color: #fff;
+.calendar-nav-controls .ghost {
+  background: #f8fafc;
 }
 
-.range-switch strong {
-  color: #0f172a;
+.calendar-toolbar-row {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  grid-template-columns: minmax(140px, 1fr) minmax(140px, 1fr) minmax(140px, 1fr) auto auto auto;
+  align-items: end;
+  padding: 8px 0 12px;
+  background: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
 }
 
-.range-switch .ghost {
-  background: rgba(15, 23, 42, 0.04);
-}
-
-.calendar-button__icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.95rem;
-  line-height: 1;
-}
-
-.calendar-toolbar {
-  grid-template-columns: repeat(3, minmax(180px, 1fr));
-}
-
-.calendar-toolbar label {
+.calendar-toolbar-row label,
+.manual-block-form label {
   display: grid;
-  gap: 0.45rem;
+  gap: 8px;
 }
 
-.calendar-toolbar span,
-.calendar-aircraft-card span,
-.calendar-aircraft-card small,
-.calendar-slot-head span,
-.sidebar-card span,
-.calendar-modal__grid span {
+.calendar-toolbar-row label > span,
+.manual-block-form label > span,
+.fleet-aircraft__copy span,
+.fleet-aircraft__copy small,
+.fleet-calendar-grid__head span,
+.calendar-modal__grid span,
+.summary-stat-card span {
   color: #64748b;
 }
 
-.calendar-toolbar select {
-  min-height: 46px;
-  border-radius: 16px;
-  border: 1px solid rgba(148, 163, 184, 0.24);
-  padding: 0.75rem 0.9rem;
-  background: #fff;
-}
-
-.manual-block-form label {
-  display: grid;
-  gap: 0.45rem;
-}
-
+.calendar-toolbar-row select,
 .manual-block-form select,
-.manual-block-form input,
-.manual-block-form textarea {
-  width: 100%;
+.manual-block-form input {
   min-height: 46px;
-  border-radius: 16px;
-  border: 1px solid rgba(148, 163, 184, 0.24);
-  padding: 0.75rem 0.9rem;
-  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 0 14px;
+  background: #ffffff;
   color: #0f172a;
-}
-
-.manual-block-form textarea {
-  min-height: 96px;
-  resize: vertical;
-}
-
-.manual-block-form button {
-  background: #0f172a;
-  border-color: #0f172a;
-  color: #fff;
-}
-
-.calendar-legend {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.65rem;
-}
-
-.calendar-legend article,
-.sidebar-stats div,
-.company-totals div,
-.activity-list div {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-}
-
-.calendar-legend article {
-  justify-content: flex-start;
-  padding: 0.8rem 0.9rem;
-  border-radius: 18px;
-  background: rgba(248, 250, 252, 0.96);
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  min-width: 0;
-}
-
-.calendar-legend article strong {
-  color: #d4a62f;
-}
-
-.calendar-legend span {
-  width: 14px;
-  height: 14px;
-  border-radius: 999px;
 }
 
 .calendar-layout {
-  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-columns: 190px minmax(0, 1fr);
   align-items: start;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  gap: 12px;
 }
 
-.calendar-stage,
-.calendar-sidebar {
+.calendar-sidebar-card {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+  position: sticky;
+  top: 24px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.sidebar-section__head strong,
+.fleet-calendar-card__head strong {
+  color: #0f172a;
+  font-size: 1.05rem;
+}
+
+.state-legend-list {
+  gap: 10px;
+}
+
+.state-legend-item {
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 28px;
+}
+
+.state-legend-item__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   min-width: 0;
 }
 
-.calendar-grid-wrap {
-  overflow: auto;
-  border-radius: 24px;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(248, 250, 252, 0.98));
+.state-legend-item small {
+  color: #64748b;
+  font-weight: 700;
 }
 
-.calendar-grid {
-  display: grid;
-}
-
-.calendar-grid__row {
-  display: grid;
-  grid-template-columns: 240px repeat(var(--slots, 1), minmax(0, 1fr));
-}
-
-.calendar-grid__row--head {
-  position: sticky;
-  top: 0;
-  z-index: 4;
-}
-
-.calendar-aircraft-head,
-.calendar-slot-head {
-  padding: 0.95rem 0.7rem;
-  background: #f8fafc;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.22);
-}
-
-.calendar-aircraft-head {
-  position: sticky;
-  left: 0;
-  z-index: 5;
-  display: flex;
-  align-items: center;
+.state-legend-item strong {
   color: #0f172a;
+  font-size: 0.9375rem;
+}
+
+.state-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+}
+
+.sidebar-summary-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.summary-stat-card {
+  display: grid;
+  gap: 4px;
+  min-height: 68px;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+
+.summary-stat-card strong {
+  color: #0f172a;
+  font-size: 1.5rem;
   font-weight: 800;
 }
 
-.calendar-slot-head {
+.calendar-main-column {
   min-width: 0;
-  border-left: 1px solid rgba(148, 163, 184, 0.16);
-  text-align: center;
 }
 
-.calendar-slot-head strong,
-.calendar-aircraft-card strong,
-.sidebar-card strong,
+.fleet-calendar-card__head {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.fleet-calendar-card__actions {
+  display: grid;
+  gap: 10px;
+  justify-items: end;
+}
+
+.fleet-calendar-card__stamp {
+  color: #64748b;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.fleet-calendar-wrap {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 70vh;
+  overscroll-behavior-x: contain;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  background: #ffffff;
+}
+
+.fleet-calendar-grid {
+  display: grid;
+  width: max-content;
+  min-width: 100%;
+  max-width: none;
+  background: #ffffff;
+}
+
+.fleet-calendar-grid__row {
+  display: grid;
+  grid-template-columns: 56px 148px 188px 118px repeat(var(--slots, 1), var(--slot-width));
+}
+
+.fleet-calendar-grid__row--head {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.fleet-calendar-grid__head {
+  display: grid;
+  place-items: center;
+  min-height: 48px;
+  padding: 8px 6px;
+  background: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
+  color: #64748b;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.fleet-calendar-grid__head--photo,
+.fleet-calendar-grid__head--registration,
+.fleet-calendar-grid__head--model,
+.fleet-calendar-grid__head--type {
+  position: sticky;
+  left: 0;
+  z-index: 12;
+  justify-items: start;
+}
+
+.fleet-calendar-grid__head--photo {
+  left: 0;
+  z-index: 13;
+}
+
+.fleet-calendar-grid__head--registration {
+  left: 56px;
+}
+
+.fleet-calendar-grid__head--model {
+  left: 204px;
+}
+
+.fleet-calendar-grid__head--type {
+  left: 392px;
+}
+
+.fleet-calendar-grid__head--slot {
+  text-align: center;
+  border-left: 1px solid #e2e8f0;
+  justify-items: center;
+}
+
+.calendar-day-header {
+  width: 52px;
+  min-width: 52px;
+  height: 38px;
+  padding: 0 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  text-align: center;
+  font-family: 'Inter', sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  color: #475569;
+  background: #f8fafc;
+  border-right: 1px solid #e2e8f0;
+  box-sizing: border-box;
+}
+
+.calendar-day-header.is-today {
+  color: #ffffff;
+  background: #173a6a;
+  border-radius: 8px;
+  border-right-color: transparent;
+}
+
+.calendar-day-header.is-weekend:not(.is-today) {
+  background: #f1f5f9;
+  color: #334155;
+}
+
+.fleet-calendar-grid__head strong,
+.fleet-aircraft__copy strong,
+.fleet-aircraft-type strong,
 .calendar-modal__grid strong {
   color: #0f172a;
 }
 
-.activity-list div {
-  align-items: flex-start;
-  flex-direction: column;
-  padding-bottom: 0.75rem;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+.fleet-aircraft,
+.fleet-aircraft-type,
+.fleet-calendar-cell {
+  min-height: 58px;
+  padding: 8px 10px;
+  border-bottom: 1px solid #e2e8f0;
 }
 
-.activity-list div:last-child {
-  padding-bottom: 0;
-  border-bottom: 0;
-}
-
-.calendar-grid__row--body {
-  position: relative;
-}
-
-.calendar-aircraft-card {
+.fleet-aircraft,
+.fleet-aircraft-type {
   position: sticky;
   left: 0;
-  z-index: 3;
-  display: grid;
-  gap: 0.2rem;
-  align-content: center;
-  padding: 0.95rem 0.85rem;
-  background: rgba(255, 255, 255, 0.98);
-  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+  z-index: 8;
+  background: #ffffff;
 }
 
-.calendar-row-track {
-  position: relative;
+.fleet-aircraft--photo {
+  left: 0;
+  justify-content: center;
+  z-index: 9;
+}
+
+.fleet-aircraft--registration {
+  left: 56px;
+}
+
+.fleet-aircraft--model {
+  left: 204px;
+}
+
+.fleet-aircraft-type {
+  left: 392px;
+  justify-content: flex-start;
+}
+
+.fleet-calendar-grid__row--body:nth-child(even) .fleet-aircraft,
+.fleet-calendar-grid__row--body:nth-child(even) .fleet-aircraft-type,
+.fleet-calendar-grid__row--body:nth-child(even) .fleet-calendar-cell {
+  background: #fbfdff;
+}
+
+.fleet-calendar-grid__row--body:hover .fleet-aircraft,
+.fleet-calendar-grid__row--body:hover .fleet-aircraft-type,
+.fleet-calendar-grid__row--body:hover .fleet-calendar-cell {
+  background: #f1f5f9;
+}
+
+.fleet-aircraft {
+  gap: 10px;
+}
+
+.fleet-aircraft__photo {
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
   overflow: hidden;
-  border-left: 1px solid rgba(148, 163, 184, 0.1);
-  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
-  background: linear-gradient(180deg, rgba(248, 250, 252, 0.6), rgba(255, 255, 255, 0.96));
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
 }
 
-.calendar-row-track__slots {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  grid-template-columns: repeat(var(--slots, 1), minmax(0, 1fr));
+.fleet-aircraft__photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
-.calendar-slot-cell {
-  border-left: 1px solid rgba(148, 163, 184, 0.12);
+.fleet-aircraft__photo span {
+  color: #0f2347;
+  font-size: 0.72rem;
+  font-weight: 800;
 }
 
-.calendar-event {
-  position: absolute;
-  display: grid;
-  gap: 0.1rem;
-  padding: 0.45rem 0.6rem;
-  border: 0;
-  border-radius: 14px;
-  color: #fff;
-  text-align: left;
-  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.14);
+.fleet-aircraft__copy {
+  min-width: 0;
+  gap: 2px;
 }
 
-.calendar-event strong,
-.calendar-event span,
-.calendar-event small {
+.fleet-aircraft__copy strong,
+.fleet-aircraft__copy span,
+.fleet-aircraft__copy small {
   overflow: hidden;
-  white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-.calendar-event strong {
-  color: inherit;
+.fleet-aircraft__copy span,
+.fleet-aircraft__copy small {
+  white-space: nowrap;
 }
 
-.calendar-event span,
-.calendar-event small {
-  color: rgba(255, 255, 255, 0.92);
+.fleet-aircraft__copy strong {
+  font-size: 0.88rem;
+}
+
+.fleet-aircraft__copy span {
+  font-size: 0.8rem;
+}
+
+.fleet-aircraft-type strong {
+  font-size: 0.78rem;
+}
+
+.fleet-calendar-cell {
+  display: grid;
+  place-items: center;
+  gap: 2px;
+  border: 0;
+  border-left: 1px solid #e2e8f0;
+  background: #ffffff;
+  text-align: center;
+}
+
+.fleet-calendar-cell:not(:disabled) {
+  cursor: pointer;
+}
+
+.fleet-calendar-cell.is-empty {
+  cursor: default;
+}
+
+.fleet-status-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 24px;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.fleet-status-chip__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+
+.fleet-calendar-cell small,
+.fleet-calendar-cell em {
+  color: #64748b;
+  font-style: normal;
+  font-size: 0.68rem;
+}
+
+.manual-block-form {
+  grid-template-columns: 1fr;
+  align-items: start;
+}
+
+.manual-block-action {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .calendar-state {
-  padding: 1.2rem;
-  border-radius: 22px;
-  background: rgba(248, 250, 252, 0.98);
-  border: 1px dashed rgba(148, 163, 184, 0.4);
-  color: #475569;
+  padding: 24px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 16px;
+  background: #f8fafc;
+  color: #64748b;
 }
 
-.calendar-state--error {
+.calendar-state--error,
+.calendar-inline-error {
   color: #b91c1c;
 }
 
-.calendar-sidebar {
-  display: grid;
-  gap: 1rem;
-}
-
-.sidebar-card {
-  display: grid;
-  gap: 0.85rem;
-  padding: 1rem;
-  border-radius: 22px;
-  background: rgba(248, 250, 252, 0.96);
-  border: 1px solid rgba(148, 163, 184, 0.18);
-}
-
-.sidebar-stats div,
-.company-totals div {
-  padding-bottom: 0.65rem;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
-}
-
-.sidebar-stats div:last-child,
-.company-totals div:last-child {
-  border-bottom: 0;
-  padding-bottom: 0;
+.calendar-inline-error {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
 }
 
 .calendar-modal-backdrop {
@@ -1335,24 +1891,38 @@ onMounted(() => {
   z-index: 80;
   display: grid;
   place-items: center;
-  padding: 1.5rem;
-  background: rgba(15, 23, 42, 0.55);
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.36);
+}
+
+.calendar-modal-backdrop--drawer {
+  place-items: stretch end;
+  padding: 0;
+  background: rgba(15, 23, 42, 0.18);
 }
 
 .calendar-modal {
-  width: min(880px, 100%);
+  width: min(920px, 100%);
   display: grid;
-  gap: 1rem;
-  padding: 1.25rem;
-  border-radius: 28px;
-  background: #fff;
+  gap: 24px;
+}
+
+.manual-block-drawer {
+  width: min(420px, 100%);
+  height: 100vh;
+  border-radius: 0;
+  border-top: 0;
+  border-right: 0;
+  border-bottom: 0;
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  overflow-y: auto;
 }
 
 .calendar-modal__head {
-  display: flex;
-  align-items: start;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 16px;
 }
 
 .calendar-modal__grid {
@@ -1361,16 +1931,17 @@ onMounted(() => {
 
 .calendar-modal__grid div {
   display: grid;
-  gap: 0.25rem;
-  padding: 0.85rem;
-  border-radius: 18px;
-  background: rgba(248, 250, 252, 0.98);
-  border: 1px solid rgba(148, 163, 184, 0.18);
+  gap: 6px;
+  padding: 16px;
+  border-radius: 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
 }
 
 .calendar-modal__actions {
   grid-auto-flow: column;
   justify-content: end;
+  gap: 12px;
 }
 
 .calendar-modal__actions button:disabled {
@@ -1378,49 +1949,67 @@ onMounted(() => {
   opacity: 0.55;
 }
 
-.calendar-inline-error {
-  margin: 0;
-  color: #b91c1c;
+.calendar-button__icon {
+  font-size: 0.95rem;
+  line-height: 1;
 }
 
-.close-button {
-  color: #475569;
+@media (max-width: 1480px) {
+  .calendar-toolbar-row {
+    grid-template-columns: repeat(3, minmax(140px, 1fr));
+  }
+
+  .calendar-view-toggle,
+  .calendar-nav-controls,
+  .calendar-primary-button {
+    justify-content: start;
+  }
 }
 
-@media (max-width: 1180px) {
-  .calendar-layout,
-  .calendar-page__head {
+@media (max-width: 1120px) {
+  .calendar-layout {
     grid-template-columns: 1fr;
   }
 
-  .calendar-page__actions {
-    justify-items: start;
+  .calendar-sidebar-card {
+    display: none;
   }
 
-  .calendar-legend {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .calendar-toolbar-row {
+    grid-template-columns: repeat(2, minmax(140px, 1fr));
   }
 }
 
-@media (max-width: 760px) {
-  .calendar-toolbar,
+@media (max-width: 860px) {
+  .aircraft-calendar-page,
+  .calendar-header-card,
+  .calendar-shell-card,
+  .fleet-calendar-card,
+  .calendar-modal,
+  .manual-block-drawer {
+    padding: 20px;
+  }
+
+  .calendar-header-card {
+    grid-template-columns: 1fr;
+  }
+
+  .calendar-toolbar-row,
+  .sidebar-summary-grid,
   .calendar-modal__grid {
     grid-template-columns: 1fr;
   }
 
-  .view-switch,
-  .range-switch,
-  .calendar-modal__actions {
-    grid-auto-flow: row;
-    justify-content: stretch;
+  .calendar-nav-controls {
+    grid-template-columns: 1fr 1fr;
   }
 
-  .calendar-grid__row {
-    grid-template-columns: 180px repeat(var(--slots, 1), minmax(0, 1fr));
-  }
-
-  .calendar-legend {
+  .fleet-calendar-card__head {
     grid-template-columns: 1fr;
+  }
+
+  .fleet-calendar-card__actions {
+    justify-items: start;
   }
 }
 </style>
