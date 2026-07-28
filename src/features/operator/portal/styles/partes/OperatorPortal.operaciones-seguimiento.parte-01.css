@@ -922,9 +922,10 @@
 .flight-ops-command-luxury .request-flow-strip {
   order: 2;
   display: grid;
-  grid-template-columns: repeat(7, minmax(112px, 1fr));
+  grid-template-columns: repeat(7, minmax(160px, 1fr));
   gap: 14px;
-  overflow: visible;
+  overflow-x: auto;
+  overflow-y: hidden;
   padding: 10px 0 18px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
@@ -933,6 +934,7 @@
   flex: initial;
   min-height: 96px;
   padding: 16px;
+  min-width: 0;
   align-content: center;
 }
 
@@ -943,6 +945,9 @@
 }
 
 .flight-ops-command-luxury .request-flow-pill__index {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 0.55rem;
 }
 
@@ -967,3 +972,11 @@
   color: #c9a063;
 }
 
+.flight-ops-command-luxury .request-flow-pill > strong,
+.flight-ops-command-luxury .request-flow-pill__index > span:last-child {
+  display: block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
+}

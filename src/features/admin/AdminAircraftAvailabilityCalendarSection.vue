@@ -36,17 +36,17 @@ const STATUS_META = {
   paid: {
     label: 'Reservada',
     shortLabel: 'Reservada',
-    dot: '#14b8a6',
-    chipBackground: '#ccfbf1',
-    chipColor: '#115e59',
+    dot: '#1d4ed8',
+    chipBackground: '#dbeafe',
+    chipColor: '#1e3a8a',
     cardTone: 'occupied',
   },
   reserved: {
     label: 'Reservada',
     shortLabel: 'Reservada',
-    dot: '#14b8a6',
-    chipBackground: '#ccfbf1',
-    chipColor: '#115e59',
+    dot: '#1d4ed8',
+    chipBackground: '#dbeafe',
+    chipColor: '#1e3a8a',
     cardTone: 'occupied',
   },
   pending_payment: {
@@ -235,6 +235,10 @@ function formatCalendarDay(value) {
 
 function isTodayDate(value) {
   return toDateKey(value) === toDateKey(new Date())
+}
+
+function isSelectedDate(value) {
+  return toDateKey(value) === anchorDate.value
 }
 
 function isWeekendDate(value) {
@@ -566,7 +570,13 @@ function pickPrimaryCellEvent(events = [], slot) {
 
 function rowMatchesStatus(row) {
   if (filters.status === 'all') return true
-  return row.cells.some((cell) => cell.status === filters.status)
+  if (viewMode.value === 'day') return row.cells.some((cell) => cell.status === filters.status)
+
+  const selectedCell = row.cells.find((cell) => isSelectedDate(cell.slot.start))
+  if (!selectedCell) return false
+
+  if (filters.status === 'reserved') return ['reserved', 'paid'].includes(selectedCell.status)
+  return selectedCell.status === filters.status
 }
 
 const calendarRows = computed(() =>
@@ -630,11 +640,13 @@ const visibleSummary = computed(() => {
 })
 
 const stateLegendItems = computed(() =>
-  ['available', 'pending_payment', 'in_flight', 'maintenance', 'out_of_service', 'manual_block'].map((status) => {
+  ['available', 'reserved', 'pending_payment', 'in_flight', 'maintenance', 'out_of_service', 'manual_block'].map((status) => {
     const total =
       status === 'available'
         ? visibleSummary.value.available_aircraft
-        : normalizedEvents.value.filter((event) => event.status === status).length
+        : status === 'reserved'
+          ? normalizedEvents.value.filter((event) => ['reserved', 'paid'].includes(event.status)).length
+          : normalizedEvents.value.filter((event) => event.status === status).length
 
     return {
       status,
@@ -776,6 +788,12 @@ function shiftRange(direction = 1) {
 
 function goToday() {
   anchorDate.value = toDateKey(new Date())
+}
+
+function selectAnchorDate(value) {
+  const resolved = toDateKey(value)
+  if (!resolved) return
+  anchorDate.value = resolved
 }
 
 function openEvent(event) {
@@ -1073,16 +1091,19 @@ onMounted(() => {
                     class="fleet-calendar-grid__head fleet-calendar-grid__head--slot"
                     :title="viewMode === 'day' ? `${slot.primary}:00 horas` : formatCalendarDay(slot.start)"
                   >
-                    <div
+                    <button
                       v-if="viewMode !== 'day'"
                       class="calendar-day-header"
                       :class="{
                         'is-today': isTodayDate(slot.start),
                         'is-weekend': isWeekendDate(slot.start),
+                        'is-selected': isSelectedDate(slot.start),
                       }"
+                      type="button"
+                      @click="selectAnchorDate(slot.start)"
                     >
                       {{ formatCalendarDay(slot.start) }}
-                    </div>
+                    </button>
                     <strong v-else>{{ slot.primary }}</strong>
                   </div>
                 </div>
@@ -1123,7 +1144,11 @@ onMounted(() => {
                     :is="cell.event ? 'button' : 'div'"
                     :key="cell.key"
                     class="fleet-calendar-cell"
-                    :class="{ 'is-empty': !cell.event, 'fleet-calendar-cell--interactive': cell.event }"
+                    :class="{
+                      'is-empty': !cell.event,
+                      'fleet-calendar-cell--interactive': cell.event,
+                      'is-selected-slot': viewMode !== 'day' && isSelectedDate(cell.slot.start),
+                    }"
                     :data-state="cell.meta.cardTone"
                     :data-has-event="cell.event ? 'true' : 'false'"
                     :title="cell.label"
@@ -1681,6 +1706,8 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+  appearance: none;
+  cursor: pointer;
   white-space: nowrap;
   text-align: center;
   font-family: 'Inter', sans-serif;
@@ -1689,20 +1716,33 @@ onMounted(() => {
   line-height: 1;
   color: #475569;
   background: #f8fafc;
+  border: 1px solid #e2e8f0;
   border-right: 1px solid #e2e8f0;
+  border-radius: 8px;
   box-sizing: border-box;
 }
 
 .calendar-day-header.is-today {
   color: #ffffff;
   background: #173a6a;
-  border-radius: 8px;
   border-right-color: transparent;
+}
+
+.calendar-day-header.is-selected {
+  color: #ffffff;
+  background: #173a6a;
+  border-color: #173a6a;
 }
 
 .calendar-day-header.is-weekend:not(.is-today) {
   background: #f1f5f9;
   color: #334155;
+}
+
+.calendar-day-header.is-selected.is-weekend,
+.calendar-day-header.is-selected.is-today {
+  color: #ffffff;
+  background: #173a6a;
 }
 
 .fleet-calendar-grid__head strong,
@@ -1823,6 +1863,10 @@ onMounted(() => {
   border-left: 1px solid #e2e8f0;
   background: #ffffff;
   text-align: center;
+}
+
+.fleet-calendar-cell.is-selected-slot {
+  background: #eff6ff;
 }
 
 .fleet-calendar-cell:not(:disabled) {

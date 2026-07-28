@@ -5,19 +5,37 @@ import router from './router'
 import { pinia } from './stores'
 import { useAuthStore } from './stores/auth'
 
+console.log('[Bootstrap] main.js iniciado')
+
 const app = createApp(App)
 
-app.use(pinia)
-const auth = useAuthStore(pinia)
-
 try {
-  await auth.initialize()
-} catch {
-  // The router and guarded views will resolve the best local auth state available.
+  app.use(pinia)
+  console.log('[Bootstrap] Pinia registrado')
+
+  app.use(router)
+  console.log('[Bootstrap] Router registrado')
+
+  const auth = useAuthStore(pinia)
+
+  try {
+    await auth.initialize()
+  } catch (error) {
+    console.error('[Bootstrap] Error durante auth.initialize()', error)
+  }
+  console.log('[Bootstrap] Auth inicializado')
+
+  console.log('[Bootstrap] Antes de mount')
+  app.mount('#app')
+  console.log('[Bootstrap] Vue montado')
+
+  router.isReady()
+    .then(() => {
+      console.log('[Bootstrap] Router listo')
+    })
+    .catch((error) => {
+      console.error('[Bootstrap] Error durante router.isReady()', error)
+    })
+} catch (error) {
+  console.error('[Bootstrap] Error durante el bootstrap', error)
 }
-
-app.use(router)
-
-await router.isReady()
-
-app.mount('#app')

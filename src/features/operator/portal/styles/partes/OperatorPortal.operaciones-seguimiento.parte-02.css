@@ -112,6 +112,35 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
+.flight-ops-command-luxury .request-queue-card,
+.flight-ops-command-luxury .request-detail-surface,
+.flight-ops-command-luxury .request-flow-pill,
+.flight-ops-command-luxury .provider-release-cta,
+.flight-ops-command-luxury .alert-chip,
+.flight-ops-command-luxury .archived-requests-panel,
+.flight-ops-command-luxury .archived-request-card,
+.flight-ops-command-luxury .request-detail-empty {
+  color: #000;
+}
+
+.flight-ops-command-luxury .request-queue-card > strong,
+.flight-ops-command-luxury .request-queue-route,
+.flight-ops-command-luxury .request-queue-client,
+.flight-ops-command-luxury .request-queue-aircraft,
+.flight-ops-command-luxury .request-queue-meta,
+.flight-ops-command-luxury .request-queue-meta span,
+.flight-ops-command-luxury .request-detail-head h3,
+.flight-ops-command-luxury .request-detail-head .muted,
+.flight-ops-command-luxury .request-flow-pill,
+.flight-ops-command-luxury .request-flow-pill__index,
+.flight-ops-command-luxury .request-flow-pill strong,
+.flight-ops-command-luxury .provider-release-cta strong,
+.flight-ops-command-luxury .provider-release-cta .muted,
+.flight-ops-command-luxury .request-detail-empty strong,
+.flight-ops-command-luxury .request-detail-empty p {
+  color: #000;
+}
+
 .flight-ops-command-luxury .requests-dispatch-surface > .section-head {
   min-height: 19rem;
   border-color: rgba(226, 232, 240, 0.96);
@@ -889,4 +918,3 @@
     0 16px 38px rgba(15, 23, 42, 0.08),
     inset 0 1px 0 rgba(255, 255, 255, 0.88);
 }
-
