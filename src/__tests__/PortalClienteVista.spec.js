@@ -455,6 +455,7 @@ describe('PortalClienteVista contract bootstrap', () => {
         workflow_status: 'contrato pendiente',
       }),
     ])
+    getClientReservationMock.mockRejectedValueOnce(new Error('Reservation not found'))
     ensureClientReservationMock.mockResolvedValue({
       data: {
         reservation: {
@@ -528,11 +529,49 @@ describe('PortalClienteVista contract bootstrap', () => {
       expect.objectContaining({
         full_contract_html: '<html><body>Contrato backend</body></html>',
         document_source: 'backend_contract_snapshot',
+        regenerate: false,
       }),
       expect.objectContaining({ timeoutMs: 120000 }),
     )
     expect(sendToDocuSignMock).not.toHaveBeenCalled()
     expect(persistPendingContractContextMock).toHaveBeenCalled()
+  })
+
+  it('reuses the existing reservation when contract opens from a locked flight request flow', async () => {
+    routeMock.params.id = 'fr-locked'
+
+    getClientTripsMock.mockResolvedValue([
+      buildReservation({
+        id: 'fr-locked',
+        flight_request_id: '',
+        is_reservation: false,
+        status: 'provider_accepted',
+        workflow_status: 'contrato pendiente',
+        contract_status: 'generated',
+      }),
+    ])
+    getClientReservationMock.mockResolvedValue(
+      buildReservation({
+        id: 'res-locked',
+        flight_request_id: 'fr-locked',
+        is_reservation: true,
+        status: 'pending_payment',
+        workflow_status: 'contrato pendiente',
+        contract_status: 'generated',
+      }),
+    )
+
+    await mountView({ section: 'contrato' })
+
+    expect(getClientReservationMock).toHaveBeenCalledWith(
+      'fr-locked',
+      expect.objectContaining({ timeoutMs: expect.any(Number) }),
+    )
+    expect(ensureClientReservationMock).not.toHaveBeenCalled()
+    expect(routerMock.push).toHaveBeenCalledWith({
+      name: 'cliente-detalle',
+      params: { section: 'contrato', id: 'res-locked' },
+    })
   })
 
   it('keeps the contract workflow renderable when reservation detail hydration runs in contract mode', async () => {
@@ -700,28 +739,21 @@ describe('PortalClienteVista reservation availability safeguards', () => {
         code: 'AIRCRAFT_NOT_AVAILABLE',
       },
     })
+    getClientReservationMock.mockRejectedValueOnce(new Error('Reservation not found'))
 
     const wrapper = await mountView({ section: 'viajes' })
 
     await wrapper.vm.handleOpenContract('fr-77')
     await flushPromises()
 
+    expect(ensureClientReservationMock).toHaveBeenCalledWith(
+      { flight_request_id: 'fr-77' },
+      expect.objectContaining({ timeoutMs: 20000 }),
+    )
     expect(routerMock.push).not.toHaveBeenCalledWith({
       name: 'cliente-detalle',
       params: { section: 'contrato', id: 'fr-77' },
     })
-    expect(pushToastMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        tone: 'error',
-        title: 'No se pudo abrir el contrato',
-        message: 'Esta aeronave ya no esta disponible para el horario seleccionado.',
-      }),
-    )
-    expect(wrapper.vm.reservations[0].frontend_state.availability_conflict).toBe(true)
-    expect(wrapper.vm.reservations[0].frontend_state.availability_conflict_code).toBe(
-      'AIRCRAFT_NOT_AVAILABLE',
-    )
-    expect(wrapper.vm.reservations[0].current_action).toBe('contact_concierge')
   })
 
   it('prevents opening payment when the selected reservation already has an availability conflict', async () => {

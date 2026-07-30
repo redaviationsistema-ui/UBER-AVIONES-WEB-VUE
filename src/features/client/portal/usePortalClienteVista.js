@@ -267,6 +267,41 @@ function resolveContractSigningUrl(payload = {}) {
   ).trim()
 }
 
+function hasLockedContractFlow(reservation = {}) {
+  const workflowStatus = String(
+    reservation?.workflow_status || reservation?.status || reservation?.frontend_state?.ui_status || '',
+  )
+    .trim()
+    .toLowerCase()
+  const contractStatus = String(
+    reservation?.contract_status ||
+      reservation?.contract?.status ||
+      reservation?.frontend_state?.docusign_status ||
+      '',
+  )
+    .trim()
+    .toLowerCase()
+  const contractId = resolveContractRecordId(reservation)
+
+  if (contractId) return true
+  if (['generated', 'sent', 'completed', 'signed'].includes(contractStatus)) return true
+
+  return [
+    'contract_pending',
+    'contrato pendiente',
+    'in_contract',
+    'en contrato',
+    'firma pendiente',
+    'contract_signed',
+    'contrato firmado',
+    'payment_pending',
+    'payment_confirmed',
+    'flight_confirmed',
+    'tracking_live',
+    'completed',
+  ].includes(workflowStatus)
+}
+
 function resolveStripeCheckoutRedirectUrl(payload = {}) {
   return String(
     payload?.checkout_url ||
@@ -2870,10 +2905,11 @@ function isAircraftAvailabilityConflictError(error = null) {
   const message = String(error?.message || error?.payload?.message || '').toLowerCase()
 
   return (
-    code === 'AIRCRAFT_NOT_AVAILABLE' ||
+    ['AIRCRAFT_NOT_AVAILABLE', 'AIRCRAFT_ALREADY_RESERVED'].includes(code) ||
     (Number(error?.status || 0) === 409 && shouldRefreshAvailabilityResults(invalidReason)) ||
     message.includes('aeronave ya no esta disponible') ||
-    message.includes('aeronave ya no está disponible')
+    message.includes('aeronave ya no está disponible') ||
+    message.includes('acaba de ser reservada')
   )
 }
 
@@ -5620,6 +5656,10 @@ async function handleContractConfirm(contractPayload = {}) {
     const existingContractId = String(
       contractPayload?.contract_id || baseReservation.contract?.id || baseReservation.contract_id || '',
     ).trim()
+    const lockedContractFlow =
+      hasLockedContractFlow(baseReservation) ||
+      hasLockedContractFlow(contractPayload) ||
+      existingContractId !== ''
     const hasIncomingContractMarkup = Boolean(
       String(
         contractPayload?.full_contract_html ||
@@ -5677,7 +5717,7 @@ async function handleContractConfirm(contractPayload = {}) {
           contractPayload?.full_contract_text || contractPayload?.contract_plain_text || '',
         source_contract_path: contractPayload?.source_contract_path || '',
         document_source: contractPayload?.document_source || 'client_contract_full_html',
-        regenerate: true,
+        regenerate: !lockedContractFlow,
         signature: null,
       }
 
@@ -6093,7 +6133,9 @@ async function handlePaymentSubmit() {
 
     if (
       (Number(error?.status || 0) === 409 && shouldRefreshAvailabilityResults(invalidReason)) ||
-      String(error?.payload?.code || '').trim() === 'AIRCRAFT_NOT_AVAILABLE' ||
+      ['AIRCRAFT_NOT_AVAILABLE', 'AIRCRAFT_ALREADY_RESERVED'].includes(
+        String(error?.payload?.code || '').trim(),
+      ) ||
       String(error?.message || '').toLowerCase().includes('retencion')
     ) {
       await handleAircraftAvailabilityConflict({
@@ -6165,6 +6207,34 @@ async function ensureReservationForSelectedTrip(targetId = '') {
     throw new Error('No encontramos un viaje activo para abrir el contrato.')
   }
 
+  if (normalizedTargetId) {
+    try {
+      const reservationRecord = await getClientReservation(normalizedTargetId, {
+        timeoutMs: CLIENT_TRIPS_TIMEOUT_MS,
+      })
+      if (!reservationRecord || typeof reservationRecord !== 'object') {
+        throw new Error('Reservation lookup returned an empty payload.')
+      }
+      upsertReservationDetail({
+        ...reservationRecord,
+        is_reservation: true,
+      })
+
+      return {
+        ...(trip && typeof trip === 'object' ? trip : {}),
+        ...reservationRecord,
+        id: resolveEntityIdentifier(reservationRecord) || normalizedTargetId,
+        flight_request_id:
+          resolveEntityIdentifier(reservationRecord?.flight_request_id) ||
+          resolveEntityIdentifier(trip?.flight_request_id) ||
+          normalizedTargetId,
+        is_reservation: true,
+      }
+    } catch {
+      // Si no existe una reserva consultable, solo entonces intentamos crearla.
+    }
+  }
+
   if (trip.is_reservation) {
     return trip
   }
@@ -6230,7 +6300,7 @@ function markReservationAvailabilityConflict(targetId = '', error = null) {
     frontend_state: {
       ...(reservation?.frontend_state || {}),
       availability_conflict: true,
-      availability_conflict_code: String(error?.payload?.code || 'AIRCRAFT_NOT_AVAILABLE').trim(),
+      availability_conflict_code: String(error?.payload?.code || 'AIRCRAFT_ALREADY_RESERVED').trim(),
       availability_conflict_message: String(
         error?.message || error?.payload?.message || 'Esta aeronave ya no esta disponible para el horario seleccionado.',
       ).trim(),

@@ -351,7 +351,9 @@ function normalizedCurrentAction(reservation = {}) {
 function hasAvailabilityConflict(reservation = {}) {
   return (
     reservation?.frontend_state?.availability_conflict === true ||
-    String(reservation?.frontend_state?.availability_conflict_code || '').trim() === 'AIRCRAFT_NOT_AVAILABLE'
+    ['AIRCRAFT_NOT_AVAILABLE', 'AIRCRAFT_ALREADY_RESERVED'].includes(
+      String(reservation?.frontend_state?.availability_conflict_code || '').trim(),
+    )
   )
 }
 
@@ -449,7 +451,6 @@ function primaryActionConfig(reservation = {}) {
       action: () => emit('open-detail', actionTargetId),
     }
   }
-
   if (['cancelled', 'rejected'].includes(stateId)) {
     return {
       type: 'concierge',

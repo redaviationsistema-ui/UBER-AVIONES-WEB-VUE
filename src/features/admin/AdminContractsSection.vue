@@ -347,6 +347,8 @@ function buildContractReservation(contract) {
       contractSnapshot.aircraft ||
       reservation.aircraft ||
       '',
+    aircraft_registration:
+      aircraft.registration || aircraft.tail_number || reservation.aircraft_registration || '',
     assigned_aircraft_model:
       aircraft.model || reservation.assigned_aircraft_model || reservation.aircraft_model || '',
     aircraft_model: aircraft.model || reservation.aircraft_model || '',
@@ -585,6 +587,7 @@ function buildAuditTrail(contract, reservation, timeline) {
 
               <div class="row-block">
                 <strong>{{ contract.reservation?.aircraft?.model || 'Sin aeronave' }}</strong>
+                <small>{{ contract.reservation?.aircraft?.registration || contract.reservation?.aircraft?.tail_number || 'Sin matricula' }}</small>
                 <small>{{ contract.reservation?.provider_name || contract.reservation?.operator_name || 'Sin proveedor' }}</small>
               </div>
 
@@ -627,7 +630,7 @@ function buildAuditTrail(contract, reservation, timeline) {
             <div class="mobile-card__top">
               <div class="row-block">
                 <strong>{{ contract.contract_code || `CTR-${contract.id}` }}</strong>
-                <small>{{ contract.reservation?.client?.name || 'Sin cliente' }} · {{ contract.reservation?.aircraft?.model || 'Sin aeronave' }}</small>
+                <small>{{ contract.reservation?.client?.name || 'Sin cliente' }} · {{ contract.reservation?.aircraft?.model || 'Sin aeronave' }}{{ contract.reservation?.aircraft?.registration ? ` · ${contract.reservation.aircraft.registration}` : '' }}</small>
               </div>
               <span class="status-pill" :class="`status-pill--${statusMeta(contract).tone}`">
                 {{ statusMeta(contract).label }}
