@@ -175,6 +175,10 @@ button {
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(248, 245, 238, 0.96));
 }
 
+.commercial-access-banner--reserve {
+  margin-bottom: 0.75rem;
+}
+
 .commercial-access-banner strong {
   color: #171717;
   font-size: 1rem;
@@ -198,6 +202,15 @@ button {
   cursor: pointer;
 }
 
+.profile-panel__action {
+  margin-top: 0.75rem;
+}
+
+.commercial-access-banner--highlight {
+  border-width: 2px;
+  box-shadow: 0 12px 30px rgba(17, 17, 17, 0.08);
+}
+
 .commercial-access-banner--info {
   border-color: rgba(191, 151, 65, 0.28);
   background: linear-gradient(135deg, #fffdf8, #f8f3e6);
@@ -211,6 +224,12 @@ button {
 .commercial-access-banner--warn {
   border-color: rgba(215, 119, 6, 0.22);
   background: linear-gradient(135deg, #fffaf4, #fdf1e2);
+}
+
+.commercial-access-banner--danger,
+.commercial-access-banner--warn.commercial-access-banner--highlight {
+  border-color: rgba(180, 58, 58, 0.32);
+  background: linear-gradient(135deg, #fff7f6, #fde8e5);
 }
 
 .loading-band {

@@ -1,6 +1,9 @@
 <script>
 import { defineComponent } from 'vue'
 import ClientTopNav from '../ClientTopNav.vue'
+import ConciergeDrawer from '../concierge/ConciergeDrawer.vue'
+import ConciergeFloatingChat from '../concierge/ConciergeFloatingChat.vue'
+import ConciergeScheduleModal from '../concierge/ConciergeScheduleModal.vue'
 import PortalClienteProfileScreen from './PortalClienteProfileScreen.vue'
 import PortalClienteReservationScreen from './PortalClienteReservationScreen.vue'
 import PortalClienteTripsScreen from './PortalClienteTripsScreen.vue'
@@ -11,6 +14,9 @@ export default defineComponent({
   name: 'PortalClienteVista',
   components: {
     ClientTopNav,
+    ConciergeDrawer,
+    ConciergeFloatingChat,
+    ConciergeScheduleModal,
     PortalClienteProfileScreen,
     PortalClienteReservationScreen,
     PortalClienteTripsScreen,
@@ -78,14 +84,14 @@ export default defineComponent({
         :should-show-commercial-access-cta="shouldShowCommercialAccessCta"
         :trip-type="tripType"
         @add-leg="addLeg"
-        @go-commercial-access-payment="startCommercialAccessCheckout"
+        @go-commercial-access-payment="goToCommercialAccessPayment"
         @remove-leg="removeLeg"
         @request-reservation="requestReservation"
         @select-form-airport="selectFormAirport"
         @select-leg-airport="selectLegAirport"
         @submit-search="submitSearch"
         @clear-aircraft-sidebar-filters="clearAircraftSidebarFilters"
-        @contact-concierge="go('soporte')"
+        @contact-concierge="openConciergeDrawer()"
         @modify-search="go('reservar')"
         @retry-search="submitSearch"
         @update:active-result-filter="activeResultFilter = $event"
@@ -169,6 +175,7 @@ export default defineComponent({
         :active-payment-badge="activePaymentBadge"
         :active-plan="activePlan"
         :commercial-access-renewal-panel="commercialAccessRenewalPanel"
+        :commercial-access-cta-label="commercialAccessCtaLabel"
         :has-active-client-access="hasActiveClientAccess"
         :is-commercial-access-expired="isCommercialAccessExpired"
         :other-section-card-copy="otherSectionCardCopy"
@@ -178,9 +185,38 @@ export default defineComponent({
         :profile-phone="profilePhone"
         :profile-stats="profileStats"
         :section="activeSection"
+        :should-show-commercial-access-cta="shouldShowCommercialAccessCta"
         :user-first-name="userFirstName"
+        @go-commercial-access-payment="goToCommercialAccessPayment"
       />
     </main>
+
+    <ConciergeDrawer
+      :config="conciergeConfig"
+      :is-open="isConciergeOpen"
+      @close="closeConciergeDrawer"
+      @communication="handleConciergeCommunicationSelection"
+      @service="handleConciergeServiceSelection"
+    />
+
+    <ConciergeFloatingChat
+      :config="conciergeConfig"
+      :draft="conciergeChatDraft"
+      :is-open="isConciergeChatOpen"
+      :messages="conciergeChatMessages"
+      :selected-service-title="selectedConciergeServiceTitle"
+      @close="closeConciergeChat"
+      @send="sendConciergeChatMessage"
+      @update:draft="conciergeChatDraft = $event"
+    />
+
+    <ConciergeScheduleModal
+      :config="conciergeConfig"
+      :form="conciergeScheduleForm"
+      :is-open="isConciergeScheduleOpen"
+      @close="closeConciergeScheduleModal"
+      @submit="submitConciergeSchedule"
+    />
 
     <nav class="mobile-bottom-nav" aria-label="Navegacion movil">
       <button

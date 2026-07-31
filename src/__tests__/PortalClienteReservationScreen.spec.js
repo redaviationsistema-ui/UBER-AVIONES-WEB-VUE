@@ -89,8 +89,42 @@ describe('PortalClienteReservationScreen', () => {
     })
 
     expect(wrapper.find('.reservation-loading-modal').exists()).toBe(true)
-    expect(wrapper.text()).toContain('Apartando aeronave')
-    expect(wrapper.text()).toContain('Estamos bloqueando temporalmente esta opcion')
+    expect(wrapper.text()).toContain('CENTRO OPERATIVO')
+    expect(wrapper.text()).toContain('Preparando Nuestra')
+    expect(wrapper.text()).toContain('Cabina')
+    expect(wrapper.find('.reservation-loading-spinner').exists()).toBe(true)
+  })
+
+  it('passes the commercial access activation state into the flight hero when payment is required', () => {
+    const wrapper = mount(PortalClienteReservationScreen, {
+      props: buildProps({
+        isResultsSection: false,
+        shouldShowCommercialAccessCta: true,
+        commercialAccessCtaLabel: 'Reactivar acceso comercial',
+        commercialTrialNotice: {
+          tone: 'danger',
+          title: 'Acceso comercial vencido',
+          message: 'Tu acceso ya expiró. Reactiva el pago para volver a cotizar.',
+        },
+      }),
+      global: {
+        stubs: {
+          FlightSearchHero: true,
+        },
+      },
+    })
+
+    const hero = wrapper.findComponent({ name: 'FlightSearchHero' })
+
+    expect(hero.exists()).toBe(true)
+    expect(hero.props('commercialAccessNotice')).toEqual({
+      tone: 'danger',
+      title: 'Acceso comercial vencido',
+      message: 'Tu acceso ya expiró. Reactiva el pago para volver a cotizar.',
+    })
+    expect(hero.props('commercialAccessCtaLabel')).toBe('Reactivar acceso comercial')
+    expect(hero.props('shouldShowCommercialAccessCta')).toBe(true)
+    expect(hero.props('submitLabel')).toBe('Activar acceso para cotizar')
   })
 
   it('keeps the overlay hidden when the reservation flow is idle', () => {
@@ -121,6 +155,30 @@ describe('PortalClienteReservationScreen', () => {
     expect(wrapper.find('.results-section--skeleton').exists()).toBe(true)
     expect(wrapper.findAll('.aircraft-skeleton-card').length).toBeGreaterThanOrEqual(2)
     expect(wrapper.text()).toContain('Buscando aeronaves disponibles...')
+  })
+
+  it('replaces the active-account trust copy with the payment warning when access needs reactivation', () => {
+    const wrapper = mount(PortalClienteReservationScreen, {
+      props: buildProps({
+        shouldShowCommercialAccessCta: true,
+        commercialTrialNotice: {
+          tone: 'danger',
+          title: 'Acceso comercial vencido',
+          message: 'Tu acceso ya expiró. Reactiva el pago para volver a cotizar.',
+        },
+      }),
+      global: {
+        stubs: {
+          FlightSearchHero: true,
+        },
+      },
+    })
+
+    expect(wrapper.find('.results-trust-bar__account--alert').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Tu acceso ya expiró. Reactiva el pago para volver a cotizar.')
+    expect(wrapper.text()).not.toContain(
+      'Tu cuenta ya puede cotizar, reservar, firmar contrato y pagar vuelos.',
+    )
   })
 
   it('renders the empty result state with retry actions when no aircraft are available', () => {

@@ -117,6 +117,14 @@ const showSearchSkeletons = computed(() => props.searching)
 const showSearchEmptyState = computed(
   () => !props.searching && !props.serverSearchError && visibleAircraftCount.value === 0,
 )
+const shouldHighlightCommercialAccess = computed(
+  () => props.shouldShowCommercialAccessCta || ['warn', 'danger'].includes(props.commercialTrialNotice.tone),
+)
+const trustBarCopy = computed(() =>
+  shouldHighlightCommercialAccess.value
+    ? props.commercialTrialNotice.message
+    : 'Tu cuenta ya puede cotizar, reservar, firmar contrato y pagar vuelos.',
+)
 const resultsCountCopy = computed(() =>
   props.searching ? 'Buscando aeronaves disponibles...' : `${visibleAircraftCount.value} opciones disponibles`,
 )
@@ -191,12 +199,24 @@ const speedSliderStyle = computed(() => {
 <template>
   <section v-if="!props.isResultsSection" class="screen">
     <FlightSearchHero
+      :commercial-access-action-disabled="props.commercialAccessActionDisabled"
+      :commercial-access-cta-label="props.commercialAccessCtaLabel"
+      :commercial-access-notice="props.commercialTrialNotice"
       :form="props.searchForm"
+      :should-show-commercial-access-cta="props.shouldShowCommercialAccessCta"
       :submit-busy="props.searching || props.commercialAccessActionDisabled"
-      :submit-label="props.commercialAccessActionDisabled ? 'Abriendo Stripe...' : 'Cotizar vuelo'"
+      :submit-label="
+        props.commercialAccessActionDisabled
+          ? 'Abriendo Stripe...'
+          : shouldHighlightCommercialAccess
+            ? 'Activar acceso para cotizar'
+            : 'Cotizar vuelo'
+      "
       :summary="props.itinerarySummary"
       :trip-type="props.tripType"
       @add-leg="$emit('add-leg')"
+      @go-concierge="$emit('contact-concierge')"
+      @go-commercial-access-payment="$emit('go-commercial-access-payment')"
       @remove-leg="$emit('remove-leg', $event)"
       @submit="$emit('submit-search')"
       @select-form-airport="$emit('select-form-airport', $event)"
@@ -221,17 +241,12 @@ const speedSliderStyle = computed(() => {
           <div class="reservation-loading-spinner" aria-hidden="true">
             <span v-for="segment in 12" :key="`reservation-loading-segment-${segment}`"></span>
           </div>
-          <span class="reservation-loading-eyebrow">
-            {{ props.reservationLoadingState?.eyebrow || 'SOLICITUDES' }}
-          </span>
+          <span class="reservation-loading-eyebrow">CENTRO OPERATIVO</span>
           <h3 id="reservation-loading-title">
-            {{ props.reservationLoadingState?.title || 'Cargando solicitudes' }}
+            Preparando Nuestra Cabina
           </h3>
-          <p>
-            {{
-              props.reservationLoadingState?.message ||
-              'Estamos sincronizando oportunidades activas y el backlog operativo del proveedor.'
-            }}
+          <p v-if="props.reservationLoadingState?.message" class="sr-only">
+            {{ props.reservationLoadingState.message }}
           </p>
         </div>
       </div>
@@ -239,7 +254,10 @@ const speedSliderStyle = computed(() => {
 
     <article
       class="commercial-access-banner"
-      :class="`commercial-access-banner--${props.commercialTrialNotice.tone}`"
+      :class="[
+        `commercial-access-banner--${props.commercialTrialNotice.tone}`,
+        { 'commercial-access-banner--highlight': shouldHighlightCommercialAccess },
+      ]"
     >
       <strong>{{ props.commercialTrialNotice.title }}</strong>
       <p>{{ props.commercialTrialNotice.message }}</p>
@@ -256,9 +274,12 @@ const speedSliderStyle = computed(() => {
 
     <div class="results-shell">
       <div class="results-trust-bar">
-        <span class="results-trust-bar__account">
+        <span
+          class="results-trust-bar__account"
+          :class="{ 'results-trust-bar__account--alert': shouldHighlightCommercialAccess }"
+        >
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20Zm1 5h-2v2h2V7Zm0 4h-2v6h2v-6Z" fill="currentColor"/></svg>
-          Tu cuenta ya puede cotizar, reservar, firmar contrato y pagar vuelos.
+          {{ trustBarCopy }}
         </span>
         <div class="results-trust-bar__pills">
           <span v-for="item in trustPills" :key="item">{{ item }}</span>
@@ -714,7 +735,7 @@ const speedSliderStyle = computed(() => {
             <span>Concierge 24/7</span>
             <strong>Estamos para ayudarte en cada detalle de tu viaje.</strong>
           </div>
-          <button type="button">Contactar Concierge</button>
+          <button type="button" @click="$emit('contact-concierge')">Contactar Concierge</button>
         </article>
       </footer>
 
@@ -738,8 +759,9 @@ const speedSliderStyle = computed(() => {
   position: fixed;
   inset: 0;
   z-index: 80;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: 1.5rem;
 }
 
@@ -747,45 +769,49 @@ const speedSliderStyle = computed(() => {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(circle at 50% 20%, rgba(255, 244, 214, 0.22), transparent 34%),
-    linear-gradient(180deg, rgba(109, 119, 139, 0.82), rgba(92, 101, 121, 0.86));
+    linear-gradient(180deg, rgba(16, 23, 35, 0.72), rgba(10, 15, 24, 0.76));
   backdrop-filter: blur(18px);
 }
 
 .reservation-loading-card {
   position: relative;
-  display: grid;
-  justify-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   gap: 1rem;
-  width: min(100%, 830px);
-  padding: 2.75rem 2.5rem 2.4rem;
-  border: 1px solid rgba(195, 160, 81, 0.28);
-  border-radius: 2.35rem;
+  width: min(100%, 31.25rem);
+  min-height: 25rem;
+  padding: 2rem 2rem 2.2rem;
+  border: 1px solid rgba(138, 156, 189, 0.12);
+  border-radius: 28px;
   background:
-    radial-gradient(circle at 50% -20%, rgba(255, 255, 255, 0.08), transparent 40%),
-    linear-gradient(180deg, rgba(10, 24, 52, 0.98), rgba(8, 20, 44, 0.96));
+    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.05), transparent 42%),
+    linear-gradient(180deg, rgba(9, 24, 54, 0.98), rgba(7, 19, 43, 0.98));
   box-shadow:
-    0 35px 90px rgba(8, 15, 31, 0.34),
+    0 40px 90px rgba(4, 10, 23, 0.38),
     inset 0 1px 0 rgba(255, 255, 255, 0.06);
   text-align: center;
 }
 
 .reservation-loading-spinner {
   position: relative;
-  width: clamp(9rem, 18vw, 13rem);
-  height: clamp(9rem, 18vw, 13rem);
-  filter: drop-shadow(0 18px 32px rgba(1, 10, 26, 0.36));
+  flex: 0 0 auto;
+  width: clamp(7.5rem, 24vw, 9.375rem);
+  height: clamp(7.5rem, 24vw, 9.375rem);
+  margin-bottom: 1.1rem;
+  filter: drop-shadow(0 16px 30px rgba(1, 10, 26, 0.32));
 }
 
 .reservation-loading-spinner span {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: clamp(1rem, 1.5vw, 1.25rem);
-  height: clamp(2.8rem, 5vw, 3.8rem);
+  width: clamp(0.85rem, 1.9vw, 1.1rem);
+  height: clamp(2.55rem, 8vw, 3.45rem);
   border-radius: 999px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(145, 152, 168, 0.24));
-  transform-origin: center calc(clamp(4.5rem, 9vw, 6.5rem) * -1);
+  background: linear-gradient(180deg, rgba(255, 248, 236, 0.98), rgba(131, 144, 170, 0.22));
+  transform-origin: center calc(clamp(2.55rem, 8vw, 3.3rem) * -1);
   animation: reservation-loading-spinner-fade 1.2s linear infinite;
 }
 
@@ -803,27 +829,34 @@ const speedSliderStyle = computed(() => {
 .reservation-loading-spinner span:nth-child(12) { transform: translate(-50%, -50%) rotate(330deg); animation-delay: 0s; }
 
 .reservation-loading-eyebrow {
-  color: #c79a3a;
-  font-size: 0.92rem;
-  font-weight: 900;
-  letter-spacing: 0.18em;
+  color: #7f92b3;
+  font-size: clamp(0.72rem, 1.5vw, 0.84rem);
+  font-weight: 800;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
 }
 
 .reservation-loading-card h3 {
   margin: 0;
-  color: #fff7ea;
-  font-size: clamp(2.1rem, 4.5vw, 4rem);
-  line-height: 0.98;
-  letter-spacing: -0.06em;
+  max-width: 8.8ch;
+  color: #fff9f0;
+  font-size: clamp(2.15rem, 4.8vw, 3.35rem);
+  font-weight: 800;
+  line-height: 1.02;
+  letter-spacing: -0.05em;
+  text-wrap: balance;
 }
 
-.reservation-loading-card p {
-  width: min(100%, 36rem);
-  margin: 0;
-  color: rgba(250, 239, 220, 0.88);
-  font-size: clamp(1rem, 2vw, 1.65rem);
-  line-height: 1.2;
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 @keyframes reservation-loading-spinner-fade {
@@ -844,6 +877,37 @@ const speedSliderStyle = computed(() => {
 .reservation-loading-fade-enter-from,
 .reservation-loading-fade-leave-to {
   opacity: 0;
+}
+
+@media (max-width: 900px) {
+  .reservation-loading-card {
+    width: min(100%, 28rem);
+    min-height: 23rem;
+    padding: 1.85rem 1.7rem 2rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .reservation-loading-modal {
+    padding: 1rem;
+  }
+
+  .reservation-loading-card {
+    width: min(100%, 22rem);
+    min-height: 20.5rem;
+    padding: 1.5rem 1.35rem 1.7rem;
+    gap: 0.9rem;
+    border-radius: 24px;
+  }
+
+  .reservation-loading-spinner {
+    margin-bottom: 0.8rem;
+  }
+
+  .reservation-loading-card h3 {
+    max-width: 9.2ch;
+    font-size: clamp(1.95rem, 8vw, 2.7rem);
+  }
 }
 
 .results-shell {

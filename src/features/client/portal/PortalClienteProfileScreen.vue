@@ -2,6 +2,7 @@
 defineProps({
   activePaymentBadge: { type: String, default: '' },
   activePlan: { type: String, required: true },
+  commercialAccessCtaLabel: { type: String, default: '' },
   commercialAccessRenewalPanel: { type: Object, required: true },
   hasActiveClientAccess: { type: Boolean, required: true },
   isCommercialAccessExpired: { type: Function, required: true },
@@ -12,9 +13,12 @@ defineProps({
   profilePhone: { type: String, required: true },
   profileStats: { type: Array, required: true },
   section: { type: String, required: true },
+  shouldShowCommercialAccessCta: { type: Boolean, required: true },
   userFirstName: { type: String, required: true },
   accessSource: { type: Object, default: () => ({}) },
 })
+
+defineEmits(['go-commercial-access-payment'])
 </script>
 
 <template>
@@ -149,6 +153,15 @@ defineProps({
             </div>
 
             <small class="profile-panel__footnote">{{ commercialAccessRenewalPanel.outcome }}</small>
+
+            <button
+              v-if="shouldShowCommercialAccessCta"
+              type="button"
+              class="commercial-access-banner__action profile-panel__action"
+              @click="$emit('go-commercial-access-payment')"
+            >
+              {{ commercialAccessCtaLabel }}
+            </button>
           </article>
         </section>
 

@@ -17,15 +17,21 @@ const periodOptions = ['AM', 'PM']
 const weekdayHeaders = ['L', 'M', 'M', 'J', 'V', 'S', 'D']
 
 const props = defineProps({
+  commercialAccessActionDisabled: { type: Boolean, default: false },
+  commercialAccessCtaLabel: { type: String, default: '' },
+  commercialAccessNotice: { type: Object, default: () => ({}) },
   form: { type: Object, required: true },
   submitBusy: { type: Boolean, default: false },
   submitLabel: { type: String, default: 'Cotizar vuelo' },
+  shouldShowCommercialAccessCta: { type: Boolean, default: false },
   summary: { type: Object, required: true },
   tripType: { type: String, required: true },
 })
 
 const emit = defineEmits([
   'add-leg',
+  'go-concierge',
+  'go-commercial-access-payment',
   'remove-leg',
   'submit',
   'select-form-airport',
@@ -48,6 +54,15 @@ const serviceHighlights = [
   { title: 'Contrato digital', copy: 'Firma en linea desde tu cuenta.' },
   { title: 'Pago protegido', copy: 'Transacciones 100% seguras.' },
 ]
+
+function normalizedNoticeTone() {
+  const tone = String(props.commercialAccessNotice?.tone || '').trim().toLowerCase()
+  return ['info', 'success', 'warn', 'danger'].includes(tone) ? tone : 'info'
+}
+
+function shouldHighlightCommercialAccessNotice() {
+  return props.shouldShowCommercialAccessCta || ['warn', 'danger'].includes(normalizedNoticeTone())
+}
 
 function formatLegDate(date = '') {
   if (!date) return 'Fecha pendiente'
@@ -445,13 +460,38 @@ function legStatusClass(leg = {}) {
 
 <template>
   <section class="flight-search-hero">
-    <header class="hero-status-bar">
+    <header
+      class="hero-status-bar"
+      :class="[
+        `hero-status-bar--${normalizedNoticeTone()}`,
+        { 'hero-status-bar--alert': shouldHighlightCommercialAccessNotice() },
+      ]"
+    >
       <div class="hero-status-bar__account">
         <span class="hero-status-dot" aria-hidden="true"></span>
-        <strong>Tu cuenta ya puede cotizar, reservar, firmar contrato y pagar vuelos.</strong>
+        <div class="hero-status-bar__copy">
+          <strong>{{
+            shouldHighlightCommercialAccessNotice()
+              ? props.commercialAccessNotice?.title || 'Activa tu acceso comercial'
+              : 'Tu cuenta ya puede cotizar, reservar, firmar contrato y pagar vuelos.'
+          }}</strong>
+          <p v-if="shouldHighlightCommercialAccessNotice()">
+            {{ props.commercialAccessNotice?.message }}
+          </p>
+        </div>
       </div>
 
-      <div class="hero-status-bar__pills">
+      <button
+        v-if="props.shouldShowCommercialAccessCta"
+        type="button"
+        class="hero-status-bar__action"
+        :disabled="props.commercialAccessActionDisabled"
+        @click="$emit('go-commercial-access-payment')"
+      >
+        {{ props.commercialAccessCtaLabel }}
+      </button>
+
+      <div v-else class="hero-status-bar__pills">
         <span v-for="item in trustPillars" :key="item">{{ item }}</span>
       </div>
     </header>
@@ -1120,7 +1160,7 @@ function legStatusClass(leg = {}) {
             <span>Concierge 24/7</span>
             <strong>Estamos para ayudarte en cada detalle de tu viaje.</strong>
           </div>
-          <button type="button" class="concierge-card__action">Contactar Concierge</button>
+          <button type="button" class="concierge-card__action" @click="$emit('go-concierge')">Contactar Concierge</button>
         </article>
 
         <article class="benefits-card">
@@ -1174,6 +1214,20 @@ function legStatusClass(leg = {}) {
   color: #3c3a35;
   font-size: 0.8rem;
   font-weight: 700;
+  flex: 1 1 auto;
+}
+
+.hero-status-bar__copy {
+  display: grid;
+  gap: 0.22rem;
+}
+
+.hero-status-bar__copy p {
+  margin: 0;
+  color: #5f584e;
+  font-size: 0.94rem;
+  font-weight: 500;
+  line-height: 1.45;
 }
 
 .hero-status-dot {
@@ -1199,6 +1253,53 @@ function legStatusClass(leg = {}) {
   color: #6e5622;
   font-size: 0.74rem;
   font-weight: 800;
+}
+
+.hero-status-bar__action {
+  min-height: 3rem;
+  padding: 0.85rem 1.2rem;
+  border-radius: 999px;
+  background: #111111;
+  color: #ffffff;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.hero-status-bar--alert {
+  padding: 1rem 1.1rem;
+  border: 2px solid rgba(180, 58, 58, 0.24);
+  border-radius: 24px;
+  background: linear-gradient(135deg, #fff7f6, #fde8e5);
+  box-shadow: 0 18px 44px rgba(17, 17, 17, 0.08);
+}
+
+.hero-status-bar--alert .hero-status-dot {
+  background: #c14444;
+  box-shadow: 0 0 0 6px rgba(193, 68, 68, 0.14);
+}
+
+.hero-status-bar--alert .hero-status-bar__account {
+  align-items: flex-start;
+}
+
+.hero-status-bar--alert .hero-status-bar__copy strong {
+  color: #231815;
+}
+
+.hero-status-bar--warn.hero-status-bar--alert,
+.hero-status-bar--danger.hero-status-bar--alert {
+  border-color: rgba(180, 58, 58, 0.28);
+  background: linear-gradient(135deg, #fff7f6, #fde8e5);
+}
+
+.hero-status-bar--info.hero-status-bar--alert {
+  border-color: rgba(191, 151, 65, 0.3);
+  background: linear-gradient(135deg, #fffdf8, #f8f3e6);
+}
+
+.hero-status-bar--success.hero-status-bar--alert {
+  border-color: rgba(34, 197, 94, 0.24);
+  background: linear-gradient(135deg, #f6fff8, #eefbf2);
 }
 
 .hero-layout {
@@ -2303,6 +2404,11 @@ button {
     justify-content: flex-start;
   }
 
+  .hero-status-bar__action {
+    width: 100%;
+    justify-content: center;
+  }
+
   .flight-form,
   .leg-editor,
   .roundtrip-grid,
@@ -2360,6 +2466,10 @@ button {
 
   .hero-status-bar__account {
     font-size: 0.88rem;
+  }
+
+  .hero-status-bar__copy p {
+    font-size: 0.9rem;
   }
 
   .search-copy {

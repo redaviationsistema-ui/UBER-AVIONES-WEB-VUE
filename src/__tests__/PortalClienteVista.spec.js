@@ -205,6 +205,11 @@ async function mountView(props = { section: 'pago' }) {
   return wrapper
 }
 
+function readPersistedAircraftHold() {
+  const rawValue = window.sessionStorage.getItem('red_aviation_client_aircraft_hold_context_v1')
+  return rawValue ? JSON.parse(rawValue) : null
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
 
@@ -345,6 +350,8 @@ beforeEach(() => {
       id: 'contract-1',
     },
   })
+
+  window.sessionStorage.clear()
 })
 
 describe('PortalClienteVista assisted payment notifications', () => {
@@ -972,6 +979,85 @@ describe('PortalClienteVista reservation availability safeguards', () => {
 
     await Promise.all([firstRequest, secondRequest])
   })
+
+  it('recovers the hold state through validation when the hold request times out after persisting the reservation', async () => {
+    createClientAircraftHoldMock.mockRejectedValueOnce({
+      status: 500,
+      code: 'timeout',
+      message: 'Maximum execution time of 30 seconds exceeded',
+    })
+    validateClientAircraftHoldMock.mockResolvedValueOnce({
+      data: {
+        hold_id: 'hold-recovered-1',
+        expires_at: '2099-07-20T09:20:00Z',
+        aircraft_id: 77,
+        quote_id: 123,
+        flight_request_id: 'fr-created-1',
+      },
+    })
+
+    const wrapper = await mountView({ section: 'reservar' })
+
+    await wrapper.vm.requestReservation({
+      id: 'aircraft-2',
+      aircraft: 'Citation XLS',
+      cabin: 'Citation XLS',
+      is_available: true,
+      provider_id: 22,
+      aircraft_id: 77,
+    })
+
+    expect(createClientFlightRequestMock).toHaveBeenCalledTimes(1)
+    expect(createClientAircraftHoldMock).toHaveBeenCalledTimes(1)
+    expect(validateClientAircraftHoldMock).toHaveBeenCalledWith(
+      'quote-123',
+      { quote_id: 123 },
+      expect.objectContaining({ timeoutMs: 10000 }),
+    )
+    expect(readPersistedAircraftHold()?.hold_id).toBe('hold-recovered-1')
+    expect(wrapper.vm.reservations[0]?.frontend_state?.aircraft_hold?.hold_id).toBe('hold-recovered-1')
+    expect(pushToastMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tone: 'success',
+        title: 'Aeronave apartada temporalmente',
+      }),
+    )
+    expect(pushToastMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        tone: 'error',
+        title: 'No se pudo solicitar la reserva',
+      }),
+    )
+  })
+
+  it('reuses the active hold and persisted reservation context on a safe retry instead of creating duplicates', async () => {
+    const wrapper = await mountView({ section: 'reservar' })
+    const aircraft = {
+      id: 'aircraft-2',
+      aircraft: 'Citation XLS',
+      cabin: 'Citation XLS',
+      is_available: true,
+      provider_id: 22,
+      aircraft_id: 77,
+    }
+
+    await wrapper.vm.requestReservation(aircraft)
+
+    expect(createClientFlightRequestMock).toHaveBeenCalledTimes(1)
+    expect(createClientAircraftHoldMock).toHaveBeenCalledTimes(1)
+
+    createClientFlightRequestMock.mockClear()
+    createClientAircraftHoldMock.mockClear()
+    validateClientAircraftHoldMock.mockClear()
+
+    await wrapper.vm.requestReservation(aircraft)
+
+    expect(createClientFlightRequestMock).not.toHaveBeenCalled()
+    expect(createClientAircraftHoldMock).not.toHaveBeenCalled()
+    expect(validateClientAircraftHoldMock).not.toHaveBeenCalled()
+    expect(readPersistedAircraftHold()?.hold_id).toBe('hold-1')
+    expect(wrapper.vm.reservations[0]?.frontend_state?.aircraft_hold?.hold_id).toBe('hold-1')
+  })
 })
 
 describe('PortalClienteVista commercial access checkout', () => {
@@ -1009,7 +1095,223 @@ describe('PortalClienteVista commercial access checkout', () => {
     await flushPromises()
   })
 
-  it('opens Stripe directly when quote preview responds with 402 for consumed trial', async () => {
+  it('keeps the quote flow on results when backend confirms has_access', async () => {
+    searchClientFlightsMock.mockResolvedValue([
+      {
+        id: 'quote-1',
+        aircraft: 'Citation XLS',
+        source_table: 'quotes',
+        total: 12000,
+      },
+    ])
+
+    const wrapper = await mountView({ section: 'reservar' })
+
+    wrapper.vm.searchForm.origin = 'MMMX'
+    wrapper.vm.searchForm.destination = 'MMUN'
+    wrapper.vm.searchForm.departureDate = '2026-07-30'
+    wrapper.vm.searchForm.departureTime = '05:00 PM'
+    wrapper.vm.searchForm.passengers = '2'
+
+    getClientAccessStatusMock.mockResolvedValueOnce({
+      access: {
+        has_access: true,
+        commercial_access: {
+          has_access: true,
+          has_paid_access: true,
+          remaining_free_quotes: 0,
+          free_quotes_used: 1,
+          status: 'active',
+        },
+      },
+    })
+
+    await wrapper.vm.submitSearch()
+    await flushPromises()
+
+    expect(searchClientFlightsMock).toHaveBeenCalledTimes(1)
+    expect(routerMock.push).toHaveBeenCalledWith({
+      name: 'cliente',
+      params: { section: 'resultados' },
+    })
+    expect(routerMock.push).not.toHaveBeenCalledWith({
+      name: 'cliente',
+      params: { section: 'pago' },
+      query: { accessPayment: '1' },
+    })
+  })
+
+  it('blocks submitSearch before calling flight search when backend says can_quote=false', async () => {
+    authStoreMock.access = {
+      commercial_access: {
+        has_access: false,
+        has_paid_access: true,
+        access_is_active: false,
+        access_is_expired: true,
+        access_expires_date: '2026-07-29',
+        access_message:
+          'Tu acceso ya expiró el 2026-07-29. Reactiva el pago para volver a cotizar, reservar, firmar contrato y pagar vuelos.',
+        available_actions: {
+          can_quote: false,
+          can_reserve: false,
+          can_renew: true,
+        },
+        status: 'expired',
+      },
+    }
+    getClientAccessStatusMock.mockResolvedValueOnce({
+      access: authStoreMock.access.commercial_access,
+      latest_payment: {
+        status: 'paid',
+        billing_period_end: '2026-08-27',
+      },
+    })
+
+    const wrapper = await mountView({ section: 'reservar' })
+
+    wrapper.vm.searchForm.origin = 'MMMX'
+    wrapper.vm.searchForm.destination = 'MMUN'
+    wrapper.vm.searchForm.departureDate = '2026-07-30'
+    wrapper.vm.searchForm.departureTime = '05:00 PM'
+    wrapper.vm.searchForm.passengers = '2'
+
+    await wrapper.vm.submitSearch()
+    await flushPromises()
+
+    expect(searchClientFlightsMock).not.toHaveBeenCalled()
+    expect(wrapper.vm.serverSearchError).toContain('Tu acceso ya expiró el 2026-07-29')
+    expect(routerMock.push).toHaveBeenCalledWith({
+      name: 'cliente',
+      params: { section: 'pago' },
+      query: { accessPayment: '1' },
+    })
+    expect(routerMock.push).not.toHaveBeenCalledWith({
+      name: 'cliente',
+      params: { section: 'resultados' },
+    })
+  })
+
+  it('sends the commercial access CTA to the internal payment screen instead of Stripe direct', async () => {
+    const wrapper = await mountView({ section: 'reservar' })
+
+    await wrapper.vm.goToCommercialAccessPayment()
+    await flushPromises()
+
+    expect(createClientAccessCheckoutMock).not.toHaveBeenCalled()
+    expect(routerMock.push).toHaveBeenCalledWith({
+      name: 'cliente',
+      params: { section: 'pago' },
+      query: { accessPayment: '1' },
+    })
+  })
+
+  it('opens the concierge drawer without navigating away from the quote flow', async () => {
+    const wrapper = await mountView({ section: 'reservar' })
+
+    wrapper.vm.openConciergeDrawer()
+    await flushPromises()
+
+    expect(wrapper.vm.isConciergeOpen).toBe(true)
+    expect(routerMock.push).not.toHaveBeenCalledWith({
+      name: 'cliente',
+      params: { section: 'soporte' },
+    })
+  })
+
+  it('marks expired linked subscriptions as reactivation required in the profile billing panel', async () => {
+    authStoreMock.access = {
+      commercial_access: {
+        has_access: false,
+        has_paid_access: true,
+        access_expires_at: '2026-07-29',
+        remaining_free_quotes: 0,
+        free_quotes_used: 1,
+        status: 'active',
+      },
+      subscription: {
+        id: 'sub_123',
+        status: 'active',
+      },
+    }
+
+    const wrapper = await mountView({ section: 'perfil' })
+
+    expect(wrapper.vm.hasActiveClientAccess).toBe(false)
+    expect(wrapper.vm.shouldShowCommercialAccessCta).toBe(true)
+    expect(wrapper.vm.commercialAccessCtaLabel).toBe('Reactivar acceso comercial')
+    expect(wrapper.vm.commercialAccessRenewalPanel.title).toBe('Renovación automática vencida')
+  })
+
+  it('uses normalized commercial expiry from backend instead of latest payment period end', async () => {
+    authStoreMock.access = {
+      commercial_access: {
+        has_access: false,
+        has_paid_access: true,
+        access_is_active: false,
+        access_is_expired: true,
+        access_expires_at: '2026-07-30T06:00:00.000000Z',
+        access_expires_date: '2026-07-30',
+        access_message: 'Tu acceso ya expiró el 2026-07-30. Reactiva el pago para volver a cotizar, reservar, firmar contrato y pagar vuelos.',
+        available_actions: {
+          can_quote: false,
+          can_reserve: false,
+          can_renew: true,
+        },
+        status: 'expired',
+        latest_payment: {
+          id: 52,
+          status: 'paid',
+          billing_period_start: '2026-07-27',
+          billing_period_end: '2026-08-27',
+          paid_at: '2026-07-27T15:02:04.000000Z',
+        },
+      },
+    }
+    getClientAccessStatusMock.mockResolvedValue({
+      access: authStoreMock.access.commercial_access,
+      latest_payment: authStoreMock.access.commercial_access.latest_payment,
+    })
+
+    const wrapper = await mountView({ section: 'perfil' })
+
+    expect(wrapper.vm.hasActiveClientAccess).toBe(false)
+    expect(wrapper.vm.shouldShowCommercialAccessCta).toBe(true)
+    expect(wrapper.vm.commercialAccessCtaLabel).toBe('Reactivar acceso comercial')
+  })
+
+  it('redirects back to resultados if a fresh quote flow falls into viajes without a reservation context', async () => {
+    routeMock.params.id = undefined
+    getClientTripsMock.mockResolvedValueOnce([])
+    searchClientFlightsMock.mockResolvedValue([
+      {
+        id: 'quote-1',
+        aircraft: 'Citation XLS',
+        source_table: 'quotes',
+        total: 12000,
+      },
+    ])
+
+    const wrapper = await mountView({ section: 'reservar' })
+
+    wrapper.vm.searchForm.origin = 'MMMX'
+    wrapper.vm.searchForm.destination = 'MMUN'
+    wrapper.vm.searchForm.departureDate = '2026-07-30'
+    wrapper.vm.searchForm.departureTime = '05:00 PM'
+    wrapper.vm.searchForm.passengers = '2'
+
+    await wrapper.vm.submitSearch()
+    await flushPromises()
+
+    await wrapper.setProps({ section: 'viajes' })
+    await flushPromises()
+
+    expect(routerMock.replace).toHaveBeenCalledWith({
+      name: 'cliente',
+      params: { section: 'resultados' },
+    })
+  })
+
+  it('routes to the access activation screen when quote preview responds with 402 for consumed trial', async () => {
     authStoreMock.access = {
       commercial_access: {
         has_paid_access: false,
@@ -1045,14 +1347,9 @@ describe('PortalClienteVista commercial access checkout', () => {
     await flushPromises()
 
     expect(searchClientFlightsMock).toHaveBeenCalledTimes(1)
-    expect(createClientAccessCheckoutMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        contact_email: 'cliente@skygroup.com',
-      }),
-      expect.objectContaining({ timeoutMs: 30000 }),
-    )
-    expect(wrapper.vm.lastExternalRedirectUrl).toBe('https://checkout.stripe.com/pay/cs_test_access_1')
-    expect(routerMock.push).not.toHaveBeenCalledWith({
+    expect(createClientAccessCheckoutMock).not.toHaveBeenCalled()
+    expect(wrapper.vm.lastExternalRedirectUrl).toBe('')
+    expect(routerMock.push).toHaveBeenCalledWith({
       name: 'cliente',
       params: { section: 'pago' },
       query: { accessPayment: '1' },
@@ -1074,18 +1371,20 @@ describe('PortalClienteVista commercial access checkout', () => {
     }
     routeMock.query = { accessPayment: '1' }
 
-    await mountView({ section: 'pago' })
+    const wrapper = await mountView({ section: 'pago' })
+    await wrapper.vm.handlePaymentSubmit()
     await flushPromises()
 
     expect(createClientAccessCheckoutMock).toHaveBeenCalledWith(
       expect.objectContaining({
         contact_email: 'otro.usuario@test.dev',
+        intent: 'checkout',
       }),
       expect.objectContaining({ timeoutMs: 30000 }),
     )
   })
 
-  it('auto-starts Stripe from the legacy accessPayment route without requiring a second click', async () => {
+  it('keeps the legacy accessPayment route on the activation screen until the user confirms payment', async () => {
     routeMock.params.id = undefined
     routeMock.query = { accessPayment: '1' }
     authStoreMock.access = {
@@ -1109,8 +1408,31 @@ describe('PortalClienteVista commercial access checkout', () => {
 
     await flushPromises()
 
-    expect(createClientAccessCheckoutMock).toHaveBeenCalledTimes(1)
-    expect(wrapper.vm.lastExternalRedirectUrl).toBe('https://checkout.stripe.com/pay/cs_test_access_1')
+    expect(createClientAccessCheckoutMock).not.toHaveBeenCalled()
+    expect(wrapper.vm.lastExternalRedirectUrl).toBe('')
+  })
+
+  it('leaves the access payment screen when the account is already active again', async () => {
+    routeMock.params.id = undefined
+    routeMock.query = { accessPayment: '1' }
+    authStoreMock.access = {
+      commercial_access: {
+        has_access: true,
+        has_paid_access: true,
+        remaining_free_quotes: 0,
+        free_quotes_used: 1,
+        status: 'active',
+        access_expires_at: '2026-08-29',
+      },
+    }
+
+    await mountView({ section: 'pago' })
+    await flushPromises()
+
+    expect(routerMock.replace).toHaveBeenCalledWith({
+      name: 'cliente',
+      params: { section: 'reservar' },
+    })
   })
 
   it('does not call the access checkout endpoint when the authenticated user lacks a valid email', async () => {
@@ -1129,6 +1451,7 @@ describe('PortalClienteVista commercial access checkout', () => {
     }
 
     const wrapper = await mountView({ section: 'pago' })
+    await wrapper.vm.handlePaymentSubmit()
     await flushPromises()
 
     expect(createClientAccessCheckoutMock).not.toHaveBeenCalled()
@@ -1164,6 +1487,7 @@ describe('PortalClienteVista commercial access checkout', () => {
     })
 
     const wrapper = await mountView({ section: 'pago' })
+    await wrapper.vm.handlePaymentSubmit()
     await flushPromises()
 
     expect(wrapper.vm.paymentInlineError).toBe(
@@ -1172,7 +1496,7 @@ describe('PortalClienteVista commercial access checkout', () => {
     expect(pushToastMock).toHaveBeenCalledWith(
       expect.objectContaining({
         tone: 'error',
-        title: 'No se pudo abrir Stripe',
+        title: 'No se pudo activar el acceso comercial',
         message: 'The contact email field must be a valid email address.',
       }),
     )
@@ -1423,6 +1747,26 @@ describe('PortalClienteVista reservation checkout return flow', () => {
       checkout: 'success',
       session_id: 'cs_test_success_1',
     }
+    window.sessionStorage.setItem(
+      'red_aviation_client_reservation_checkout_context_v1',
+      JSON.stringify({
+        routeId: 'res-1',
+        reservationId: 'res-1',
+        flightRequestId: 'fr-1',
+        checkoutSessionId: 'cs_test_success_1',
+        reservation: buildReservation({
+          id: 'res-1',
+          flight_request_id: 'fr-1',
+          payment_status: 'pending',
+          status: 'pending_payment',
+          workflow_status: 'payment_pending',
+          frontend_state: {
+            ready_for_payment: true,
+          },
+        }),
+        savedAt: new Date().toISOString(),
+      }),
+    )
     getClientReservationCheckoutSuccessMock.mockResolvedValueOnce({
       reservation_id: 'res-1',
       payment_status: 'paid',
