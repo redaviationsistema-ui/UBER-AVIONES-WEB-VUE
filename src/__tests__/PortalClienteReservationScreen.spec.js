@@ -154,7 +154,9 @@ describe('PortalClienteReservationScreen', () => {
 
     expect(wrapper.find('.results-section--skeleton').exists()).toBe(true)
     expect(wrapper.findAll('.aircraft-skeleton-card').length).toBeGreaterThanOrEqual(2)
-    expect(wrapper.text()).toContain('Buscando aeronaves disponibles...')
+    expect(wrapper.text()).toContain(
+      'Buscando aeronaves disponibles en el origen y en aeropuertos cercanos...',
+    )
   })
 
   it('replaces the active-account trust copy with the payment warning when access needs reactivation', () => {
@@ -195,7 +197,7 @@ describe('PortalClienteReservationScreen', () => {
     })
 
     expect(wrapper.text()).toContain(
-      'No hay aeronaves activas y elegibles con base en el aeropuerto de origen.',
+      'No encontramos aeronaves disponibles en el aeropuerto de origen ni en bases cercanas dentro del radio operativo.',
     )
     expect(wrapper.text()).toContain('Modificar busqueda')
     expect(wrapper.text()).toContain('Intentar nuevamente')
@@ -245,6 +247,7 @@ describe('PortalClienteReservationScreen', () => {
     })
 
     expect(wrapper.text()).toContain('Reposicionamiento desde MMTO')
+    expect(wrapper.text()).toContain('Incluido en la tarifa')
     expect(wrapper.text()).not.toContain('Base en origen')
   })
 })

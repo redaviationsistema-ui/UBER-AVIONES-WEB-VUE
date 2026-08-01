@@ -382,7 +382,7 @@ describe('searchClientFlights', () => {
     consoleSpy.mockRestore()
   })
 
-  it('excludes backend matches whose aircraft base is not the requested origin', async () => {
+  it('keeps backend repositioned matches when no exact-base option exists', async () => {
     api.post.mockResolvedValue({
       matches: [
         {
@@ -393,6 +393,14 @@ describe('searchClientFlights', () => {
           base_airport_match: false,
           requires_repositioning: true,
           total: 20787,
+          repositioning: {
+            origin_icao: 'MMTO',
+            destination_icao: 'MMQT',
+            distance_nm: 92,
+            flight_hours: 0.6,
+            billable_hours: 0.75,
+            cost: 2800,
+          },
           pricing_breakdown: {
             total_amount: 20787,
             repositioning_hours: 1.2,
@@ -415,7 +423,52 @@ describe('searchClientFlights', () => {
       ],
     })
 
-    expect(results).toEqual([])
+    expect(results).toHaveLength(1)
+    expect(results[0]).toMatchObject({
+      aircraft: 'Gulfstream G-IV',
+      requires_repositioning: true,
+      base_airport_match: false,
+      repositioning_distance_nm: 92,
+    })
+  })
+
+  it('prefers pricing.total_amount over stale top-level total values', async () => {
+    api.post.mockResolvedValue({
+      matches: [
+        {
+          id: 'match-hawker',
+          aircraft_id: 'aircraft-hawker',
+          aircraft_name: 'HAWKER 800A',
+          total: 13535,
+          final_price: 'USD 13,535',
+          pricing: {
+            total_amount: 14493,
+          },
+          pricing_breakdown: {
+            total_amount: 14493,
+            customer_flight_cost: 10000,
+          },
+        },
+      ],
+    })
+    api.get.mockResolvedValue({ aircraft: [] })
+
+    const [quote] = await searchClientFlights({
+      trip_type: 'one_way',
+      passengers: 4,
+      legs: [
+        {
+          origin: 'MMAS',
+          destination: 'MMGL',
+          date: '2026-07-27',
+          time: '10:00',
+        },
+      ],
+    })
+
+    expect(quote.total).toBe(14493)
+    expect(quote.total_amount).toBe(14493)
+    expect(quote.final_price).toBe('USD 14,493')
   })
 
   it('does not show catalog fallback quotes when the backend preview is unavailable', async () => {

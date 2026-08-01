@@ -96,7 +96,7 @@ const paymentHeroHeading = computed(() =>
 
 const paymentHeroSupportingCopy = computed(() =>
   props.commercialAccessCheckoutScreenMode
-    ? 'Confirma el total y continúa en Stripe.'
+    ? 'Confirma el total de tu Acceso comercial y continúa en Stripe.'
     : 'Confirma el total y continúa en Stripe.',
 )
 
@@ -496,6 +496,28 @@ const completedReservationStatusItems = computed(() => [
           </div>
           <p v-if="paymentHeroSupportingCopy">{{ paymentHeroSupportingCopy }}</p>
         </div>
+
+        <section
+          v-if="commercialAccessCheckoutScreenMode"
+          class="tracking-facts-grid payment-access-facts"
+        >
+          <article class="tracking-fact-card">
+            <span>Producto</span>
+            <strong>Acceso comercial</strong>
+          </article>
+          <article
+            v-for="item in commercialAccessCheckoutFacts"
+            :key="item.label"
+            class="tracking-fact-card"
+          >
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+          </article>
+          <article class="tracking-fact-card">
+            <span>Total</span>
+            <strong>{{ paymentSummaryAmountLabel }}</strong>
+          </article>
+        </section>
 
         <section class="payment-stripe-layout">
           <PaymentSummaryCard

@@ -65,20 +65,72 @@ function resultRankLabel(index = 0) {
 }
 
 function aircraftFactChips(aircraft, itinerary, helpers) {
+  const baseCode =
+    aircraft?.aircraft_base_airport?.icao ||
+    aircraft?.aircraft_base_airport?.iata ||
+    aircraft?.source_origin
+
   return [
     helpers.aircraftClassLabel(aircraft),
     helpers.aircraftCapacityLabel(aircraft),
     helpers.aircraftSpeedLine(aircraft, itinerary),
     aircraft?.based_at_origin || aircraft?.base_airport_match
       ? 'Base en origen'
-      : aircraft?.requires_repositioning && aircraft?.source_origin
-        ? `Reposicionamiento desde ${aircraft.source_origin}`
+      : aircraft?.requires_repositioning && baseCode
+        ? `Reposicionamiento desde ${baseCode}`
         : '',
   ].filter(Boolean)
 }
 
 function aircraftIsAvailable(aircraft) {
   return aircraft?.is_available !== false
+}
+
+function repositioningBaseLabel(aircraft = {}) {
+  return (
+    aircraft?.aircraft_base_airport?.city ||
+    aircraft?.base_airport_city ||
+    aircraft?.aircraft_base_airport?.name ||
+    aircraft?.aircraft_base_airport?.icao ||
+    aircraft?.aircraft_base_airport?.iata ||
+    aircraft?.source_origin ||
+    ''
+  )
+}
+
+function repositioningRouteLabel(aircraft = {}) {
+  const repositioning = aircraft?.repositioning || {}
+  const origin = repositioning.origin_icao || repositioning.origin_iata || aircraft?.source_origin || ''
+  const destination =
+    repositioning.destination_icao ||
+    repositioning.destination_iata ||
+    aircraft?.itinerary_origin ||
+    props.searchForm.origin ||
+    ''
+
+  if (!origin || !destination) return ''
+
+  return `${origin} -> ${destination}`
+}
+
+function repositioningMetaLabel(aircraft = {}) {
+  const repositioning = aircraft?.repositioning || {}
+  const distanceNm = Number(
+    repositioning.distance_nm || aircraft?.repositioning_distance_nm || 0,
+  )
+  const hours = Number(repositioning.flight_hours || aircraft?.repositioning_hours || 0)
+  const minutes = Math.max(0, Math.round(hours * 60))
+  const parts = []
+
+  if (distanceNm > 0) parts.push(`${Math.round(distanceNm)} NM`)
+  if (minutes > 0) parts.push(`${minutes} min`)
+
+  return parts.join(' · ')
+}
+
+function selectedAirportLabel(value, fallback = 'Aeropuerto por definir') {
+  const normalized = String(value || '').trim()
+  return normalized || fallback
 }
 
 const trustPills = [
@@ -126,7 +178,9 @@ const trustBarCopy = computed(() =>
     : 'Tu cuenta ya puede cotizar, reservar, firmar contrato y pagar vuelos.',
 )
 const resultsCountCopy = computed(() =>
-  props.searching ? 'Buscando aeronaves disponibles...' : `${visibleAircraftCount.value} opciones disponibles`,
+  props.searching
+    ? 'Buscando aeronaves disponibles en el origen y en aeropuertos cercanos...'
+    : `${visibleAircraftCount.value} opciones disponibles`,
 )
 
 function formatWholeCurrency(value = 0) {
@@ -475,19 +529,19 @@ const speedSliderStyle = computed(() => {
               <label class="sidebar-field">
                 <span>Salida</span>
                 <select>
-                  <option>{{ props.searchForm.origin || 'Toluca (MMTO)' }}</option>
+                  <option>{{ selectedAirportLabel(props.searchForm.origin) }}</option>
                 </select>
               </label>
               <label class="sidebar-field">
                 <span>Destino</span>
                 <select>
-                  <option>{{ props.searchForm.destination || 'Queretaro (MMQT)' }}</option>
+                  <option>{{ selectedAirportLabel(props.searchForm.destination) }}</option>
                 </select>
               </label>
               <label class="sidebar-field" v-if="props.tripType === 'Redondo'">
                 <span>Regreso</span>
                 <select>
-                  <option>{{ props.searchForm.origin || 'Toluca (MMTO)' }}</option>
+                  <option>{{ selectedAirportLabel(props.searchForm.origin) }}</option>
                 </select>
               </label>
             </section>
@@ -553,7 +607,7 @@ const speedSliderStyle = computed(() => {
           </section>
 
           <div v-else-if="showSearchEmptyState" class="empty-state">
-            <p>No hay aeronaves activas y elegibles con base en el aeropuerto de origen.</p>
+            <p>No encontramos aeronaves disponibles en el aeropuerto de origen ni en bases cercanas dentro del radio operativo.</p>
             <div class="empty-state__actions">
               <button type="button" class="ghost-action ghost-action--detail" @click="$emit('modify-search')">
                 Modificar busqueda
@@ -610,6 +664,13 @@ const speedSliderStyle = computed(() => {
                 >
                   {{ item }}
                 </span>
+              </div>
+
+              <div v-if="props.featuredAircraft.requires_repositioning" class="repositioning-note">
+                <strong>Reposicionamiento desde {{ repositioningBaseLabel(props.featuredAircraft) }}</strong>
+                <span>{{ repositioningRouteLabel(props.featuredAircraft) }}</span>
+                <span>{{ repositioningMetaLabel(props.featuredAircraft) }}</span>
+                <small>Incluido en la tarifa</small>
               </div>
 
               <p class="hero-service-copy">
@@ -689,6 +750,12 @@ const speedSliderStyle = computed(() => {
                     >
                       {{ item }}
                     </span>
+                  </div>
+                  <div v-if="aircraft.requires_repositioning" class="repositioning-note repositioning-note--compact">
+                    <strong>Reposicionamiento desde {{ repositioningBaseLabel(aircraft) }}</strong>
+                    <span>{{ repositioningRouteLabel(aircraft) }}</span>
+                    <span>{{ repositioningMetaLabel(aircraft) }}</span>
+                    <small>Incluido en la tarifa</small>
                   </div>
                   <p v-if="props.aircraftBillingNote(aircraft)" class="aircraft-billing-note">
                     {{ props.aircraftBillingNote(aircraft) }}
@@ -1564,6 +1631,31 @@ const speedSliderStyle = computed(() => {
   font-size: 0.84rem;
   line-height: 1.5;
   max-width: 56ch;
+}
+
+.repositioning-note {
+  display: grid;
+  gap: 0.16rem;
+  padding: 0.8rem 0.95rem;
+  border-radius: 16px;
+  background: #f7f9fc;
+  border: 1px solid rgba(205, 212, 223, 0.95);
+  color: #475569;
+}
+
+.repositioning-note strong {
+  color: #17336d;
+  font-size: 0.84rem;
+}
+
+.repositioning-note span,
+.repositioning-note small {
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.repositioning-note small {
+  color: #64748b;
 }
 
 .aircraft-unavailable-note {

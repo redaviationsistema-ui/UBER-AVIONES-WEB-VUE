@@ -252,7 +252,7 @@ const FALLBACK_DESTINATIONS = [
     city: 'Monterrey',
     country: 'Mexico',
     badge: 'Ruta sugerida',
-    route_title: 'Toluca -> Monterrey',
+    route_title: 'Ruta privada sugerida',
     price: '$39,500 MXN',
     time: 'Light jet',
     capacity: '5 pasajeros',
@@ -411,6 +411,39 @@ function resolveServerAmount(record = {}, keys = [], fallback = 0) {
   return fallback
 }
 
+function resolveOfficialQuoteTotal(...sources) {
+  for (const source of sources) {
+    if (!source || typeof source !== 'object') continue
+
+    const pricing =
+      source.pricing && typeof source.pricing === 'object'
+        ? source.pricing
+        : source.pricing_breakdown && typeof source.pricing_breakdown === 'object'
+          ? source.pricing_breakdown
+          : source.pricing_context && typeof source.pricing_context === 'object'
+            ? source.pricing_context
+            : null
+
+    const amount = asNumber(
+      pricing?.total_amount ??
+        pricing?.total ??
+        pricing?.final_price ??
+        pricing?.price ??
+        source.total_amount ??
+        source.final_price ??
+        source.total ??
+        source.price,
+      Number.NaN,
+    )
+
+    if (Number.isFinite(amount) && amount > 0) {
+      return amount
+    }
+  }
+
+  return 0
+}
+
 function resolveHourlyRate(raw = {}) {
   const hourlyRate = asNumber(
     raw.hourly_rate ||
@@ -560,7 +593,7 @@ function buildPricingBreakdown(match = {}) {
     1,
   )
   const subtotal = asNumber(match.subtotal || backendPricing.subtotal)
-  const total = asNumber(match.total || backendPricing.total)
+  const total = resolveOfficialQuoteTotal(match, backendPricing || {})
 
   if (total <= 0 && subtotal <= 0) {
     throw new Error(
@@ -684,8 +717,12 @@ function normalizeMatches(payload, itinerary = {}, requestMeta = {}) {
         )
       : asNumber(match.overnight_cost || match.overnight_fees || pricing.overnightCost)
     const resolvedTotal = pricing.hasFormulaInputs
-      ? pricing.total
-      : asNumber(match.total || match.price, 0)
+      ? resolveOfficialQuoteTotal(
+          { pricing: { total_amount: pricing.total } },
+          match,
+          backendPricing || {},
+        )
+      : resolveOfficialQuoteTotal(match, backendPricing || {})
     const hourlyRate = resolveHourlyRate({
       ...aircraftRecord,
       ...match,
@@ -720,6 +757,14 @@ function normalizeMatches(payload, itinerary = {}, requestMeta = {}) {
       backendPricing?.quote_strategy ||
       requestMeta.pricingSource ||
       'official_backend_pricing_v2'
+    const aircraftBaseAirport =
+      match.aircraft_base_airport && typeof match.aircraft_base_airport === 'object'
+        ? match.aircraft_base_airport
+        : null
+    const repositioning =
+      match.repositioning && typeof match.repositioning === 'object' ? match.repositioning : null
+    const returnToBase =
+      match.return_to_base && typeof match.return_to_base === 'object' ? match.return_to_base : null
 
     return {
       id: match.id || `match-${index}`,
@@ -790,10 +835,7 @@ function normalizeMatches(payload, itinerary = {}, requestMeta = {}) {
         backendPricing?.include_overnight_in_billed_hours ??
         false,
       final_price:
-        match.final_price ||
-        match.price ||
-        match.quoted_price ||
-        (resolvedTotal ? asMoney(resolvedTotal) : asMoney(match.total || '')),
+        resolvedTotal ? asMoney(resolvedTotal) : asMoney(match.total || ''),
       base_price: asNumber(
         match.base_cost ||
           match.client_flight_cost ||
@@ -832,8 +874,8 @@ function normalizeMatches(payload, itinerary = {}, requestMeta = {}) {
       model: match.model || match.aircraft_model || aircraftRecord?.model || '',
       hourly_rate: hourlyRate || '',
       total: pricing.hasFormulaInputs
-        ? Number(pricing.total.toFixed(2))
-        : match.total || match.final_price || '',
+        ? Number(resolvedTotal.toFixed(2))
+        : resolvedTotal || '',
       flight_cost: resolveServerAmount(
         match,
         ['flight_cost', 'client_flight_cost'],
@@ -855,9 +897,9 @@ function normalizeMatches(payload, itinerary = {}, requestMeta = {}) {
         resolveServerAmount(backendPricing, ['administrative_fee'], 0),
       ),
       total_amount: resolveServerAmount(
-        match,
+        { ...match, total_amount: resolveOfficialQuoteTotal(match, backendPricing || {}) },
         ['total_amount'],
-        resolveServerAmount(backendPricing, ['total_amount'], resolvedTotal),
+        resolveOfficialQuoteTotal(backendPricing || {}, match),
       ),
       subtotal: pricing.hasFormulaInputs
         ? Number(pricing.subtotal.toFixed(2))
@@ -1039,12 +1081,28 @@ function normalizeMatches(payload, itinerary = {}, requestMeta = {}) {
         '',
       base_airport_name: match.base_airport_name || aircraftRecord?.base_airport_name || '',
       base_airport_city: match.base_airport_city || aircraftRecord?.base_airport_city || '',
+      aircraft_base_airport: aircraftBaseAirport,
       based_at_origin: Boolean(match.based_at_origin ?? match.base_airport_match ?? false),
       base_airport_match: Boolean(match.base_airport_match ?? match.based_at_origin ?? false),
       requires_repositioning: Boolean(
         match.requires_repositioning ??
           (Number(match.repositioning_hours || backendPricing?.repositioning_hours || 0) > 0),
       ),
+      repositioning_distance_km: asNumber(
+        match.repositioning_distance_km || repositioning?.distance_km,
+      ),
+      repositioning_distance_nm: asNumber(
+        match.repositioning_distance_nm || repositioning?.distance_nm,
+      ),
+      return_to_base_distance_km: asNumber(
+        match.return_to_base_distance_km || returnToBase?.distance_km,
+      ),
+      return_to_base_distance_nm: asNumber(
+        match.return_to_base_distance_nm || returnToBase?.distance_nm,
+      ),
+      repositioning,
+      return_to_base: returnToBase,
+      selected_radius_nm: asNumber(match.selected_radius_nm),
       match_reason: match.match_reason || '',
       provider: match.provider || aircraftRecord?.provider || null,
     }
@@ -1693,16 +1751,24 @@ function filterAircraftByItinerary(aircraft = [], itinerary = {}) {
       const secondMatchesOrigin = Boolean(second.base_airport_match)
 
       if (firstMatchesOrigin !== secondMatchesOrigin) return firstMatchesOrigin ? -1 : 1
+      const firstRepositioningNm = Number(
+        first.repositioning?.distance_nm || first.repositioning_distance_nm || 0,
+      )
+      const secondRepositioningNm = Number(
+        second.repositioning?.distance_nm || second.repositioning_distance_nm || 0,
+      )
+      if (firstRepositioningNm !== secondRepositioningNm) {
+        return firstRepositioningNm - secondRepositioningNm
+      }
       const repositioningDifference =
         Number(first.repositioning_hours || 0) - Number(second.repositioning_hours || 0)
       if (repositioningDifference !== 0) return repositioningDifference
-      return Number(first.total || 0) - Number(second.total || 0)
+      const totalDifference = Number(first.total || 0) - Number(second.total || 0)
+      if (totalDifference !== 0) return totalDifference
+      return String(first.aircraft_id || first.id || '').localeCompare(
+        String(second.aircraft_id || second.id || ''),
+      )
     })
-
-  const exactBaseAirportMatches = filteredAircraft.filter((item) => item.base_airport_match)
-  if (hasOrigin) {
-    return exactBaseAirportMatches
-  }
 
   return filteredAircraft
 }
@@ -2004,33 +2070,22 @@ export function normalizeTrip(request = {}, options = {}) {
     (Object.keys(visibilityAircraftRecord).length ? visibilityAircraftRecord : null) ||
     preferredMatch?.aircraft ||
     {}
-  const resolvedFinalPrice = asNumber(
-    request.selected_card_price ||
-      baseRequest.selected_card_price ||
-      pricingContext?.selected_card_price ||
-      request.final_price ||
-      baseRequest.final_price ||
-      request.total ||
-      baseRequest.total ||
-      request.estimated_total ||
-      baseRequest.estimated_total ||
-      request.final_price_display ||
-      request.formatted_final_price ||
-      request.amount ||
-      request.net_amount ||
-      pricingContext?.total ||
-      pricingContext?.final_price ||
-      snapshotRecord?.selected_card_price ||
-      snapshotRecord?.total ||
-      snapshotRecord?.final_price ||
-      preferredMatch?.selected_card_price ||
-      preferredMatch?.total ||
-      preferredMatch?.final_price ||
-      preferredMatch?.estimated_price ||
-      preferredMatch?.quote_total ||
-      preferredMatch?.quote ||
-      preferredMatch?.price,
-    0,
+  const resolvedFinalPrice = resolveOfficialQuoteTotal(
+    request,
+    baseRequest,
+    { pricing: pricingContext || {} },
+    snapshotRecord || {},
+    preferredMatch || {},
+    {
+      total_amount:
+        request.estimated_total ||
+        baseRequest.estimated_total ||
+        request.amount ||
+        request.net_amount ||
+        preferredMatch?.estimated_price ||
+        preferredMatch?.quote_total ||
+        preferredMatch?.quote,
+    },
   )
   const resolvedFlightCost = asNumber(
     request.flight_cost ||
@@ -2065,14 +2120,13 @@ export function normalizeTrip(request = {}, options = {}) {
       preferredMatch?.administrative_fee,
     0,
   )
-  const resolvedTotalAmount = asNumber(
-    request.total_amount ||
-      baseRequest.total_amount ||
-      pricingContext?.total_amount ||
-      snapshotRecord?.total_amount ||
-      preferredMatch?.total_amount ||
-      resolvedFinalPrice,
-    0,
+  const resolvedTotalAmount = resolveOfficialQuoteTotal(
+    request,
+    baseRequest,
+    { pricing: pricingContext || {} },
+    snapshotRecord || {},
+    preferredMatch || {},
+    { total_amount: resolvedFinalPrice },
   )
   const resolvedBasePrice = asNumber(
     request.base_price ||
@@ -2172,6 +2226,7 @@ export function normalizeTrip(request = {}, options = {}) {
           pricingContext?.selected_card_price ||
           snapshotRecord?.selected_card_price ||
           preferredMatch?.selected_card_price ||
+          resolvedTotalAmount ||
           resolvedFinalPrice ||
           0,
         0,

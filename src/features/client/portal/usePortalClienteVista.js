@@ -4522,8 +4522,14 @@ export function usePortalClienteVista(props) {
 
   function hasBackendQuotedPricing(aircraft = {}) {
     const hasMatchIdentity = Boolean(aircraft.match_id || aircraft.matched_option_id)
+    const officialTotal =
+      Number(aircraft.pricing?.total_amount || 0) ||
+      Number(aircraft.pricing_breakdown?.total_amount || 0) ||
+      Number(aircraft.pricing_context?.total_amount || 0) ||
+      Number(aircraft.total_amount || 0)
     const hasPrice =
       Number(aircraft.base_price || 0) > 0 ||
+      officialTotal > 0 ||
       Number(aircraft.total || 0) > 0 ||
       moneyValue(aircraft.final_price) > 0
 
@@ -4535,7 +4541,13 @@ export function usePortalClienteVista(props) {
     if (hasBackendQuotedPricing(aircraft)) {
       const basePrice = Number(aircraft.base_price || 0)
       const operationalFees = resolveAircraftOperationalFees(aircraft)
+      const officialTotal =
+        Number(aircraft.pricing?.total_amount || 0) ||
+        Number(aircraft.pricing_breakdown?.total_amount || 0) ||
+        Number(aircraft.pricing_context?.total_amount || 0) ||
+        Number(aircraft.total_amount || 0)
       const finalPrice =
+        officialTotal ||
         Number(aircraft.total || 0) ||
         moneyValue(aircraft.final_price) ||
         basePrice + operationalFees
@@ -4673,7 +4685,12 @@ export function usePortalClienteVista(props) {
       }
     }
 
-    const displayedPrice = moneyValue(aircraft.final_price)
+    const displayedPrice =
+      Number(aircraft.pricing?.total_amount || 0) ||
+      Number(aircraft.pricing_breakdown?.total_amount || 0) ||
+      Number(aircraft.pricing_context?.total_amount || 0) ||
+      Number(aircraft.total_amount || 0) ||
+      moneyValue(aircraft.final_price)
     const operationalFees = resolveAircraftOperationalFees(aircraft)
     const currentType = normalizePriorityCode(aircraft.priority_type || 'essential')
     const currentMultiplier = Number(aircraft.priority_multiplier || 1) || 1
