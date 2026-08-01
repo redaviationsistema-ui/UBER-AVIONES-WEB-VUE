@@ -5,6 +5,7 @@ import FlightSearchHero from '../FlightSearchHero.vue'
 const props = defineProps({
   activeItinerarySummary: { type: Object, default: () => ({}) },
   activeResultFilter: { type: String, required: true },
+  aircraftBackendBillableHoursLabel: { type: Function, required: true },
   aircraftBillingNote: { type: Function, required: true },
   aircraftCapacityLabel: { type: Function, required: true },
   aircraftClassLabel: { type: Function, required: true },
@@ -678,6 +679,12 @@ const speedSliderStyle = computed(() => {
                 y beneficios visibles en un solo bloque.
               </p>
 
+              <p
+                v-if="props.aircraftBackendBillableHoursLabel(props.featuredAircraft)"
+                class="aircraft-billing-note"
+              >
+                {{ props.aircraftBackendBillableHoursLabel(props.featuredAircraft) }}
+              </p>
               <p v-if="props.aircraftBillingNote(props.featuredAircraft)" class="aircraft-billing-note">
                 {{ props.aircraftBillingNote(props.featuredAircraft) }}
               </p>
@@ -757,6 +764,12 @@ const speedSliderStyle = computed(() => {
                     <span>{{ repositioningMetaLabel(aircraft) }}</span>
                     <small>Incluido en la tarifa</small>
                   </div>
+                  <p
+                    v-if="props.aircraftBackendBillableHoursLabel(aircraft)"
+                    class="aircraft-billing-note"
+                  >
+                    {{ props.aircraftBackendBillableHoursLabel(aircraft) }}
+                  </p>
                   <p v-if="props.aircraftBillingNote(aircraft)" class="aircraft-billing-note">
                     {{ props.aircraftBillingNote(aircraft) }}
                   </p>

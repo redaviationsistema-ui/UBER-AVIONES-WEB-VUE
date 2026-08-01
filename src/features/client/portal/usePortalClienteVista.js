@@ -4363,25 +4363,7 @@ export function usePortalClienteVista(props) {
   }
 
   function aircraftBillingNote(aircraft = {}) {
-    if (hasBackendQuotedPricing(aircraft)) {
-      const displayHours = Number(aircraftDisplayFlightHours(aircraft) || 0)
-      const billableHours = Number(
-        aircraft.debug_pricing?.final_billable_hours || aircraft.billable_hours || 0,
-      )
-
-      if (
-        Number.isFinite(displayHours) &&
-        Number.isFinite(billableHours) &&
-        displayHours > 0 &&
-        billableHours > 0 &&
-        Math.abs(displayHours - billableHours) >= 0.05
-      ) {
-        ///return `Tiempo estimado de vuelo ${formatDurationFromHours(displayHours)}. Horas cobrables ${formatDurationFromHours(billableHours)}.`
-        return ``
-      }
-
-      return ''
-    }
+    if (hasBackendQuotedPricing(aircraft)) return ''
 
     const formula = buildFlightPricingFormula(aircraft, aircraftPricingContext())
     const minimumHours = Number(formula.minimumHours || aircraft.minimum_hours || 0)
@@ -4399,6 +4381,19 @@ export function usePortalClienteVista(props) {
     }
 
     return ''
+  }
+
+  function aircraftBackendBillableHoursLabel(aircraft = {}) {
+    const billableHours = Number(
+      aircraft.debug_pricing?.final_billable_hours ||
+        aircraft.billable_hours ||
+        aircraft.pricing_breakdown?.final_billable_hours ||
+        aircraft.pricing_breakdown?.billable_hours ||
+        0,
+    )
+    const billableLabel = formatDurationFromHours(billableHours)
+
+    return billableLabel ? `Horas cobrables backend: ${billableLabel}.` : ''
   }
 
   function aircraftCapacityLabel(aircraft = {}) {
@@ -7406,6 +7401,7 @@ export function usePortalClienteVista(props) {
     addLeg,
     auth,
     aircraftBillingNote,
+    aircraftBackendBillableHoursLabel,
     aircraftCapacityLabel,
     aircraftClassLabel,
     aircraftSidebarFilters,

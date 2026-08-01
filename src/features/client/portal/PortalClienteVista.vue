@@ -52,6 +52,7 @@ export default defineComponent({
         v-if="activeSection === 'reservar'"
         :active-itinerary-summary="activeItinerarySummary"
         :active-result-filter="activeResultFilter"
+        :aircraft-backend-billable-hours-label="aircraftBackendBillableHoursLabel"
         :aircraft-billing-note="aircraftBillingNote"
         :aircraft-capacity-label="aircraftCapacityLabel"
         :aircraft-class-label="aircraftClassLabel"
