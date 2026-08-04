@@ -499,6 +499,175 @@ describe('searchClientFlights', () => {
     expect(quote.final_price).toBe('USD 14,493')
   })
 
+  it.each([
+    {
+      name: 'one way based at origin with a two-hour minimum',
+      tripType: 'one_way',
+      routeHours: 0.92,
+      finalBillableHours: 2,
+      legs: [{ origin: 'MMTO', destination: 'MMIA', duration_hours: 0.92 }],
+      basedAtOrigin: true,
+      repositioningHours: 0,
+    },
+    {
+      name: 'round trip with repositioning and a three-hour minimum',
+      tripType: 'round_trip',
+      routeHours: 1.83,
+      finalBillableHours: 3,
+      legs: [
+        { origin: 'MMTO', destination: 'MMIA', duration_hours: 0.92 },
+        { origin: 'MMIA', destination: 'MMTO', duration_hours: 0.91 },
+      ],
+      basedAtOrigin: false,
+      repositioningHours: 0.75,
+    },
+    {
+      name: 'multi-destination route with a four-hour minimum',
+      tripType: 'multi_leg',
+      routeHours: 2.75,
+      finalBillableHours: 4,
+      legs: [
+        { origin: 'MMTO', destination: 'MMIA', duration_hours: 0.92 },
+        { origin: 'MMIA', destination: 'MMGL', duration_hours: 0.68 },
+        { origin: 'MMGL', destination: 'MMTO', duration_hours: 1.15 },
+      ],
+      basedAtOrigin: true,
+      repositioningHours: 0,
+    },
+  ])(
+    'keeps route duration, billable hours, repositioning, and backend price separate: $name',
+    async ({
+      tripType,
+      routeHours,
+      finalBillableHours,
+      legs,
+      basedAtOrigin,
+      repositioningHours,
+    }) => {
+      api.post.mockResolvedValue({
+        matches: [
+          {
+            id: `match-${tripType}`,
+            aircraft_id: `aircraft-${tripType}`,
+            aircraft_name: 'Dynamic Test Jet',
+            trip_type: tripType,
+            based_at_origin: basedAtOrigin,
+            requires_repositioning: repositioningHours > 0,
+            total: 11111,
+            final_price: 11111,
+            pricing_breakdown: {
+              route_billable_hours: routeHours,
+              final_billable_hours: finalBillableHours,
+              billable_hours: finalBillableHours + repositioningHours,
+              repositioning_hours: repositioningHours,
+              total_amount: 23456,
+              client_legs: legs,
+            },
+          },
+        ],
+      })
+
+      const [quote] = await searchClientFlights({
+        trip_type: tripType,
+        passengers: 3,
+        legs: legs.map((leg, index) => ({
+          origin: leg.origin,
+          destination: leg.destination,
+          date: `2026-08-${String(10 + index).padStart(2, '0')}`,
+          time: index === 0 ? '09:00' : '11:00',
+        })),
+      })
+
+      expect(quote.display_flight_hours).toBe(routeHours)
+      expect(quote.final_billable_hours).toBe(finalBillableHours)
+      expect(quote.billable_hours).toBe(finalBillableHours + repositioningHours)
+      expect(quote.pricing_breakdown.repositioning_hours).toBe(repositioningHours)
+      expect(quote.total_amount).toBe(23456)
+      expect(quote.total).toBe(23456)
+    },
+  )
+
+  it('sums backend client legs only as the final visible-duration fallback', async () => {
+    api.post.mockResolvedValue({
+      matches: [
+        {
+          id: 'match-legs-fallback',
+          aircraft_id: 'aircraft-legs-fallback',
+          aircraft_name: 'Leg Fallback Jet',
+          pricing_breakdown: {
+            final_billable_hours: 4,
+            billable_hours: 4.5,
+            repositioning_hours: 0.5,
+            total_amount: 30000,
+            client_legs: [
+              { origin: 'MMTO', destination: 'MMIA', duration_minutes: 55 },
+              { origin: 'MMIA', destination: 'MMTO', duration: '0 h 51 min' },
+            ],
+          },
+        },
+      ],
+    })
+
+    const [quote] = await searchClientFlights({
+      trip_type: 'round_trip',
+      passengers: 2,
+      legs: [
+        { origin: 'MMTO', destination: 'MMIA', date: '2026-08-10', time: '09:00' },
+        { origin: 'MMIA', destination: 'MMTO', date: '2026-08-11', time: '12:00' },
+      ],
+    })
+
+    expect(quote.display_flight_hours).toBeCloseTo(106 / 60)
+    expect(quote.display_flight_hours).not.toBe(quote.billable_hours)
+  })
+
+  it('preserves and sums a complete itinerary supplied at response level', async () => {
+    api.post.mockResolvedValue({
+      trip_type: 'multi_leg',
+      departure_datetime: '2026-08-28T09:00:00',
+      return_datetime: '2026-08-31T09:00:00',
+      client_legs: [
+        { origin: 'MMTO', destination: 'MMIA', direct_hours: 0.92 },
+        { origin: 'MMIA', destination: 'MMGL', direct_hours: 0.68 },
+        { origin: 'MMGL', destination: 'MMTO', direct_hours: 1.15 },
+      ],
+      matches: [
+        {
+          id: 'match-top-level-legs',
+          aircraft_id: 'aircraft-top-level-legs',
+          aircraft_name: 'Top Level Legs Jet',
+          trip_time: '55 min',
+          pricing_breakdown: {
+            route_billable_hours: 0.92,
+            final_billable_hours: 4,
+            billable_hours: 4.75,
+            repositioning_hours: 0.75,
+            total_amount: 42000,
+          },
+        },
+      ],
+    })
+
+    const [quote] = await searchClientFlights({
+      trip_type: 'multi_leg',
+      passengers: 3,
+      legs: [
+        { origin: 'MMTO', destination: 'MMIA', date: '2026-08-28', time: '09:00' },
+        { origin: 'MMIA', destination: 'MMGL', date: '2026-08-29', time: '09:00' },
+        { origin: 'MMGL', destination: 'MMTO', date: '2026-08-31', time: '09:00' },
+      ],
+    })
+
+    expect(quote.client_legs).toHaveLength(3)
+    expect(quote.displayedFlightHours).toBeCloseTo(2.75)
+    expect(quote.display_flight_hours).toBeCloseTo(2.75)
+    expect(quote.display_flight_hours).not.toBe(0.92)
+    expect(quote.display_flight_hours).not.toBe(quote.billable_hours)
+    expect(quote.departure_datetime).toBe('2026-08-28T09:00:00')
+    expect(quote.return_datetime).toBe('2026-08-31T09:00:00')
+    expect(quote.trip_type).toBe('multi_leg')
+  })
+
   it('does not show catalog fallback quotes when the backend preview is unavailable', async () => {
     api.post.mockRejectedValue(new Error('backend unavailable'))
     api.get.mockResolvedValue({

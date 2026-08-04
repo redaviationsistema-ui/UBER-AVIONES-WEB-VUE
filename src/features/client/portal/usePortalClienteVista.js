@@ -50,7 +50,8 @@ import {
 } from '../../../services/contractApi'
 
 export function usePortalClienteVista(props) {
-  const CLIENT_QUOTES_CACHE_KEY = 'red_aviation_client_quotes_preview_v2'
+  const CLIENT_QUOTES_CACHE_KEY = 'red_aviation_client_quotes_preview_v3_operational_time'
+  const LEGACY_CLIENT_QUOTES_CACHE_KEY = 'red_aviation_client_quotes_preview_v2'
   const CLIENT_RESERVATION_CHECKOUT_CONTEXT_KEY =
     'red_aviation_client_reservation_checkout_context_v1'
   const CLIENT_AIRCRAFT_HOLD_CONTEXT_KEY = 'red_aviation_client_aircraft_hold_context_v1'
@@ -3749,6 +3750,7 @@ export function usePortalClienteVista(props) {
 
   function restoreQuotePreview() {
     if (!canUseQuoteStorage()) return
+    window.sessionStorage.removeItem(LEGACY_CLIENT_QUOTES_CACHE_KEY)
     if (submittedItinerary.value || submittedQuotePayload.value || aircraftOptions.value.length)
       return
 
@@ -4302,7 +4304,7 @@ export function usePortalClienteVista(props) {
     const wholeHours = Math.floor(totalMinutes / 60)
     const minutes = totalMinutes % 60
 
-    if (wholeHours && minutes) return `${wholeHours} h ${minutes} min`
+    if (wholeHours && minutes) return `${wholeHours} h ${String(minutes).padStart(2, '0')} min`
     if (wholeHours) return `${wholeHours} h`
     return `${minutes} min`
   }
@@ -4381,17 +4383,19 @@ export function usePortalClienteVista(props) {
 
   function resolveAircraftVisibleDuration(aircraft = {}) {
     const preferredVisibleHours = Number(
-      aircraft.client_direct_flight_hours ||
-        aircraft.route_direct_hours ||
+      aircraft.display_route_hours ||
+        aircraft.client_display_flight_hours ||
         aircraft.client_operational_flight_hours ||
         aircraft.operational_flight_hours ||
         aircraft.trip_flight_hours ||
         aircraft.card_flight_hours ||
         aircraft.ui_flight_hours ||
-        aircraft.client_display_flight_hours ||
         aircraft.display_flight_hours ||
         aircraft.real_flight_hours ||
         aircraft.flight_hours ||
+        aircraft.displayedFlightHours ||
+        aircraft.client_direct_flight_hours ||
+        aircraft.route_direct_hours ||
         aircraft.estimated_hours ||
         0,
     )
@@ -4437,27 +4441,6 @@ export function usePortalClienteVista(props) {
   function aircraftDurationLabel(aircraft = {}) {
     const resolved = resolveAircraftVisibleDuration(aircraft)
 
-    console.log('Aircraft card time:web', {
-      aircraft: aircraft.aircraft || aircraft.model || aircraft.name || '',
-      trip_time: aircraft.trip_time ?? null,
-      estimated_flight_time: aircraft.estimated_flight_time ?? null,
-      display_flight_hours:
-        aircraft.trip_flight_hours ??
-        aircraft.card_flight_hours ??
-        aircraft.ui_flight_hours ??
-        aircraft.client_display_flight_hours ??
-        aircraft.display_flight_hours ??
-        aircraft.real_flight_hours ??
-        aircraft.flight_hours ??
-        aircraft.estimated_hours ??
-        null,
-      pricing_breakdown_billable_hours: aircraft?.pricing_breakdown?.billable_hours ?? null,
-      top_level_billable_hours: aircraft?.billable_hours ?? null,
-      selected_time_source: resolved.source,
-      formatted_time: resolved.formattedTime,
-      price: aircraft.total_amount || aircraft.total || aircraft.final_price || null,
-    })
-
     return resolved.formattedTime
   }
 
@@ -4499,13 +4482,33 @@ export function usePortalClienteVista(props) {
   function itineraryDepartureLabel(summary = {}) {
     const firstLeg = summary?.legs?.[0]
     if (!firstLeg?.time) return 'Salida por confirmar'
-    const parsed = new Date(`${firstLeg.date || '2026-01-01'}T${firstLeg.time}`)
-    if (Number.isNaN(parsed.getTime())) return `Salida ${firstLeg.time}`
-    return `Salida ${new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).format(parsed)}`
+
+    const rawTime = String(firstLeg.time).trim()
+    const match = rawTime.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?$/i)
+    if (!match) return `Salida ${rawTime}`
+
+    let hour = Number(match[1])
+    const minutes = match[2]
+    const meridiem = String(match[3] || '').toUpperCase()
+    if (meridiem === 'PM' && hour < 12) hour += 12
+    if (meridiem === 'AM' && hour === 12) hour = 0
+    if (!Number.isInteger(hour) || hour < 0 || hour > 23) return `Salida ${rawTime}`
+
+    const displayHour = hour % 12 || 12
+    return `Salida ${displayHour}:${minutes} ${hour >= 12 ? 'PM' : 'AM'}`
   }
 
   function aircraftSpeedLine(aircraft = {}, summary = {}) {
-    return `${aircraftPrimaryDurationLabel(aircraft)} • ${itineraryDepartureLabel(summary)}`
+    const visibleDuration = resolveAircraftVisibleDuration(aircraft)
+    const requestedDepartureTime = String(aircraft.requested_departure_time || '').trim()
+    const selectedDepartureSummary = requestedDepartureTime
+      ? { legs: [{ time: requestedDepartureTime }] }
+      : Array.isArray(submittedQuotePayload.value?.legs)
+        ? { legs: submittedQuotePayload.value.legs }
+        : summary
+    const renderedDeparture = itineraryDepartureLabel(selectedDepartureSummary)
+
+    return `${visibleDuration.formattedTime} • ${renderedDeparture}`
   }
 
   function aircraftIncludes(aircraft = {}) {

@@ -1170,7 +1170,36 @@ describe('PortalClienteVista commercial access checkout', () => {
     )
   })
 
-  it('migrates restored quote payloads away from billable_hours before refreshing results', async () => {
+  it('renders the selected departure clock without UTC conversion or a static fallback', async () => {
+    const wrapper = await mountView({ section: 'resultados' })
+
+    expect(
+      wrapper.vm.aircraftSpeedLine(
+        { displayedFlightHours: 1.83, pricing_breakdown: { route_billable_hours: 0.92 } },
+        { legs: [{ date: '2026-08-20', time: '09:00' }] },
+      ),
+    ).toBe('1 h 50 min • Salida 9:00 AM')
+
+    expect(
+      wrapper.vm.aircraftSpeedLine(
+        { displayedFlightHours: 2.0667, pricing_breakdown: { route_billable_hours: 1.03335 } },
+        { legs: [{ date: '2026-08-20', time: '17:00' }] },
+      ),
+    ).toBe('2 h 04 min • Salida 5:00 PM')
+
+    expect(
+      wrapper.vm.aircraftSpeedLine(
+        {
+          requested_departure_time: '09:00',
+          client_direct_flight_hours: 0.92,
+          client_display_flight_hours: 1.83,
+        },
+        { legs: [{ date: '2026-08-20', time: '17:00' }] },
+      ),
+    ).toBe('1 h 50 min • Salida 9:00 AM')
+  })
+
+  it('invalidates cached direct-time quotes before rendering results', async () => {
     searchClientFlightsMock.mockResolvedValue([
       {
         id: 'quote-1',
@@ -1206,16 +1235,8 @@ describe('PortalClienteVista commercial access checkout', () => {
     await wrapper.setProps({ section: 'resultados' })
     await flushPromises()
 
-    expect(searchClientFlightsMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        flight_base_source: 'pricing_trip_hours',
-      }),
-      expect.any(Object),
-    )
-    expect(
-      JSON.parse(window.sessionStorage.getItem('red_aviation_client_quotes_preview_v2'))
-        ?.submittedQuotePayload?.flight_base_source,
-    ).toBe('pricing_trip_hours')
+    expect(searchClientFlightsMock).not.toHaveBeenCalled()
+    expect(window.sessionStorage.getItem('red_aviation_client_quotes_preview_v2')).toBeNull()
   })
 
   it('blocks submitSearch before calling flight search when backend says can_quote=false', async () => {

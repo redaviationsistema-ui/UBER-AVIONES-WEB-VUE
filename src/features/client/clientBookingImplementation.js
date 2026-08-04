@@ -442,6 +442,116 @@ function resolveOfficialQuoteTotal(...sources) {
   return 0
 }
 
+function legDurationHours(leg = {}) {
+  const visibleValue =
+    leg.display_hours ??
+    leg.display_flight_hours ??
+    leg.operational_hours ??
+    leg.operational_flight_hours ??
+    leg.real_flight_hours ??
+    leg.flight_hours ??
+    leg.route_hours ??
+    leg.direct_hours ??
+    leg.direct_flight_hours ??
+    leg.direct_air_time_hours ??
+    leg.client_flight_hours ??
+    leg.duration_hours
+  const visibleHours = asNumber(visibleValue, Number.NaN)
+  if (Number.isFinite(visibleHours) && visibleHours > 0) return visibleHours
+
+  const durationMinutes = asNumber(leg.duration_minutes ?? leg.flight_minutes, Number.NaN)
+  if (Number.isFinite(durationMinutes) && durationMinutes > 0) return durationMinutes / 60
+
+  const text = String(leg.duration || leg.flight_time || leg.trip_time || '').trim()
+  const hours = asNumber(text.match(/(\d+(?:\.\d+)?)\s*h/i)?.[1], 0)
+  const minutes = asNumber(text.match(/(\d+(?:\.\d+)?)\s*(?:m|min)/i)?.[1], 0)
+  return hours + minutes / 60
+}
+
+function firstLegCollection(...candidates) {
+  return candidates.find((candidate) => Array.isArray(candidate) && candidate.length) || []
+}
+
+function resolveCompleteItineraryHours(quote = {}, searchContext = {}) {
+  const pricing = quote.pricing && typeof quote.pricing === 'object' ? quote.pricing : {}
+  const breakdown =
+    quote.pricing_breakdown && typeof quote.pricing_breakdown === 'object'
+      ? quote.pricing_breakdown
+      : {}
+  const debugPricing =
+    quote.debug_pricing && typeof quote.debug_pricing === 'object' ? quote.debug_pricing : {}
+  const requestedLegCount = Array.isArray(searchContext.requestedLegs)
+    ? searchContext.requestedLegs.length
+    : 0
+  const legCollections = [
+    quote.client_legs,
+    quote.route_legs,
+    quote.legs,
+    quote.segments,
+    pricing.client_legs,
+    pricing.route_legs,
+    pricing.legs,
+    pricing.segments,
+    breakdown.client_legs,
+    breakdown.route_legs,
+    breakdown.legs,
+    breakdown.segments,
+    debugPricing.client_legs,
+    debugPricing.route_legs,
+    searchContext.clientLegs,
+    searchContext.routeLegs,
+    searchContext.legs,
+    searchContext.segments,
+  ].filter((candidate) => Array.isArray(candidate) && candidate.length)
+  const completeLegCollection = legCollections
+    .map((legs) => ({ legs, legHours: legs.map((leg) => legDurationHours(leg)) }))
+    .find(
+      ({ legHours }) =>
+        legHours.length > 0 &&
+        legHours.every((hours) => hours > 0) &&
+        (!requestedLegCount || legHours.length >= requestedLegCount),
+    )
+  const legs = completeLegCollection?.legs || firstLegCollection(...legCollections)
+  const legHours = completeLegCollection?.legHours || legs.map((leg) => legDurationHours(leg))
+
+  if (completeLegCollection) {
+    return { hours: legHours.reduce((total, hours) => total + hours, 0), legs, legHours }
+  }
+
+  const explicitSegmentCount = asNumber(
+    quote.segment_count ??
+      pricing.segment_count ??
+      breakdown.segment_count ??
+      debugPricing.segment_count,
+    0,
+  )
+  const totalRepresentsCompleteItinerary =
+    requestedLegCount <= 1 || explicitSegmentCount >= requestedLegCount
+  if (totalRepresentsCompleteItinerary) {
+    const explicitTotal = asNumber(
+      pricing.complete_itinerary_hours ??
+        breakdown.complete_itinerary_hours ??
+        debugPricing.complete_itinerary_hours ??
+        quote.display_route_hours ??
+        pricing.display_route_hours ??
+        breakdown.display_route_hours ??
+        pricing.client_display_flight_hours ??
+        breakdown.client_display_flight_hours ??
+        pricing.display_flight_hours ??
+        breakdown.display_flight_hours,
+      Number.NaN,
+    )
+    if (Number.isFinite(explicitTotal) && explicitTotal > 0) {
+      return { hours: explicitTotal, legs, legHours }
+    }
+
+    const tripHours = asNumber(quote.trip_time, Number.NaN)
+    if (Number.isFinite(tripHours) && tripHours > 0) return { hours: tripHours, legs, legHours }
+  }
+
+  return { hours: 0, legs, legHours }
+}
+
 function resolveHourlyRate(raw = {}) {
   const hourlyRate = asNumber(
     raw.hourly_rate ||
@@ -684,6 +794,17 @@ function normalizeMatches(payload, itinerary = {}, requestMeta = {}) {
       previewPayload?.cotizacion?.id ||
       previewPayload?.flight_request?.quote_id,
   )
+  const responseContext = {
+    clientLegs: previewPayload?.client_legs,
+    routeLegs: previewPayload?.route_legs,
+    legs: previewPayload?.legs,
+    segments: previewPayload?.segments,
+    requestedLegs: Array.isArray(itinerary?.legs) ? itinerary.legs : [],
+    requestedDepartureTime: String(itinerary?.legs?.[0]?.time || itinerary?.departure_time || '').trim(),
+    tripType: previewPayload?.trip_type || itinerary?.trip_type || '',
+    departureDateTime: previewPayload?.departure_datetime || itinerary?.departure_datetime || '',
+    returnDateTime: previewPayload?.return_datetime || itinerary?.return_datetime || '',
+  }
   const matches =
     previewPayload?.matches ||
     previewPayload?.matched_options ||
@@ -756,27 +877,8 @@ function normalizeMatches(payload, itinerary = {}, requestMeta = {}) {
       backendPricing.billable_hours ?? match.billable_hours ?? finalBillableHours,
     )
     const routeBillableHours = asNumber(backendPricing.route_billable_hours ?? 0)
-    const displayFlightHours = asNumber(
-      backendPricing.client_direct_flight_hours ??
-        backendPricing.route_direct_hours ??
-        backendPricing.client_operational_flight_hours ??
-        backendPricing.route_operational_hours ??
-        backendPricing.client_display_flight_hours ??
-        backendPricing.display_flight_hours ??
-        match.trip_flight_hours ??
-        match.card_flight_hours ??
-        match.ui_flight_hours ??
-        match.client_operational_flight_hours ??
-        match.operational_flight_hours ??
-        match.client_direct_flight_hours ??
-        match.route_direct_hours ??
-        match.client_display_flight_hours ??
-        match.display_flight_hours ??
-        match.real_flight_hours ??
-        match.flight_hours ??
-        match.estimated_hours ??
-        0,
-    )
+    const completeItinerary = resolveCompleteItineraryHours(match, responseContext)
+    const displayFlightHours = completeItinerary.hours
     const hoursSource =
       match.hours_source ||
       backendPricing?.hours_source ||
@@ -878,6 +980,14 @@ function normalizeMatches(payload, itinerary = {}, requestMeta = {}) {
         '',
       aircraft: aircraftName,
       aircraft_name: aircraftName,
+      trip_type: match.trip_type || responseContext.tripType,
+      departure_datetime: match.departure_datetime || responseContext.departureDateTime,
+      requested_departure_time: responseContext.requestedDepartureTime,
+      return_datetime: match.return_datetime || responseContext.returnDateTime,
+      client_legs: firstLegCollection(match.client_legs, backendPricing.client_legs, responseContext.clientLegs),
+      route_legs: firstLegCollection(match.route_legs, backendPricing.route_legs, responseContext.routeLegs),
+      legs: firstLegCollection(match.legs, backendPricing.legs, responseContext.legs),
+      segments: firstLegCollection(match.segments, backendPricing.segments, responseContext.segments),
       cabin: match.cabin || match.cabin_type || match.type || aircraftRecord?.category || '',
       time:
         match.trip_time ||
@@ -908,7 +1018,7 @@ function normalizeMatches(payload, itinerary = {}, requestMeta = {}) {
       repositioning_time: match.repositioning_time || '',
       return_to_base_time: match.return_to_base_time || '',
       time_display_mode:
-        match.time_display_mode || backendPricing?.time_display_mode || 'direct',
+        match.time_display_mode || backendPricing?.time_display_mode || 'operational',
       billing_hours_mode:
         match.billing_hours_mode || backendPricing?.billing_hours_mode || 'direct',
       flight_base_source:
@@ -1144,6 +1254,7 @@ function normalizeMatches(payload, itinerary = {}, requestMeta = {}) {
       distance_unit: distanceUnit,
       estimated_hours: match.real_flight_hours || match.flight_hours || match.estimated_hours || '',
       display_flight_hours: displayFlightHours,
+      displayedFlightHours: displayFlightHours,
       billable_hours: totalBilledHours,
       real_flight_hours: match.real_flight_hours || match.flight_hours || '',
       climb_descent_minutes: match.climb_descent_minutes || '',
@@ -2782,10 +2893,15 @@ export function buildFlightRequestPayload(itinerary = {}) {
   const departureDate = normalizeFlightDateInput(firstLeg.date || '')
   const departureTime = normalizeFlightTimeInput(firstLeg.time || '09:00')
   const departureDateTime = buildFlightDateTime(departureDate, departureTime)
-  const returnDepartureDatetime =
-    buildFlightDateTime(itinerary.return_date || lastLeg.date || '', itinerary.return_time || lastLeg.time || '09:00') ||
-    String(itinerary.return_datetime || '').trim() ||
-    (inferredClosedRoute ? String(lastLeg.departure_datetime || '').trim() : '')
+  const hasReturnLeg = tripType !== 'one_way' && normalizedLegs.length > 1
+  const returnDate = hasReturnLeg
+    ? normalizeFlightDateInput(itinerary.return_date || lastLeg.date || '')
+    : ''
+  const returnDepartureDatetime = hasReturnLeg
+    ? buildFlightDateTime(returnDate, itinerary.return_time || lastLeg.time || '09:00') ||
+      String(itinerary.return_datetime || '').trim() ||
+      String(lastLeg.departure_datetime || '').trim()
+    : ''
   const flightPackage = String(itinerary.flight_package || itinerary.service_tier || '').trim()
   const priorityType = normalizePriorityType(itinerary.priority_type || flightPackage)
   const attentionLevel = normalizeAttentionLevel(
@@ -2819,6 +2935,7 @@ export function buildFlightRequestPayload(itinerary = {}) {
     start_date: departureDate || null,
     start_time: departureTime || null,
     start_datetime: departureDateTime || null,
+    return_date: returnDate || null,
     return_datetime: returnDepartureDatetime || null,
     passengers: Number(itinerary.passengers) || 1,
     trip_type: tripType,
@@ -2842,7 +2959,7 @@ export function buildFlightRequestPayload(itinerary = {}) {
     priority_type: priorityType,
     attention_level: attentionLevel || null,
     priority_multiplier: priorityMultiplier,
-    time_display_mode: itinerary.time_display_mode || 'direct',
+    time_display_mode: 'operational',
     billing_hours_mode: itinerary.billing_hours_mode || 'operational',
     flight_base_source: normalizeFlightBaseSource(itinerary.flight_base_source),
     include_repositioning_in_billed_hours:
