@@ -50,7 +50,7 @@ import {
 } from '../../../services/contractApi'
 
 export function usePortalClienteVista(props) {
-  const CLIENT_QUOTES_CACHE_KEY = 'red_aviation_client_quotes_preview_v1'
+  const CLIENT_QUOTES_CACHE_KEY = 'red_aviation_client_quotes_preview_v2'
   const CLIENT_RESERVATION_CHECKOUT_CONTEXT_KEY =
     'red_aviation_client_reservation_checkout_context_v1'
   const CLIENT_AIRCRAFT_HOLD_CONTEXT_KEY = 'red_aviation_client_aircraft_hold_context_v1'

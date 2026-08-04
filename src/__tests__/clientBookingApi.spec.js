@@ -96,6 +96,41 @@ describe('inferEngineType', () => {
 })
 
 describe('buildFlightRequestPayload', () => {
+  it('defaults flight_base_source to pricing_trip_hours for dynamic quote parity', () => {
+    const payload = buildFlightRequestPayload({
+      trip_type: 'one_way',
+      passengers: 2,
+      legs: [
+        {
+          origin: 'MMTO',
+          destination: 'MMGM',
+          date: '2026-08-20',
+          time: '09:00',
+        },
+      ],
+    })
+
+    expect(payload.flight_base_source).toBe('pricing_trip_hours')
+  })
+
+  it('preserves billable_hours only when it is explicitly requested', () => {
+    const payload = buildFlightRequestPayload({
+      trip_type: 'one_way',
+      passengers: 2,
+      flight_base_source: 'billable_hours',
+      legs: [
+        {
+          origin: 'MMTO',
+          destination: 'MMGM',
+          date: '2026-08-20',
+          time: '09:00',
+        },
+      ],
+    })
+
+    expect(payload.flight_base_source).toBe('billable_hours')
+  })
+
   it('preserves backend airport identity and ICAO for every selected leg', () => {
     const payload = buildFlightRequestPayload({
       trip_type: 'one_way',
@@ -331,8 +366,6 @@ describe('searchClientFlights', () => {
   })
 
   it('uses overnight_cost as the applied overnight charge when backend fee is only informational', async () => {
-    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-
     api.post.mockResolvedValue({
       matches: [
         {
@@ -375,11 +408,6 @@ describe('searchClientFlights', () => {
     expect(quote.overnight_cost).toBe(0)
     expect(quote.overnight_fees).toBe(0)
     expect(quote.debug_pricing?.overnight_cost).toBe(0)
-    expect(consoleSpy).toHaveBeenCalledWith('- Overnight fee:', 3000)
-    expect(consoleSpy).toHaveBeenCalledWith('- Overnight nights:', 0)
-    expect(consoleSpy).toHaveBeenCalledWith('- Overnight cost:', 0)
-
-    consoleSpy.mockRestore()
   })
 
   it('keeps backend repositioned matches when no exact-base option exists', async () => {

@@ -1141,6 +1141,83 @@ describe('PortalClienteVista commercial access checkout', () => {
     })
   })
 
+  it('sends pricing_trip_hours in the quote payload for fresh searches', async () => {
+    searchClientFlightsMock.mockResolvedValue([
+      {
+        id: 'quote-1',
+        aircraft: 'Citation XLS',
+        source_table: 'quotes',
+        total: 12000,
+      },
+    ])
+
+    const wrapper = await mountView({ section: 'reservar' })
+
+    wrapper.vm.searchForm.origin = 'MMTO'
+    wrapper.vm.searchForm.destination = 'MMGM'
+    wrapper.vm.searchForm.departureDate = '2026-08-20'
+    wrapper.vm.searchForm.departureTime = '05:00 PM'
+    wrapper.vm.searchForm.passengers = '2'
+
+    await wrapper.vm.submitSearch()
+    await flushPromises()
+
+    expect(searchClientFlightsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        flight_base_source: 'pricing_trip_hours',
+      }),
+      expect.any(Object),
+    )
+  })
+
+  it('migrates restored quote payloads away from billable_hours before refreshing results', async () => {
+    searchClientFlightsMock.mockResolvedValue([
+      {
+        id: 'quote-1',
+        aircraft: 'Citation XLS',
+        source_table: 'quotes',
+        total: 12000,
+      },
+    ])
+
+    window.sessionStorage.setItem(
+      'red_aviation_client_quotes_preview_v2',
+      JSON.stringify({
+        tripType: 'Ida',
+        selectedPriorityType: 'essential',
+        submittedItinerary: {
+          tripType: 'one_way',
+          legs: [{ origin: 'MMTO', destination: 'MMGM', date: '2026-08-20', time: '17:00' }],
+        },
+        submittedQuotePayload: {
+          trip_type: 'one_way',
+          trip_label: 'Ida',
+          passengers: 2,
+          priority_type: 'essential',
+          flight_base_source: 'billable_hours',
+          legs: [{ origin: 'MMTO', destination: 'MMGM', date: '2026-08-20', time: '17:00' }],
+        },
+        savedAt: new Date('2026-08-04T12:00:00.000Z').toISOString(),
+      }),
+    )
+
+    const wrapper = await mountView({ section: 'reservar' })
+    await flushPromises()
+    await wrapper.setProps({ section: 'resultados' })
+    await flushPromises()
+
+    expect(searchClientFlightsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        flight_base_source: 'pricing_trip_hours',
+      }),
+      expect.any(Object),
+    )
+    expect(
+      JSON.parse(window.sessionStorage.getItem('red_aviation_client_quotes_preview_v2'))
+        ?.submittedQuotePayload?.flight_base_source,
+    ).toBe('pricing_trip_hours')
+  })
+
   it('blocks submitSearch before calling flight search when backend says can_quote=false', async () => {
     authStoreMock.access = {
       commercial_access: {

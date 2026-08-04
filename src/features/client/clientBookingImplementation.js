@@ -421,6 +421,9 @@ function resolveOfficialQuoteTotal(...sources) {
       source.pricing?.total_amount ??
         source.pricing_breakdown?.total_amount ??
         source.pricing_context?.total_amount ??
+        source.pricing?.total ??
+        source.pricing_breakdown?.total ??
+        source.pricing_context?.total ??
         source.total_amount ??
         source.amount_due ??
         source.selected_card_price ??
