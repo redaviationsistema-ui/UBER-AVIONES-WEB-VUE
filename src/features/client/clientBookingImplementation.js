@@ -417,21 +417,14 @@ function resolveOfficialQuoteTotal(...sources) {
   for (const source of sources) {
     if (!source || typeof source !== 'object') continue
 
-    const pricing =
-      source.pricing && typeof source.pricing === 'object'
-        ? source.pricing
-        : source.pricing_breakdown && typeof source.pricing_breakdown === 'object'
-          ? source.pricing_breakdown
-          : source.pricing_context && typeof source.pricing_context === 'object'
-            ? source.pricing_context
-            : null
-
     const amount = asNumber(
-      pricing?.total_amount ??
-        pricing?.total ??
-        pricing?.final_price ??
-        pricing?.price ??
+      source.pricing?.total_amount ??
+        source.pricing_breakdown?.total_amount ??
+        source.pricing_context?.total_amount ??
         source.total_amount ??
+        source.amount_due ??
+        source.selected_card_price ??
+        source.estimated_total ??
         source.final_price ??
         source.total ??
         source.price,
@@ -576,6 +569,13 @@ function hasAirportDetails(airport = null) {
 function normalizedTripAirport(entity = {}, side = '') {
   const airport = resolveAirportData(entity, side)
   return hasAirportDetails(airport) ? airport : null
+}
+
+function normalizeFlightBaseSource(source = '') {
+  const normalized = String(source || '').trim().toLowerCase()
+  return normalized === 'billable_hours' || normalized === 'pricing_trip_hours'
+    ? normalized
+    : 'pricing_trip_hours'
 }
 
 function buildPricingBreakdown(match = {}) {
@@ -754,10 +754,24 @@ function normalizeMatches(payload, itinerary = {}, requestMeta = {}) {
     )
     const routeBillableHours = asNumber(backendPricing.route_billable_hours ?? 0)
     const displayFlightHours = asNumber(
-      backendPricing.client_display_flight_hours ??
+      backendPricing.client_direct_flight_hours ??
+        backendPricing.route_direct_hours ??
+        backendPricing.client_operational_flight_hours ??
+        backendPricing.route_operational_hours ??
+        backendPricing.client_display_flight_hours ??
         backendPricing.display_flight_hours ??
+        match.trip_flight_hours ??
+        match.card_flight_hours ??
+        match.ui_flight_hours ??
+        match.client_operational_flight_hours ??
+        match.operational_flight_hours ??
+        match.client_direct_flight_hours ??
+        match.route_direct_hours ??
         match.client_display_flight_hours ??
         match.display_flight_hours ??
+        match.real_flight_hours ??
+        match.flight_hours ??
+        match.estimated_hours ??
         0,
     )
     const hoursSource =
@@ -864,23 +878,29 @@ function normalizeMatches(payload, itinerary = {}, requestMeta = {}) {
       cabin: match.cabin || match.cabin_type || match.type || aircraftRecord?.category || '',
       time:
         match.trip_time ||
+        match.estimated_flight_time ||
         match.card_time ||
         match.display_time ||
         match.ui_time ||
         match.time ||
         match.flight_time ||
+        match.operative_time ||
         match.duration ||
         '',
       trip_time:
         match.trip_time ||
+        match.estimated_flight_time ||
         match.card_time ||
         match.display_time ||
         match.ui_time ||
         match.time ||
         match.flight_time ||
+        match.operative_time ||
         match.duration ||
         '',
+      estimated_flight_time: match.estimated_flight_time || match.trip_time || match.flight_time || '',
       billed_time: match.billed_time || '',
+      billable_flight_time: match.billable_flight_time || match.billed_time || '',
       operative_time: match.operative_time || '',
       repositioning_time: match.repositioning_time || '',
       return_to_base_time: match.return_to_base_time || '',
@@ -889,7 +909,7 @@ function normalizeMatches(payload, itinerary = {}, requestMeta = {}) {
       billing_hours_mode:
         match.billing_hours_mode || backendPricing?.billing_hours_mode || 'direct',
       flight_base_source:
-        match.flight_base_source || backendPricing?.flight_base_source || 'billable_hours',
+        normalizeFlightBaseSource(match.flight_base_source || backendPricing?.flight_base_source),
       include_repositioning_in_billed_hours:
         match.include_repositioning_in_billed_hours ??
         backendPricing?.include_repositioning_in_billed_hours ??
@@ -2821,7 +2841,7 @@ export function buildFlightRequestPayload(itinerary = {}) {
     priority_multiplier: priorityMultiplier,
     time_display_mode: itinerary.time_display_mode || 'direct',
     billing_hours_mode: itinerary.billing_hours_mode || 'operational',
-    flight_base_source: itinerary.flight_base_source || 'billable_hours',
+    flight_base_source: normalizeFlightBaseSource(itinerary.flight_base_source),
     include_repositioning_in_billed_hours:
       itinerary.include_repositioning_in_billed_hours ?? true,
     include_return_to_base_in_billed_hours:
@@ -3517,11 +3537,22 @@ export async function searchClientFlights(itinerary, options = {}) {
     passengers: itinerary?.passengers || '',
   }
   const quoteEndpointUrl = resolveApiRequestUrl(QUOTES_PREVIEW_PATH)
+  const requestPayload = buildFlightRequestPayload(itinerary)
+
+  if (typeof console !== 'undefined') {
+    console.log('[WEB QUOTE REQUEST]', {
+      endpoint: quoteEndpointUrl,
+      payload: requestPayload,
+    })
+  }
 
   try {
-    const payload = await api.post(QUOTES_PREVIEW_PATH, buildFlightRequestPayload(itinerary), {
+    const payload = await api.post(QUOTES_PREVIEW_PATH, requestPayload, {
       timeoutMs: options.timeoutMs || CLIENT_QUOTES_TIMEOUT_MS,
     })
+    if (typeof console !== 'undefined') {
+      console.log('[WEB QUOTE RESPONSE]', payload)
+    }
     if (PRICING_DEBUG_ENABLED && typeof console !== 'undefined') {
       console.groupCollapsed('[AUDITORÍA PREVIEW RAW]')
       console.log('Response completa:', payload)

@@ -3696,8 +3696,21 @@ export function usePortalClienteVista(props) {
       passengers: Number(payload?.passengers || 0),
       priority_type: String(payload?.priority_type || '').trim(),
       flight_package: String(payload?.flight_package || '').trim(),
+      flight_base_source: String(payload?.flight_base_source || '').trim(),
       legs,
     })
+  }
+
+  function normalizeQuotePreviewPayload(payload = {}) {
+    if (!payload || typeof payload !== 'object') return {}
+
+    return {
+      ...payload,
+      flight_base_source:
+        String(payload.flight_base_source || '').trim().toLowerCase() === 'billable_hours'
+          ? 'pricing_trip_hours'
+          : String(payload.flight_base_source || 'pricing_trip_hours').trim(),
+    }
   }
 
   function persistQuotePreview() {
@@ -3763,7 +3776,7 @@ export function usePortalClienteVista(props) {
       }
 
       if (snapshot.submittedQuotePayload && typeof snapshot.submittedQuotePayload === 'object') {
-        submittedQuotePayload.value = snapshot.submittedQuotePayload
+        submittedQuotePayload.value = normalizeQuotePreviewPayload(snapshot.submittedQuotePayload)
       }
     } catch {
       window.sessionStorage.removeItem(CLIENT_QUOTES_CACHE_KEY)
@@ -4294,6 +4307,57 @@ export function usePortalClienteVista(props) {
     return `${minutes} min`
   }
 
+  function normalizeDurationText(value = '') {
+    const raw = String(value || '').trim()
+    if (!raw) return ''
+
+    const hhmmMatch = raw.match(/^(\d{1,2}):(\d{1,2})$/)
+    if (hhmmMatch) {
+      const hours = Number(hhmmMatch[1] || 0)
+      const minutes = Number(hhmmMatch[2] || 0)
+      if (Number.isFinite(hours) && Number.isFinite(minutes) && minutes >= 0 && minutes < 60) {
+        return `${hours} h ${String(minutes).padStart(2, '0')} min`
+      }
+    }
+
+    const compactMatch = raw
+      .toLowerCase()
+      .replaceAll(/\s+/g, ' ')
+      .match(/^(\d+)\s*h(?:\s*(\d{1,2})\s*(?:m|min))?$/i)
+    if (compactMatch) {
+      const hours = Number(compactMatch[1] || 0)
+      const minutes = Number(compactMatch[2] || 0)
+      if (Number.isFinite(hours) && Number.isFinite(minutes) && minutes >= 0 && minutes < 60) {
+        return `${hours} h ${String(minutes).padStart(2, '0')} min`
+      }
+    }
+
+    return raw
+  }
+
+  function resolveAircraftCardBillableHours(aircraft = {}) {
+    const pricingBreakdownBillableHours = Number(aircraft?.pricing_breakdown?.billable_hours || 0)
+    if (Number.isFinite(pricingBreakdownBillableHours) && pricingBreakdownBillableHours > 0) {
+      return {
+        source: 'pricing_breakdown.billable_hours',
+        hours: pricingBreakdownBillableHours,
+      }
+    }
+
+    const topLevelBillableHours = Number(aircraft?.billable_hours || 0)
+    if (Number.isFinite(topLevelBillableHours) && topLevelBillableHours > 0) {
+      return {
+        source: 'billable_hours',
+        hours: topLevelBillableHours,
+      }
+    }
+
+    return {
+      source: 'default_zero',
+      hours: 0,
+    }
+  }
+
   function inferredFlightWindowHours(aircraft = {}) {
     const directHours = aircraftDisplayFlightHours(aircraft)
     if (!Number.isFinite(directHours) || directHours <= 0) return null
@@ -4315,50 +4379,89 @@ export function usePortalClienteVista(props) {
     }
   }
 
-  function aircraftDurationLabel(aircraft = {}) {
-    const backendVisibleHours = aircraftDisplayFlightHours(aircraft)
-    const backendVisibleLabel = formatDurationFromHours(backendVisibleHours)
-    if (backendVisibleLabel) return backendVisibleLabel
-
-    const flightWindow = inferredFlightWindowHours(aircraft)
-    if (flightWindow) {
-      const minLabel = formatDurationFromHours(flightWindow.min)
-      const maxLabel = formatDurationFromHours(flightWindow.max)
-      if (minLabel && maxLabel && minLabel !== maxLabel) return `${minLabel} – ${maxLabel}`
-      if (minLabel) return minLabel
+  function resolveAircraftVisibleDuration(aircraft = {}) {
+    const preferredVisibleHours = Number(
+      aircraft.client_direct_flight_hours ||
+        aircraft.route_direct_hours ||
+        aircraft.client_operational_flight_hours ||
+        aircraft.operational_flight_hours ||
+        aircraft.trip_flight_hours ||
+        aircraft.card_flight_hours ||
+        aircraft.ui_flight_hours ||
+        aircraft.client_display_flight_hours ||
+        aircraft.display_flight_hours ||
+        aircraft.real_flight_hours ||
+        aircraft.flight_hours ||
+        aircraft.estimated_hours ||
+        0,
+    )
+    if (Number.isFinite(preferredVisibleHours) && preferredVisibleHours > 0) {
+      return {
+        source: 'preferred_visible_hours',
+        formattedTime: formatDurationFromHours(preferredVisibleHours),
+      }
     }
 
-    const estimatedFlightHours = aircraftDisplayFlightHours(aircraft)
-    const estimatedFlightLabel = formatDurationFromHours(estimatedFlightHours)
-    if (estimatedFlightLabel) return estimatedFlightLabel
-
-    return String(
-      aircraft.trip_time ||
+    const explicitText = normalizeDurationText(
+      aircraft.operative_time ||
+        aircraft.trip_time ||
+        aircraft.estimated_flight_time ||
         aircraft.card_time ||
         aircraft.display_time ||
         aircraft.ui_time ||
         aircraft.time ||
         aircraft.flight_time ||
-        activeItinerarySummary.value?.estimatedTime ||
-        '42 min',
+        '',
     )
-  }
-
-  function aircraftPrimaryDurationLabel(aircraft = {}) {
-    if (hasBackendQuotedPricing(aircraft)) {
-      const billableHours = Number(
-        aircraft.debug_pricing?.final_billable_hours || aircraft.billable_hours || 0,
-      )
-      const hoursSource = String(
-        aircraft.debug_pricing?.hours_source || aircraft.flight_base_source || '',
-      ).trim()
-
-      if (billableHours > 0 && hoursSource === 'billable_hours') {
-        const billableLabel = formatDurationFromHours(billableHours)
-        if (billableLabel) return billableLabel
+    if (explicitText) {
+      return {
+        source: 'visible_time_text',
+        formattedTime: explicitText,
       }
     }
 
+    const visibleHours = Number(aircraftDisplayFlightHours(aircraft) || 0)
+    if (Number.isFinite(visibleHours) && visibleHours > 0) {
+      return {
+        source: 'display_flight_hours',
+        formattedTime: formatDurationFromHours(visibleHours),
+      }
+    }
+
+    return {
+      source: 'default_zero',
+      formattedTime: '0 h 00 min',
+    }
+  }
+
+  function aircraftDurationLabel(aircraft = {}) {
+    const resolved = resolveAircraftVisibleDuration(aircraft)
+
+    console.log('Aircraft card time:web', {
+      aircraft: aircraft.aircraft || aircraft.model || aircraft.name || '',
+      trip_time: aircraft.trip_time ?? null,
+      estimated_flight_time: aircraft.estimated_flight_time ?? null,
+      display_flight_hours:
+        aircraft.trip_flight_hours ??
+        aircraft.card_flight_hours ??
+        aircraft.ui_flight_hours ??
+        aircraft.client_display_flight_hours ??
+        aircraft.display_flight_hours ??
+        aircraft.real_flight_hours ??
+        aircraft.flight_hours ??
+        aircraft.estimated_hours ??
+        null,
+      pricing_breakdown_billable_hours: aircraft?.pricing_breakdown?.billable_hours ?? null,
+      top_level_billable_hours: aircraft?.billable_hours ?? null,
+      selected_time_source: resolved.source,
+      formatted_time: resolved.formattedTime,
+      price: aircraft.total_amount || aircraft.total || aircraft.final_price || null,
+    })
+
+    return resolved.formattedTime
+  }
+
+  function aircraftPrimaryDurationLabel(aircraft = {}) {
     return aircraftDurationLabel(aircraft)
   }
 
@@ -4384,16 +4487,7 @@ export function usePortalClienteVista(props) {
   }
 
   function aircraftBackendBillableHoursLabel(aircraft = {}) {
-    const billableHours = Number(
-      aircraft.debug_pricing?.final_billable_hours ||
-        aircraft.billable_hours ||
-        aircraft.pricing_breakdown?.final_billable_hours ||
-        aircraft.pricing_breakdown?.billable_hours ||
-        0,
-    )
-    const billableLabel = formatDurationFromHours(billableHours)
-
-    return billableLabel ? `Horas cobrables backend: ${billableLabel}.` : ''
+    return ''
   }
 
   function aircraftCapacityLabel(aircraft = {}) {
@@ -4515,13 +4609,24 @@ export function usePortalClienteVista(props) {
     return explicitFees > 0 ? explicitFees : 0
   }
 
-  function hasBackendQuotedPricing(aircraft = {}) {
-    const hasMatchIdentity = Boolean(aircraft.match_id || aircraft.matched_option_id)
-    const officialTotal =
+  function resolveAircraftOfficialTotal(aircraft = {}) {
+    return (
       Number(aircraft.pricing?.total_amount || 0) ||
       Number(aircraft.pricing_breakdown?.total_amount || 0) ||
       Number(aircraft.pricing_context?.total_amount || 0) ||
-      Number(aircraft.total_amount || 0)
+      Number(aircraft.total_amount || 0) ||
+      Number(aircraft.amount_due || 0) ||
+      Number(aircraft.selected_card_price || 0) ||
+      Number(aircraft.estimated_total || 0) ||
+      moneyValue(aircraft.final_price) ||
+      Number(aircraft.total || 0) ||
+      Number(aircraft.price || 0)
+    )
+  }
+
+  function hasBackendQuotedPricing(aircraft = {}) {
+    const hasMatchIdentity = Boolean(aircraft.match_id || aircraft.matched_option_id)
+    const officialTotal = resolveAircraftOfficialTotal(aircraft)
     const hasPrice =
       Number(aircraft.base_price || 0) > 0 ||
       officialTotal > 0 ||
@@ -4536,15 +4641,9 @@ export function usePortalClienteVista(props) {
     if (hasBackendQuotedPricing(aircraft)) {
       const basePrice = Number(aircraft.base_price || 0)
       const operationalFees = resolveAircraftOperationalFees(aircraft)
-      const officialTotal =
-        Number(aircraft.pricing?.total_amount || 0) ||
-        Number(aircraft.pricing_breakdown?.total_amount || 0) ||
-        Number(aircraft.pricing_context?.total_amount || 0) ||
-        Number(aircraft.total_amount || 0)
+      const officialTotal = resolveAircraftOfficialTotal(aircraft)
       const finalPrice =
         officialTotal ||
-        Number(aircraft.total || 0) ||
-        moneyValue(aircraft.final_price) ||
         basePrice + operationalFees
       const displayFlightHours = Number(
         aircraft.display_flight_hours ||
@@ -4681,11 +4780,7 @@ export function usePortalClienteVista(props) {
     }
 
     const displayedPrice =
-      Number(aircraft.pricing?.total_amount || 0) ||
-      Number(aircraft.pricing_breakdown?.total_amount || 0) ||
-      Number(aircraft.pricing_context?.total_amount || 0) ||
-      Number(aircraft.total_amount || 0) ||
-      moneyValue(aircraft.final_price)
+      resolveAircraftOfficialTotal(aircraft) || moneyValue(aircraft.final_price)
     const operationalFees = resolveAircraftOperationalFees(aircraft)
     const currentType = normalizePriorityCode(aircraft.priority_type || 'essential')
     const currentMultiplier = Number(aircraft.priority_multiplier || 1) || 1
@@ -7796,6 +7891,7 @@ export function usePortalClienteVista(props) {
     }
 
     try {
+      submittedQuotePayload.value = normalizeQuotePreviewPayload(submittedQuotePayload.value)
       const results = await searchClientFlights(submittedQuotePayload.value, {
         timeoutMs: CLIENT_QUOTES_TIMEOUT_MS,
       })
@@ -7893,19 +7989,20 @@ export function usePortalClienteVista(props) {
         preference: searchForm.preference,
         flight_package: selectedPriorityMeta.value?.name || '',
         priority_type: selectedPriorityType.value,
+        flight_base_source: 'pricing_trip_hours',
         legs: itineraryLegs.value.map((leg) => normalizeLegForQuote(leg)),
         repositioningRequired: pendingMultiDestinationLegs ? true : undefined,
       }
       submittedItinerary.value = buildItinerarySummary(quotePayload)
-      submittedQuotePayload.value = quotePayload
+      submittedQuotePayload.value = normalizeQuotePreviewPayload(quotePayload)
       quoteResultsNavigationPending.value = true
       await go('resultados')
-      const results = await searchClientFlights(quotePayload, {
+      const results = await searchClientFlights(submittedQuotePayload.value, {
         timeoutMs: CLIENT_QUOTES_TIMEOUT_MS,
       })
       aircraftOptions.value = Array.isArray(results) ? results : []
       persistQuotePreview()
-      logRenderedQuoteBreakdown(aircraftOptions.value, quotePayload)
+      logRenderedQuoteBreakdown(aircraftOptions.value, submittedQuotePayload.value)
       if (isResultsSection.value) {
         quoteResultsNavigationPending.value = false
       }
