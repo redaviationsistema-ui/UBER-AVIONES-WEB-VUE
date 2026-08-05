@@ -32,8 +32,6 @@ const configuredPaymentConfirmPath = String(
 const CLIENT_QUOTES_TIMEOUT_MS = Number(import.meta.env.VITE_CLIENT_QUOTES_TIMEOUT_MS || 45000)
 
 const QUOTES_PREVIEW_PATH = configuredQuotesPreviewPath || '/client/quotes/preview'
-const PRICING_DEBUG_ENABLED =
-  import.meta.env.DEV || import.meta.env.VITE_PRICING_DEBUG === 'true'
 function rankClientTripsPath(path = '') {
   const normalized = String(path || '').toLowerCase()
 
@@ -912,52 +910,6 @@ function normalizeMatches(payload, itinerary = {}, requestMeta = {}) {
       aircraftRecord?.category ||
       `Aeronave ${index + 1}`
 
-    if (PRICING_DEBUG_ENABLED && typeof console !== 'undefined') {
-      console.groupCollapsed(
-        `[AUDITORÍA RAW][${match.aircraft_id || aircraftRecord?.id || 'sin-id'}] ${aircraftName}`,
-      )
-      console.log('Match completo:', match)
-      console.log('Pricing breakdown:', match.pricing_breakdown)
-      console.table([
-        {
-          campo: 'match.billable_hours',
-          valor: match.billable_hours,
-          significado: 'Horas comerciales totales con extras opcionales',
-        },
-        {
-          campo: 'pricing_breakdown.final_billable_hours',
-          valor: backendPricing.final_billable_hours,
-          significado: 'Horas del vuelo base usadas para client_flight_cost',
-        },
-        {
-          campo: 'pricing_breakdown.billable_hours',
-          valor: backendPricing.billable_hours,
-          significado: 'Horas totales facturadas con extras',
-        },
-        {
-          campo: 'route_billable_hours',
-          valor: backendPricing.route_billable_hours,
-          significado: 'Horas de ruta antes de minimos',
-        },
-        {
-          campo: 'client_display_flight_hours',
-          valor: backendPricing.client_display_flight_hours,
-          significado: 'Tiempo estimado visible al cliente',
-        },
-        {
-          campo: 'trip_time',
-          valor: match.trip_time,
-          significado: 'Texto visible de duracion en tarjeta',
-        },
-        {
-          campo: 'card_time',
-          valor: match.card_time,
-          significado: 'Texto visible alternativo de tarjeta',
-        },
-      ])
-      console.groupEnd()
-    }
-
     const normalized = {
       id: match.id || `match-${index}`,
       quote_id:
@@ -1316,99 +1268,6 @@ function normalizeMatches(payload, itinerary = {}, requestMeta = {}) {
       selected_radius_nm: asNumber(match.selected_radius_nm),
       match_reason: match.match_reason || '',
       provider: match.provider || aircraftRecord?.provider || null,
-    }
-
-    if (PRICING_DEBUG_ENABLED && typeof console !== 'undefined') {
-      console.groupCollapsed(
-        `[AUDITORÍA NORMALIZADA][${normalized.aircraft_id || 'sin-id'}] ${normalized.aircraft_name}`,
-      )
-      console.table([
-        {
-          concepto: 'Tiempo visible',
-          backend: backendPricing.client_display_flight_hours,
-          normalizado: normalized.display_flight_hours,
-        },
-        {
-          concepto: 'Horas de ruta',
-          backend: backendPricing.route_billable_hours,
-          normalizado: normalized.route_billable_hours,
-        },
-        {
-          concepto: 'Horas cobrables vuelo base',
-          backend: backendPricing.final_billable_hours,
-          normalizado: normalized.final_billable_hours,
-        },
-        {
-          concepto: 'Horas cobrables totales',
-          backend: backendPricing.billable_hours ?? match.billable_hours,
-          normalizado: normalized.billable_hours,
-        },
-      ])
-
-      console.log('Validación de precio base:', {
-        finalBillableHours: normalized.final_billable_hours,
-        hourlyRate: normalized.hourly_rate,
-        calculatedClientFlightCost:
-          normalized.final_billable_hours * Number(normalized.hourly_rate || 0),
-        backendClientFlightCost: backendPricing.client_flight_cost,
-        difference:
-          Number(backendPricing.client_flight_cost ?? 0) -
-          normalized.final_billable_hours * Number(normalized.hourly_rate || 0),
-      })
-
-      console.log('Validación de extras:', {
-        clientFlightCost: backendPricing.client_flight_cost,
-        repositioningCost: backendPricing.repositioning_cost,
-        returnToBaseCost: backendPricing.return_to_base_cost,
-        expectedFlightCost:
-          Number(backendPricing.client_flight_cost ?? 0) +
-          Number(backendPricing.repositioning_cost ?? 0) +
-          Number(backendPricing.return_to_base_cost ?? 0),
-        backendFlightCost: backendPricing.flight_cost,
-      })
-
-      const legs = backendPricing.client_legs ?? backendPricing.legs ?? []
-      legs.forEach((leg, legIndex) => {
-        console.groupCollapsed(
-          `[AUDITORÍA TRAMO ${legIndex + 1}] ${
-            leg.origin ?? leg.origin_icao ?? 'ORIGEN'
-          } → ${leg.destination ?? leg.destination_icao ?? 'DESTINO'}`,
-        )
-
-        console.log({
-          legNumber: legIndex + 1,
-          origin: leg.origin ?? leg.origin_icao,
-          destination: leg.destination ?? leg.destination_icao,
-          distanceNm: leg.distance_nm,
-          directHours: leg.direct_hours ?? leg.direct_flight_hours ?? leg.direct_air_time_hours,
-          operationalHours:
-            leg.operational_hours ?? leg.operational_flight_hours ?? leg.real_flight_hours,
-          displayHours: leg.display_hours ?? leg.display_flight_hours,
-          billableHours: leg.billable_hours,
-          departureAt: leg.departure_at,
-          estimatedArrivalAt: leg.estimated_arrival_at,
-        })
-
-        console.log(
-          `Tramo ${legIndex + 1}: ${leg.origin ?? leg.origin_icao} → ${
-            leg.destination ?? leg.destination_icao
-          }`,
-          {
-            horaSalida: leg.departure_at,
-            horaLlegadaCalculada: leg.estimated_arrival_at,
-            horasDirectas:
-              leg.direct_hours ?? leg.direct_flight_hours ?? leg.direct_air_time_hours,
-            horasOperacionales:
-              leg.operational_hours ?? leg.operational_flight_hours ?? leg.real_flight_hours,
-            horasVisibles: leg.display_hours ?? leg.display_flight_hours,
-            horasCobrables: leg.billable_hours,
-          },
-        )
-
-        console.groupEnd()
-      })
-
-      console.groupEnd()
     }
 
     return normalized
@@ -3659,116 +3518,15 @@ export async function searchClientFlights(itinerary, options = {}) {
   const quoteEndpointUrl = resolveApiRequestUrl(QUOTES_PREVIEW_PATH)
   const requestPayload = buildFlightRequestPayload(itinerary)
 
-  if (typeof console !== 'undefined') {
-    console.log('[WEB QUOTE REQUEST]', {
-      endpoint: quoteEndpointUrl,
-      payload: requestPayload,
-    })
-  }
-
   try {
     const payload = await api.post(QUOTES_PREVIEW_PATH, requestPayload, {
       timeoutMs: options.timeoutMs || CLIENT_QUOTES_TIMEOUT_MS,
     })
-    if (typeof console !== 'undefined') {
-      console.log('[WEB QUOTE RESPONSE]', payload)
-    }
-    if (PRICING_DEBUG_ENABLED && typeof console !== 'undefined') {
-      console.groupCollapsed('[AUDITORÍA PREVIEW RAW]')
-      console.log('Response completa:', payload)
-      console.log('Response data:', payload?.data)
-      console.log(
-        'Quotes:',
-        payload?.data?.quotes ??
-          payload?.data?.matches ??
-          payload?.quotes ??
-          payload?.matches,
-      )
-      console.groupEnd()
-    }
     const matches = normalizeMatches(payload, itinerary, {
       endpointUrl: quoteEndpointUrl,
       source: 'backend_preview',
       pricingSource: 'official_backend_pricing_v2',
     })
-
-    if (typeof console !== 'undefined' && !PRICING_DEBUG_ENABLED) {
-      matches.forEach((item, index) => {
-        const aircraftLabel =
-          item.aircraft ||
-          item.model ||
-          item.cabin ||
-          item.aircraft_category ||
-          `Aeronave ${index + 1}`
-        const basePrice = Number(item.base_price || 0)
-        const debugPricing =
-          item.debug_pricing && typeof item.debug_pricing === 'object' ? item.debug_pricing : {}
-        const overnightFee = Number(debugPricing.overnight_fee || item.overnight_fee || 0)
-        const overnightNights = Number(
-          debugPricing.overnight_nights || item.overnight_nights || 0,
-        )
-        const overnightCost = Number(
-          debugPricing.overnight_cost ||
-            item.overnight_cost ||
-            item.pricing_breakdown?.overnight_cost ||
-            item.overnight_fees ||
-            0,
-        )
-        const expenseFee = Number(item.expense_fee || 0)
-        const ivaAmount = Number(item.taxes || item.tax || 0)
-        const finalPrice = Number(item.total || item.final_price || 0)
-        const billableHours = Number(item.billable_hours || 0)
-        const rawHours = Number(
-          item.flight_base_hours ||
-            item.pricing_breakdown?.flight_base_hours ||
-            item.pricing_breakdown?.time_breakdown?.flight_base_hours ||
-            item.trip_flight_hours ||
-            0,
-        )
-        const hourlyRate = Number(
-          item.hourly_rate || item.pricing_breakdown?.hourly_rate || 0,
-        )
-        const source = String(item.source || item.source_table || 'backend_preview')
-        const pricingSource = String(item.pricing_source || item.quote_strategy || 'backend')
-        const endpointUrl = String(item.endpoint_url || quoteEndpointUrl || '')
-        const finalBillableHours = Number(
-          item.debug_pricing?.final_billable_hours || item.billable_hours || 0,
-        )
-        const hoursSource = String(
-          item.debug_pricing?.hours_source ||
-            item.flight_base_source ||
-            item.pricing_breakdown?.flight_base_source ||
-            'backend_preview',
-        )
-        const expenseFeeSource = String(
-          item.debug_pricing?.expense_fee_source ||
-            (expenseFee > 0 ? 'backend_preview' : ''),
-        )
-
-       
-
-        console.log(
-          [
-            `[Cotizador backend crudo] ${aircraftLabel}`,
-            `- Aircraft id: ${item.aircraft_id || ''}`,
-            `- Aircraft name: ${item.aircraft || item.model || aircraftLabel}`,
-            `- Source: ${source}`,
-            `- Pricing source: ${pricingSource}`,
-            `- Endpoint URL: ${endpointUrl}`,
-            `- Hours source: ${hoursSource}`,
-            `- Expense fee source: ${expenseFeeSource}`,
-            `- Final billable hours: ${finalBillableHours.toFixed(2)}`,
-            `- Vuelo base backend: ${basePrice.toFixed(2)}`,
-            `- Overnight backend: ${overnightCost.toFixed(2)}`,
-            `- Expense fee backend: ${expenseFee.toFixed(2)}`,
-            `- IVA backend: ${ivaAmount.toFixed(2)}`,
-            `- Total backend: ${finalPrice.toFixed(2)}`,
-            `- Horas cobrables backend: ${billableHours.toFixed(2)}`,
-          ].join('\n'),
-        )
-      })
-
-    }
     if (!matches.length) return []
 
     const aircraft = await getAircraftFromDatabase(aircraftQuery)

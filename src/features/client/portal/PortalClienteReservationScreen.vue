@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import FlightSearchHero from '../FlightSearchHero.vue'
 
 const props = defineProps({
@@ -249,6 +249,223 @@ const speedSliderStyle = computed(() => {
     right: `${Math.max(0, 100 - end)}%`,
   }
 })
+
+const detailAircraft = ref(null)
+
+function resolvePricingBreakdown(aircraft = {}) {
+  return aircraft?.pricing_breakdown && typeof aircraft.pricing_breakdown === 'object'
+    ? aircraft.pricing_breakdown
+    : {}
+}
+
+function resolveNumber(value, fallback = 0) {
+  const amount = Number(value)
+  return Number.isFinite(amount) ? amount : fallback
+}
+
+function resolveAircraftSummaryHours(aircraft = {}) {
+  const breakdown = resolvePricingBreakdown(aircraft)
+  return resolveNumber(
+    breakdown.final_billable_hours ??
+      aircraft.final_billable_hours ??
+      aircraft.billable_hours ??
+      0,
+  )
+}
+
+function resolveAircraftSummaryHourlyRate(aircraft = {}) {
+  const breakdown = resolvePricingBreakdown(aircraft)
+  return resolveNumber(breakdown.hourly_rate ?? aircraft.hourly_rate ?? 0)
+}
+
+function resolveAircraftSummaryFlightCost(aircraft = {}) {
+  const breakdown = resolvePricingBreakdown(aircraft)
+  return resolveNumber(
+    breakdown.client_flight_cost ??
+      aircraft.client_flight_cost ??
+      breakdown.flight_cost ??
+      aircraft.flight_cost ??
+      aircraft.base_price ??
+      0,
+  )
+}
+
+function resolveAircraftSummaryAirportExpenses(aircraft = {}) {
+  const breakdown = resolvePricingBreakdown(aircraft)
+  return resolveNumber(
+    breakdown.airport_expenses ??
+      breakdown.expense_fee ??
+      aircraft.airport_expenses ??
+      aircraft.expense_fee ??
+      0,
+  )
+}
+
+function resolveAircraftSummaryOvernightNights(aircraft = {}) {
+  const breakdown = resolvePricingBreakdown(aircraft)
+  return Math.round(
+    resolveNumber(breakdown.overnight_nights ?? aircraft.overnight_nights ?? 0),
+  )
+}
+
+function resolveAircraftSummaryOvernightCost(aircraft = {}) {
+  const breakdown = resolvePricingBreakdown(aircraft)
+  return resolveNumber(breakdown.overnight_cost ?? aircraft.overnight_cost ?? 0)
+}
+
+function resolveAircraftSummaryOvernightRate(aircraft = {}) {
+  const breakdown = resolvePricingBreakdown(aircraft)
+  const explicitRate = resolveNumber(breakdown.overnight_fee ?? aircraft.overnight_fee ?? 0)
+  if (explicitRate > 0) return explicitRate
+
+  const nights = resolveAircraftSummaryOvernightNights(aircraft)
+  const total = resolveAircraftSummaryOvernightCost(aircraft)
+  return nights > 0 && total > 0 ? total / nights : 0
+}
+
+function resolveAircraftSummarySubtotal(aircraft = {}) {
+  const breakdown = resolvePricingBreakdown(aircraft)
+  const fallback =
+    resolveAircraftSummaryFlightCost(aircraft) +
+    resolveAircraftSummaryAirportExpenses(aircraft) +
+    resolveAircraftSummaryOvernightCost(aircraft)
+
+  return resolveNumber(breakdown.subtotal ?? aircraft.subtotal ?? fallback)
+}
+
+function resolveAircraftSummaryStripeFee(aircraft = {}) {
+  const breakdown = resolvePricingBreakdown(aircraft)
+  return resolveNumber(breakdown.stripe_fee ?? aircraft.stripe_fee ?? 0)
+}
+
+function resolveAircraftSummaryAdministrativeFee(aircraft = {}) {
+  const breakdown = resolvePricingBreakdown(aircraft)
+  return resolveNumber(breakdown.administrative_fee ?? aircraft.administrative_fee ?? 0)
+}
+
+function resolveAircraftSummaryTaxes(aircraft = {}) {
+  const breakdown = resolvePricingBreakdown(aircraft)
+  return resolveNumber(breakdown.tax ?? breakdown.taxes ?? aircraft.taxes ?? aircraft.tax ?? 0)
+}
+
+function resolveAircraftSummaryTotal(aircraft = {}) {
+  const breakdown = resolvePricingBreakdown(aircraft)
+  const fallback =
+    resolveAircraftSummarySubtotal(aircraft) +
+    resolveAircraftSummaryStripeFee(aircraft) +
+    resolveAircraftSummaryAdministrativeFee(aircraft) +
+    resolveAircraftSummaryTaxes(aircraft)
+
+  return resolveNumber(
+    breakdown.total_amount ??
+      breakdown.total ??
+      aircraft.total_amount ??
+      aircraft.total ??
+      fallback,
+  )
+}
+
+function resolveAircraftSummaryCurrency(aircraft = {}) {
+  const breakdown = resolvePricingBreakdown(aircraft)
+  return String(aircraft.currency || breakdown.currency || 'USD').toUpperCase()
+}
+
+function formatSummaryMoney(amount = 0, currency = 'USD') {
+  const normalized = resolveNumber(amount)
+  const decimals = Math.abs(normalized - Math.round(normalized)) < 0.01 ? 0 : 2
+  return `${currency} ${normalized.toLocaleString('en-US', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  })}`
+}
+
+function formatSummaryAmount(amount = 0) {
+  const normalized = resolveNumber(amount)
+  const decimals = Math.abs(normalized - Math.round(normalized)) < 0.01 ? 0 : 2
+  return normalized.toLocaleString('en-US', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  })
+}
+
+function formatSummaryHours(hours = 0) {
+  const normalized = resolveNumber(hours)
+  const decimals = Math.abs(normalized - Math.round(normalized)) < 0.01 ? 0 : 2
+  return normalized.toLocaleString('en-US', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  })
+}
+
+function formatSummaryPercent(amount = 0, subtotal = 0) {
+  const normalizedSubtotal = resolveNumber(subtotal)
+  if (normalizedSubtotal <= 0) return ''
+
+  const percent = (resolveNumber(amount) / normalizedSubtotal) * 100
+  const decimals = Math.abs(percent - Math.round(percent)) < 0.01 ? 0 : 1
+  return percent.toLocaleString('en-US', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  })
+}
+
+function aircraftPricingSummaryLines(aircraft = {}) {
+  const breakdown = resolvePricingBreakdown(aircraft)
+  const currency = resolveAircraftSummaryCurrency(aircraft)
+  const flightHours = resolveAircraftSummaryHours(aircraft)
+  const hourlyRate = resolveAircraftSummaryHourlyRate(aircraft)
+  const flightCost = resolveAircraftSummaryFlightCost(aircraft)
+  const airportExpenses = resolveAircraftSummaryAirportExpenses(aircraft)
+  const overnightNights = resolveAircraftSummaryOvernightNights(aircraft)
+  const overnightRate = resolveAircraftSummaryOvernightRate(aircraft)
+  const overnightCost = resolveAircraftSummaryOvernightCost(aircraft)
+  const subtotal = resolveAircraftSummarySubtotal(aircraft)
+  const stripeFee = resolveAircraftSummaryStripeFee(aircraft)
+  const administrativeFee = resolveAircraftSummaryAdministrativeFee(aircraft)
+  const taxes = resolveAircraftSummaryTaxes(aircraft)
+  const total = resolveAircraftSummaryTotal(aircraft)
+  const minimumApplied = Boolean(breakdown.minimum_applied)
+  const hoursLabel = minimumApplied ? 'horas mínimas' : 'horas'
+  const stripePercent = formatSummaryPercent(stripeFee, subtotal)
+  const administrativePercent = formatSummaryPercent(administrativeFee, subtotal)
+
+  return [
+    'Vuelo:',
+    `${formatSummaryHours(flightHours)} ${hoursLabel} × ${formatSummaryMoney(hourlyRate, currency)} = ${formatSummaryMoney(flightCost, currency)}`,
+    '',
+    'Gastos aeroportuarios:',
+    `${formatSummaryMoney(airportExpenses, currency)}`,
+    '',
+    'Pernoctas:',
+    overnightNights > 0
+      ? `${overnightNights} × ${formatSummaryMoney(overnightRate, currency)} = ${formatSummaryMoney(overnightCost, currency)}`
+      : `${formatSummaryMoney(overnightCost, currency)}`,
+    '',
+    'Subtotal operativo:',
+    `${formatSummaryAmount(flightCost)} + ${formatSummaryAmount(airportExpenses)} + ${formatSummaryAmount(overnightCost)} = ${formatSummaryMoney(subtotal, currency)}`,
+    '',
+    `Stripe${stripePercent ? ` ${stripePercent}%` : ''}:`,
+    `${formatSummaryMoney(stripeFee, currency)}`,
+    '',
+    `Administrativa${administrativePercent ? ` ${administrativePercent}%` : ''}:`,
+    `${formatSummaryMoney(administrativeFee, currency)}`,
+    '',
+    'IVA:',
+    `${formatSummaryMoney(taxes, currency)}`,
+    '',
+    'Total:',
+    `${formatSummaryAmount(subtotal)} + ${formatSummaryAmount(stripeFee)} + ${formatSummaryAmount(administrativeFee)} + ${formatSummaryAmount(taxes)}`,
+    `= ${formatSummaryMoney(total, currency)}`,
+  ]
+}
+
+function openAircraftDetail(aircraft = null) {
+  detailAircraft.value = aircraft
+}
+
+function closeAircraftDetail() {
+  detailAircraft.value = null
+}
 </script>
 
 <template>
@@ -704,7 +921,13 @@ const speedSliderStyle = computed(() => {
                 >
                   {{ props.reservationActionLabel(props.featuredAircraft) }}
                 </button>
-                <button type="button" class="ghost-action ghost-action--detail">Ver detalles</button>
+                <button
+                  type="button"
+                  class="ghost-action ghost-action--detail"
+                  @click="openAircraftDetail(props.featuredAircraft)"
+                >
+                  Ver detalles
+                </button>
               </div>
             </div>
           </article>
@@ -784,7 +1007,13 @@ const speedSliderStyle = computed(() => {
                     >
                       {{ props.reservationActionLabel(aircraft) }}
                     </button>
-                    <button type="button" class="ghost-action ghost-action--detail">Ver detalles</button>
+                    <button
+                      type="button"
+                      class="ghost-action ghost-action--detail"
+                      @click="openAircraftDetail(aircraft)"
+                    >
+                      Ver detalles
+                    </button>
                     <label class="compare-check">
                       <input type="checkbox" />
                       <span>Comparar</span>
@@ -823,6 +1052,34 @@ const speedSliderStyle = computed(() => {
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 8h-1V6a4 4 0 1 0-8 0v2H7a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2ZM10 6a2 2 0 1 1 4 0v2h-4V6Zm3 9.73V18h-2v-2.27a2 2 0 1 1 2 0Z" fill="currentColor"/></svg>
         <span>Cotizacion gratuita y sin compromiso. Tarifas sujetas a disponibilidad.</span>
       </div>
+
+      <div
+        v-if="detailAircraft"
+        class="aircraft-detail-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Detalle de cotización"
+        @click.self="closeAircraftDetail"
+      >
+        <div class="aircraft-detail-modal__card">
+          <div class="aircraft-detail-modal__header">
+            <div>
+              <span class="eyebrow">Detalle de cotización</span>
+              <h3>{{ detailAircraft.aircraft }}</h3>
+            </div>
+            <button type="button" class="aircraft-detail-modal__close" @click="closeAircraftDetail">
+              Cerrar
+            </button>
+          </div>
+
+          <div class="aircraft-detail-modal__price">
+            <span>Tarifa estimada total</span>
+            <strong>{{ props.aircraftPriceCopy(detailAircraft) }}</strong>
+          </div>
+
+          <pre class="aircraft-detail-modal__summary">{{ aircraftPricingSummaryLines(detailAircraft).join('\n') }}</pre>
+        </div>
+      </div>
     </div>
   </section>
 </template>
@@ -858,40 +1115,42 @@ const speedSliderStyle = computed(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 1rem;
-  width: min(100%, 31.25rem);
-  min-height: 25rem;
-  padding: 2rem 2rem 2.2rem;
+  justify-content: flex-start;
+  gap: 0.85rem;
+  width: min(100%, 28rem);
+  min-height: 23rem;
+  padding: 2rem 2rem 2.1rem;
   border: 1px solid rgba(138, 156, 189, 0.12);
-  border-radius: 28px;
+  border-radius: 30px;
   background:
-    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.05), transparent 42%),
+    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.07), transparent 40%),
     linear-gradient(180deg, rgba(9, 24, 54, 0.98), rgba(7, 19, 43, 0.98));
   box-shadow:
     0 40px 90px rgba(4, 10, 23, 0.38),
     inset 0 1px 0 rgba(255, 255, 255, 0.06);
   text-align: center;
+  overflow: hidden;
 }
 
 .reservation-loading-spinner {
   position: relative;
   flex: 0 0 auto;
-  width: clamp(7.5rem, 24vw, 9.375rem);
-  height: clamp(7.5rem, 24vw, 9.375rem);
-  margin-bottom: 1.1rem;
-  filter: drop-shadow(0 16px 30px rgba(1, 10, 26, 0.32));
+  width: clamp(5.5rem, 16vw, 7rem);
+  height: clamp(5.5rem, 16vw, 7rem);
+  margin-top: 0.2rem;
+  margin-bottom: 0.55rem;
+  filter: drop-shadow(0 10px 22px rgba(1, 10, 26, 0.24));
 }
 
 .reservation-loading-spinner span {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: clamp(0.85rem, 1.9vw, 1.1rem);
-  height: clamp(2.55rem, 8vw, 3.45rem);
+  width: clamp(0.62rem, 1.2vw, 0.8rem);
+  height: clamp(1.85rem, 4.8vw, 2.55rem);
   border-radius: 999px;
   background: linear-gradient(180deg, rgba(255, 248, 236, 0.98), rgba(131, 144, 170, 0.22));
-  transform-origin: center calc(clamp(2.55rem, 8vw, 3.3rem) * -1);
+  transform-origin: center calc(clamp(1.95rem, 5vw, 2.6rem) * -1);
   animation: reservation-loading-spinner-fade 1.2s linear infinite;
 }
 
@@ -914,15 +1173,16 @@ const speedSliderStyle = computed(() => {
   font-weight: 800;
   letter-spacing: 0.22em;
   text-transform: uppercase;
+  margin-top: 0.2rem;
 }
 
 .reservation-loading-card h3 {
   margin: 0;
-  max-width: 8.8ch;
+  max-width: 7.2ch;
   color: #fff9f0;
-  font-size: clamp(2.15rem, 4.8vw, 3.35rem);
+  font-size: clamp(2rem, 4.4vw, 3rem);
   font-weight: 800;
-  line-height: 1.02;
+  line-height: 0.98;
   letter-spacing: -0.05em;
   text-wrap: balance;
 }
@@ -961,9 +1221,9 @@ const speedSliderStyle = computed(() => {
 
 @media (max-width: 900px) {
   .reservation-loading-card {
-    width: min(100%, 28rem);
-    min-height: 23rem;
-    padding: 1.85rem 1.7rem 2rem;
+    width: min(100%, 25rem);
+    min-height: 21.5rem;
+    padding: 1.7rem 1.55rem 1.85rem;
   }
 }
 
@@ -973,20 +1233,20 @@ const speedSliderStyle = computed(() => {
   }
 
   .reservation-loading-card {
-    width: min(100%, 22rem);
-    min-height: 20.5rem;
-    padding: 1.5rem 1.35rem 1.7rem;
-    gap: 0.9rem;
+    width: min(100%, 20rem);
+    min-height: 18.75rem;
+    padding: 1.35rem 1.15rem 1.45rem;
+    gap: 0.7rem;
     border-radius: 24px;
   }
 
   .reservation-loading-spinner {
-    margin-bottom: 0.8rem;
+    margin-bottom: 0.35rem;
   }
 
   .reservation-loading-card h3 {
-    max-width: 9.2ch;
-    font-size: clamp(1.95rem, 8vw, 2.7rem);
+    max-width: 7.4ch;
+    font-size: clamp(1.75rem, 8vw, 2.35rem);
   }
 }
 
@@ -1845,6 +2105,80 @@ const speedSliderStyle = computed(() => {
   height: 0.95rem;
 }
 
+.aircraft-detail-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(12, 18, 30, 0.55);
+  backdrop-filter: blur(10px);
+}
+
+.aircraft-detail-modal__card {
+  width: min(100%, 44rem);
+  max-height: min(85vh, 52rem);
+  overflow: auto;
+  border-radius: 1.5rem;
+  background: #fffdf9;
+  box-shadow: 0 30px 80px rgba(12, 18, 30, 0.24);
+  padding: 1.5rem;
+}
+
+.aircraft-detail-modal__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.aircraft-detail-modal__header h3 {
+  margin: 0.35rem 0 0;
+  font-size: clamp(1.8rem, 3vw, 2.4rem);
+  color: #15213b;
+}
+
+.aircraft-detail-modal__close {
+  border: 0;
+  border-radius: 999px;
+  background: rgba(21, 33, 59, 0.08);
+  color: #15213b;
+  padding: 0.75rem 1rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.aircraft-detail-modal__price {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-bottom: 1.25rem;
+}
+
+.aircraft-detail-modal__price span {
+  font-size: 0.9rem;
+  color: rgba(21, 33, 59, 0.62);
+}
+
+.aircraft-detail-modal__price strong {
+  font-size: clamp(1.6rem, 2.4vw, 2.1rem);
+  color: #15213b;
+}
+
+.aircraft-detail-modal__summary {
+  margin: 0;
+  white-space: pre-wrap;
+  font: 600 1rem/1.65 "SFMono-Regular", "Menlo", "Monaco", monospace;
+  color: #1f2c47;
+  background: linear-gradient(180deg, rgba(245, 247, 252, 0.96), rgba(239, 242, 249, 0.96));
+  border: 1px solid rgba(21, 33, 59, 0.08);
+  border-radius: 1.1rem;
+  padding: 1.1rem 1.2rem;
+}
+
 @media (max-width: 1180px) {
   .screen--results {
     width: 100%;
@@ -1929,6 +2263,19 @@ const speedSliderStyle = computed(() => {
 
   .results-hero__copy h2 {
     font-size: 1.8rem;
+  }
+
+  .aircraft-detail-modal {
+    padding: 1rem;
+  }
+
+  .aircraft-detail-modal__card {
+    padding: 1.1rem;
+    border-radius: 1.15rem;
+  }
+
+  .aircraft-detail-modal__header {
+    flex-direction: column;
   }
 }
 </style>
