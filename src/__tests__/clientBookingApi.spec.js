@@ -556,6 +556,7 @@ describe('searchClientFlights', () => {
             total: 11111,
             final_price: 11111,
             pricing_breakdown: {
+              display_route_hours: routeHours,
               route_billable_hours: routeHours,
               final_billable_hours: finalBillableHours,
               billable_hours: finalBillableHours + repositioningHours,
@@ -595,6 +596,7 @@ describe('searchClientFlights', () => {
           aircraft_id: 'aircraft-legs-fallback',
           aircraft_name: 'Leg Fallback Jet',
           pricing_breakdown: {
+            display_route_hours: 106 / 60,
             final_billable_hours: 4,
             billable_hours: 4.5,
             repositioning_hours: 0.5,
@@ -638,6 +640,7 @@ describe('searchClientFlights', () => {
           aircraft_name: 'Top Level Legs Jet',
           trip_time: '55 min',
           pricing_breakdown: {
+            display_route_hours: 2.75,
             route_billable_hours: 0.92,
             final_billable_hours: 4,
             billable_hours: 4.75,

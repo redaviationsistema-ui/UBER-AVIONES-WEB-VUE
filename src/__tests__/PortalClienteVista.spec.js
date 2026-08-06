@@ -1175,14 +1175,14 @@ describe('PortalClienteVista commercial access checkout', () => {
 
     expect(
       wrapper.vm.aircraftSpeedLine(
-        { displayedFlightHours: 1.83, pricing_breakdown: { route_billable_hours: 0.92 } },
+        { display_route_hours: 1.83, pricing_breakdown: { display_route_hours: 1.83, route_billable_hours: 0.92, total_amount: 1 } },
         { legs: [{ date: '2026-08-20', time: '09:00' }] },
       ),
     ).toBe('1 h 50 min • Salida 9:00 AM')
 
     expect(
       wrapper.vm.aircraftSpeedLine(
-        { displayedFlightHours: 2.0667, pricing_breakdown: { route_billable_hours: 1.03335 } },
+        { display_route_hours: 2.0667, pricing_breakdown: { display_route_hours: 2.0667, route_billable_hours: 1.03335, total_amount: 1 } },
         { legs: [{ date: '2026-08-20', time: '17:00' }] },
       ),
     ).toBe('2 h 04 min • Salida 5:00 PM')
@@ -1191,8 +1191,11 @@ describe('PortalClienteVista commercial access checkout', () => {
       wrapper.vm.aircraftSpeedLine(
         {
           requested_departure_time: '09:00',
-          client_direct_flight_hours: 0.92,
-          client_display_flight_hours: 1.83,
+          display_route_hours: 1.83,
+          pricing_breakdown: {
+            display_route_hours: 1.83,
+            total_amount: 1,
+          },
         },
         { legs: [{ date: '2026-08-20', time: '17:00' }] },
       ),

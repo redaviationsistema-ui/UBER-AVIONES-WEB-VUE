@@ -11,6 +11,7 @@ function buildProps(overrides = {}) {
       legs: [],
     },
     activeResultFilter: 'best_value',
+    aircraftBackendBillableHoursLabel: () => '',
     aircraftBillingNote: () => '',
     aircraftCapacityLabel: () => '8 pasajeros',
     aircraftClassLabel: () => 'Light Jet',

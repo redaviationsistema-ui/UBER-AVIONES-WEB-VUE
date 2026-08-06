@@ -1,6 +1,14 @@
 <script setup>
 import { computed, ref } from 'vue'
 import FlightSearchHero from '../FlightSearchHero.vue'
+import {
+  formatOfficialDisplayTime,
+  getOfficialBillableHours,
+  getOfficialFinalBillableHours,
+  getOfficialPricing,
+  getOfficialPricingNumber,
+  getOfficialTotalAmount,
+} from '../officialQuotePricing'
 
 const props = defineProps({
   activeItinerarySummary: { type: Object, default: () => ({}) },
@@ -253,9 +261,7 @@ const speedSliderStyle = computed(() => {
 const detailAircraft = ref(null)
 
 function resolvePricingBreakdown(aircraft = {}) {
-  return aircraft?.pricing_breakdown && typeof aircraft.pricing_breakdown === 'object'
-    ? aircraft.pricing_breakdown
-    : {}
+  return getOfficialPricing(aircraft)
 }
 
 function resolveNumber(value, fallback = 0) {
@@ -264,110 +270,86 @@ function resolveNumber(value, fallback = 0) {
 }
 
 function resolveAircraftSummaryHours(aircraft = {}) {
-  const breakdown = resolvePricingBreakdown(aircraft)
-  return resolveNumber(
-    breakdown.final_billable_hours ??
-      aircraft.final_billable_hours ??
-      aircraft.billable_hours ??
-      0,
-  )
+  return resolveNumber(getOfficialFinalBillableHours(aircraft, 0))
+}
+
+function resolveAircraftBillableTimeLabel(aircraft = {}) {
+  const billableHours = resolveNumber(getOfficialBillableHours(aircraft, Number.NaN), Number.NaN)
+  if (Number.isFinite(billableHours) && billableHours > 0) {
+    return formatOfficialDisplayTime({ pricing_breakdown: { display_route_hours: billableHours } }, '0 min')
+  }
+
+  const finalBillableHours = resolveAircraftSummaryHours(aircraft)
+  if (finalBillableHours > 0) {
+    return formatOfficialDisplayTime({ pricing_breakdown: { display_route_hours: finalBillableHours } }, '0 min')
+  }
+
+  return '0 min'
+}
+
+function resolveAircraftVisibleTimeLabel(aircraft = {}) {
+  return formatOfficialDisplayTime(aircraft, '0 min')
 }
 
 function resolveAircraftSummaryHourlyRate(aircraft = {}) {
-  const breakdown = resolvePricingBreakdown(aircraft)
-  return resolveNumber(breakdown.hourly_rate ?? aircraft.hourly_rate ?? 0)
+  return resolveNumber(getOfficialPricingNumber(aircraft, ['hourly_rate', 'pricing_breakdown.hourly_rate'], 0))
 }
 
 function resolveAircraftSummaryFlightCost(aircraft = {}) {
-  const breakdown = resolvePricingBreakdown(aircraft)
   return resolveNumber(
-    breakdown.client_flight_cost ??
-      aircraft.client_flight_cost ??
-      breakdown.flight_cost ??
-      aircraft.flight_cost ??
-      aircraft.base_price ??
+    getOfficialPricingNumber(
+      aircraft,
+      ['client_flight_cost', 'pricing_breakdown.client_flight_cost', 'flight_cost', 'pricing_breakdown.flight_cost'],
       0,
+    ),
   )
 }
 
 function resolveAircraftSummaryAirportExpenses(aircraft = {}) {
-  const breakdown = resolvePricingBreakdown(aircraft)
   return resolveNumber(
-    breakdown.airport_expenses ??
-      breakdown.expense_fee ??
-      aircraft.airport_expenses ??
-      aircraft.expense_fee ??
+    getOfficialPricingNumber(
+      aircraft,
+      ['airport_expenses', 'pricing_breakdown.airport_expenses', 'expense_fee', 'pricing_breakdown.expense_fee'],
       0,
+    ),
   )
 }
 
 function resolveAircraftSummaryOvernightNights(aircraft = {}) {
-  const breakdown = resolvePricingBreakdown(aircraft)
-  return Math.round(
-    resolveNumber(breakdown.overnight_nights ?? aircraft.overnight_nights ?? 0),
-  )
+  return Math.round(resolveNumber(getOfficialPricingNumber(aircraft, ['overnight_nights', 'pricing_breakdown.overnight_nights'], 0)))
 }
 
 function resolveAircraftSummaryOvernightCost(aircraft = {}) {
-  const breakdown = resolvePricingBreakdown(aircraft)
-  return resolveNumber(breakdown.overnight_cost ?? aircraft.overnight_cost ?? 0)
+  return resolveNumber(getOfficialPricingNumber(aircraft, ['overnight_cost', 'pricing_breakdown.overnight_cost'], 0))
 }
 
 function resolveAircraftSummaryOvernightRate(aircraft = {}) {
-  const breakdown = resolvePricingBreakdown(aircraft)
-  const explicitRate = resolveNumber(breakdown.overnight_fee ?? aircraft.overnight_fee ?? 0)
-  if (explicitRate > 0) return explicitRate
-
-  const nights = resolveAircraftSummaryOvernightNights(aircraft)
-  const total = resolveAircraftSummaryOvernightCost(aircraft)
-  return nights > 0 && total > 0 ? total / nights : 0
+  return resolveNumber(getOfficialPricingNumber(aircraft, ['overnight_fee', 'pricing_breakdown.overnight_fee'], 0))
 }
 
 function resolveAircraftSummarySubtotal(aircraft = {}) {
-  const breakdown = resolvePricingBreakdown(aircraft)
-  const fallback =
-    resolveAircraftSummaryFlightCost(aircraft) +
-    resolveAircraftSummaryAirportExpenses(aircraft) +
-    resolveAircraftSummaryOvernightCost(aircraft)
-
-  return resolveNumber(breakdown.subtotal ?? aircraft.subtotal ?? fallback)
+  return resolveNumber(getOfficialPricingNumber(aircraft, ['subtotal', 'pricing_breakdown.subtotal'], 0))
 }
 
 function resolveAircraftSummaryStripeFee(aircraft = {}) {
-  const breakdown = resolvePricingBreakdown(aircraft)
-  return resolveNumber(breakdown.stripe_fee ?? aircraft.stripe_fee ?? 0)
+  return resolveNumber(getOfficialPricingNumber(aircraft, ['stripe_fee', 'pricing_breakdown.stripe_fee'], 0))
 }
 
 function resolveAircraftSummaryAdministrativeFee(aircraft = {}) {
-  const breakdown = resolvePricingBreakdown(aircraft)
-  return resolveNumber(breakdown.administrative_fee ?? aircraft.administrative_fee ?? 0)
+  return resolveNumber(getOfficialPricingNumber(aircraft, ['administrative_fee', 'pricing_breakdown.administrative_fee'], 0))
 }
 
 function resolveAircraftSummaryTaxes(aircraft = {}) {
-  const breakdown = resolvePricingBreakdown(aircraft)
-  return resolveNumber(breakdown.tax ?? breakdown.taxes ?? aircraft.taxes ?? aircraft.tax ?? 0)
+  return resolveNumber(getOfficialPricingNumber(aircraft, ['tax', 'pricing_breakdown.tax', 'taxes', 'pricing_breakdown.taxes'], 0))
 }
 
 function resolveAircraftSummaryTotal(aircraft = {}) {
-  const breakdown = resolvePricingBreakdown(aircraft)
-  const fallback =
-    resolveAircraftSummarySubtotal(aircraft) +
-    resolveAircraftSummaryStripeFee(aircraft) +
-    resolveAircraftSummaryAdministrativeFee(aircraft) +
-    resolveAircraftSummaryTaxes(aircraft)
-
-  return resolveNumber(
-    breakdown.total_amount ??
-      breakdown.total ??
-      aircraft.total_amount ??
-      aircraft.total ??
-      fallback,
-  )
+  return resolveNumber(getOfficialTotalAmount(aircraft, 0))
 }
 
 function resolveAircraftSummaryCurrency(aircraft = {}) {
   const breakdown = resolvePricingBreakdown(aircraft)
-  return String(aircraft.currency || breakdown.currency || 'USD').toUpperCase()
+  return String(breakdown.currency || aircraft.currency || 'USD').toUpperCase()
 }
 
 function formatSummaryMoney(amount = 0, currency = 'USD') {
@@ -397,6 +379,15 @@ function formatSummaryHours(hours = 0) {
   })
 }
 
+function formatSummaryPreciseHours(hours = 0) {
+  const normalized = resolveNumber(hours)
+  const decimals = Math.abs(normalized - Math.round(normalized)) < 0.0001 ? 0 : 4
+  return normalized.toLocaleString('en-US', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  })
+}
+
 function formatSummaryPercent(amount = 0, subtotal = 0) {
   const normalizedSubtotal = resolveNumber(subtotal)
   if (normalizedSubtotal <= 0) return ''
@@ -413,6 +404,7 @@ function aircraftPricingSummaryLines(aircraft = {}) {
   const breakdown = resolvePricingBreakdown(aircraft)
   const currency = resolveAircraftSummaryCurrency(aircraft)
   const flightHours = resolveAircraftSummaryHours(aircraft)
+  const visibleTime = resolveAircraftVisibleTimeLabel(aircraft)
   const hourlyRate = resolveAircraftSummaryHourlyRate(aircraft)
   const flightCost = resolveAircraftSummaryFlightCost(aircraft)
   const airportExpenses = resolveAircraftSummaryAirportExpenses(aircraft)
@@ -430,8 +422,14 @@ function aircraftPricingSummaryLines(aircraft = {}) {
   const administrativePercent = formatSummaryPercent(administrativeFee, subtotal)
 
   return [
-    'Vuelo:',
-    `${formatSummaryHours(flightHours)} ${hoursLabel} × ${formatSummaryMoney(hourlyRate, currency)} = ${formatSummaryMoney(flightCost, currency)}`,
+    'Tiempo estimado visible:',
+    `${visibleTime}`,
+    '',
+    'Horas facturables exactas:',
+    `${formatSummaryPreciseHours(flightHours)} ${hoursLabel}`,
+    '',
+    'Vuelo facturable:',
+    `${formatSummaryPreciseHours(flightHours)} ${hoursLabel} × ${formatSummaryMoney(hourlyRate, currency)} = ${formatSummaryMoney(flightCost, currency)}`,
     '',
     'Gastos aeroportuarios:',
     `${formatSummaryMoney(airportExpenses, currency)}`,
@@ -510,13 +508,27 @@ function closeAircraftDetail() {
       >
         <div class="reservation-loading-backdrop"></div>
         <div class="reservation-loading-card">
-          <div class="reservation-loading-spinner" aria-hidden="true">
-            <span v-for="segment in 12" :key="`reservation-loading-segment-${segment}`"></span>
+          <div class="reservation-loading-glow" aria-hidden="true"></div>
+          <div class="reservation-loading-spinner-shell">
+            <div class="reservation-loading-spinner" aria-hidden="true">
+              <span v-for="segment in 12" :key="`reservation-loading-segment-${segment}`"></span>
+            </div>
           </div>
           <span class="reservation-loading-eyebrow">CENTRO OPERATIVO</span>
           <h3 id="reservation-loading-title">
             Preparando Nuestra Cabina
           </h3>
+          <div class="reservation-loading-status-badge">
+            {{ props.reservationLoadingState?.eyebrow || 'Solicitud en curso' }}
+          </div>
+          <p class="reservation-loading-copy">
+            {{ props.reservationLoadingState?.message || 'Estamos asegurando la disponibilidad y preparando el siguiente paso de tu reservacion.' }}
+          </p>
+          <div class="reservation-loading-progress" aria-hidden="true">
+            <span class="is-active">Bloqueando opcion</span>
+            <span class="is-active">Validando tarifa</span>
+            <span>Preparando contrato</span>
+          </div>
           <p v-if="props.reservationLoadingState?.message" class="sr-only">
             {{ props.reservationLoadingState.message }}
           </p>
@@ -1106,8 +1118,9 @@ function closeAircraftDetail() {
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(180deg, rgba(16, 23, 35, 0.72), rgba(10, 15, 24, 0.76));
-  backdrop-filter: blur(18px);
+    radial-gradient(circle at 50% 20%, rgba(101, 140, 214, 0.12), transparent 28%),
+    linear-gradient(180deg, rgba(16, 23, 35, 0.76), rgba(10, 15, 24, 0.82));
+  backdrop-filter: blur(22px) saturate(120%);
 }
 
 .reservation-loading-card {
@@ -1116,29 +1129,106 @@ function closeAircraftDetail() {
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
-  gap: 0.85rem;
-  width: min(100%, 28rem);
-  min-height: 23rem;
-  padding: 2rem 2rem 2.1rem;
-  border: 1px solid rgba(138, 156, 189, 0.12);
-  border-radius: 30px;
+  gap: 0.95rem;
+  width: min(100%, 29rem);
+  min-height: 25rem;
+  padding: 2.25rem 2rem 2rem;
+  border: 1px solid rgba(138, 156, 189, 0.18);
+  border-radius: 32px;
   background:
-    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.07), transparent 40%),
-    linear-gradient(180deg, rgba(9, 24, 54, 0.98), rgba(7, 19, 43, 0.98));
+    radial-gradient(circle at top, rgba(133, 164, 226, 0.14), transparent 30%),
+    linear-gradient(145deg, rgba(11, 28, 62, 0.98), rgba(6, 18, 43, 0.98));
   box-shadow:
-    0 40px 90px rgba(4, 10, 23, 0.38),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    0 40px 90px rgba(4, 10, 23, 0.42),
+    0 18px 42px rgba(12, 30, 68, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
   text-align: center;
   overflow: hidden;
+}
+
+.reservation-loading-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.05), transparent 32%),
+    radial-gradient(circle at 50% 100%, rgba(129, 167, 232, 0.08), transparent 30%);
+  pointer-events: none;
+}
+
+.reservation-loading-glow {
+  position: absolute;
+  top: -12%;
+  left: 50%;
+  width: 70%;
+  height: 10rem;
+  transform: translateX(-50%);
+  background: radial-gradient(circle, rgba(121, 156, 220, 0.28), transparent 68%);
+  filter: blur(24px);
+  opacity: 0.9;
+}
+
+.reservation-loading-status-badge {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.8rem;
+  margin-top: 0.15rem;
+  border: 1px solid rgba(182, 203, 241, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #c8d7f4;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.reservation-loading-status-badge::before {
+  content: '';
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: #93b6ff;
+  box-shadow: 0 0 0 0 rgba(147, 182, 255, 0.45);
+  animation: reservation-loading-ping 1.8s ease-out infinite;
+}
+
+.reservation-loading-spinner-shell {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: clamp(8.25rem, 22vw, 9.5rem);
+  height: clamp(8.25rem, 22vw, 9.5rem);
+  margin-top: 0.5rem;
+  margin-bottom: 0.4rem;
+  border: 1px solid rgba(147, 171, 215, 0.12);
+  border-radius: 34px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02)),
+    rgba(4, 13, 34, 0.42);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    inset 0 -20px 40px rgba(5, 15, 35, 0.2);
+  overflow: hidden;
+}
+
+.reservation-loading-spinner-shell::before {
+  content: '';
+  position: absolute;
+  inset: 1rem;
+  border-radius: 26px;
+  border: 1px solid rgba(196, 211, 243, 0.06);
 }
 
 .reservation-loading-spinner {
   position: relative;
   flex: 0 0 auto;
-  width: clamp(5.5rem, 16vw, 7rem);
-  height: clamp(5.5rem, 16vw, 7rem);
-  margin-top: 0.2rem;
-  margin-bottom: 0.55rem;
+  width: clamp(4.6rem, 13vw, 5.6rem);
+  height: clamp(4.6rem, 13vw, 5.6rem);
   filter: drop-shadow(0 10px 22px rgba(1, 10, 26, 0.24));
 }
 
@@ -1146,11 +1236,11 @@ function closeAircraftDetail() {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: clamp(0.62rem, 1.2vw, 0.8rem);
-  height: clamp(1.85rem, 4.8vw, 2.55rem);
+  width: clamp(0.5rem, 0.9vw, 0.62rem);
+  height: clamp(1.35rem, 3.4vw, 1.8rem);
   border-radius: 999px;
   background: linear-gradient(180deg, rgba(255, 248, 236, 0.98), rgba(131, 144, 170, 0.22));
-  transform-origin: center calc(clamp(1.95rem, 5vw, 2.6rem) * -1);
+  transform-origin: center calc(clamp(1.25rem, 3.2vw, 1.65rem) * -1);
   animation: reservation-loading-spinner-fade 1.2s linear infinite;
 }
 
@@ -1168,6 +1258,8 @@ function closeAircraftDetail() {
 .reservation-loading-spinner span:nth-child(12) { transform: translate(-50%, -50%) rotate(330deg); animation-delay: 0s; }
 
 .reservation-loading-eyebrow {
+  position: relative;
+  z-index: 1;
   color: #7f92b3;
   font-size: clamp(0.72rem, 1.5vw, 0.84rem);
   font-weight: 800;
@@ -1177,14 +1269,66 @@ function closeAircraftDetail() {
 }
 
 .reservation-loading-card h3 {
+  position: relative;
+  z-index: 1;
   margin: 0;
-  max-width: 7.2ch;
+  max-width: 7.4ch;
   color: #fff9f0;
   font-size: clamp(2rem, 4.4vw, 3rem);
   font-weight: 800;
   line-height: 0.98;
   letter-spacing: -0.05em;
   text-wrap: balance;
+}
+
+.reservation-loading-copy {
+  position: relative;
+  z-index: 1;
+  max-width: 24rem;
+  margin: 0;
+  color: rgba(222, 232, 248, 0.82);
+  font-size: 0.98rem;
+  line-height: 1.55;
+  text-wrap: balance;
+}
+
+.reservation-loading-progress {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.6rem;
+  margin-top: 0.3rem;
+}
+
+.reservation-loading-progress span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.55rem 0.8rem;
+  border: 1px solid rgba(173, 193, 229, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(222, 232, 248, 0.68);
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.reservation-loading-progress span::before {
+  content: '';
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.45;
+}
+
+.reservation-loading-progress .is-active {
+  border-color: rgba(212, 226, 255, 0.18);
+  background: rgba(255, 255, 255, 0.07);
+  color: #f5f8ff;
 }
 
 .sr-only {
@@ -1209,6 +1353,20 @@ function closeAircraftDetail() {
   }
 }
 
+@keyframes reservation-loading-ping {
+  0% {
+    box-shadow: 0 0 0 0 rgba(147, 182, 255, 0.45);
+  }
+
+  70% {
+    box-shadow: 0 0 0 10px rgba(147, 182, 255, 0);
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 rgba(147, 182, 255, 0);
+  }
+}
+
 .reservation-loading-fade-enter-active,
 .reservation-loading-fade-leave-active {
   transition: opacity 0.22s ease;
@@ -1221,9 +1379,9 @@ function closeAircraftDetail() {
 
 @media (max-width: 900px) {
   .reservation-loading-card {
-    width: min(100%, 25rem);
-    min-height: 21.5rem;
-    padding: 1.7rem 1.55rem 1.85rem;
+    width: min(100%, 25.5rem);
+    min-height: 23rem;
+    padding: 1.9rem 1.55rem 1.85rem;
   }
 }
 
@@ -1233,20 +1391,41 @@ function closeAircraftDetail() {
   }
 
   .reservation-loading-card {
-    width: min(100%, 20rem);
-    min-height: 18.75rem;
-    padding: 1.35rem 1.15rem 1.45rem;
-    gap: 0.7rem;
-    border-radius: 24px;
+    width: min(100%, 21rem);
+    min-height: 20.5rem;
+    padding: 1.6rem 1.1rem 1.35rem;
+    gap: 0.78rem;
+    border-radius: 26px;
   }
 
-  .reservation-loading-spinner {
-    margin-bottom: 0.35rem;
+  .reservation-loading-spinner-shell {
+    width: 7.6rem;
+    height: 7.6rem;
   }
 
   .reservation-loading-card h3 {
     max-width: 7.4ch;
     font-size: clamp(1.75rem, 8vw, 2.35rem);
+  }
+
+  .reservation-loading-copy {
+    font-size: 0.9rem;
+  }
+
+  .reservation-loading-progress {
+    gap: 0.45rem;
+  }
+
+  .reservation-loading-progress span {
+    padding: 0.48rem 0.68rem;
+    font-size: 0.68rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reservation-loading-spinner span,
+  .reservation-loading-status-badge::before {
+    animation: none;
   }
 }
 

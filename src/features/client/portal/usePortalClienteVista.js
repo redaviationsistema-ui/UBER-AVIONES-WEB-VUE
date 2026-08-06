@@ -4,6 +4,16 @@ import { useClientPortalPayments } from './useClientPortalPayments'
 import { useClientPortalProfile } from './useClientPortalProfile'
 import { useClientPortalTrips } from './useClientPortalTrips'
 import { buildConciergeConfig } from '../concierge/conciergeConfig'
+import {
+  getOfficialBillableHours,
+  getOfficialDisplayRouteHours,
+  getOfficialFinalBillableHours,
+  getOfficialOperationalFlightHours,
+  formatOfficialDisplayTime,
+  getOfficialPricing,
+  getOfficialTotalAmount,
+  hasOfficialQuotePricing,
+} from '../officialQuotePricing'
 import { featuredAirports } from '../../../utils/airports'
 import {
   buildFlightPricingFormula,
@@ -4104,14 +4114,8 @@ export function usePortalClienteVista(props) {
   }
 
   function routeDistanceKmForAircraft(aircraft = {}) {
-    return Number(
-      aircraft.distance_km ||
-        aircraft.pricing_breakdown?.client_legs?.reduce(
-          (sum, leg) => sum + Number(leg.distance_km || 0),
-          0,
-        ) ||
-        0,
-    )
+    const pricing = getOfficialPricing(aircraft)
+    return Number(aircraft.distance_km || pricing.distance_km || 0)
   }
 
   function aircraftPricingContext() {
@@ -4142,19 +4146,10 @@ export function usePortalClienteVista(props) {
 
   function aircraftOperationalFlightHours(aircraft = {}) {
     if (hasBackendQuotedPricing(aircraft)) {
-      const backendOperationalHours = Number(
-        aircraft.operational_flight_hours || aircraft.billable_hours || 0,
-      )
+      const backendOperationalHours = getOfficialOperationalFlightHours(aircraft, Number.NaN)
       if (Number.isFinite(backendOperationalHours) && backendOperationalHours > 0) {
         return backendOperationalHours
       }
-    }
-
-    const formula = buildFlightPricingFormula(aircraft, aircraftPricingContext())
-    const operationalHours = formula.operationalFlightHours
-
-    if (Number.isFinite(operationalHours) && operationalHours > 0) {
-      return operationalHours
     }
 
     return 0
@@ -4162,55 +4157,15 @@ export function usePortalClienteVista(props) {
 
   function aircraftDisplayFlightHours(aircraft = {}, includeRepositioning = false) {
     if (hasBackendQuotedPricing(aircraft)) {
-      const explicitDisplayHours = Number(
-        aircraft.trip_flight_hours ||
-          aircraft.card_flight_hours ||
-          aircraft.ui_flight_hours ||
-          aircraft.client_display_flight_hours ||
-          aircraft.display_flight_hours ||
-          aircraft.real_flight_hours ||
-          aircraft.flight_hours ||
-          aircraft.estimated_hours ||
-          0,
-      )
+      const explicitDisplayHours = getOfficialDisplayRouteHours(aircraft, Number.NaN)
       const repositioningHours = includeRepositioning
         ? Number(aircraft.repositioning_hours || 0)
         : 0
 
-      if (explicitDisplayHours > 0) {
+      if (Number.isFinite(explicitDisplayHours) && explicitDisplayHours > 0) {
         return explicitDisplayHours + repositioningHours
       }
     }
-
-    const formula = buildFlightPricingFormula(aircraft, aircraftPricingContext())
-    const totalDisplayHours = Number(formula.displayFlightHours || 0)
-    const repositioningHours = includeRepositioning ? Number(formula.repositioningHours || 0) : 0
-
-    if (totalDisplayHours > 0) {
-      return totalDisplayHours + repositioningHours
-    }
-
-    const operationalHours = aircraftOperationalFlightHours(aircraft)
-    if (operationalHours > 0) return operationalHours
-
-    const explicitVisibleHours = Number(aircraft.real_flight_hours || aircraft.flight_hours || 0)
-    if (Number.isFinite(explicitVisibleHours) && explicitVisibleHours > 0)
-      return explicitVisibleHours
-
-    const distanceKm = routeDistanceKmForAircraft(aircraft)
-    const speedKmh = Number(aircraft.speed_kmh || aircraft.speedKmh || 0)
-    const climbDescentHours =
-      Number(aircraft.climb_descent_hours || 0) ||
-      Number(
-        aircraft.climb_descent_minutes || aircraft.pricing_context?.climb_descent_minutes || 0,
-      ) / 60
-
-    if (distanceKm > 0 && speedKmh > 0) {
-      return distanceKm / speedKmh + climbDescentHours
-    }
-
-    const estimatedHours = Number(aircraft.estimated_hours || 0)
-    if (Number.isFinite(estimatedHours) && estimatedHours > 0) return estimatedHours
 
     return 0
   }
@@ -4219,17 +4174,11 @@ export function usePortalClienteVista(props) {
     const explicitHours = aircraftDisplayFlightHours(aircraft)
     if (explicitHours) return explicitHours
 
-    const rawTime = String(
-      aircraft.trip_time ||
-        aircraft.card_time ||
-        aircraft.display_time ||
-        aircraft.ui_time ||
-        aircraft.time ||
-        aircraft.flight_time ||
-        '',
-    )
-    const hours = Number(rawTime.match(/(\d+(?:\.\d+)?)\s*h/i)?.[1] || 0)
-    const minutes = Number(rawTime.match(/(\d+(?:\.\d+)?)\s*m/i)?.[1] || 0)
+    const formattedOfficialTime = formatOfficialDisplayTime(aircraft, '')
+    if (!formattedOfficialTime) return Number.MAX_SAFE_INTEGER
+
+    const hours = Number(formattedOfficialTime.match(/(\d+(?:\.\d+)?)\s*h/i)?.[1] || 0)
+    const minutes = Number(formattedOfficialTime.match(/(\d+(?:\.\d+)?)\s*min/i)?.[1] || 0)
     const totalMinutes = hours * 60 + minutes
     return totalMinutes || Number.MAX_SAFE_INTEGER
   }
@@ -4382,23 +4331,7 @@ export function usePortalClienteVista(props) {
   }
 
   function resolveAircraftVisibleDuration(aircraft = {}) {
-    const preferredVisibleHours = Number(
-      aircraft.display_route_hours ||
-        aircraft.client_display_flight_hours ||
-        aircraft.client_operational_flight_hours ||
-        aircraft.operational_flight_hours ||
-        aircraft.trip_flight_hours ||
-        aircraft.card_flight_hours ||
-        aircraft.ui_flight_hours ||
-        aircraft.display_flight_hours ||
-        aircraft.real_flight_hours ||
-        aircraft.flight_hours ||
-        aircraft.displayedFlightHours ||
-        aircraft.client_direct_flight_hours ||
-        aircraft.route_direct_hours ||
-        aircraft.estimated_hours ||
-        0,
-    )
+    const preferredVisibleHours = getOfficialDisplayRouteHours(aircraft, Number.NaN)
     if (Number.isFinite(preferredVisibleHours) && preferredVisibleHours > 0) {
       return {
         source: 'preferred_visible_hours',
@@ -4406,29 +4339,11 @@ export function usePortalClienteVista(props) {
       }
     }
 
-    const explicitText = normalizeDurationText(
-      aircraft.operative_time ||
-        aircraft.trip_time ||
-        aircraft.estimated_flight_time ||
-        aircraft.card_time ||
-        aircraft.display_time ||
-        aircraft.ui_time ||
-        aircraft.time ||
-        aircraft.flight_time ||
-        '',
-    )
+    const explicitText = normalizeDurationText(formatOfficialDisplayTime(aircraft, ''))
     if (explicitText) {
       return {
         source: 'visible_time_text',
         formattedTime: explicitText,
-      }
-    }
-
-    const visibleHours = Number(aircraftDisplayFlightHours(aircraft) || 0)
-    if (Number.isFinite(visibleHours) && visibleHours > 0) {
-      return {
-        source: 'display_flight_hours',
-        formattedTime: formatDurationFromHours(visibleHours),
       }
     }
 
@@ -4613,30 +4528,11 @@ export function usePortalClienteVista(props) {
   }
 
   function resolveAircraftOfficialTotal(aircraft = {}) {
-    return (
-      Number(aircraft.pricing?.total_amount || 0) ||
-      Number(aircraft.pricing_breakdown?.total_amount || 0) ||
-      Number(aircraft.pricing_context?.total_amount || 0) ||
-      Number(aircraft.total_amount || 0) ||
-      Number(aircraft.amount_due || 0) ||
-      Number(aircraft.selected_card_price || 0) ||
-      Number(aircraft.estimated_total || 0) ||
-      moneyValue(aircraft.final_price) ||
-      Number(aircraft.total || 0) ||
-      Number(aircraft.price || 0)
-    )
+    return getOfficialTotalAmount(aircraft, 0)
   }
 
   function hasBackendQuotedPricing(aircraft = {}) {
-    const hasMatchIdentity = Boolean(aircraft.match_id || aircraft.matched_option_id)
-    const officialTotal = resolveAircraftOfficialTotal(aircraft)
-    const hasPrice =
-      Number(aircraft.base_price || 0) > 0 ||
-      officialTotal > 0 ||
-      Number(aircraft.total || 0) > 0 ||
-      moneyValue(aircraft.final_price) > 0
-
-    return hasMatchIdentity && hasPrice
+    return hasOfficialQuotePricing(aircraft)
   }
 
   function aircraftPricingForType(aircraft = {}, priorityType = 'essential') {

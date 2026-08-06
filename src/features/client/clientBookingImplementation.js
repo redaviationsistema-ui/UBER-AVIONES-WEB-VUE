@@ -3,6 +3,15 @@ import { featuredAirports, resolveAirportData } from '../../utils/airports'
 import { resolveSharedWorkflowStatus, resolveWorkflowState } from '../../utils/flightWorkflow'
 import { normalizeAttentionLevel, normalizePackageCode } from '../../utils/flightPricing'
 import { requestWithCandidates } from '../../lib/backendCrud'
+import {
+  getOfficialBillableHours,
+  getOfficialDisplayRouteHours,
+  getOfficialFinalBillableHours,
+  getOfficialPricing,
+  formatOfficialDisplayTime,
+  getOfficialTotalAmount,
+  hasOfficialQuotePricing,
+} from './officialQuotePricing'
 
 const configuredQuotesPreviewPath = String(
   import.meta.env.VITE_CLIENT_QUOTES_PREVIEW_PATH || '',
@@ -415,22 +424,7 @@ function resolveOfficialQuoteTotal(...sources) {
   for (const source of sources) {
     if (!source || typeof source !== 'object') continue
 
-    const amount = asNumber(
-      source.pricing?.total_amount ??
-        source.pricing_breakdown?.total_amount ??
-        source.pricing_context?.total_amount ??
-        source.pricing?.total ??
-        source.pricing_breakdown?.total ??
-        source.pricing_context?.total ??
-        source.total_amount ??
-        source.amount_due ??
-        source.selected_card_price ??
-        source.estimated_total ??
-        source.final_price ??
-        source.total ??
-        source.price,
-      Number.NaN,
-    )
+    const amount = getOfficialTotalAmount(source, Number.NaN)
 
     if (Number.isFinite(amount) && amount > 0) {
       return amount
@@ -440,48 +434,14 @@ function resolveOfficialQuoteTotal(...sources) {
   return 0
 }
 
-function legDurationHours(leg = {}) {
-  const visibleValue =
-    leg.display_hours ??
-    leg.display_flight_hours ??
-    leg.operational_hours ??
-    leg.operational_flight_hours ??
-    leg.real_flight_hours ??
-    leg.flight_hours ??
-    leg.route_hours ??
-    leg.direct_hours ??
-    leg.direct_flight_hours ??
-    leg.direct_air_time_hours ??
-    leg.client_flight_hours ??
-    leg.duration_hours
-  const visibleHours = asNumber(visibleValue, Number.NaN)
-  if (Number.isFinite(visibleHours) && visibleHours > 0) return visibleHours
-
-  const durationMinutes = asNumber(leg.duration_minutes ?? leg.flight_minutes, Number.NaN)
-  if (Number.isFinite(durationMinutes) && durationMinutes > 0) return durationMinutes / 60
-
-  const text = String(leg.duration || leg.flight_time || leg.trip_time || '').trim()
-  const hours = asNumber(text.match(/(\d+(?:\.\d+)?)\s*h/i)?.[1], 0)
-  const minutes = asNumber(text.match(/(\d+(?:\.\d+)?)\s*(?:m|min)/i)?.[1], 0)
-  return hours + minutes / 60
-}
-
 function firstLegCollection(...candidates) {
   return candidates.find((candidate) => Array.isArray(candidate) && candidate.length) || []
 }
 
 function resolveCompleteItineraryHours(quote = {}, searchContext = {}) {
-  const pricing = quote.pricing && typeof quote.pricing === 'object' ? quote.pricing : {}
-  const breakdown =
-    quote.pricing_breakdown && typeof quote.pricing_breakdown === 'object'
-      ? quote.pricing_breakdown
-      : {}
-  const debugPricing =
-    quote.debug_pricing && typeof quote.debug_pricing === 'object' ? quote.debug_pricing : {}
-  const requestedLegCount = Array.isArray(searchContext.requestedLegs)
-    ? searchContext.requestedLegs.length
-    : 0
-  const legCollections = [
+  const officialHours = getOfficialDisplayRouteHours(quote, Number.NaN)
+  const pricing = getOfficialPricing(quote)
+  const legs = firstLegCollection(
     quote.client_legs,
     quote.route_legs,
     quote.legs,
@@ -490,64 +450,17 @@ function resolveCompleteItineraryHours(quote = {}, searchContext = {}) {
     pricing.route_legs,
     pricing.legs,
     pricing.segments,
-    breakdown.client_legs,
-    breakdown.route_legs,
-    breakdown.legs,
-    breakdown.segments,
-    debugPricing.client_legs,
-    debugPricing.route_legs,
     searchContext.clientLegs,
     searchContext.routeLegs,
     searchContext.legs,
     searchContext.segments,
-  ].filter((candidate) => Array.isArray(candidate) && candidate.length)
-  const completeLegCollection = legCollections
-    .map((legs) => ({ legs, legHours: legs.map((leg) => legDurationHours(leg)) }))
-    .find(
-      ({ legHours }) =>
-        legHours.length > 0 &&
-        legHours.every((hours) => hours > 0) &&
-        (!requestedLegCount || legHours.length >= requestedLegCount),
-    )
-  const legs = completeLegCollection?.legs || firstLegCollection(...legCollections)
-  const legHours = completeLegCollection?.legHours || legs.map((leg) => legDurationHours(leg))
-
-  if (completeLegCollection) {
-    return { hours: legHours.reduce((total, hours) => total + hours, 0), legs, legHours }
-  }
-
-  const explicitSegmentCount = asNumber(
-    quote.segment_count ??
-      pricing.segment_count ??
-      breakdown.segment_count ??
-      debugPricing.segment_count,
-    0,
   )
-  const totalRepresentsCompleteItinerary =
-    requestedLegCount <= 1 || explicitSegmentCount >= requestedLegCount
-  if (totalRepresentsCompleteItinerary) {
-    const explicitTotal = asNumber(
-      pricing.complete_itinerary_hours ??
-        breakdown.complete_itinerary_hours ??
-        debugPricing.complete_itinerary_hours ??
-        quote.display_route_hours ??
-        pricing.display_route_hours ??
-        breakdown.display_route_hours ??
-        pricing.client_display_flight_hours ??
-        breakdown.client_display_flight_hours ??
-        pricing.display_flight_hours ??
-        breakdown.display_flight_hours,
-      Number.NaN,
-    )
-    if (Number.isFinite(explicitTotal) && explicitTotal > 0) {
-      return { hours: explicitTotal, legs, legHours }
-    }
 
-    const tripHours = asNumber(quote.trip_time, Number.NaN)
-    if (Number.isFinite(tripHours) && tripHours > 0) return { hours: tripHours, legs, legHours }
+  if (Number.isFinite(officialHours) && officialHours > 0) {
+    return { hours: officialHours, legs, legHours: [] }
   }
 
-  return { hours: 0, legs, legHours }
+  return { hours: 0, legs, legHours: [] }
 }
 
 function resolveHourlyRate(raw = {}) {
@@ -690,28 +603,20 @@ function normalizeFlightBaseSource(source = '') {
 }
 
 function buildPricingBreakdown(match = {}) {
-  const backendPricing =
-    match.pricing_breakdown && typeof match.pricing_breakdown === 'object'
-      ? match.pricing_breakdown
-      : null
+  const backendPricing = hasOfficialQuotePricing(match) ? getOfficialPricing(match) : null
   if (!backendPricing) {
     throw new Error(
       'El backend no devolvio pricing_breakdown oficial para esta cotizacion. Recarga e intenta nuevamente.',
     )
   }
 
-  const billableHours = asNumber(
-    backendPricing.final_billable_hours ??
-      match.final_billable_hours ??
-      backendPricing.billable_hours ??
-      match.billable_hours,
-  )
+  const billableHours = getOfficialFinalBillableHours(match, Number.NaN)
   const segmentCount = asNumber(
     match.segment_count || backendPricing.segment_count || backendPricing.client_legs?.length,
     1,
   )
-  const subtotal = asNumber(match.subtotal || backendPricing.subtotal)
-  const total = resolveOfficialQuoteTotal(match, backendPricing || {})
+  const subtotal = asNumber(backendPricing.subtotal, 0)
+  const total = resolveOfficialQuoteTotal(match, backendPricing)
 
   if (total <= 0 && subtotal <= 0) {
     throw new Error(
@@ -759,23 +664,20 @@ function buildPricingBreakdown(match = {}) {
     maintenance: 0,
     crew: 0,
     subtotal,
-    utility: asNumber(match.margin_amount || backendPricing.margin_amount || backendPricing.utility),
+    utility: asNumber(backendPricing.margin_amount ?? backendPricing.utility, 0),
     total,
     subtotalBeforeMargin: asNumber(
-      match.subtotal_before_margin ||
-        backendPricing.subtotal_before_margin ||
-        backendPricing.subtotal_operativo,
+      backendPricing.subtotal_before_margin ?? backendPricing.subtotal_operativo,
+      0,
     ),
-    minimumRoutePrice: asNumber(match.minimum_route_price || backendPricing.minimum_route_price),
-    minimumAdjustment: asNumber(match.minimum_adjustment || backendPricing.minimum_adjustment),
-    airportExpenses: asNumber(match.airport_expenses || backendPricing.airport_expenses),
-    returnToBaseCost: asNumber(match.return_to_base_cost || backendPricing.return_to_base_cost),
-    returnToBaseHours: asNumber(
-      match.return_to_base_hours || backendPricing.return_to_base_hours,
-    ),
-    repositioningHours: asNumber(match.repositioning_hours || backendPricing.repositioning_hours),
-    overnightNights: asNumber(match.overnight_nights || backendPricing.overnight_nights),
-    overnightHours: asNumber(match.overnight_hours || backendPricing.overnight_hours),
+    minimumRoutePrice: asNumber(backendPricing.minimum_route_price, 0),
+    minimumAdjustment: asNumber(backendPricing.minimum_adjustment, 0),
+    airportExpenses: asNumber(backendPricing.airport_expenses, 0),
+    returnToBaseCost: asNumber(backendPricing.return_to_base_cost, 0),
+    returnToBaseHours: asNumber(backendPricing.return_to_base_hours, 0),
+    repositioningHours: asNumber(backendPricing.repositioning_hours, 0),
+    overnightNights: asNumber(backendPricing.overnight_nights, 0),
+    overnightHours: asNumber(backendPricing.overnight_hours, 0),
   }
 }
 
@@ -816,12 +718,26 @@ function normalizeMatches(payload, itinerary = {}, requestMeta = {}) {
   }
 
   return matches.map((match, index) => {
-    const hasBackendPricing =
-      match.pricing_breakdown && typeof match.pricing_breakdown === 'object'
-    const backendPricing =
-      match.pricing_breakdown && typeof match.pricing_breakdown === 'object'
-        ? match.pricing_breakdown
-        : {}
+    const hasBackendPricing = hasOfficialQuotePricing(match)
+    const rawBackendPricing = hasBackendPricing ? getOfficialPricing(match) : {}
+    const promotedDisplayRouteHours = getOfficialDisplayRouteHours(match, Number.NaN)
+    const backendPricing = hasBackendPricing
+      ? {
+          ...rawBackendPricing,
+          ...(Number.isFinite(promotedDisplayRouteHours)
+            ? { display_route_hours: promotedDisplayRouteHours }
+            : {}),
+        }
+      : {}
+    const officialQuote = hasBackendPricing
+      ? {
+          ...match,
+          ...(Number.isFinite(promotedDisplayRouteHours)
+            ? { display_route_hours: promotedDisplayRouteHours }
+            : {}),
+          pricing_breakdown: backendPricing,
+        }
+      : match
     const aircraftRecord =
       match.aircraft ||
       match.aeronave ||
@@ -868,14 +784,10 @@ function normalizeMatches(payload, itinerary = {}, requestMeta = {}) {
         aircraftImages[0]?.imageUrl ||
         '',
     )
-    const finalBillableHours = asNumber(
-      backendPricing.final_billable_hours ?? match.final_billable_hours ?? 0,
-    )
-    const totalBilledHours = asNumber(
-      backendPricing.billable_hours ?? match.billable_hours ?? finalBillableHours,
-    )
+    const finalBillableHours = getOfficialFinalBillableHours(officialQuote, 0)
+    const totalBilledHours = getOfficialBillableHours(officialQuote, finalBillableHours)
     const routeBillableHours = asNumber(backendPricing.route_billable_hours ?? 0)
-    const completeItinerary = resolveCompleteItineraryHours(match, responseContext)
+    const completeItinerary = resolveCompleteItineraryHours(officialQuote, responseContext)
     const displayFlightHours = completeItinerary.hours
     const hoursSource =
       match.hours_source ||
@@ -941,29 +853,10 @@ function normalizeMatches(payload, itinerary = {}, requestMeta = {}) {
       legs: firstLegCollection(match.legs, backendPricing.legs, responseContext.legs),
       segments: firstLegCollection(match.segments, backendPricing.segments, responseContext.segments),
       cabin: match.cabin || match.cabin_type || match.type || aircraftRecord?.category || '',
-      time:
-        match.trip_time ||
-        match.estimated_flight_time ||
-        match.card_time ||
-        match.display_time ||
-        match.ui_time ||
-        match.time ||
-        match.flight_time ||
-        match.operative_time ||
-        match.duration ||
-        '',
-      trip_time:
-        match.trip_time ||
-        match.estimated_flight_time ||
-        match.card_time ||
-        match.display_time ||
-        match.ui_time ||
-        match.time ||
-        match.flight_time ||
-        match.operative_time ||
-        match.duration ||
-        '',
-      estimated_flight_time: match.estimated_flight_time || match.trip_time || match.flight_time || '',
+      time: formatOfficialDisplayTime(officialQuote, ''),
+      card_time: formatOfficialDisplayTime(officialQuote, ''),
+      trip_time: formatOfficialDisplayTime(officialQuote, ''),
+      estimated_flight_time: formatOfficialDisplayTime(officialQuote, ''),
       billed_time: match.billed_time || '',
       billable_flight_time: match.billable_flight_time || match.billed_time || '',
       operative_time: match.operative_time || '',
@@ -1026,9 +919,7 @@ function normalizeMatches(payload, itinerary = {}, requestMeta = {}) {
       priority: match.priority || '',
       model: match.model || match.aircraft_model || aircraftRecord?.model || '',
       hourly_rate: hourlyRate || '',
-      total: pricing.hasFormulaInputs
-        ? Number(resolvedTotal.toFixed(2))
-        : resolvedTotal || '',
+      total: resolvedTotal ? Number(resolvedTotal.toFixed(2)) : '',
       flight_cost: resolveServerAmount(
         match,
         ['flight_cost', 'client_flight_cost'],
@@ -1054,12 +945,8 @@ function normalizeMatches(payload, itinerary = {}, requestMeta = {}) {
         ['total_amount'],
         resolveOfficialQuoteTotal(backendPricing || {}, match),
       ),
-      subtotal: pricing.hasFormulaInputs
-        ? Number(pricing.subtotal.toFixed(2))
-        : match.subtotal || '',
-      utility: pricing.hasFormulaInputs
-        ? Number(pricing.utility.toFixed(2))
-        : match.utility || match.margin || '',
+      subtotal: Number(pricing.subtotal.toFixed(2)),
+      utility: Number(pricing.utility.toFixed(2)),
       margin_percent:
         pricing.marginPercent ||
         match.margin_percentage ||
@@ -1068,7 +955,7 @@ function normalizeMatches(payload, itinerary = {}, requestMeta = {}) {
         match.porcentaje_utilidad ||
         '',
       fixed_fee: pricing.fixedFee || match.fixed_fee || match.fee_fijo || '',
-      fixed_fee_total: pricing.hasFormulaInputs ? Number(pricing.fixedFeeTotal.toFixed(2)) : '',
+      fixed_fee_total: Number(pricing.fixedFeeTotal.toFixed(2)),
       segment_count: pricing.segmentCount,
       jet_a_price: pricing.jetAPrice || match.jet_a_price || match.jet_a || '',
       fuel_burn_gph:
@@ -1168,7 +1055,9 @@ function normalizeMatches(payload, itinerary = {}, requestMeta = {}) {
         backend_total_billed_hours: backendPricing.billable_hours ?? match.billable_hours,
         backend_route_billable_hours: backendPricing.route_billable_hours,
         backend_display_flight_hours:
-          backendPricing.client_display_flight_hours ?? backendPricing.display_flight_hours,
+          backendPricing.display_route_hours ??
+          backendPricing.client_display_flight_hours ??
+          backendPricing.display_flight_hours,
         normalized_final_billable_hours: finalBillableHours,
         normalized_total_billed_hours: totalBilledHours,
         overnight_fee: normalizedOvernightFee,
@@ -1176,32 +1065,9 @@ function normalizeMatches(payload, itinerary = {}, requestMeta = {}) {
         overnight_cost: normalizedOvernightCost,
       },
       pricing_context: hasBackendPricing ? backendPricing : null,
-      pricing_breakdown: hasBackendPricing
-        ? backendPricing
-        : pricing.hasFormulaInputs
-          ? {
-              billable_hours: Number(pricing.billableHours.toFixed(2)),
-              segment_count: pricing.segmentCount,
-              operational: Number(pricing.operational.toFixed(2)),
-              fuel: Number(pricing.fuel.toFixed(2)),
-              engine_reserve: Number(pricing.engineReserve.toFixed(2)),
-              insurance: Number(pricing.insurance.toFixed(2)),
-              maintenance: Number(pricing.maintenance.toFixed(2)),
-              crew: Number(pricing.crew.toFixed(2)),
-              repositioning: Number(pricing.repositioningFee.toFixed(2)),
-              overnight: Number((pricing.overnightCost || 0).toFixed(2)),
-              overnight_fee: Number(normalizedOvernightFee.toFixed(2)),
-              overnight_nights: Number(normalizedOvernightNights.toFixed(2)),
-              overnight_cost: Number(normalizedOvernightCost.toFixed(2)),
-              additional_operational_cost: Number(pricing.additionalOperationalCost.toFixed(2)),
-              fixed_fee: Number(pricing.fixedFee.toFixed(2)),
-              fixed_fee_total: Number(pricing.fixedFeeTotal.toFixed(2)),
-              subtotal: Number(pricing.subtotal.toFixed(2)),
-              utility: Number(pricing.utility.toFixed(2)),
-              total: Number(pricing.total.toFixed(2)),
-            }
-          : null,
+      pricing_breakdown: hasBackendPricing ? backendPricing : null,
       currency: match.currency || aircraftRecord?.currency || '',
+      display_route_hours: Number.isFinite(promotedDisplayRouteHours) ? promotedDisplayRouteHours : '',
       distance_km: match.distance_km || '',
       distance_unit: distanceUnit,
       estimated_hours: match.real_flight_hours || match.flight_hours || match.estimated_hours || '',
@@ -3531,7 +3397,32 @@ export async function searchClientFlights(itinerary, options = {}) {
 
     const aircraft = await getAircraftFromDatabase(aircraftQuery)
     if (matches.length) {
-      return filterAircraftByItinerary(mergeMatchesWithCatalogImages(matches, aircraft), itinerary)
+      const mergedMatches = filterAircraftByItinerary(mergeMatchesWithCatalogImages(matches, aircraft), itinerary)
+
+      console.log('[client/results][official-visible-time]', {
+        endpoint: QUOTES_PREVIEW_PATH,
+        generatedAt: new Date().toISOString(),
+        results: mergedMatches.map((match) => ({
+          aircraft_id: match.aircraft_id || null,
+          model: match.model || match.aircraft_name || match.aircraft || null,
+          distance_nm: match.pricing_breakdown?.distance_nm ?? match.distance_nm ?? null,
+          distance_km: match.pricing_breakdown?.distance_km ?? match.distance_km ?? null,
+          pricing_breakdown_display_route_hours: match.pricing_breakdown?.display_route_hours ?? null,
+          pricing_breakdown_route_operational_display_hours:
+            match.pricing_breakdown?.route_operational_display_hours ?? null,
+          pricing_breakdown_operational_flight_hours:
+            match.pricing_breakdown?.operational_flight_hours ?? null,
+          pricing_breakdown_final_billable_hours:
+            match.pricing_breakdown?.final_billable_hours ?? null,
+          pricing_breakdown_billable_hours: match.pricing_breakdown?.billable_hours ?? null,
+          top_level_display_route_hours: match.display_route_hours ?? null,
+          time: match.time ?? null,
+          card_time: match.card_time ?? null,
+          trip_time: match.trip_time ?? null,
+        })),
+      })
+
+      return mergedMatches
     }
 
     return []
