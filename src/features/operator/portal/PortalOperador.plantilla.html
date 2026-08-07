@@ -2847,9 +2847,22 @@
             <p class="eyebrow">Flight Operational Release Center</p>
             <h2>Liberacion Operativa</h2>
             <div v-if="releaseProviderRequest" class="flight-release-hero-meta">
-              <strong>{{ getRequestRouteLabel(releaseProviderRequest) }}</strong>
-              <span>{{ getProviderOperationalReleaseAircraftLabel() }}</span>
-              <span>{{ formatDateTimeDisplay(releaseProviderRequest.date) }}</span>
+              <article class="flight-release-hero-meta__item">
+                <span class="summary-label">Ruta</span>
+                <strong class="summary-value">{{ getRequestRouteLabel(releaseProviderRequest) }}</strong>
+              </article>
+              <article class="flight-release-hero-meta__item">
+                <span class="summary-label">Etapa compartida</span>
+                <strong class="summary-value">{{ normalizeWorkflowLabel(resolveRequestWorkflowValue(releaseProviderRequest)) }}</strong>
+              </article>
+              <article class="flight-release-hero-meta__item">
+                <span class="summary-label">Aeronave</span>
+                <strong class="summary-value">{{ providerOperationalAssignedAircraft.name || getProviderOperationalReleaseAircraftLabel() }}</strong>
+              </article>
+              <article class="flight-release-hero-meta__item">
+                <span class="summary-label">Fecha</span>
+                <strong class="summary-value">{{ formatDateTimeDisplay(releaseProviderRequest.date) }}</strong>
+              </article>
             </div>
             <p class="muted helper-copy">
               Aqui el proveedor confirma aeronave y liberacion operativa. La plataforma coordina a
@@ -3011,22 +3024,59 @@
                       {{ getProviderOperationalAircraftSectionStatus().label }}
                     </span>
                   </div>
-                  <label>
-                    <span>Aeronave operativa</span>
-                    <select
-                      v-model="providerOperationalReleaseForm.aircraftId"
-                      :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || syncingProviderOperationalRelease"
-                    >
-                      <option value="">Selecciona aeronave</option>
-                      <option
-                        v-for="plane in providerOperationalReleaseAircraftOptions"
-                        :key="plane.id"
-                        :value="String(plane.id)"
+                  <div
+                    v-if="providerOperationalReleaseHydrating && !providerOperationalAssignedAircraft.name"
+                    class="provider-release-aircraft-skeleton"
+                    aria-hidden="true"
+                  >
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                  </div>
+                  <article v-else class="provider-release-aircraft-card">
+                    <div class="provider-release-aircraft-card__head">
+                      <div class="provider-release-aircraft-card__icon" aria-hidden="true">✈</div>
+                      <div>
+                        <span class="mini-label">Aeronave asignada</span>
+                        <strong>{{ providerOperationalAssignedAircraft.name || 'Aeronave por definir' }}</strong>
+                      </div>
+                    </div>
+                    <div class="provider-release-aircraft-card__meta">
+                      <p v-if="providerOperationalAssignedAircraft.registration">
+                        <span class="summary-label">Matricula</span>
+                        <span class="summary-value">{{ providerOperationalAssignedAircraft.registration }}</span>
+                      </p>
+                      <p v-if="providerOperationalAssignedAircraft.category">
+                        <span class="summary-label">Categoria</span>
+                        <span class="summary-value">{{ providerOperationalAssignedAircraft.category }}</span>
+                      </p>
+                      <p v-if="providerOperationalAssignedAircraft.base">
+                        <span class="summary-label">Base</span>
+                        <span class="summary-value">{{ providerOperationalAssignedAircraft.base }}</span>
+                      </p>
+                      <p v-if="providerOperationalAssignedAircraft.internalId">
+                        <span class="summary-label">Id interno</span>
+                        <span class="summary-value">{{ providerOperationalAssignedAircraft.internalId }}</span>
+                      </p>
+                    </div>
+                    <div class="provider-release-aircraft-card__footer">
+                      <span
+                        class="package-chip"
+                        :data-tone="providerOperationalAssignedAircraftStatusMeta.tone"
                       >
-                        {{ plane.name }}{{ plane.registration ? ` · ${plane.registration}` : '' }}
-                      </option>
-                    </select>
-                  </label>
+                        {{ providerOperationalAssignedAircraftStatusMeta.label }}
+                      </span>
+                      <button
+                        v-if="canChangeProviderOperationalAircraft"
+                        type="button"
+                        class="ghost-button"
+                        :disabled="syncingProviderOperationalRelease || savingProviderOperationalAircraftChange"
+                        @click="openProviderOperationalAircraftModal()"
+                      >
+                        Cambiar aeronave
+                      </button>
+                    </div>
+                  </article>
                   <div class="provider-release-list">
                     <label class="provider-list-check">
                       <input
@@ -3034,7 +3084,7 @@
                         type="checkbox"
                         :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || syncingProviderOperationalRelease"
                       />
-                      <span>El avion sigue disponible</span>
+                      <span>{{ providerOperationalAssignedAircraft.name || 'La aeronave' }} continua disponible</span>
                     </label>
                     <label class="provider-list-check">
                       <input
@@ -3042,7 +3092,7 @@
                         type="checkbox"
                         :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || syncingProviderOperationalRelease"
                       />
-                      <span>No tiene mantenimiento pendiente</span>
+                      <span>{{ providerOperationalAssignedAircraft.name || 'La aeronave' }} no tiene mantenimiento pendiente</span>
                     </label>
                     <label class="provider-list-check">
                       <input
@@ -3050,7 +3100,7 @@
                         type="checkbox"
                         :disabled="!canManageProviderOperationalRelease(releaseProviderRequest) || syncingProviderOperationalRelease"
                       />
-                      <span>Puede cubrir {{ getRequestRouteLabel(releaseProviderRequest) }}</span>
+                      <span>{{ providerOperationalAssignedAircraft.name || 'La aeronave' }} puede operar la ruta {{ getRequestRouteLabel(releaseProviderRequest) }}</span>
                     </label>
                   </div>
                 </article>
@@ -3424,6 +3474,65 @@
           No hay un vuelo confirmado listo para abrir para liberacion.
         </p>
       </article>
+
+      <div
+        v-if="providerOperationalAircraftModalOpen"
+        class="provider-release-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="provider-release-aircraft-modal-title"
+      >
+        <div class="provider-release-modal__backdrop" @click="closeProviderOperationalAircraftModal()"></div>
+        <article class="provider-release-modal__card">
+          <div class="provider-release-modal__head">
+            <div>
+              <span class="mini-label">Aeronave operativa</span>
+              <h3 id="provider-release-aircraft-modal-title">Cambiar aeronave operativa</h3>
+            </div>
+            <button type="button" class="ghost-button" @click="closeProviderOperationalAircraftModal()">Cancelar</button>
+          </div>
+          <p class="muted">
+            Selecciona la aeronave que realizara el servicio. Este cambio actualizara la asignacion operativa de la solicitud.
+          </p>
+          <div class="provider-release-modal__options">
+            <label
+              v-for="plane in providerOperationalReleaseChangeableAircraftOptions"
+              :key="plane.id"
+              class="provider-release-modal__option"
+              :class="{ 'is-selected': providerOperationalAircraftModalSelection === plane.id }"
+            >
+              <input
+                v-model="providerOperationalAircraftModalSelection"
+                type="radio"
+                name="provider-operational-aircraft"
+                :value="plane.id"
+              />
+              <div>
+                <strong>{{ plane.name }}</strong>
+                <p v-if="plane.registration">Matricula: {{ plane.registration }}</p>
+                <p v-if="plane.category">Categoria: {{ plane.category }}</p>
+                <p v-if="plane.base">Base: {{ plane.base }}</p>
+              </div>
+              <span class="package-chip" :data-tone="plane.statusTone">{{ plane.statusLabel }}</span>
+            </label>
+          </div>
+          <p v-if="providerOperationalAircraftModalError" class="form-feedback-error">
+            {{ providerOperationalAircraftModalError }}
+          </p>
+          <div class="inline-actions">
+            <button type="button" class="ghost-button" @click="closeProviderOperationalAircraftModal()">Cancelar</button>
+            <button
+              type="button"
+              class="primary-action"
+              :disabled="savingProviderOperationalAircraftChange || !providerOperationalAircraftModalSelection"
+              @click="confirmProviderOperationalAircraftChange()"
+            >
+              <span v-if="savingProviderOperationalAircraftChange" class="primary-action__spinner" aria-hidden="true"></span>
+              <span>{{ savingProviderOperationalAircraftChange ? 'Guardando cambio...' : 'Confirmar cambio' }}</span>
+            </button>
+          </div>
+        </article>
+      </div>
     </section>
 
     <section v-else-if="section === 'operaciones'" class="page-grid flight-tracking-luxury">

@@ -276,11 +276,172 @@ export function createOperatorPortalReleaseDomain(ctx = {}) {
     return aircraft.value.find((item) => String(item.id || '') === String(providerOperationalReleaseForm.aircraftId || '')) || null
   }
 
-  function getProviderOperationalReleaseAircraftLabel() {
-    const plane = getProviderOperationalReleaseAircraftRecord()
-    if (plane) return `${plane.name}${plane.registration ? ` · ${plane.registration}` : ''}`
+  function normalizeAssignedAircraftDraftRecord(rawAircraft = {}) {
+    if (!rawAircraft || typeof rawAircraft !== 'object') return null
+
+    const name =
+      rawAircraft.name ||
+      rawAircraft.aircraft_name ||
+      rawAircraft.model ||
+      rawAircraft.aircraft_model ||
+      rawAircraft.label ||
+      ''
+
+    if (!String(name || '').trim() && !rawAircraft.id && !rawAircraft.aircraft_id) return null
+
+    return {
+      id: rawAircraft.id || rawAircraft.aircraft_id || '',
+      name: String(name || '').trim() || 'Aeronave asignada',
+      registration: String(rawAircraft.registration || rawAircraft.matricula || rawAircraft.tail || '').trim(),
+      category: String(
+        rawAircraft.category ||
+          rawAircraft.type ||
+          rawAircraft.class ||
+          rawAircraft.aircraft_category ||
+          rawAircraft.aircraft_type ||
+          '',
+      ).trim(),
+      base: String(
+        rawAircraft.base ||
+          rawAircraft.base_airport ||
+          rawAircraft.operational_base ||
+          rawAircraft.home_base ||
+          rawAircraft.airport_base ||
+          '',
+      ).trim(),
+      raw: rawAircraft,
+    }
+  }
+
+  function getProviderOperationalAssignedAircraft() {
     const request = getActiveProviderReleaseRequest()
-    return request ? getRequestSuggestedAircraft(request).label : 'Aeronave por definir'
+    const raw = request?.raw && typeof request.raw === 'object' ? request.raw : request || {}
+    const preferredAircraftIds = [
+      providerOperationalReleaseForm.aircraftId,
+      request?.aircraftId,
+      raw.assigned_aircraft_id,
+      raw.aircraft_id,
+      raw.aircraft?.id,
+      raw.assigned_aircraft?.id,
+      raw.selected_aircraft_id,
+      raw.matched_aircraft_id,
+      raw.preferred_aircraft_id,
+      raw.provider_operational_release?.aircraft_id,
+      raw.operational_release?.aircraft_id,
+      raw.quote?.aircraft?.id,
+      raw.reservation?.aircraft?.id,
+      raw.flight?.aircraft?.id,
+      raw.visibility_payload?.aircraft_id,
+      raw.visibility_payload?.selected_aircraft_id,
+      raw.visibility_payload?.provider_operational_release?.aircraft_id,
+    ]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+
+    const matchedById = preferredAircraftIds
+      .map((targetId) => aircraft.value.find((item) => String(item.id || '') === targetId))
+      .find(Boolean)
+
+    if (matchedById) {
+      return {
+        id: matchedById.id || '',
+        internalId: matchedById.id || '',
+        name: matchedById.name || matchedById.aircraft_name || request?.aircraft || 'Aeronave asignada',
+        registration: String(matchedById.registration || '').trim(),
+        category: String(
+          matchedById.category ||
+            matchedById.type ||
+            matchedById.class ||
+            matchedById.aircraft_category ||
+            '',
+        ).trim(),
+        base: String(
+          matchedById.base ||
+            matchedById.base_airport ||
+            matchedById.operational_base ||
+            matchedById.home_base ||
+            '',
+        ).trim(),
+        raw: matchedById,
+      }
+    }
+
+    const objectSources = [
+      raw.aircraft,
+      raw.assigned_aircraft,
+      raw.quote?.aircraft,
+      raw.reservation?.aircraft,
+      raw.flight?.aircraft,
+      raw.visibility_payload?.aircraft,
+    ]
+      .map((item) => normalizeAssignedAircraftDraftRecord(item))
+      .find(Boolean)
+
+    if (objectSources) {
+      return {
+        ...objectSources,
+        internalId: objectSources.id || '',
+      }
+    }
+
+    return {
+      id: '',
+      internalId: preferredAircraftIds[0] || '',
+      name: String(request?.aircraft || 'Aeronave por definir').trim() || 'Aeronave por definir',
+      registration: '',
+      category: '',
+      base: '',
+      raw: null,
+    }
+  }
+
+  function getProviderOperationalAssignedAircraftStatusMeta() {
+    const aircraftName = getProviderOperationalAssignedAircraft().name || 'La aeronave'
+    const status = providerOperationalReleaseForm.aircraftOverallStatus || 'preparing'
+
+    if (status === 'ready') {
+      return {
+        label: 'Disponibilidad confirmada',
+        tone: 'success',
+        detail: `${aircraftName} ya quedo validada para la liberacion operativa.`,
+      }
+    }
+
+    if (status === 'available') {
+      return {
+        label: 'Pendiente de confirmacion',
+        tone: 'warning',
+        detail: `${aircraftName} ya esta asignada y requiere confirmacion operativa final.`,
+      }
+    }
+
+    if (status === 'maintenance') {
+      return {
+        label: 'Mantenimiento pendiente',
+        tone: 'danger',
+        detail: `${aircraftName} no puede liberarse hasta resolver el mantenimiento.`,
+      }
+    }
+
+    if (status === 'not_available') {
+      return {
+        label: 'Aeronave no disponible',
+        tone: 'danger',
+        detail: `${aircraftName} ya no esta disponible para este servicio.`,
+      }
+    }
+
+    return {
+      label: 'Pendiente de confirmacion',
+      tone: 'neutral',
+      detail: `${aircraftName} sigue en revision operacional.`,
+    }
+  }
+
+  function getProviderOperationalReleaseAircraftLabel() {
+    const aircraftRecord = getProviderOperationalAssignedAircraft()
+    if (!aircraftRecord) return 'Aeronave por definir'
+    return `${aircraftRecord.name}${aircraftRecord.registration ? ` · ${aircraftRecord.registration}` : ''}`
   }
 
   function scheduleProviderOperationalReleaseAutosave() {
@@ -620,6 +781,8 @@ export function createOperatorPortalReleaseDomain(ctx = {}) {
     getActiveProviderReleaseRequest,
     getProviderOperationalReleaseAircraftLabel,
     getProviderOperationalReleaseAircraftRecord,
+    getProviderOperationalAssignedAircraft,
+    getProviderOperationalAssignedAircraftStatusMeta,
     getProviderOperationalReleaseCurrentStatus,
     getProviderOperationalReleaseOverrideKeys,
     getProviderOperationalReleaseProgress,

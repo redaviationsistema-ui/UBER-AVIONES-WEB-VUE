@@ -779,6 +779,10 @@ const providerOperationalReleaseAutosaveQueued = ref(false)
 const providerOperationalReleaseActiveStep = ref('aircraft')
 
 const providerOperationalIssueOpen = ref(false)
+const providerOperationalAircraftModalOpen = ref(false)
+const providerOperationalAircraftModalSelection = ref('')
+const providerOperationalAircraftModalError = ref('')
+const savingProviderOperationalAircraftChange = ref(false)
 
 const providerOperationalIssueForm = reactive({
   type: 'Aeronave no disponible',
@@ -3941,6 +3945,201 @@ const providerOperationalReleaseAircraftOptions = computed(() => {
   return matchedSuggestedAircraft ? [matchedSuggestedAircraft] : []
 })
 
+function normalizeAircraftAvailabilityToken(item = {}) {
+  return String(
+    item.availability ||
+      item.availability_status ||
+      item.operational_status ||
+      item.status ||
+      item.state ||
+      '',
+  )
+    .trim()
+    .toLowerCase()
+}
+
+function normalizeProviderReleaseAircraftOption(item = {}) {
+  const availabilityToken = normalizeAircraftAvailabilityToken(item)
+  const isMaintenance = ['maintenance', 'mantenimiento', 'in_maintenance'].some((token) =>
+    availabilityToken.includes(token),
+  )
+  const isBlocked = ['blocked', 'bloquead', 'manual_block', 'out_of_service', 'fuera'].some((token) =>
+    availabilityToken.includes(token),
+  )
+  const isOccupied = ['occupied', 'ocupad', 'reserved', 'in_flight', 'vuelo'].some((token) =>
+    availabilityToken.includes(token),
+  )
+  const isAvailable = !isMaintenance && !isBlocked && !isOccupied
+
+  return {
+    id: String(item.id || ''),
+    name: item.name || item.aircraft_name || item.model || 'Aeronave',
+    registration: String(item.registration || '').trim(),
+    category: String(item.category || item.type || item.class || item.aircraft_category || '').trim(),
+    base: String(item.base || item.base_airport || item.operational_base || item.home_base || '').trim(),
+    statusLabel: isMaintenance
+      ? 'Mantenimiento pendiente'
+      : isBlocked
+        ? 'No disponible'
+        : isOccupied
+          ? 'No disponible'
+          : 'Disponible',
+    statusTone: isMaintenance || isBlocked || isOccupied ? 'danger' : 'success',
+    isAvailable,
+    raw: item,
+  }
+}
+
+const providerOperationalReleaseChangeableAircraftOptions = computed(() => {
+  const request = getActiveProviderReleaseRequest()
+  if (!request) return []
+
+  const providerId = String(
+    request.providerId ||
+      request.raw?.provider_id ||
+      request.raw?.assigned_provider_id ||
+      request.raw?.provider?.id ||
+      '',
+  ).trim()
+
+  const providerAircraftPool = (
+    providerId
+      ? aircraft.value.filter(
+          (item) => String(item.provider_id || item.providerId || item.provider?.id || '') === providerId,
+        )
+      : aircraft.value
+  ).map((item) => normalizeProviderReleaseAircraftOption(item))
+
+  const currentAircraftId = String(providerOperationalAssignedAircraft.value?.id || '').trim()
+  const currentAircraft = currentAircraftId
+    ? providerAircraftPool.find((item) => item.id === currentAircraftId)
+    : null
+
+  const eligibleOptions = providerAircraftPool.filter(
+    (item) => item.isAvailable || (currentAircraftId && item.id === currentAircraftId),
+  )
+
+  const uniqueOptions = eligibleOptions.filter(
+    (item, index, collection) => collection.findIndex((candidate) => candidate.id === item.id) === index,
+  )
+
+  if (currentAircraft && !uniqueOptions.some((item) => item.id === currentAircraft.id)) {
+    uniqueOptions.unshift(currentAircraft)
+  }
+
+  return uniqueOptions
+})
+
+const canChangeProviderOperationalAircraft = computed(() => {
+  const request = getActiveProviderReleaseRequest()
+  if (!request) return false
+  if (!canManageProviderOperationalRelease(request)) return false
+  if (isProviderReleaseFinalized(request)) return false
+
+  const lifecycle = String(
+    request.status ||
+      request.workflowStatus ||
+      request.rawStatus ||
+      request.raw?.status ||
+      request.raw?.workflow_status ||
+      '',
+  ).toLowerCase()
+
+  if (['cancel', 'cerrad', 'closed', 'finaliz'].some((token) => lifecycle.includes(token))) {
+    return false
+  }
+
+  const currentAircraftId = String(providerOperationalAssignedAircraft.value?.id || '').trim()
+  return providerOperationalReleaseChangeableAircraftOptions.value.some(
+    (item) => item.id && item.id !== currentAircraftId,
+  )
+})
+
+function openProviderOperationalAircraftModal() {
+  if (!canChangeProviderOperationalAircraft.value) return
+  providerOperationalAircraftModalError.value = ''
+  providerOperationalAircraftModalSelection.value = String(
+    providerOperationalAssignedAircraft.value?.id ||
+      providerOperationalReleaseChangeableAircraftOptions.value.find((item) => item.isAvailable)?.id ||
+      '',
+  ).trim()
+  providerOperationalAircraftModalOpen.value = true
+}
+
+function closeProviderOperationalAircraftModal() {
+  providerOperationalAircraftModalOpen.value = false
+  providerOperationalAircraftModalSelection.value = ''
+  providerOperationalAircraftModalError.value = ''
+}
+
+async function confirmProviderOperationalAircraftChange() {
+  const nextAircraftId = String(providerOperationalAircraftModalSelection.value || '').trim()
+  const currentAircraftId = String(providerOperationalAssignedAircraft.value?.id || providerOperationalReleaseForm.aircraftId || '').trim()
+
+  if (!nextAircraftId) {
+    providerOperationalAircraftModalError.value = 'Selecciona una aeronave operativa para continuar.'
+    return
+  }
+
+  if (nextAircraftId === currentAircraftId) {
+    closeProviderOperationalAircraftModal()
+    return
+  }
+
+  const nextAircraft = providerOperationalReleaseChangeableAircraftOptions.value.find(
+    (item) => item.id === nextAircraftId,
+  )
+  const currentAircraftName = providerOperationalAssignedAircraft.value?.name || 'la aeronave actual'
+  const nextAircraftName = nextAircraft?.name || 'la nueva aeronave'
+
+  if (
+    typeof window !== 'undefined' &&
+    typeof window.confirm === 'function' &&
+    !window.confirm(`¿Confirmas cambiar la aeronave de ${currentAircraftName} a ${nextAircraftName}?`)
+  ) {
+    return
+  }
+
+  const previousState = {
+    aircraftId: providerOperationalReleaseForm.aircraftId,
+    status: providerOperationalReleaseForm.status,
+    aircraftOverallStatus: providerOperationalReleaseForm.aircraftOverallStatus,
+    availabilityConfirmed: providerOperationalReleaseForm.availabilityConfirmed,
+    maintenanceClear: providerOperationalReleaseForm.maintenanceClear,
+    routeCoverageConfirmed: providerOperationalReleaseForm.routeCoverageConfirmed,
+  }
+
+  providerOperationalAircraftModalError.value = ''
+  savingProviderOperationalAircraftChange.value = true
+
+  providerOperationalReleaseForm.aircraftId = nextAircraftId
+  providerOperationalReleaseForm.status = 'pending'
+  providerOperationalReleaseForm.aircraftOverallStatus = nextAircraft?.statusTone === 'danger' ? 'not_available' : 'preparing'
+  providerOperationalReleaseForm.availabilityConfirmed = false
+  providerOperationalReleaseForm.maintenanceClear = false
+  providerOperationalReleaseForm.routeCoverageConfirmed = false
+
+  const saved = await saveProviderOperationalRelease('pending', {
+    skipWorkflowPromotion: true,
+  })
+
+  if (!saved) {
+    providerOperationalReleaseForm.aircraftId = previousState.aircraftId
+    providerOperationalReleaseForm.status = previousState.status
+    providerOperationalReleaseForm.aircraftOverallStatus = previousState.aircraftOverallStatus
+    providerOperationalReleaseForm.availabilityConfirmed = previousState.availabilityConfirmed
+    providerOperationalReleaseForm.maintenanceClear = previousState.maintenanceClear
+    providerOperationalReleaseForm.routeCoverageConfirmed = previousState.routeCoverageConfirmed
+    providerOperationalAircraftModalError.value =
+      'No fue posible cambiar la aeronave. Conservamos la asignacion anterior.'
+    savingProviderOperationalAircraftChange.value = false
+    return
+  }
+
+  savingProviderOperationalAircraftChange.value = false
+  closeProviderOperationalAircraftModal()
+}
+
 const providerOperationalBinaryStatusOptions = [
   { value: 'pending', label: 'Pendiente' },
   { value: 'confirmed', label: 'Si' },
@@ -3997,6 +4196,8 @@ const releaseDomain = createOperatorPortalReleaseDomain({
 
 const {
   clearProviderOperationalReleaseAutosaveTimer,
+  getProviderOperationalAssignedAircraft,
+  getProviderOperationalAssignedAircraftStatusMeta,
   getActiveProviderReleaseRequest,
   getProviderOperationalReleaseAircraftLabel,
   getProviderOperationalReleaseAircraftRecord,
@@ -4012,6 +4213,11 @@ const {
   scheduleProviderOperationalReleaseAutosave,
   syncProviderOperationalDerivedStatuses,
 } = releaseDomain
+
+const providerOperationalAssignedAircraft = computed(() => getProviderOperationalAssignedAircraft())
+const providerOperationalAssignedAircraftStatusMeta = computed(() =>
+  getProviderOperationalAssignedAircraftStatusMeta(),
+)
 
 const {
   buildProviderOperationalReleaseChecklist,
@@ -4059,23 +4265,24 @@ async function persistProviderOperationalReleaseDraft() {
     !providerOperationalReleaseDirty.value ||
     props.section !== 'release-provider'
   ) {
-    return
+    return false
   }
 
   if (!isProviderOperationalReady()) {
     providerOperationalReleaseAutosaveQueued.value = false
-    return
+    return false
   }
 
   if (syncingProviderOperationalRelease.value) {
     providerOperationalReleaseAutosaveQueued.value = true
-    return
+    return false
   }
 
   await saveProviderOperationalRelease('', {
     background: true,
     skipWorkflowPromotion: true,
   })
+  return true
 }
 
 async function flushProviderOperationalReleaseDraft() {
@@ -4118,6 +4325,7 @@ watch(
     }
 
     hydrateProviderOperationalReleaseForm(request)
+    closeProviderOperationalAircraftModal()
 
     if (requestId !== previousRequestId) {
       providerOperationalReleaseActiveStep.value = 'aircraft'
@@ -10984,9 +11192,9 @@ async function saveProviderOperationalRelease(statusOverride = '', options = {})
   const skipWorkflowPromotion = Boolean(options?.skipWorkflowPromotion)
   const workflowStageOverride = String(options?.workflowStageOverride || '').trim()
   const request = getActiveProviderReleaseRequest()
-  if (!request) return
+  if (!request) return false
   if (!canManageProviderOperationalRelease(request) || syncingProviderOperationalRelease.value) {
-    return
+    return false
   }
 
   const nextStatus =
@@ -11075,12 +11283,13 @@ async function saveProviderOperationalRelease(statusOverride = '', options = {})
       const assignmentMessage =
         'Asigna primero la sobrecargo desde administracion antes de mover el vuelo a tracking en vivo.'
 
-      if (background) {
-        providerOperationalReleaseFeedback.value = assignmentMessage
-        return
-      }
+    if (background) {
+      providerOperationalReleaseFeedback.value = assignmentMessage
+      return false
+    }
 
-      return showError('Sobrecargo pendiente', assignmentMessage)
+      showError('Sobrecargo pendiente', assignmentMessage)
+      return false
     }
 
     const sharedWorkflowPayload = buildWorkflowApiPayload(nextWorkflowStage)
@@ -11159,9 +11368,10 @@ async function saveProviderOperationalRelease(statusOverride = '', options = {})
       if (background) {
         providerOperationalReleaseFeedback.value =
           'No se pudo guardar automaticamente porque el backend no esta disponible.'
-        return
+        return false
       }
-      return showError('Backend no disponible', getBackendConnectionMessage())
+      showError('Backend no disponible', getBackendConnectionMessage())
+      return false
     }
 
     const message = error?.candidateAttempts?.length
@@ -11170,10 +11380,11 @@ async function saveProviderOperationalRelease(statusOverride = '', options = {})
 
     if (background) {
       providerOperationalReleaseFeedback.value = `No se pudo guardar automaticamente: ${message}`
-      return
+      return false
     }
 
-    return showError('No se pudo guardar la liberacion operativa', message)
+    showError('No se pudo guardar la liberacion operativa', message)
+    return false
   } finally {
     syncingProviderOperationalRelease.value = false
     savingProviderOperationalRelease.value = false
@@ -11183,6 +11394,8 @@ async function saveProviderOperationalRelease(statusOverride = '', options = {})
       scheduleProviderOperationalReleaseAutosave()
     }
   }
+
+  return true
 }
 
 async function submitProviderReleasePrimaryAction() {
@@ -11917,6 +12130,10 @@ watch(
       providerOperationalReleaseLoadedRequestId,
       providerOperationalReleaseAutosaveQueued,
       providerOperationalReleaseActiveStep,
+      providerOperationalAircraftModalOpen,
+      providerOperationalAircraftModalSelection,
+      providerOperationalAircraftModalError,
+      savingProviderOperationalAircraftChange,
       providerOperationalIssueOpen,
       providerOperationalIssueForm,
       requestsConnectionWarningShown,
@@ -12078,7 +12295,11 @@ watch(
       filteredRequests,
       selectedRequest,
       releaseProviderRequest,
+      providerOperationalAssignedAircraft,
+      providerOperationalAssignedAircraftStatusMeta,
       providerOperationalReleaseAircraftOptions,
+      providerOperationalReleaseChangeableAircraftOptions,
+      canChangeProviderOperationalAircraft,
       operationWorkflowOptions,
       requestOperationalAlerts,
       selectedRequestAircraftComparison,
@@ -12096,6 +12317,9 @@ watch(
       getProviderOperationalReleaseAircraftRecord,
       getActiveProviderReleaseRequest,
       getProviderOperationalReleaseAircraftLabel,
+      openProviderOperationalAircraftModal,
+      closeProviderOperationalAircraftModal,
+      confirmProviderOperationalAircraftChange,
       clearProviderOperationalReleaseAutosaveTimer,
       scheduleProviderOperationalReleaseAutosave,
       persistProviderOperationalReleaseDraft,

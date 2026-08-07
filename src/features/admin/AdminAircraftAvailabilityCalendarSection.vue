@@ -681,6 +681,8 @@ const manualBlockCanSubmit = computed(
   () => !submittingManualBlock.value && !manualBlockValidationMessage.value,
 )
 
+const ADMIN_CALENDAR_TIMEOUT_MS = 60000
+
 async function loadCalendar() {
   const requestId = ++latestRequestId
   loading.value = true
@@ -697,7 +699,7 @@ async function loadCalendar() {
           ...(filters.companyId !== 'all' ? { company_id: filters.companyId } : {}),
           ...(filters.aircraftId !== 'all' ? { aircraft_id: filters.aircraftId } : {}),
         },
-        timeoutMs: 20000,
+        timeoutMs: ADMIN_CALENDAR_TIMEOUT_MS,
       },
     ])
 
@@ -749,7 +751,7 @@ async function loadOperationalPanels() {
         method: 'get',
         path: '/admin/operations/dashboard',
         query: companyId ? { company_id: companyId } : {},
-        timeoutMs: 20000,
+        timeoutMs: ADMIN_CALENDAR_TIMEOUT_MS,
       },
     ]),
   ])
@@ -847,7 +849,7 @@ async function submitManualBlock() {
           end_datetime: manualBlockDraft.end,
           reason: manualBlockDraft.reason || undefined,
         },
-        timeoutMs: 20000,
+        timeoutMs: ADMIN_CALENDAR_TIMEOUT_MS,
       },
     ])
 
@@ -885,7 +887,7 @@ async function releaseSelectedBlock() {
         body: {
           reason: `Bloqueo liberado desde calendario admin${selectedEvent.value.reason ? `: ${selectedEvent.value.reason}` : '.'}`,
         },
-        timeoutMs: 20000,
+        timeoutMs: ADMIN_CALENDAR_TIMEOUT_MS,
       },
     ])
 

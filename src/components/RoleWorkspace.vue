@@ -2304,18 +2304,26 @@ onBeforeUnmount(() => {
     align-items: center;
     justify-content: space-between;
     gap: 1rem;
+    padding: 0.95rem 1rem;
+    border: 1px solid rgba(226, 232, 240, 0.92);
+    border-radius: 24px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
+    box-shadow:
+      0 14px 30px rgba(15, 23, 42, 0.08),
+      inset 0 1px 0 rgba(255, 255, 255, 0.9);
   }
 
   .workspace-mobile-drawer__logo {
     display: inline-flex;
     align-items: center;
+    min-width: 0;
   }
 
   .workspace-mobile-drawer__close {
     position: relative;
-    width: 3.2rem;
-    min-width: 3.2rem;
-    min-height: 3.2rem;
+    width: 2.9rem;
+    min-width: 2.9rem;
+    min-height: 2.9rem;
     padding: 0;
     border: 1px solid rgba(20, 20, 20, 0.08);
     border-radius: 999px;
@@ -2523,6 +2531,13 @@ onBeforeUnmount(() => {
   .workspace-operator .workspace-mobile-logout {
     border-color: rgba(226, 232, 240, 0.96);
     background: rgba(255, 255, 255, 0.92);
+  }
+
+  .workspace-operator .workspace-mobile-drawer__top {
+    border-color: rgba(226, 232, 240, 0.96);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(244, 248, 255, 0.96)),
+      rgba(255, 255, 255, 0.96);
   }
 
   .workspace-operator .workspace-mobile-drawer__close span {

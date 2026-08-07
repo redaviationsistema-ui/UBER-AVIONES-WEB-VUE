@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 
-import { describe, expect, it, beforeEach, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import AdminAircraftAvailabilityCalendarSection from '../features/admin/AdminAircraftAvailabilityCalendarSection.vue'
 
@@ -41,6 +41,8 @@ function findFirstEventCell(wrapper) {
 describe('AdminAircraftAvailabilityCalendarSection', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-10T10:00:00'))
 
     requestWithCandidates.mockImplementation(async (candidates = []) => {
       const path = candidates[0]?.path || ''
@@ -166,6 +168,10 @@ describe('AdminAircraftAvailabilityCalendarSection', () => {
 
       return {}
     })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('renders calendar events, opens the detail modal and navigates to reservation flow', async () => {

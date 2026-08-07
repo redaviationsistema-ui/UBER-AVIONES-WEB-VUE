@@ -22,12 +22,16 @@ const metricsLoading = ref(false)
 const metricsError = ref('')
 const operationalMetrics = ref(null)
 const assignmentSuccessMessage = ref('')
+const ADMIN_CREW_METRICS_TIMEOUT_MS = 60000
 
 async function loadMetrics() {
   metricsLoading.value = true
   metricsError.value = ''
   try {
-    const response = await api.get('/admin/crew/metrics', { query: { period: metricsPeriod.value } })
+    const response = await api.get('/admin/crew/metrics', {
+      query: { period: metricsPeriod.value },
+      timeoutMs: ADMIN_CREW_METRICS_TIMEOUT_MS,
+    })
     operationalMetrics.value = response.metrics || response.data?.metrics || null
   } catch (error) {
     operationalMetrics.value = null
