@@ -402,7 +402,7 @@
                   :value="companyForm.operationalBase"
                   type="text"
                   autocomplete="off"
-                  placeholder="Toluca / MMCN"
+                  placeholder=" "
                   :class="{ 'input-error': formErrors.company.operationalBase }"
                   @focus="scheduleCompanyBaseAirportSearch(companyForm.operationalBase)"
                   @blur="window.setTimeout(closeCompanyBaseAirportOptions, 120)"
@@ -772,7 +772,7 @@
         <div class="inline-actions">
           <button
             type="button"
-            class="ghost-button"
+            class="ghost-button company-save-button"
             :disabled="savingCompany || sendingCompanyToReview"
             @click="saveCompany"
           >
