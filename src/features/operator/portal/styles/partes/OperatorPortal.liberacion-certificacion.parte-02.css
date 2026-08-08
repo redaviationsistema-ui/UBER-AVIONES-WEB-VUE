@@ -389,6 +389,59 @@
   background: rgba(255, 255, 255, 0.98);
 }
 
+.operator-certification-luxury .company-airport-field {
+  position: relative;
+}
+
+.operator-certification-luxury .company-airport-options {
+  position: absolute;
+  top: calc(100% - 0.35rem);
+  left: 1rem;
+  right: 1rem;
+  z-index: 30;
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.5rem;
+  border: 1px solid rgba(203, 213, 225, 0.96);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.99);
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.14);
+}
+
+.operator-certification-luxury .company-airport-options span {
+  padding: 0.8rem 0.95rem;
+  color: #64748b;
+  font-size: 0.9rem;
+}
+
+.operator-certification-luxury .company-airport-options button {
+  display: grid;
+  gap: 0.18rem;
+  width: 100%;
+  border: 0;
+  border-radius: 14px;
+  padding: 0.85rem 0.95rem;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.operator-certification-luxury .company-airport-options button:hover {
+  background: rgba(191, 219, 254, 0.18);
+}
+
+.operator-certification-luxury .company-airport-options strong {
+  color: #0f172a;
+  font-size: 0.92rem;
+  font-weight: 800;
+}
+
+.operator-certification-luxury .company-airport-options small {
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
 .operator-certification-luxury input,
 .operator-certification-luxury select,
 .operator-certification-luxury textarea {
@@ -479,6 +532,42 @@
   color: #24446f;
 }
 
+.operator-certification-luxury .company-doc-card .ghost-button.company-doc-action--upload,
+.operator-certification-luxury .company-doc-card .company-doc-upload-button.company-doc-action--upload {
+  border-color: rgba(37, 99, 235, 0.24);
+  background: linear-gradient(180deg, rgba(239, 246, 255, 1), rgba(219, 234, 254, 0.96));
+  color: #1d4ed8;
+}
+
+.operator-certification-luxury .company-doc-card .ghost-button.company-doc-action--save {
+  border-color: rgba(5, 150, 105, 0.24);
+  background: linear-gradient(180deg, rgba(236, 253, 245, 1), rgba(209, 250, 229, 0.96));
+  color: #047857;
+}
+
+.operator-certification-luxury .company-doc-card .ghost-button.company-doc-action--view {
+  border-color: rgba(124, 58, 237, 0.22);
+  background: linear-gradient(180deg, rgba(245, 243, 255, 1), rgba(233, 213, 255, 0.96));
+  color: #6d28d9;
+}
+
+.operator-certification-luxury .company-doc-card .company-doc-action:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 22px rgba(15, 23, 42, 0.1);
+}
+
+.operator-certification-luxury .company-doc-card .company-doc-action--upload:hover:not(:disabled) {
+  box-shadow: 0 12px 22px rgba(37, 99, 235, 0.16);
+}
+
+.operator-certification-luxury .company-doc-card .company-doc-action--save:hover:not(:disabled) {
+  box-shadow: 0 12px 22px rgba(5, 150, 105, 0.16);
+}
+
+.operator-certification-luxury .company-doc-card .company-doc-action--view:hover:not(:disabled) {
+  box-shadow: 0 12px 22px rgba(124, 58, 237, 0.16);
+}
+
 .operator-certification-luxury .primary-action {
   border-color: rgba(36, 68, 111, 0.18);
   background: linear-gradient(135deg, #24446f, #3f6aa1);
@@ -509,6 +598,14 @@
 
   .operator-certification-luxury .company-status-shell {
     position: static;
+  }
+
+  .operator-certification-luxury .company-shell-hero-meta {
+    align-items: flex-start;
+  }
+
+  .operator-certification-luxury .company-shell-hero-meta .status-pill {
+    margin-left: 0;
   }
 
   .operator-certification-luxury .company-doc-grid,

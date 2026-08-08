@@ -18,6 +18,7 @@ import { DOCUMENT_TYPE_OPTIONS, normalizeDocumentType } from './documentScannerC
 
 const props = defineProps({
   form: { type: Object, required: true },
+  errors: { type: Object, default: () => ({}) },
 })
 
 const emit = defineEmits(['file-selected', 'update-field', 'merge-fields'])
@@ -201,6 +202,10 @@ function updateField(field, value) {
   ) {
     markIdentificationDraftChanged()
   }
+}
+
+function fieldError(field) {
+  return props.errors?.[field] || ''
 }
 
 function setIdentificationUploadState(patch = {}) {
@@ -1220,16 +1225,17 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="form-grid">
-          <label>
+          <label data-field="documentType" :class="{ 'has-error': fieldError('documentType') }">
             Tipo de identificación
             <select :value="props.form.documentType" @change="updateField('documentType', $event.target.value)">
               <option v-for="option in documentTypeOptions" :key="option.value" :value="option.label">
                 {{ option.label }}
               </option>
             </select>
+            <small v-if="fieldError('documentType')" class="field-error">{{ fieldError('documentType') }}</small>
           </label>
 
-          <label>
+          <label data-field="documentNumber" :class="{ 'has-error': fieldError('documentNumber') }">
             Número de documento
             <input
               :value="props.form.documentNumber"
@@ -1237,18 +1243,26 @@ onBeforeUnmount(() => {
               placeholder="Captura el número de documento"
               @input="updateField('documentNumber', $event.target.value)"
             />
+            <small v-if="fieldError('documentNumber')" class="field-error">{{ fieldError('documentNumber') }}</small>
           </label>
 
-          <label v-if="showIdentificationExpirationField()">
+          <label
+            v-if="showIdentificationExpirationField()"
+            data-field="documentExpiration"
+            :class="{ 'has-error': fieldError('documentExpiration') }"
+          >
             Vigencia
             <input
               :value="props.form.documentExpiration"
               type="date"
               @input="updateField('documentExpiration', $event.target.value)"
             />
+            <small v-if="fieldError('documentExpiration')" class="field-error">
+              {{ fieldError('documentExpiration') }}
+            </small>
           </label>
 
-          <label>
+          <label data-field="nationality" :class="{ 'has-error': fieldError('nationality') }">
             Nacionalidad
             <input
               :value="props.form.nationality"
@@ -1256,9 +1270,10 @@ onBeforeUnmount(() => {
               placeholder="Mexicana"
               @input="updateField('nationality', $event.target.value)"
             />
+            <small v-if="fieldError('nationality')" class="field-error">{{ fieldError('nationality') }}</small>
           </label>
 
-          <label>
+          <label data-field="ineCurp" :class="{ 'has-error': fieldError('ineCurp') }">
             CURP
             <input
               :value="props.form.ineCurp"
@@ -1266,6 +1281,7 @@ onBeforeUnmount(() => {
               placeholder="Captura tu CURP"
               @input="updateField('ineCurp', $event.target.value)"
             />
+            <small v-if="fieldError('ineCurp')" class="field-error">{{ fieldError('ineCurp') }}</small>
           </label>
 
           <label class="checkbox-field">
@@ -1279,7 +1295,11 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="identification-upload-grid">
-          <article class="document-side-card">
+          <article
+            data-field="ineFront"
+            class="document-side-card"
+            :class="{ 'has-error': fieldError('ineFront') }"
+          >
             <div class="document-side-head">
               <strong>Frente de la identificación</strong>
               <small>{{ props.form.ineFrontName || 'Aún no has seleccionado un archivo' }}</small>
@@ -1309,9 +1329,14 @@ onBeforeUnmount(() => {
               capture="environment"
               @change="handleIneFileSelected('ineFront', $event)"
             />
+            <small v-if="fieldError('ineFront')" class="field-error">{{ fieldError('ineFront') }}</small>
           </article>
 
-          <article class="document-side-card">
+          <article
+            data-field="ineBack"
+            class="document-side-card"
+            :class="{ 'has-error': fieldError('ineBack') }"
+          >
             <div class="document-side-head">
               <strong>Reverso de la identificación</strong>
               <small>{{ props.form.ineBackName || 'Aún no has seleccionado un archivo' }}</small>
@@ -1341,6 +1366,7 @@ onBeforeUnmount(() => {
               capture="environment"
               @change="handleIneFileSelected('ineBack', $event)"
             />
+            <small v-if="fieldError('ineBack')" class="field-error">{{ fieldError('ineBack') }}</small>
           </article>
         </div>
 
@@ -1378,7 +1404,11 @@ onBeforeUnmount(() => {
           </article>
         </div>
 
-        <div class="identification-save-row">
+        <div
+          data-field="identificationUpload"
+          class="identification-save-row"
+          :class="{ 'has-error': fieldError('identificationUpload') }"
+        >
           <button
             type="button"
             class="primary-button"
@@ -1406,6 +1436,9 @@ onBeforeUnmount(() => {
             </small>
           </article>
         </div>
+        <small v-if="fieldError('identificationUpload')" class="field-error">
+          {{ fieldError('identificationUpload') }}
+        </small>
       </section>
     </template>
 
@@ -1684,5 +1717,31 @@ onBeforeUnmount(() => {
 
 .identification-save-row {
   margin-top: 1rem;
+}
+
+.identification-save-row .primary-button {
+  min-height: 2.9rem;
+  padding: 0.65rem 1rem;
+  border-radius: 12px;
+  font-size: 0.88rem;
+  white-space: nowrap;
+  box-shadow: 0 10px 20px rgba(217, 161, 46, 0.18);
+}
+
+.identification-save-row .score-card {
+  min-height: auto;
+  padding: 0.9rem 1rem;
+  border-radius: 18px;
+  align-content: center;
+  flex: 1 1 18rem;
+}
+
+.identification-save-row .score-card strong {
+  font-size: clamp(1.2rem, 2.2vw, 1.8rem);
+  line-height: 1.05;
+}
+
+.identification-save-row .score-card small {
+  font-size: 0.78rem;
 }
 </style>

@@ -237,6 +237,7 @@ const selectedDraft = computed(() =>
         :operation="controller.selectedOperation"
         :draft="selectedDraft"
         :assignable-crew="controller.assignableCrewMembers(controller.selectedOperation)"
+        :availability-state="controller.availableCrewState(controller.selectedOperation)"
         :selected-crew-member="controller.selectedDraftCrew(controller.selectedOperation)"
         :assignment-error="controller.assignmentErrors[controller.selectedOperation.id] || ''"
         :can-assign="controller.canAssignCrew(controller.selectedOperation)"

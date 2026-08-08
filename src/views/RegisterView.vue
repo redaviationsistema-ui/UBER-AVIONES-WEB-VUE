@@ -1,5 +1,5 @@
 <script setup>
-import { computed, defineAsyncComponent, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import BrandLogo from '../components/BrandLogo.vue'
 import RegisterProgress from '../features/register/RegisterProgress.vue'
@@ -8,6 +8,10 @@ import {
   buildRegistrationSteps,
   roleLabels,
 } from '../features/register/registrationSteps'
+import {
+  validateProviderProfileStep,
+} from '../features/register/registerValidation'
+import { validateIdentificationFiles } from '../features/register/identificationUpload'
 import '../features/register/registerWizard.css'
 import { useAuthStore } from '../stores/auth'
 
@@ -35,6 +39,7 @@ const errorModalOpen = ref(false)
 const errorModalTitle = ref('No fue posible crear la cuenta')
 const errorModalMessage = ref('')
 const errorModalDetails = ref([])
+const formErrors = reactive({})
 const form = reactive({
   name: '',
   companyName: '',
@@ -189,6 +194,8 @@ watch(
 
 function setFile(field, event) {
   const file = event.target.files?.[0] || null
+  clearFieldError(field)
+  clearFieldError('identificationUpload')
   form[field] = file
   form[`${field}Name`] = file?.name || ''
   form.selfieFile = null
@@ -216,6 +223,21 @@ function setFile(field, event) {
 }
 
 function setFormField(field, value) {
+  clearFieldError(field)
+
+  if (field === 'identityValidationRequired' && !value) {
+    resetFieldErrors([
+      'documentType',
+      'documentNumber',
+      'documentExpiration',
+      'nationality',
+      'ineCurp',
+      'ineFront',
+      'ineBack',
+      'identificationUpload',
+    ])
+  }
+
   if (field === 'documentType' && form.documentType !== value) {
     form.selfieFile = null
     form.selfieFileName = ''
@@ -277,6 +299,7 @@ function setFormField(field, value) {
 
 function mergeFormFields(patch = {}) {
   Object.entries(patch || {}).forEach(([field, value]) => {
+    clearFieldError(field)
     form[field] = value
   })
 
@@ -285,7 +308,111 @@ function mergeFormFields(patch = {}) {
   }
 }
 
-function validateCurrentStep() {
+function clearFieldError(field) {
+  if (!field) return
+  formErrors[field] = ''
+}
+
+function resetFieldErrors(fields = []) {
+  fields.forEach((field) => {
+    formErrors[field] = ''
+  })
+}
+
+function applySanitizedFormValues(sanitized = {}) {
+  Object.entries(sanitized).forEach(([field, value]) => {
+    if (Object.prototype.hasOwnProperty.call(form, field) && form[field] !== value) {
+      form[field] = value
+    }
+  })
+}
+
+function getStepFieldOrder() {
+  if (currentStepId.value !== 'perfil' || !isProviderRole.value) return []
+
+  return [
+    'companyName',
+    'legalName',
+    'companyPhone',
+    'companyEmail',
+    'name',
+    'phone',
+    'birthDate',
+    'documentType',
+    'documentNumber',
+    'documentExpiration',
+    'nationality',
+    'ineCurp',
+    'ineFront',
+    'ineBack',
+    'identificationUpload',
+  ]
+}
+
+async function focusFirstInvalidField() {
+  await nextTick()
+
+  const firstInvalidField = getStepFieldOrder().find((field) => String(formErrors[field] || '').trim())
+  if (!firstInvalidField || typeof document === 'undefined') return
+
+  const fieldContainer = document.querySelector(`[data-field="${firstInvalidField}"]`)
+  if (!fieldContainer) return
+
+  fieldContainer.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
+  const focusTarget = fieldContainer.querySelector('input, select, textarea, button')
+  focusTarget?.focus?.()
+}
+
+async function validateProviderProfileFields() {
+  resetFieldErrors(getStepFieldOrder())
+
+  const { errors, sanitized } = validateProviderProfileStep(form, {
+    requireIdentification: form.identityValidationRequired !== false,
+  })
+
+  applySanitizedFormValues(sanitized)
+
+  if (form.identityValidationRequired !== false) {
+    if (!form.ineFront) {
+      errors.ineFront = 'Carga el frente de la identificación.'
+    }
+
+    if (!form.ineBack) {
+      errors.ineBack = 'Carga el reverso de la identificación.'
+    }
+
+    if (form.ineFront && form.ineBack) {
+      try {
+        await validateIdentificationFiles({
+          frontFile: form.ineFront,
+          backFile: form.ineBack,
+        })
+      } catch (error) {
+        const targetField = error?.message?.toLowerCase().includes('reverso') ? 'ineBack' : 'ineFront'
+        errors[targetField] = error?.message || 'Revisa los archivos de identificación.'
+      }
+    }
+
+    if (form.identificationUploadStatus !== 'saved' || !form.identificationDocumentId) {
+      errors.identificationUpload =
+        form.identificationUploadError || 'Guarda la identificación antes de continuar.'
+    }
+  }
+
+  Object.entries(errors).forEach(([field, message]) => {
+    formErrors[field] = message
+  })
+
+  if (Object.keys(errors).length > 0) {
+    errorMessage.value = 'Corrige los campos marcados para continuar.'
+    await focusFirstInvalidField()
+    return false
+  }
+
+  return true
+}
+
+async function validateCurrentStep() {
   errorMessage.value = ''
 
   if (currentStepId.value === 'rol') {
@@ -296,6 +423,10 @@ function validateCurrentStep() {
   }
 
   if (currentStepId.value === 'perfil') {
+    if (isProviderRole.value) {
+      return validateProviderProfileFields()
+    }
+
     if (!form.name.trim() || !form.phone.trim()) {
       errorMessage.value = isProviderRole.value
         ? 'Completa nombre y telefono del representante legal.'
@@ -439,8 +570,8 @@ function closeErrorModal() {
   errorModalOpen.value = false
 }
 
-function nextStep() {
-  if (!validateCurrentStep()) return
+async function nextStep() {
+  if (!(await validateCurrentStep())) return
   currentStep.value = Math.min(currentStep.value + 1, wizardSteps.value.length - 1)
 }
 
@@ -619,7 +750,7 @@ function logRegistrationPayload(formData) {
 }
 
 async function submit() {
-  if (!validateCurrentStep()) return
+  if (!(await validateCurrentStep())) return
 
   successMessage.value = ''
   errorMessage.value = ''
@@ -709,9 +840,10 @@ async function submit() {
         <form class="register-form" @submit.prevent="submit">
           <RegisterRoleStep v-if="currentStepId === 'rol'" :form="form" />
           <div v-else-if="currentStepId === 'perfil'" class="step-fields">
-            <RegisterClientStep :form="form" />
+            <RegisterClientStep :form="form" :errors="formErrors" @update-field="setFormField" />
             <RegisterIneStep
               :form="form"
+              :errors="formErrors"
               @file-selected="setFile"
               @update-field="setFormField"
               @merge-fields="mergeFormFields"

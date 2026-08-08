@@ -5,6 +5,14 @@ defineProps({
   operation: { type: Object, default: null },
   draft: { type: Object, default: null },
   assignableCrew: { type: Array, default: () => [] },
+  availabilityState: {
+    type: Object,
+    default: () => ({
+      kind: 'idle',
+      message: 'Selecciona sobrecargo',
+      disableSelect: false,
+    }),
+  },
   selectedCrewMember: { type: Object, default: null },
   assignmentError: { type: String, default: '' },
   canAssign: { type: Boolean, default: false },
@@ -26,6 +34,7 @@ defineEmits(['update-draft', 'assign', 'load-available'])
     :operation="operation"
     :draft="draft"
     :assignable-crew="assignableCrew"
+    :availability-state="availabilityState"
     :selected-crew-member="selectedCrewMember"
     :assignment-error="assignmentError"
     :can-assign="canAssign"

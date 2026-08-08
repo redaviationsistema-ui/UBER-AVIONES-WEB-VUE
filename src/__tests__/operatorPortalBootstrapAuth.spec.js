@@ -171,7 +171,7 @@ describe('operator portal bootstrap auth handling', () => {
     apiGetMock.mockRejectedValueOnce(Object.assign(new Error('Unauthorized requests'), { status: 401 }))
     revalidateSessionMock.mockResolvedValue({ id: 21 })
 
-    mount(buildHarness(), {
+    const wrapper = mount(buildHarness(), {
       props: {
         section: 'dashboard',
       },
@@ -185,12 +185,13 @@ describe('operator portal bootstrap auth handling', () => {
     expect(replaceMock).not.toHaveBeenCalledWith(
       expect.objectContaining({ name: 'acceso' }),
     )
-    expect(pushToastMock).toHaveBeenCalledWith(
+    expect(pushToastMock).not.toHaveBeenCalledWith(
       expect.objectContaining({
-        tone: 'error',
         title: 'No se pudo cargar la informacion operativa',
       }),
     )
+    expect(wrapper.vm.operationalInfoBubble.visible).toBe(true)
+    expect(wrapper.vm.operationalInfoBubble.title).toBe('No se pudo cargar la informacion operativa')
   })
 
   it('cleans the session only when the explicit session revalidation also returns 401', async () => {

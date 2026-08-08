@@ -304,6 +304,20 @@ function resolveGroupIcon(label) {
   return resolveIcon(iconMap[String(label || '').toLowerCase()] || 'grid')
 }
 
+function groupHasActiveItem(group = {}) {
+  return Array.isArray(group.items) && group.items.some((item) => isWorkspaceItemActive(item))
+}
+
+function resolveGroupContextLabel(group = {}) {
+  const activeItem = Array.isArray(group.items) ? group.items.find((item) => isWorkspaceItemActive(item)) : null
+
+  if (activeItem) {
+    return `${roleDisplayNames[activeRole.value] || 'Portal'} · ${activeItem.label}`
+  }
+
+  return `${Array.isArray(group.items) ? group.items.length : 0} modulos`
+}
+
 async function handleLogout() {
   auth.logout()
   workspaceMenuOpen.value = false
@@ -634,14 +648,13 @@ onBeforeUnmount(() => {
             <button
               type="button"
               class="menu-master-trigger button-reset admin-launcher-trigger"
+              :class="{ 'menu-master-trigger--current': groupHasActiveItem(group) }"
               :aria-expanded="(isAdminWorkspace ? adminLauncherKey === group.label : isMenuOpen('desktop', group.label)) ? 'true' : 'false'"
               @click.stop="isAdminWorkspace ? openAdminLauncher(group.label) : toggleMenu('desktop', group.label)"
             >
               <span class="menu-master-copy">
                 <strong>{{ group.label }}</strong>
-                <small v-if="!['admin', 'operator'].includes(activeRole)">{{
-                  group.items.find(isWorkspaceItemActive)?.label || `${group.items.length} modulos`
-                }}</small>
+                <small>{{ resolveGroupContextLabel(group) }}</small>
               </span>
               <span class="menu-master-caret"></span>
             </button>
@@ -998,6 +1011,11 @@ onBeforeUnmount(() => {
   background: var(--workspace-active, rgba(17, 17, 17, 0.06));
 }
 
+.menu-master-trigger--current {
+  border-color: var(--workspace-accent, rgba(17, 17, 17, 0.08));
+  background: var(--workspace-active, rgba(17, 17, 17, 0.06));
+}
+
 .menu-master-copy {
   display: grid;
   gap: 0.1rem;
@@ -1016,6 +1034,10 @@ onBeforeUnmount(() => {
   letter-spacing: 0.025em;
   text-transform: uppercase;
   opacity: 0.65;
+}
+
+.menu-master-trigger--current .menu-master-copy small {
+  opacity: 1;
 }
 
 .menu-master-caret {

@@ -147,6 +147,23 @@
   font: inherit;
 }
 
+.register-page .register-form label.has-error input,
+.register-page .register-form label.has-error select,
+.register-page .step-fields label.has-error input,
+.register-page .step-fields label.has-error select,
+.register-page .document-side-card.has-error,
+.register-page .identification-save-row.has-error {
+  border-color: #b42318;
+  box-shadow: 0 0 0 3px rgba(180, 35, 24, 0.12);
+}
+
+.register-page .field-error {
+  color: #b42318 !important;
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
 .register-page .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

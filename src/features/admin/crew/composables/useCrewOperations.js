@@ -41,6 +41,8 @@ export function useCrewOperations(props, { viewMode = 'operations' } = {}) {
   const assignmentDrafts = reactive({})
   const assignmentErrors = reactive({})
   const availableCrewCache = reactive({})
+  const availableCrewLookupAttempted = reactive({})
+  const availableCrewErrors = reactive({})
   const loadingAvailableCrew = reactive({})
 
   const normalizedCrewLookup = computed(() => {
@@ -350,9 +352,10 @@ export function useCrewOperations(props, { viewMode = 'operations' } = {}) {
 
   function assignableCrewMembers(operation = {}) {
     const cacheKey = availabilityQueryKey(operation)
-    const cached = availableCrewCache[cacheKey]
+    const lookupAttempted = availableCrewLookupAttempted[cacheKey] === true
+    const cached = Array.isArray(availableCrewCache[cacheKey]) ? availableCrewCache[cacheKey] : []
 
-    if (Array.isArray(cached) && cached.length) {
+    if (lookupAttempted) {
       const allowedIds = new Set(cached.map((member) => Number(member.id || 0)).filter(Boolean))
       return normalizedCrewMembers.value.filter(
         (member) => allowedIds.has(Number(member.id || 0)) && isCrewAssignableToOperation(member, operation),
@@ -366,8 +369,10 @@ export function useCrewOperations(props, { viewMode = 'operations' } = {}) {
     const range = operationDateRange(operation)
     const cacheKey = availabilityQueryKey(operation)
     if (!range.from || loadingAvailableCrew[cacheKey]) return
-    if (Array.isArray(availableCrewCache[cacheKey])) return
+    if (availableCrewLookupAttempted[cacheKey] === true && !availableCrewErrors[cacheKey]) return
 
+    availableCrewLookupAttempted[cacheKey] = true
+    availableCrewErrors[cacheKey] = ''
     loadingAvailableCrew[cacheKey] = true
     try {
       availableCrewCache[cacheKey] = await fetchAvailableCrewByRange({
@@ -375,8 +380,9 @@ export function useCrewOperations(props, { viewMode = 'operations' } = {}) {
         to: range.to,
         base: operationFlightBase(operation),
       })
-    } catch {
+    } catch (error) {
       delete availableCrewCache[cacheKey]
+      availableCrewErrors[cacheKey] = error?.message || 'No fue posible consultar disponibilidad'
     } finally {
       loadingAvailableCrew[cacheKey] = false
     }
@@ -384,6 +390,42 @@ export function useCrewOperations(props, { viewMode = 'operations' } = {}) {
 
   function isLoadingAvailableCrewForOperation(operation = {}) {
     return loadingAvailableCrew[availabilityQueryKey(operation)] === true
+  }
+
+  function availableCrewState(operation = {}) {
+    const cacheKey = availabilityQueryKey(operation)
+    const base = operationFlightBase(operation)
+    const assignableCrew = assignableCrewMembers(operation)
+
+    if (loadingAvailableCrew[cacheKey]) {
+      return {
+        kind: 'loading',
+        message: 'Consultando disponibilidad...',
+        disableSelect: true,
+      }
+    }
+
+    if (availableCrewErrors[cacheKey]) {
+      return {
+        kind: 'error',
+        message: 'No fue posible consultar disponibilidad',
+        disableSelect: false,
+      }
+    }
+
+    if (availableCrewLookupAttempted[cacheKey] === true && !assignableCrew.length) {
+      return {
+        kind: 'empty',
+        message: `No hay sobrecargos disponibles para ${base || 'esta operacion'}`,
+        disableSelect: true,
+      }
+    }
+
+    return {
+      kind: 'idle',
+      message: 'Selecciona sobrecargo',
+      disableSelect: false,
+    }
   }
 
   function validateAssignmentDraft(operation = {}) {
@@ -459,6 +501,7 @@ export function useCrewOperations(props, { viewMode = 'operations' } = {}) {
     assignableCrewMembers,
     ensureAvailableCrewForOperation,
     isLoadingAvailableCrewForOperation,
+    availableCrewState,
     validateAssignmentDraft,
     assignmentPayloadFor,
     updateOperationLocalState,

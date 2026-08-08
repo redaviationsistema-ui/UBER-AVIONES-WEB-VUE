@@ -210,13 +210,6 @@ function availabilityBlocksAssignment(entry = {}) {
   return ['NO_DISPONIBLE', 'DESCANSO', 'BLOQUEO_SOLICITADO', 'BLOQUEO_APROBADO', 'EN_OPERACION'].includes(normalized)
 }
 
-function adminAvailabilityMemberMatchesBase(member = {}, base = '') {
-  if (!base) return true
-  const normalizedBase = String(base || '').trim().toLowerCase()
-  const memberBase = String(member.base || member.base_airport || member.city || '').trim().toLowerCase()
-  return !normalizedBase || !memberBase || memberBase.includes(normalizedBase) || normalizedBase.includes(memberBase)
-}
-
 function normalizeAdminAvailableCrewMember(raw = {}) {
   const availability = pickCollection(raw, ['availability', 'disponibilidad', 'items']).map((item) =>
     normalizeAvailabilityRecord(item),
@@ -325,7 +318,6 @@ export async function fetchAvailableCrewByRange({ from = '', to = '', base = '' 
     return pickCollection(response, ['crew_members', 'sobrecargos', 'crew', 'users', 'data', 'items'])
       .map(normalizeAdminAvailableCrewMember)
       .filter((item) => item.id)
-      .filter((item) => adminAvailabilityMemberMatchesBase(item, base))
       .filter((item) => isAdminAvailableCrewMemberAssignable(item))
   } catch (error) {
     if (shouldIgnoreAvailableCrewLookupError(error)) {

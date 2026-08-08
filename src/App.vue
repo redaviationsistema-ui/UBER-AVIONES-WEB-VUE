@@ -24,6 +24,8 @@ import { computed, watchEffect } from 'vue'
 import { useRoute } from 'vue-router'
 import TopNav from './components/TopNav.vue'
 import ToastStack from './components/ToastStack.vue'
+import { normalizeAuthRole } from './lib/authRouting'
+import { resolveRoleSectionPath, roleSections } from './data/roleFlows'
 import { useAuthStore } from './stores/auth'
 
 const route = useRoute()
@@ -40,8 +42,80 @@ const shouldHoldInitialRender = computed(
     Boolean(route.meta.requiresAuth || route.meta.guestOnly || route.meta.redirectAuthenticated),
 )
 
+const roleDisplayNames = {
+  client: 'Cliente',
+  operator: 'Proveedor',
+  crew: 'Sobrecargo',
+  admin: 'Admin',
+}
+
+const publicRouteTitles = {
+  home: 'Sky Group',
+  servicios: 'Servicios',
+  plataforma: 'Plataforma',
+  membresias: 'Membresias',
+  cobertura: 'Cobertura',
+  ayuda: 'Ayuda',
+  'login-cliente': 'Acceso cliente',
+  login: 'Acceso operativo',
+  registro: 'Registro',
+  'contract-result': 'Contrato',
+  'access-denied': 'Acceso denegado',
+  'renta-aeronaves': 'Renta de aeronaves',
+  'membresias-comenzar': 'Comenzar membresia',
+  'membresias-registro': 'Registro empresarial',
+  'membresias-contacto': 'Contacto empresarial',
+  idioma: 'Idioma',
+}
+
+function resolveRouteRole() {
+  const routeRole = normalizeAuthRole(route.meta.role || '')
+  if (routeRole) return routeRole
+
+  const routeName = String(route.name || '').trim()
+  if (routeName.startsWith('cliente')) return 'client'
+  if (routeName.startsWith('operador')) return 'operator'
+  if (routeName.startsWith('crew') || routeName.startsWith('sobrecargo')) return 'crew'
+  if (routeName.startsWith('admin')) return 'admin'
+
+  return normalizeAuthRole(auth.effectiveRole || '')
+}
+
+function resolveCurrentSectionLabel(role) {
+  if (!role) return ''
+
+  const sections = roleSections[role] || []
+  const sectionFromParams = String(route.params.section || '').trim()
+  if (sectionFromParams) {
+    const matchedById = sections.find((item) => item.id === sectionFromParams)
+    if (matchedById) return matchedById.label
+  }
+
+  const matchedByPath = sections.find((item) => resolveRoleSectionPath(role, item) === route.path)
+  return matchedByPath?.label || sections[0]?.label || ''
+}
+
+const documentTitle = computed(() => {
+  const role = resolveRouteRole()
+  const sectionLabel = resolveCurrentSectionLabel(role)
+  const roleLabel = roleDisplayNames[role] || ''
+
+  if (roleLabel && sectionLabel) {
+    return `${roleLabel} · ${sectionLabel} | Sky Group`
+  }
+
+  if (roleLabel) {
+    return `${roleLabel} | Sky Group`
+  }
+
+  const routeName = String(route.name || '').trim()
+  const baseTitle = publicRouteTitles[routeName] || 'Sky Group'
+  return baseTitle === 'Sky Group' ? baseTitle : `${baseTitle} | Sky Group`
+})
+
 watchEffect(() => {
   document.body.classList.toggle('body-light-route', usesLightShell.value)
+  document.title = documentTitle.value
 })
 </script>
 

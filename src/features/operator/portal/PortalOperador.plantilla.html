@@ -317,7 +317,7 @@
     <section v-else-if="section === 'empresa'" class="page-grid two-columns operator-certification-luxury">
       <article class="surface company-shell">
         <div class="section-head">
-          <div>
+          <div class="company-shell-hero-copy">
             <p class="eyebrow">Perfil de empresa</p>
             <h2>{{ providerName }}</h2>
             <strong class="operator-certification-name">{{ providerName }}</strong>
@@ -326,15 +326,17 @@
               {{ companyStatusMeta.label }}
             </p>
           </div>
-          <div class="operator-certification-badges">
-            <span>{{ companyStatusMeta.label }}</span>
-            <span>{{ companyOperationalBase }}</span>
-            <span>{{ aircraft.length }} aeronaves</span>
-            <span>{{ activeAircraft }} activas</span>
+          <div class="company-shell-hero-meta">
+            <div class="operator-certification-badges">
+              <span>{{ companyStatusMeta.label }}</span>
+              <span>{{ companyOperationalBase }}</span>
+              <span>{{ aircraft.length }} aeronaves</span>
+              <span>{{ activeAircraft }} activas</span>
+            </div>
+            <span class="status-pill" :data-tone="companyStatusMeta.tone">{{
+              companyStatusMeta.label
+            }}</span>
           </div>
-          <span class="status-pill" :data-tone="companyStatusMeta.tone">{{
-            companyStatusMeta.label
-          }}</span>
         </div>
 
         <div class="company-progress-card">
@@ -394,14 +396,34 @@
                   formErrors.company.rfc
                 }}</small>
               </label>
-              <label>
+              <label class="company-airport-field">
                 <span>Base operativa principal</span>
                 <input
-                  v-model="companyForm.operationalBase"
+                  :value="companyForm.operationalBase"
                   type="text"
+                  autocomplete="off"
                   placeholder="Toluca / MMCN"
                   :class="{ 'input-error': formErrors.company.operationalBase }"
+                  @focus="scheduleCompanyBaseAirportSearch(companyForm.operationalBase)"
+                  @blur="window.setTimeout(closeCompanyBaseAirportOptions, 120)"
+                  @input="handleCompanyOperationalBaseInput"
                 />
+                <div
+                  v-if="companyBaseAirportLoading || (companyBaseAirportOptionsOpen && companyBaseAirportSuggestions.length)"
+                  class="company-airport-options"
+                >
+                  <span v-if="companyBaseAirportLoading">Buscando aeropuertos...</span>
+                  <button
+                    v-for="airport in companyBaseAirportSuggestions"
+                    v-else
+                    :key="`${airport.code}-${airport.iata}-${airport.name}`"
+                    type="button"
+                    @mousedown.prevent="selectCompanyOperationalBaseAirport(airport)"
+                  >
+                    <strong>{{ airport.city || airport.name || 'Aeropuerto' }}</strong>
+                    <small>{{ airport.code || airport.iata }}<template v-if="airport.iata && airport.code"> · {{ airport.iata }}</template></small>
+                  </button>
+                </div>
                 <small v-if="formErrors.company.operationalBase" class="field-error">{{
                   formErrors.company.operationalBase
                 }}</small>
@@ -549,6 +571,14 @@
             </div>
 
             <article class="company-doc-card company-doc-card--sat">
+              <transition name="company-doc-bubble">
+                <div
+                  v-if="getCompanyDocumentReminderBubble('sat_certificate')"
+                  class="company-doc-bubble"
+                >
+                  {{ getCompanyDocumentReminderBubble('sat_certificate') }}
+                </div>
+              </transition>
               <div class="company-doc-card__main">
                 <div>
                   <strong>{{ getCompanyDocumentDefinition('sat_certificate')?.label }}</strong>
@@ -567,7 +597,7 @@
               </div>
 
               <div class="company-doc-card__actions">
-                <label class="ghost-button company-doc-upload-button">
+                <label class="ghost-button company-doc-upload-button company-doc-action company-doc-action--upload">
                   <input
                     type="file"
                     class="upload-dropzone-input"
@@ -576,21 +606,21 @@
                   />
                   {{ companySatDocument ? 'Reemplazar archivo' : 'Subir archivo' }}
                 </label>
-                <button
-                  type="button"
-                  class="ghost-button"
-                  :disabled="!getCompanyDocumentDraft('sat_certificate').file"
-                  @click="uploadCompanyDocumentDraft('sat_certificate')"
-                >
-                  Guardar constancia
+                  <button
+                    type="button"
+                    class="ghost-button company-doc-action company-doc-action--save"
+                    :disabled="!getCompanyDocumentDraft('sat_certificate').file || isCompanyDocumentActionLoading('sat_certificate', 'save')"
+                    @click="uploadCompanyDocumentDraft('sat_certificate')"
+                  >
+                  {{ isCompanyDocumentActionLoading('sat_certificate', 'save') ? 'Guardando...' : 'Guardar constancia' }}
                 </button>
-                <button
-                  type="button"
-                  class="ghost-button"
-                  :disabled="!companySatDocument"
-                  @click="openCompanyDocument(companySatDocument)"
-                >
-                  Ver archivo
+                  <button
+                    type="button"
+                    class="ghost-button company-doc-action company-doc-action--view"
+                    :disabled="!companySatDocument || isCompanyDocumentActionLoading('sat_certificate', 'view')"
+                    @click="handleOpenCompanyDocument('sat_certificate', companySatDocument)"
+                  >
+                  {{ isCompanyDocumentActionLoading('sat_certificate', 'view') ? 'Abriendo...' : 'Ver archivo' }}
                 </button>
               </div>
 
@@ -616,6 +646,14 @@
                 :key="definition.id"
                 class="company-doc-card"
               >
+                <transition name="company-doc-bubble">
+                  <div
+                    v-if="getCompanyDocumentReminderBubble(definition.id)"
+                    class="company-doc-bubble"
+                  >
+                    {{ getCompanyDocumentReminderBubble(definition.id) }}
+                  </div>
+                </transition>
                 <div class="company-doc-card__main">
                   <div>
                     <strong>{{ definition.label }}</strong>
@@ -641,7 +679,7 @@
                 </div>
 
                 <div class="company-doc-card__actions">
-                  <label class="ghost-button company-doc-upload-button">
+                  <label class="ghost-button company-doc-upload-button company-doc-action company-doc-action--upload">
                     <input
                       type="file"
                       class="upload-dropzone-input"
@@ -652,19 +690,19 @@
                   </label>
                   <button
                     type="button"
-                    class="ghost-button"
-                    :disabled="!getCompanyDocumentDraft(definition.id).file"
+                    class="ghost-button company-doc-action company-doc-action--save"
+                    :disabled="!getCompanyDocumentDraft(definition.id).file || isCompanyDocumentActionLoading(definition.id, 'save')"
                     @click="uploadCompanyDocumentDraft(definition.id)"
                   >
-                    Guardar
+                    {{ isCompanyDocumentActionLoading(definition.id, 'save') ? 'Guardando...' : 'Guardar' }}
                   </button>
                   <button
                     type="button"
-                    class="ghost-button"
-                    :disabled="!companyDocumentsByDefinition[definition.id]"
-                    @click="openCompanyDocument(companyDocumentsByDefinition[definition.id])"
+                    class="ghost-button company-doc-action company-doc-action--view"
+                    :disabled="!companyDocumentsByDefinition[definition.id] || isCompanyDocumentActionLoading(definition.id, 'view')"
+                    @click="handleOpenCompanyDocument(definition.id, companyDocumentsByDefinition[definition.id])"
                   >
-                    Ver archivo
+                    {{ isCompanyDocumentActionLoading(definition.id, 'view') ? 'Abriendo...' : 'Ver archivo' }}
                   </button>
                 </div>
 
@@ -753,6 +791,18 @@
       </article>
 
       <article class="surface company-status-shell">
+        <transition name="company-doc-bubble">
+          <div
+            v-if="operationalInfoBubble.visible"
+            class="company-status-bubble"
+            role="status"
+            aria-live="polite"
+          >
+            <strong>{{ operationalInfoBubble.title }}</strong>
+            <span>{{ operationalInfoBubble.message }}</span>
+          </div>
+        </transition>
+
         <div class="section-head">
           <div>
             <p class="eyebrow">Operator Validation Center</p>

@@ -2108,8 +2108,8 @@ async function loadCrewMembers(options = {}) {
   crewMembersRequestPromise = (async () => {
     const crewResult = await requestWithCandidates(
       [
-        { method: 'get', path: '/admin/sobrecargos', timeoutMs },
-        { method: 'get', path: '/admin/crew', timeoutMs },
+        { method: 'get', path: '/admin/sobrecargos', query: { skip_total: 1 }, timeoutMs },
+        { method: 'get', path: '/admin/crew', query: { skip_total: 1 }, timeoutMs },
       ],
       { signal: options.signal },
     )

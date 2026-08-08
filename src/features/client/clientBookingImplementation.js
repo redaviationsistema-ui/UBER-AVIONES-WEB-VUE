@@ -3227,6 +3227,7 @@ export async function saveClientAssistedPayment(
     })),
   )
 
+  
   return normalizeClientReservationResponse(payload, requestPayload, normalizedReservationId, {})
 }
 

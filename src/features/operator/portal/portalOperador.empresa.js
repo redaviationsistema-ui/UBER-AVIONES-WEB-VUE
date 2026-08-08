@@ -61,6 +61,7 @@ export function createOperatorPortalCompanyHelpers({
     companyForm.email = company.email
     companyForm.address = company.address
     companyForm.operationalBase = company.base
+    companyForm.operationalBaseCode = company.base
     companyForm.legalRepresentative = company.legalRepresentative
     companyForm.jetAPrice = company.jetAPrice
     companyForm.marginPercent = company.marginPercent

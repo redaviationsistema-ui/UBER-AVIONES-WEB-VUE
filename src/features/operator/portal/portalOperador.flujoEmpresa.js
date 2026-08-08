@@ -99,6 +99,9 @@ export function hasCompanyFieldErrors(errors = {}) {
 }
 
 export function buildCompanyPayload(companyForm = {}, normalizedRfc = '') {
+  const operationalBaseLabel = String(companyForm.operationalBase || '').trim()
+  const operationalBaseCode = String(companyForm.operationalBaseCode || operationalBaseLabel).trim()
+
   return {
     legal_name: companyForm.legalName,
     rfc: normalizedRfc,
@@ -106,8 +109,8 @@ export function buildCompanyPayload(companyForm = {}, normalizedRfc = '') {
     phone: companyForm.phone,
     email: companyForm.email,
     address: companyForm.address,
-    base: companyForm.operationalBase,
-    base_airport: companyForm.operationalBase,
+    base: operationalBaseLabel,
+    base_airport: operationalBaseCode,
     representative_name: companyForm.legalRepresentative,
     legal_representative: companyForm.legalRepresentative,
     jet_a_price: normalizeCompanyNumericValue(companyForm.jetAPrice),

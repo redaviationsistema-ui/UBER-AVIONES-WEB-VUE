@@ -501,6 +501,15 @@
   font-size: 0.82rem;
 }
 
+.helper-copy--highlight {
+  color: #9a6700;
+  font-weight: 700;
+}
+
+.helper-copy--highlight strong {
+  color: #7c5a00;
+}
+
 .form-feedback {
   margin: 1rem 0 0;
   padding: 0.85rem 1rem;

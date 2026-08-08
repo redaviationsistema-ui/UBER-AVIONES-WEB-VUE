@@ -5,6 +5,14 @@ defineProps({
   operation: { type: Object, default: null },
   draft: { type: Object, default: null },
   assignableCrew: { type: Array, default: () => [] },
+  availabilityState: {
+    type: Object,
+    default: () => ({
+      kind: 'idle',
+      message: 'Selecciona sobrecargo',
+      disableSelect: false,
+    }),
+  },
   selectedCrewMember: { type: Object, default: null },
   assignmentError: { type: String, default: '' },
   assignmentSuccessMessage: { type: String, default: '' },
@@ -117,16 +125,16 @@ defineEmits(['update-draft', 'assign', 'load-available'])
           <span>Sobrecargo</span>
           <select
             :value="draft.crewId"
-            :disabled="isClosed || !canAssign"
+            :disabled="isClosed || !canAssign || availabilityState.disableSelect"
             @focus="$emit('load-available', operation.id)"
             @change="$emit('update-draft', operation.id, 'crewId', $event.target.value)"
           >
-            <option value="">Selecciona sobrecargo</option>
+            <option value="">{{ availabilityState.message }}</option>
             <option v-for="member in assignableCrew" :key="member.id" :value="member.id">
               {{ member.name }} · {{ member.base || 'Sin base' }}
             </option>
           </select>
-          <small v-if="loadingAvailableCrew" class="muted">Consultando disponibilidad real...</small>
+          <small v-if="availabilityState.kind !== 'idle'" class="muted">{{ availabilityState.message }}</small>
         </label>
 
         <label class="field">

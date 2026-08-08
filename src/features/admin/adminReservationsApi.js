@@ -585,6 +585,7 @@ export async function getAdminReservations(options = {}) {
     ADMIN_REQUESTS_PATH_CANDIDATES.map((path) => ({
       method: 'get',
       path,
+      query: { skip_total: 1 },
       timeoutMs: options.timeoutMs,
     })),
     { signal: options.signal },

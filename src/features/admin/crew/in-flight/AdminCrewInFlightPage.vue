@@ -104,10 +104,17 @@ const selectedDraft = computed(() =>
 <template>
   <section class="crew-workspace">
     <header class="section-head workspace-head">
-      <div>
-        <p class="eyebrow">Seguimiento activo</p>
-        <h3>Sobrecargos en vuelo</h3>
-        <p class="muted">Esta vista solo muestra operaciones activas segun el estado real del vuelo.</p>
+      <div class="workspace-hero">
+        <div class="workspace-hero__copy">
+          <p class="eyebrow">Seguimiento activo</p>
+          <h3>Sobrecargos en vuelo</h3>
+          <p class="muted">Monitorea operaciones vivas, detecta respuestas pendientes y mantén el pulso operativo sin cambiar de módulo.</p>
+        </div>
+        <div class="workspace-hero__callout">
+          <span>Cabina en tiempo real</span>
+          <strong>{{ controller.filteredOperations.length }}</strong>
+          <small>operaciones activas visibles ahora</small>
+        </div>
       </div>
     </header>
 
@@ -177,6 +184,7 @@ const selectedDraft = computed(() =>
         :operation="controller.selectedOperation"
         :draft="selectedDraft"
         :assignable-crew="controller.assignableCrewMembers(controller.selectedOperation)"
+        :availability-state="controller.availableCrewState(controller.selectedOperation)"
         :selected-crew-member="controller.selectedDraftCrew(controller.selectedOperation)"
         :assignment-error="controller.assignmentErrors[controller.selectedOperation.id] || ''"
         :can-assign="controller.canAssignCrew(controller.selectedOperation)"
@@ -199,12 +207,140 @@ const selectedDraft = computed(() =>
 <style scoped>
 .crew-workspace {
   display: grid;
+  gap: 1.15rem;
+  color: #000;
+  padding: 0.25rem 0 1rem;
+  --crew-page-bg:
+    radial-gradient(circle at top left, rgba(202, 223, 255, 0.72), transparent 28%),
+    radial-gradient(circle at top right, rgba(255, 231, 183, 0.58), transparent 24%),
+    linear-gradient(180deg, #eef4ff 0%, #e8f0fb 45%, #edf3ff 100%);
+}
+
+.crew-workspace :deep(*),
+.crew-workspace :deep(h1),
+.crew-workspace :deep(h2),
+.crew-workspace :deep(h3),
+.crew-workspace :deep(h4),
+.crew-workspace :deep(p),
+.crew-workspace :deep(span),
+.crew-workspace :deep(strong),
+.crew-workspace :deep(small),
+.crew-workspace :deep(label),
+.crew-workspace :deep(th),
+.crew-workspace :deep(td),
+.crew-workspace :deep(button),
+.crew-workspace :deep(input),
+.crew-workspace :deep(select),
+.crew-workspace :deep(textarea),
+.crew-workspace :deep(option) {
+  color: #000;
+}
+
+.crew-workspace :deep(input::placeholder),
+.crew-workspace :deep(textarea::placeholder) {
+  color: rgba(0, 0, 0, 0.68);
+  opacity: 1;
+}
+
+.workspace-head {
+  position: relative;
+  overflow: hidden;
+  padding: 1.4rem 1.45rem;
+  border-radius: 34px;
+  border: 1px solid rgba(197, 211, 237, 0.65);
+  background: var(--crew-page-bg);
+  box-shadow: 0 34px 60px rgba(36, 63, 98, 0.09);
+}
+
+.workspace-head::after {
+  content: '';
+  position: absolute;
+  right: -3rem;
+  top: -2rem;
+  width: 220px;
+  height: 220px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.46);
+  filter: blur(4px);
+}
+
+.workspace-hero {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(220px, 0.65fr);
   gap: 1rem;
+  align-items: stretch;
+}
+
+.workspace-hero__copy {
+  display: grid;
+  align-content: center;
+  gap: 0.45rem;
+}
+
+.workspace-head .eyebrow {
+  margin: 0;
+  font-size: 0.76rem;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #c08a24;
+}
+
+.workspace-head h3 {
+  margin: 0;
+  font-size: clamp(2rem, 3.2vw, 2.8rem);
+  line-height: 0.98;
+  color: #10233d;
+}
+
+.workspace-head .muted {
+  margin: 0;
+  max-width: 46rem;
+  font-size: 1rem;
+  line-height: 1.6;
+  color: #536984;
+}
+
+.workspace-hero__callout {
+  display: grid;
+  align-content: center;
+  justify-items: start;
+  gap: 0.3rem;
+  padding: 1rem 1.1rem;
+  border-radius: 26px;
+  border: 1px solid rgba(177, 197, 232, 0.42);
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(10px);
+}
+
+.workspace-hero__callout span {
+  font-size: 0.75rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #5e79a0;
+}
+
+.workspace-hero__callout strong {
+  font-size: clamp(2rem, 3vw, 2.6rem);
+  line-height: 1;
+  color: #16345d;
+}
+
+.workspace-hero__callout small {
+  color: #5d7391;
 }
 
 .tabs-strip {
   display: flex;
   gap: 0.75rem;
+  padding: 0.4rem;
+  border-radius: 22px;
+  border: 1px solid rgba(195, 209, 233, 0.5);
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(10px);
 }
 
 .tab-button {
@@ -214,23 +350,50 @@ const selectedDraft = computed(() =>
   padding: 0.75rem 1rem;
   border-radius: 999px;
   border: 1px solid rgba(154, 176, 215, 0.25);
-  background: #fff;
+  background: transparent;
   cursor: pointer;
+  color: #35527e;
+  font-weight: 800;
+  transition: background 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.tab-button:hover {
+  transform: translateY(-1px);
 }
 
 .tab-button--active {
-  background: #eaf2ff;
+  background: linear-gradient(180deg, #eff5ff, #e2ecff);
+  box-shadow: 0 10px 22px rgba(53, 90, 145, 0.14);
 }
 
 .workspace-grid {
   display: grid;
-  gap: 1rem;
+  gap: 1.1rem;
   grid-template-columns: minmax(0, 1.15fr) minmax(340px, 0.85fr);
 }
 
 @media (max-width: 1100px) {
+  .workspace-hero {
+    grid-template-columns: 1fr;
+  }
+
   .workspace-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .workspace-head {
+    padding: 1.1rem 1rem;
+    border-radius: 26px;
+  }
+
+  .workspace-head h3 {
+    font-size: 1.8rem;
+  }
+
+  .tabs-strip {
+    overflow: auto;
   }
 }
 </style>

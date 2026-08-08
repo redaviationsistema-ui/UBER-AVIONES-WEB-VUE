@@ -39,6 +39,8 @@ import { getAdminReservations } from '../../admin/adminReservationsApi'
 import { deriveClientWorkflowStatus } from '../../client/clientBookingApi'
 import { useAuthStore } from '../../../stores/auth'
 import { useUiStore } from '../../../stores/ui'
+import { searchAirports } from '../../../lib/airportSearch'
+import { formatAirportOption } from '../../../utils/airports'
 import {
   buildRequestFullRoute,
   buildRealtimeRequestPayload,
@@ -561,6 +563,7 @@ const companyForm = reactive({
   email: '',
   address: '',
   operationalBase: '',
+  operationalBaseCode: '',
   legalRepresentative: '',
   jetAPrice: '',
   marginPercent: '',
@@ -569,7 +572,23 @@ const companyForm = reactive({
   newDocumentName: '',
 })
 
+const companyBaseAirportSuggestions = ref([])
+const companyBaseAirportLoading = ref(false)
+const companyBaseAirportOptionsOpen = ref(false)
+const companyBaseAirportHydrating = ref(false)
+let companyBaseAirportSearchTimer = null
+let companyBaseAirportHydrationRequest = 0
+
 const companyDocumentDrafts = reactive({})
+const companyDocumentActionLoading = reactive({})
+const companyDocumentReminderBubble = reactive({})
+const companyDocumentReminderTimers = new Map()
+const operationalInfoBubble = reactive({
+  visible: false,
+  title: '',
+  message: '',
+})
+let operationalInfoBubbleTimer = null
 
 const aircraftForm = reactive({
   name: '',
@@ -5187,6 +5206,130 @@ function normalizeAircraftYear(value) {
   return String(year)
 }
 
+function clearCompanyBaseAirportTimer() {
+  if (companyBaseAirportSearchTimer && typeof window !== 'undefined') {
+    window.clearTimeout(companyBaseAirportSearchTimer)
+  }
+  companyBaseAirportSearchTimer = null
+}
+
+function closeCompanyBaseAirportOptions() {
+  companyBaseAirportOptionsOpen.value = false
+}
+
+function resolveCompanyBaseAirportLabel(airport) {
+  const city = String(airport?.city || '').trim()
+  const primaryCode = String(airport?.code || airport?.iata || '').trim()
+
+  if (city && primaryCode) return `${city} / ${primaryCode}`
+  return formatAirportOption(airport)
+}
+
+function normalizeAirportReference(value = '') {
+  return String(value || '').trim().toUpperCase()
+}
+
+function looksLikeAirportCode(value = '') {
+  return /^[A-Z]{3,4}$/.test(normalizeAirportReference(value))
+}
+
+async function hydrateCompanyOperationalBaseDisplay() {
+  const rawCode = String(companyForm.operationalBaseCode || companyForm.operationalBase || '').trim()
+  const normalizedCode = normalizeAirportReference(rawCode)
+
+  if (!looksLikeAirportCode(normalizedCode)) return
+
+  const currentRequest = ++companyBaseAirportHydrationRequest
+  companyBaseAirportHydrating.value = true
+
+  try {
+    const result = await searchAirports(normalizedCode, 10)
+    if (currentRequest !== companyBaseAirportHydrationRequest) return
+
+    const items = Array.isArray(result?.items) ? result.items : []
+    const matchedAirport =
+      items.find((airport) => normalizeAirportReference(airport?.code) === normalizedCode) ||
+      items.find((airport) => normalizeAirportReference(airport?.iata) === normalizedCode) ||
+      null
+
+    if (!matchedAirport) return
+
+    companyForm.operationalBase = resolveCompanyBaseAirportLabel(matchedAirport)
+    companyForm.operationalBaseCode = String(
+      matchedAirport?.code || matchedAirport?.iata || normalizedCode,
+    ).trim()
+  } catch {
+    // Keep the existing code/value when airport hydration is not available.
+  } finally {
+    if (currentRequest === companyBaseAirportHydrationRequest) {
+      companyBaseAirportHydrating.value = false
+    }
+  }
+}
+
+function scheduleCompanyBaseAirportSearch(query) {
+  clearCompanyBaseAirportTimer()
+
+  const trimmedQuery = String(query || '').trim()
+  if (!trimmedQuery) {
+    companyBaseAirportSuggestions.value = []
+    companyBaseAirportLoading.value = false
+    companyBaseAirportOptionsOpen.value = false
+    return
+  }
+
+  companyBaseAirportLoading.value = true
+  companyBaseAirportOptionsOpen.value = true
+
+  companyBaseAirportSearchTimer = window.setTimeout(async () => {
+    try {
+      const result = await searchAirports(trimmedQuery, 6)
+      companyBaseAirportSuggestions.value = Array.isArray(result?.items) ? result.items : []
+      companyBaseAirportOptionsOpen.value = companyBaseAirportSuggestions.value.length > 0
+    } catch {
+      companyBaseAirportSuggestions.value = []
+      companyBaseAirportOptionsOpen.value = false
+    } finally {
+      companyBaseAirportLoading.value = false
+      companyBaseAirportSearchTimer = null
+    }
+  }, 220)
+}
+
+function handleCompanyOperationalBaseInput(event) {
+  const value = event?.target?.value || ''
+  companyForm.operationalBase = value
+  companyForm.operationalBaseCode = ''
+  formErrors.company.operationalBase = ''
+  scheduleCompanyBaseAirportSearch(value)
+}
+
+function selectCompanyOperationalBaseAirport(airport) {
+  companyForm.operationalBase = resolveCompanyBaseAirportLabel(airport)
+  companyForm.operationalBaseCode = String(airport?.code || airport?.iata || '').trim()
+  formErrors.company.operationalBase = ''
+  companyBaseAirportSuggestions.value = []
+  companyBaseAirportOptionsOpen.value = false
+}
+
+watch(
+  () => [companyForm.operationalBase, companyForm.operationalBaseCode],
+  ([nextBase, nextBaseCode]) => {
+    if (companyBaseAirportOptionsOpen.value || companyBaseAirportHydrating.value) return
+
+    const visibleValue = String(nextBase || '').trim()
+    const storedCode = String(nextBaseCode || '').trim()
+    const needsHydration =
+      (storedCode && looksLikeAirportCode(storedCode) && visibleValue === storedCode) ||
+      (!storedCode && looksLikeAirportCode(visibleValue))
+
+    if (!needsHydration) return
+
+    void hydrateCompanyOperationalBaseDisplay()
+  },
+  { immediate: true },
+)
+
 function resolveAircraftYearNumber(value) {
   const normalizedYear = normalizeAircraftYear(value)
   return normalizedYear ? Number(normalizedYear) : null
@@ -7107,10 +7250,85 @@ function setCompanyDocumentDraft(definitionId, file) {
     file: file || null,
     name: file?.name || '',
   }
+
+  if (file instanceof File) {
+    showCompanyDocumentReminderBubble(
+      definitionId,
+      definitionId === 'sat_certificate'
+        ? 'No olvides presionar "Guardar constancia".'
+        : 'No olvides presionar "Guardar".',
+    )
+  }
 }
 
 function getCompanyDocumentDraft(definitionId) {
   return companyDocumentDrafts[definitionId] || { file: null, name: '' }
+}
+
+function setCompanyDocumentActionLoading(definitionId, action, value) {
+  if (!definitionId || !action) return
+  companyDocumentActionLoading[`${definitionId}:${action}`] = Boolean(value)
+}
+
+function isCompanyDocumentActionLoading(definitionId, action) {
+  if (!definitionId || !action) return false
+  return companyDocumentActionLoading[`${definitionId}:${action}`] === true
+}
+
+function clearCompanyDocumentReminderTimer(definitionId) {
+  const activeTimer = companyDocumentReminderTimers.get(definitionId)
+  if (activeTimer && typeof window !== 'undefined') {
+    window.clearTimeout(activeTimer)
+  }
+  companyDocumentReminderTimers.delete(definitionId)
+}
+
+function showCompanyDocumentReminderBubble(definitionId, message = '') {
+  if (!definitionId || !message) return
+
+  clearCompanyDocumentReminderTimer(definitionId)
+  companyDocumentReminderBubble[definitionId] = message
+
+  if (typeof window !== 'undefined') {
+    const timerId = window.setTimeout(() => {
+      companyDocumentReminderBubble[definitionId] = ''
+      companyDocumentReminderTimers.delete(definitionId)
+    }, 3600)
+    companyDocumentReminderTimers.set(definitionId, timerId)
+  }
+}
+
+function getCompanyDocumentReminderBubble(definitionId) {
+  return companyDocumentReminderBubble[definitionId] || ''
+}
+
+function clearOperationalInfoBubbleTimer() {
+  if (operationalInfoBubbleTimer && typeof window !== 'undefined') {
+    window.clearTimeout(operationalInfoBubbleTimer)
+  }
+  operationalInfoBubbleTimer = null
+}
+
+function hideOperationalInfoBubble() {
+  clearOperationalInfoBubbleTimer()
+  operationalInfoBubble.visible = false
+  operationalInfoBubble.title = ''
+  operationalInfoBubble.message = ''
+}
+
+function showOperationalInfoBubble(title, message) {
+  if (!title || !message) return
+
+  clearOperationalInfoBubbleTimer()
+  operationalInfoBubble.visible = true
+  operationalInfoBubble.title = title
+  operationalInfoBubble.message = message
+
+  if (typeof window !== 'undefined') {
+    operationalInfoBubbleTimer = window.setTimeout(() => {
+      hideOperationalInfoBubble()
+    }, 4200)
+  }
 }
 
 function validateCompanyDocumentDraft(file, definitionId = '') {
@@ -7183,6 +7401,8 @@ async function reloadCompany() {
 }
 
 async function uploadCompanyDocument(options = {}) {
+  const pendingDocumentsSnapshot =
+    options.preservePendingDrafts === false ? null : capturePendingCompanyDocumentState()
   const file = options.file || companyForm.newDocumentFile
   if (!(file instanceof File)) return false
 
@@ -7209,6 +7429,9 @@ async function uploadCompanyDocument(options = {}) {
   const companyRecord = pickRecord(response, ['provider', 'company', 'empresa'])
   if (companyRecord && Object.keys(companyRecord).length) {
     hydrateCompany(companyRecord)
+    if (pendingDocumentsSnapshot) {
+      restorePendingCompanyDocumentState(pendingDocumentsSnapshot)
+    }
     return true
   }
 
@@ -7216,10 +7439,16 @@ async function uploadCompanyDocument(options = {}) {
   if (documentRecord && Object.keys(documentRecord).length) {
     company.documents.unshift(normalizeCompanyDocument(documentRecord, company.documents.length))
     syncCompanyForm()
+    if (pendingDocumentsSnapshot) {
+      restorePendingCompanyDocumentState(pendingDocumentsSnapshot)
+    }
     return true
   }
 
   await reloadCompany()
+  if (pendingDocumentsSnapshot) {
+    restorePendingCompanyDocumentState(pendingDocumentsSnapshot)
+  }
   return true
 }
 
@@ -7238,18 +7467,24 @@ async function uploadCompanyDocumentDraft(definitionId) {
   }
 
   const existingDocument = companyDocumentsByDefinition.value[definitionId]
-  await uploadCompanyDocument({
-    file: draft.file,
-    documentType: definitionId,
-    documentName: definition.label,
-    existingDocumentId: existingDocument?.id || '',
-  })
-  clearCompanyDocumentDraft(definitionId)
-  setFormErrors('company', {
-    ...formErrors.company,
-    [definitionId]: '',
-  })
-  return true
+  setCompanyDocumentActionLoading(definitionId, 'save', true)
+
+  try {
+    await uploadCompanyDocument({
+      file: draft.file,
+      documentType: definitionId,
+      documentName: definition.label,
+      existingDocumentId: existingDocument?.id || '',
+    })
+    clearCompanyDocumentDraft(definitionId)
+    setFormErrors('company', {
+      ...formErrors.company,
+      [definitionId]: '',
+    })
+    return true
+  } finally {
+    setCompanyDocumentActionLoading(definitionId, 'save', false)
+  }
 }
 
 async function uploadPendingCompanyDocuments() {
@@ -7418,6 +7653,20 @@ function openCompanyDocument(document = null) {
   const targetUrl = document?.downloadUrl || document?.url || ''
   if (!targetUrl || typeof window === 'undefined') return
   window.open(targetUrl, '_blank', 'noopener,noreferrer')
+}
+
+async function handleOpenCompanyDocument(definitionId, document = null) {
+  if (!document || !definitionId) return
+
+  setCompanyDocumentActionLoading(definitionId, 'view', true)
+
+  try {
+    await Promise.resolve()
+    openCompanyDocument(document)
+    await new Promise((resolve) => window.setTimeout(resolve, 240))
+  } finally {
+    setCompanyDocumentActionLoading(definitionId, 'view', false)
+  }
 }
 
 async function openCompanyDocumentDrawer(document = null) {
@@ -9739,9 +9988,9 @@ async function runPortalBootstrap() {
         throw sessionError
       }
 
-      showError(
+      showOperationalInfoBubble(
         'No se pudo cargar la informacion operativa',
-        'Tu sesion sigue activa. Intenta nuevamente o verifica tus permisos para los endpoints operativos del proveedor.',
+        'Tu sesion sigue activa. Es posible que la activacion operativa o la revision de tu expediente aun este pendiente. Intenta nuevamente en unos minutos.',
       )
       return
     }
@@ -11899,6 +12148,14 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  clearCompanyBaseAirportTimer()
+  companyDocumentReminderTimers.forEach((timerId) => {
+    if (typeof window !== 'undefined') {
+      window.clearTimeout(timerId)
+    }
+  })
+  companyDocumentReminderTimers.clear()
+  clearOperationalInfoBubbleTimer()
   clearRequestsPolling()
   unsubscribeProviderFlightRequests()
   clearProviderOperationalReleaseAutosaveTimer()
@@ -12083,6 +12340,12 @@ watch(
       selectedAvailabilityCalendarAircraftId,
       availabilityWeekAnchor,
       companyForm,
+      companyBaseAirportSuggestions,
+      companyBaseAirportLoading,
+      companyBaseAirportOptionsOpen,
+      companyDocumentActionLoading,
+      companyDocumentReminderBubble,
+      operationalInfoBubble,
       savingCompany,
       sendingCompanyToReview,
       aircraftForm,
@@ -12105,6 +12368,14 @@ watch(
       crewForm,
       formErrors,
       formSuccess,
+      closeCompanyBaseAirportOptions,
+      scheduleCompanyBaseAirportSearch,
+      handleCompanyOperationalBaseInput,
+      selectCompanyOperationalBaseAirport,
+      isCompanyDocumentActionLoading,
+      getCompanyDocumentReminderBubble,
+      hideOperationalInfoBubble,
+      handleOpenCompanyDocument,
       aircraftWizardOpen,
       aircraftWizardStep,
       aircraftWizardStepError,

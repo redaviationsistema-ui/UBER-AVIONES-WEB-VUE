@@ -25,6 +25,7 @@ describe('operator portal company flow helpers', () => {
         isValidRfc: false,
       },
     )
+   
 
     expect(errors.legalName).toContain('razon social')
     expect(errors.tradeName).toContain('nombre comercial')
@@ -92,7 +93,8 @@ describe('operator portal company flow helpers', () => {
         phone: '5551234567',
         email: 'ops@skynorte.test',
         address: 'Av. Reforma 100',
-        operationalBase: 'Toluca',
+        operationalBase: 'Toluca / MMTO',
+        operationalBaseCode: 'MMTO',
         legalRepresentative: 'Laura Gomez',
         jetAPrice: '21.5',
         marginPercent: '',
@@ -107,6 +109,8 @@ describe('operator portal company flow helpers', () => {
       legal_name: 'Operadora del Norte',
       commercial_name: 'Sky Norte',
       rfc: 'AAA010101AAA',
+      base: 'Toluca / MMTO',
+      base_airport: 'MMTO',
       representative_name: 'Laura Gomez',
       legal_representative: 'Laura Gomez',
       jet_a_price: 21.5,
