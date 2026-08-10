@@ -116,7 +116,12 @@ import {
   hasCompanyFieldErrors,
   sanitizeCompanyPayloadForSave,
 } from './portalOperador.flujoEmpresa'
-import { buildAircraftPayload, buildAircraftWizardStepErrors } from './utilidadesWizardAeronave'
+import {
+  buildAircraftMutationCandidates,
+  buildAircraftPayload,
+  resolveAircraftMutationBackendErrorMessage,
+  buildAircraftWizardStepErrors,
+} from './utilidadesWizardAeronave'
 
 export {
   findOperatorRequestByIdentifier,
@@ -4792,7 +4797,31 @@ function requestBelongsToCurrentProvider(request = {}) {
   return candidates.some((value) => providerReferences.has(value))
 }
 
+function hasAdminRequestsFallbackAccess() {
+  const roleCandidates = [
+    auth.user?.operational_role,
+    auth.user?.operationalRole,
+    auth.user?.role,
+    auth.user?.role_name,
+    auth.user?.effective_role,
+    auth.user?.effectiveRole,
+    ...(Array.isArray(auth.user?.roles)
+      ? auth.user.roles.map((role) => role?.code || role?.key || role?.name || role)
+      : []),
+  ]
+
+  return roleCandidates.some((role) =>
+    ['admin', 'administrador', 'administrator', 'super_admin', 'backoffice'].includes(
+      String(role || '').trim().toLowerCase(),
+    ),
+  )
+}
+
 async function fetchFallbackProviderRequests(timeoutMs = OPERATOR_SECTION_TIMEOUT_MS) {
+  if (!hasAdminRequestsFallbackAccess()) {
+    return []
+  }
+
   try {
     const reservations = await getAdminReservations({ timeoutMs })
     const filteredReservations = reservations.filter((request) =>
@@ -5386,9 +5415,16 @@ function normalizeAircraft(raw = {}, index = 0) {
   )
 
   const derivedApproved =
-    Boolean(raw.approved_at || raw.approved || raw.is_approved) ||
+    Boolean(
+      raw.approved_at ||
+      raw.approved ||
+      raw.is_approved ||
+      raw.review?.approved ||
+      raw.aircraft_state?.review?.approved ||
+      raw.aircraftState?.review?.approved,
+    ) ||
     validationStatus === 'approved' ||
-    ['active', 'trial_active', 'approved', 'aprobada', 'aprobado', 'inactive', 'inactiva'].includes(statusRaw)
+    ['active', 'trial_active', 'approved', 'aprobada', 'aprobado'].includes(statusRaw)
 
   return {
     id: raw.id || index + 1,
@@ -8092,21 +8128,22 @@ const AIRCRAFT_DOCUMENT_REQUIREMENT_ALIASES = {
   seguro: 'insurance',
   poliza: 'insurance',
   poliza_seguro: 'insurance',
-  maintenance_sticker: 'maintenance',
-  maintenance_sticker_document: 'maintenance',
-  maintenance: 'maintenance',
-  mantenimiento: 'maintenance',
-  flight_logbook: 'maintenance',
-  logbook: 'maintenance',
-  bitacora_vuelo: 'maintenance',
-  bitacora: 'maintenance',
+  maintenance_sticker: 'maintenance_sticker',
+  maintenance_sticker_document: 'maintenance_sticker',
+  maintenance: 'maintenance_sticker',
+  mantenimiento: 'maintenance_sticker',
+  flight_logbook: 'flight_logbook',
+  logbook: 'flight_logbook',
+  bitacora_vuelo: 'flight_logbook',
+  bitacora: 'flight_logbook',
 }
 
 const AIRCRAFT_REQUIRED_DOCUMENTS = [
   { key: 'airworthiness_certificate', label: 'Certificado de aeronavegabilidad' },
   { key: 'registration', label: 'Matricula' },
   { key: 'insurance', label: 'Seguro' },
-  { key: 'maintenance', label: 'Mantenimiento' },
+  { key: 'maintenance_sticker', label: 'Sticker de mantenimiento' },
+  { key: 'flight_logbook', label: 'Bitacora de vuelo' },
 ]
 
 function normalizeAircraftRequirementKey(value = '') {
@@ -8476,6 +8513,16 @@ function getAircraftCommercialState(item = {}, provider = companyStatusMeta.valu
 }
 
 function getAircraftLiveStatus(item) {
+  const commercialState = getAircraftCommercialState(item)
+
+  if (!commercialState.isActive || !commercialState.canMatch) {
+    return {
+      code: commercialState.code,
+      label: commercialState.label,
+      tone: commercialState.tone,
+    }
+  }
+
   const uiState = getAircraftUiState(item)
 
   return {
@@ -8489,10 +8536,27 @@ function hasAircraftCommercialImages(item) {
   return Boolean(item?.mainImage || (Array.isArray(item?.images) && item.images.length))
 }
 
+function getAircraftMissingDocumentNames(item = {}) {
+  const documentHealth = getAircraftDocumentValidationState(item)
+  const requirements = Array.isArray(documentHealth.requirements) ? documentHealth.requirements : []
+
+  return requirements
+    .filter((requirement) => ['missing', 'pending', 'rejected', 'expired'].includes(requirement.status))
+    .map((requirement) => requirement.label || requirement.name || requirement.key || '')
+    .filter(Boolean)
+}
+
+function getAircraftMissingDocumentsLabel(item = {}) {
+  const missingDocuments = getAircraftMissingDocumentNames(item)
+  if (!missingDocuments.length) return ''
+  return `Documentos pendientes: ${missingDocuments.slice(0, 3).join(', ')}${missingDocuments.length > 3 ? '...' : ''}`
+}
+
 function getAircraftMissingItems(item = {}) {
   const missing = []
   const documentHealth = getAircraftDocumentValidationState(item)
   const commercialState = getAircraftCommercialState(item)
+  const missingDocuments = getAircraftMissingDocumentNames(item)
 
   if (!String(item.name || '').trim()) missing.push('modelo')
   if (!String(item.registration || '').trim()) missing.push('matricula')
@@ -8501,7 +8565,13 @@ function getAircraftMissingItems(item = {}) {
   if (!Number(item.hourlyPrice || 0)) missing.push('sin tarifa')
   if (!Number(item.rangeKm || 0)) missing.push('rango')
   if (!hasAircraftCommercialImages(item)) missing.push('fotos')
-  if (!documentHealth.approved) missing.push('documentacion')
+  if (!documentHealth.approved) {
+    if (missingDocuments.length) {
+      missing.push(...missingDocuments.map((label) => `doc: ${label}`))
+    } else {
+      missing.push('documentacion')
+    }
+  }
   if (!item.approved) missing.push('aprobacion admin')
   if (!commercialState.canMatch) missing.push(...commercialState.reasons.map((reason) => reason.toLowerCase()))
 
@@ -8537,7 +8607,7 @@ function getAircraftReadinessSummary(item = {}) {
 
 function getAircraftApprovalMeta(item = {}) {
   if (!providerIsApproved.value) return { label: 'Proveedor pendiente', tone: 'warning' }
-  if (item.approved) return { label: 'Aprobada', tone: 'success' }
+  if (item.approved) return { label: 'Aprobada admin', tone: 'success' }
   if (obtenerEstadoOperativoAeronave(item) === 'under_review') return { label: 'En revision', tone: 'warning' }
   return { label: 'Pendiente admin', tone: 'warning' }
 }
@@ -10365,10 +10435,14 @@ async function createAircraft() {
   })
 
   try {
-    const response = await requestWithCandidates([
-      { method: 'post', path: '/proveedor/aeronaves', body: payload },
-      { method: 'post', path: '/operator/aircraft', body: payload },
-    ])
+    const response = await requestWithCandidates(
+      buildAircraftMutationCandidates({
+        method: 'post',
+        providerPath: '/proveedor/aeronaves',
+        operatorPath: '/operator/aircraft',
+        payload,
+      }),
+    )
 
     const record = pickRecord(response, AIRCRAFT_RECORD_RESPONSE_KEYS)
     const redirectTo = String(response?.redirect_to || response?.redirectTo || '').trim()
@@ -10417,33 +10491,40 @@ async function createAircraft() {
     })
     return createdAircraft
   } catch (error) {
-    const message = applyBackendValidationErrors(
-      'aircraft',
+    const message = resolveAircraftMutationBackendErrorMessage(
       error,
-      {
-        model: 'name',
-        manufacturer: 'manufacturer',
-        category: 'category',
-        registration: 'registration',
-        year: 'year',
-        capacity: 'capacity',
-        range_km: 'range_km',
-        amenities: 'amenities',
-        base_airport: 'base',
-        coverage: 'coverage',
-        hourly_rate: 'hourlyPrice',
-        minimum_hours: 'minimumHours',
-        operational_cost: 'operationalCost',
-        fuel_burn_gph: 'fuelBurnGallonsPerHour',
-        engine_reserve_rate: 'engineReserveRate',
-        insurance_rate: 'insuranceRate',
-        maintenance_rate: 'maintenanceRate',
-        crew_rate: 'crewRate',
-        repositioning_fee: 'repositioningFee',
-        overnight_fee: 'overnightFee',
-      },
-      'La aeronave no pudo guardarse en la base de datos.',
+      applyBackendValidationErrors(
+        'aircraft',
+        error,
+        {
+          model: 'name',
+          manufacturer: 'manufacturer',
+          category: 'category',
+          registration: 'registration',
+          year: 'year',
+          capacity: 'capacity',
+          range_km: 'range_km',
+          amenities: 'amenities',
+          base_airport: 'base',
+          coverage: 'coverage',
+          hourly_rate: 'hourlyPrice',
+          minimum_hours: 'minimumHours',
+          operational_cost: 'operationalCost',
+          fuel_burn_gph: 'fuelBurnGallonsPerHour',
+          engine_reserve_rate: 'engineReserveRate',
+          insurance_rate: 'insuranceRate',
+          maintenance_rate: 'maintenanceRate',
+          crew_rate: 'crewRate',
+          repositioning_fee: 'repositioningFee',
+          overnight_fee: 'overnightFee',
+        },
+        'La aeronave no pudo guardarse en la base de datos.',
+      ),
     )
+    setFormErrors('aircraft', {
+      ...formErrors.aircraft,
+      _form: message,
+    })
     showError('No se pudo crear', message)
     return null
   }
@@ -10698,10 +10779,14 @@ async function saveAircraftEdits(id) {
   })
 
   try {
-    const response = await requestWithCandidates([
-      { method: 'put', path: `/proveedor/aeronaves/${id}`, body: payload },
-      { method: 'put', path: `/operator/aircraft/${id}`, body: payload },
-    ])
+    const response = await requestWithCandidates(
+      buildAircraftMutationCandidates({
+        method: 'put',
+        providerPath: `/proveedor/aeronaves/${id}`,
+        operatorPath: `/operator/aircraft/${id}`,
+        payload,
+      }),
+    )
 
     const record = pickRecord(response, AIRCRAFT_RECORD_RESPONSE_KEYS)
     const updatedAircraft = upsertAircraftRecord({
@@ -10720,33 +10805,40 @@ async function saveAircraftEdits(id) {
     })
     return updatedAircraft
   } catch (error) {
-    const message = applyBackendValidationErrors(
-      'aircraft',
+    const message = resolveAircraftMutationBackendErrorMessage(
       error,
-      {
-        model: 'name',
-        manufacturer: 'manufacturer',
-        category: 'category',
-        registration: 'registration',
-        year: 'year',
-        capacity: 'capacity',
-        range_km: 'range_km',
-        amenities: 'amenities',
-        base_airport: 'base',
-        coverage: 'coverage',
-        hourly_rate: 'hourlyPrice',
-        minimum_hours: 'minimumHours',
-        operational_cost: 'operationalCost',
-        fuel_burn_gph: 'fuelBurnGallonsPerHour',
-        engine_reserve_rate: 'engineReserveRate',
-        insurance_rate: 'insuranceRate',
-        maintenance_rate: 'maintenanceRate',
-        crew_rate: 'crewRate',
-        repositioning_fee: 'repositioningFee',
-        overnight_fee: 'overnightFee',
-      },
-      'La aeronave no pudo actualizarse en la base de datos.',
+      applyBackendValidationErrors(
+        'aircraft',
+        error,
+        {
+          model: 'name',
+          manufacturer: 'manufacturer',
+          category: 'category',
+          registration: 'registration',
+          year: 'year',
+          capacity: 'capacity',
+          range_km: 'range_km',
+          amenities: 'amenities',
+          base_airport: 'base',
+          coverage: 'coverage',
+          hourly_rate: 'hourlyPrice',
+          minimum_hours: 'minimumHours',
+          operational_cost: 'operationalCost',
+          fuel_burn_gph: 'fuelBurnGallonsPerHour',
+          engine_reserve_rate: 'engineReserveRate',
+          insurance_rate: 'insuranceRate',
+          maintenance_rate: 'maintenanceRate',
+          crew_rate: 'crewRate',
+          repositioning_fee: 'repositioningFee',
+          overnight_fee: 'overnightFee',
+        },
+        'La aeronave no pudo actualizarse en la base de datos.',
+      ),
     )
+    setFormErrors('aircraft', {
+      ...formErrors.aircraft,
+      _form: message,
+    })
     showError('No se pudo guardar la edicion', message)
     return null
   }
@@ -12745,6 +12837,8 @@ watch(
       getAircraftCommercialState,
       getAircraftMissingItems,
       getAircraftMissingItemsLabel,
+      getAircraftMissingDocumentNames,
+      getAircraftMissingDocumentsLabel,
       getAircraftReadinessSummary,
       getAircraftCatalogStatusKey,
       getAircraftApprovalMeta,

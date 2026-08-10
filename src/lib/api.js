@@ -245,11 +245,11 @@ function logAircraftRequest(_label, _details = {}) {
 function logOperationalRequest(label, details = {}) {
   if (typeof console === 'undefined') return
   if (label === 'response') {
-    console.info(`[ops-request-debug] ${label}`, details)
+    //console.info(`[ops-request-debug] ${label}`, details)
     return
   }
 
-  console.warn(`[ops-request-debug] ${label}`, details)
+  //console.warn(`[ops-request-debug] ${label}`, details)
 }
 
 function getFilenameFromDisposition(disposition = '') {

@@ -3,7 +3,10 @@
 /*----------------------------------------------------------------------------------------------*/
 
 <script setup>
-defineProps({
+import { onBeforeUnmount, ref, watch } from 'vue'
+import { searchAirports } from '../../../lib/airportSearch'
+
+const props = defineProps({
   aircraft: { type: Array, required: true },
   aircraftForm: { type: Object, required: true },
   imageForm: { type: Object, required: true },
@@ -30,11 +33,103 @@ const imageFields = [
   { key: 'amenities_file', nameKey: 'amenities', title: 'Amenidades', hint: 'Pantallas, bar, WiFi o extras.' },
 ]
 
+const baseAirportDisplay = ref('')
+const baseAirportSuggestions = ref([])
+const baseAirportLoading = ref(false)
+const baseAirportOpen = ref(false)
+let baseAirportTimer = null
+
+function clearBaseAirportTimer() {
+  if (baseAirportTimer && typeof window !== 'undefined') {
+    window.clearTimeout(baseAirportTimer)
+  }
+  baseAirportTimer = null
+}
+
+function formatBaseAirportLabel(airport = {}) {
+  const city = String(airport.city || airport.name || 'Aeropuerto').trim()
+  const code = String(airport.code || airport.icao || airport.iata || '').trim()
+  return code ? `${city} / ${code}` : city
+}
+
+async function scheduleBaseAirportSearch(query) {
+  clearBaseAirportTimer()
+
+  const trimmedQuery = String(query || '').trim()
+  if (!trimmedQuery) {
+    baseAirportSuggestions.value = []
+    baseAirportLoading.value = false
+    baseAirportOpen.value = false
+    return
+  }
+
+  baseAirportLoading.value = true
+  baseAirportOpen.value = true
+
+  baseAirportTimer = window.setTimeout(async () => {
+    try {
+      const result = await searchAirports(trimmedQuery, 6)
+      baseAirportSuggestions.value = Array.isArray(result?.items) ? result.items : []
+      baseAirportOpen.value = baseAirportSuggestions.value.length > 0
+    } catch {
+      baseAirportSuggestions.value = []
+      baseAirportOpen.value = false
+    } finally {
+      baseAirportLoading.value = false
+      baseAirportTimer = null
+    }
+  }, 220)
+}
+
+function handleBaseAirportInput(event) {
+  const value = event?.target?.value || ''
+  baseAirportDisplay.value = value
+  emit('update-aircraft-field', { field: 'base_airport', value })
+  scheduleBaseAirportSearch(value)
+}
+
+function selectBaseAirport(airport) {
+  const label = formatBaseAirportLabel(airport)
+  const code = String(airport?.code || airport?.icao || airport?.iata || '').trim()
+
+  baseAirportDisplay.value = label
+  emit('update-aircraft-field', { field: 'base_airport', value: code || label })
+  emit('update-aircraft-field', { field: 'base_airport_label', value: label })
+  emit('update-aircraft-field', { field: 'base_airport_id', value: airport?.id || '' })
+
+  baseAirportSuggestions.value = []
+  baseAirportOpen.value = false
+}
+
+function closeBaseAirportOptions() {
+  baseAirportOpen.value = false
+}
+
 function onImageSelected(field, event) {
   const file = event.target.files?.[0] || null
   emit('update-image-field', { field: field.key, value: file })
   emit('update-image-field', { field: field.nameKey, value: file?.name || '' })
 }
+
+watch(
+  () => props.aircraftForm.base_airport,
+  (nextValue) => {
+    const normalized = String(nextValue || '').trim()
+    if (!normalized) {
+      baseAirportDisplay.value = ''
+      return
+    }
+
+    if (!baseAirportOpen.value && normalized !== baseAirportDisplay.value) {
+      baseAirportDisplay.value = normalized
+    }
+  },
+  { immediate: true },
+)
+
+onBeforeUnmount(() => {
+  clearBaseAirportTimer()
+})
 </script>
 
 <template>
@@ -106,9 +201,36 @@ function onImageSelected(field, event) {
             <span>Rango KM</span>
             <input :value="aircraftForm.range_km" type="number" min="0" @input="$emit('update-aircraft-field', { field: 'range_km', value: $event.target.value })" />
           </label>
-          <label>
+          <label class="airport-field">
             <span>Aeropuerto base</span>
-            <input :value="aircraftForm.base_airport" type="text" @input="$emit('update-aircraft-field', { field: 'base_airport', value: $event.target.value })" />
+            <input
+              :value="baseAirportDisplay"
+              type="text"
+              autocomplete="off"
+              placeholder="Toluca / MMTO"
+              @focus="scheduleBaseAirportSearch(baseAirportDisplay)"
+              @blur="window.setTimeout(closeBaseAirportOptions, 120)"
+              @input="handleBaseAirportInput"
+            />
+            <div
+              v-if="baseAirportLoading || (baseAirportOpen && baseAirportSuggestions.length)"
+              class="airport-options"
+            >
+              <span v-if="baseAirportLoading">Buscando aeropuertos...</span>
+              <button
+                v-for="airport in baseAirportSuggestions"
+                v-else
+                :key="`${airport.code}-${airport.iata}-${airport.name}`"
+                type="button"
+                @mousedown.prevent="selectBaseAirport(airport)"
+              >
+                <strong>{{ airport.city || airport.name || 'Aeropuerto' }}</strong>
+                <small>
+                  {{ airport.code || airport.iata }}
+                  <template v-if="airport.iata && airport.code"> · {{ airport.iata }}</template>
+                </small>
+              </button>
+            </div>
           </label>
           <label>
             <span>Costo base por hora USD</span>
@@ -319,8 +441,63 @@ function onImageSelected(field, event) {
   gap: 0.35rem;
 }
 
+.airport-field {
+  position: relative;
+}
+
 .field-full {
   grid-column: 1 / -1;
+}
+
+.airport-options {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  left: 0;
+  right: 0;
+  z-index: 12;
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.45rem;
+  border: 1px solid #d8d0c3;
+  border-radius: 18px;
+  background: #fffdfa;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
+}
+
+.airport-options span {
+  color: #6f6558;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.airport-options button {
+  display: grid;
+  gap: 0.12rem;
+  width: 100%;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  background: #ffffff;
+  color: #172b4d;
+  text-align: left;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.airport-options button:hover {
+  border-color: #d6c3a3;
+  background: #fbf6ee;
+  transform: translateY(-1px);
+}
+
+.airport-options button strong {
+  font-size: 0.95rem;
+}
+
+.airport-options button small {
+  color: #6f6558;
 }
 
 .image-field {

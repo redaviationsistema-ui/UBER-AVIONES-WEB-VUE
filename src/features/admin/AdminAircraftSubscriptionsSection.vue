@@ -858,7 +858,18 @@ function documentStatusMeta(document = {}) {
 }
 
 function canReviewAircraftDocument(document = {}) {
-  return documentStatusMeta(document).key === 'pending'
+  const key = documentStatusMeta(document).key
+  return ['pending', 'rejected', 'expired'].includes(key)
+}
+
+function canApproveAircraftDocument(document = {}) {
+  const key = documentStatusMeta(document).key
+  return ['pending', 'rejected', 'expired'].includes(key)
+}
+
+function canRejectAircraftDocument(document = {}) {
+  const key = documentStatusMeta(document).key
+  return ['pending', 'approved', 'expired'].includes(key)
 }
 
 const AIRCRAFT_DOCUMENT_REQUIREMENTS = [
@@ -2129,6 +2140,23 @@ function activationRequirements(item = {}) {
   return Array.isArray(activationState.missing_requirements) ? activationState.missing_requirements : []
 }
 
+function activationRequirementsLabel(item = {}) {
+  const requirements = activationRequirements(item)
+  if (!requirements.length) return ''
+
+  const labels = requirements
+    .map((entry) =>
+      typeof entry === 'string'
+        ? missingFieldLabel(normalizeMissingRequirement(entry))
+        : entry.label || missingFieldLabel(normalizeMissingRequirement(entry?.code || ''))
+    )
+    .filter(Boolean)
+
+  if (!labels.length) return ''
+  if (labels.length === 1) return `Bloqueada por: ${labels[0]}.`
+  return `Bloqueada por: ${labels.slice(0, 2).join(', ')}${labels.length > 2 ? '...' : ''}.`
+}
+
 function hasActivationRequirement(item = {}, code = '') {
   const normalizedCode = normalizeMissingRequirement(code)
   return activationRequirements(item).some((entry) => {
@@ -2786,8 +2814,11 @@ watch(
                     <span :class="['chip', `chip-${documentStatusMeta(document).tone}`]">{{ documentStatusMeta(document).label }}</span>
                   </div>
                   <div class="document-card-body">
-                    <p>Fecha: {{ formatDate(document.expiresAt) }}</p>
-                    <p v-if="document.notes">{{ document.notes }}</p>
+                    <div class="document-card-meta">
+                      <span class="document-card-meta-item">Fecha: {{ formatDate(document.expiresAt) }}</span>
+                      <span v-if="document.updatedAt" class="document-card-meta-item">Actualizado: {{ formatDate(document.updatedAt) }}</span>
+                    </div>
+                    <p v-if="document.notes" class="document-card-note">{{ document.notes }}</p>
                   </div>
                   <div class="document-card-actions">
                     <button
@@ -2802,7 +2833,7 @@ watch(
                       <span>{{ downloadingDocumentId === document.id ? 'Abriendo...' : 'Abrir' }}</span>
                     </button>
                     <button
-                      v-if="canReviewAircraftDocument(document)"
+                      v-if="canApproveAircraftDocument(document)"
                       type="button"
                       class="admin-button admin-button--approve"
                       @click="$emit('approve-aircraft-document', { aircraftId: selectedAircraft.id, document })"
@@ -2811,7 +2842,7 @@ watch(
                       <span>Aprobar</span>
                     </button>
                     <button
-                      v-if="canReviewAircraftDocument(document)"
+                      v-if="canRejectAircraftDocument(document)"
                       type="button"
                       class="admin-button admin-button--reject"
                       @click="$emit('reject-aircraft-document', { aircraftId: selectedAircraft.id, document })"
@@ -2819,11 +2850,11 @@ watch(
                       <span class="admin-button__icon" aria-hidden="true">✕</span>
                       <span>Rechazar</span>
                     </button>
-                    <button v-else type="button" class="admin-button admin-button--neutral" disabled>
+                    <button v-else type="button" class="admin-button admin-button--neutral admin-button--compact" disabled>
                       <span class="admin-button__icon" aria-hidden="true">🕘</span>
                       <span>Historial</span>
                     </button>
-                    <button type="button" class="admin-button admin-button--icon admin-button--neutral" disabled aria-label="Mas acciones">⋯</button>
+                    <button type="button" class="admin-button admin-button--icon admin-button--neutral document-card-menu-button" disabled aria-label="Mas acciones">⋯</button>
                   </div>
                 </article>
               </div>
@@ -2940,6 +2971,7 @@ watch(
               class="admin-button admin-button--approve detail-footer-button"
               type="button"
               :disabled="activationRequirements(selectedAircraft).length > 0 || props.activatingAircraftId === Number(selectedAircraft.id)"
+              :title="activationRequirementsLabel(selectedAircraft)"
               :aria-busy="props.activatingAircraftId === Number(selectedAircraft.id)"
               @click="$emit('activate-aircraft', selectedAircraft.id)"
             >
@@ -2960,6 +2992,12 @@ watch(
               <span>Descargar resumen</span>
             </button>
           </div>
+          <p
+            v-if="primaryAdminAction(selectedAircraft) === 'activate_aircraft' && activationRequirements(selectedAircraft).length"
+            class="detail-footer-note"
+          >
+            {{ activationRequirementsLabel(selectedAircraft) }}
+          </p>
           <div class="detail-footer-meta">
             <span>Admin: {{ selectedAircraftAdminName(selectedAircraft) }}</span>
             <span>Estado: {{ statusChip(selectedAircraft).label }}</span>
@@ -4409,16 +4447,17 @@ watch(
 .document-card-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+  gap: 12px;
 }
 
 .document-card {
   display: grid;
-  gap: 0.85rem;
+  gap: 0.6rem;
   border: 1px solid #e5e7eb;
-  border-radius: 18px;
+  border-radius: 16px;
   background: #f8fafc;
-  padding: 1rem;
+  padding: 0.85rem;
+  align-content: start;
 }
 
 .document-card-head,
@@ -4431,11 +4470,13 @@ watch(
 
 .document-card-actions {
   flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .document-card-body {
   display: grid;
-  gap: 0.28rem;
+  gap: 0.25rem;
 }
 
 .timeline-list {
@@ -4764,6 +4805,10 @@ watch(
     grid-template-columns: 1fr;
   }
 
+  .document-card-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .results-chips {
     justify-content: flex-start;
   }
@@ -4949,6 +4994,12 @@ watch(
   transform: none;
 }
 
+.detail-footer-note {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #92400e;
+}
+
 .button-spinner {
   width: 14px;
   height: 14px;
@@ -4998,41 +5049,95 @@ watch(
 }
 
 .document-card {
-  gap: 1rem;
-  border-radius: 20px;
+  gap: 0.7rem;
+  border-radius: 18px;
   background: linear-gradient(180deg, #ffffff, #f9fbff);
   box-shadow: 0 14px 32px rgba(15, 23, 42, 0.06);
 }
 
 .document-card-head--toolbar {
-  align-items: flex-start;
+  align-items: center;
 }
 
 .document-card-head-copy {
   display: grid;
-  gap: 0.25rem;
+  gap: 0.15rem;
   min-width: 0;
 }
 
 .document-card-head-copy strong {
   color: #0f172a;
-  font-size: 0.98rem;
+  font-size: 0.94rem;
+  line-height: 1.2;
+  word-break: break-word;
 }
 
 .document-card-head-copy small {
   margin: 0;
   color: #64748b;
+  font-size: 0.8rem;
 }
 
 .document-card-body {
-  gap: 0.32rem;
+  gap: 0.35rem;
 }
 
 .document-card-actions {
-  flex-wrap: wrap;
-  align-items: center;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   border-top: 1px solid #e5e7eb;
-  padding-top: 0.95rem;
+  padding-top: 0.7rem;
+}
+
+.document-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.document-card-meta-item {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0.18rem 0.55rem;
+  border-radius: 999px;
+  background: #eef4ff;
+  color: #526581;
+  font-size: 0.78rem;
+  line-height: 1.1;
+}
+
+.document-card-note {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #64748b;
+  font-size: 0.86rem;
+  line-height: 1.3;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.document-card-actions .admin-button {
+  min-height: 42px;
+  padding: 0.58rem 0.7rem;
+  font-size: 0.88rem;
+  justify-content: flex-start;
+}
+
+.document-card-actions .admin-button span:last-child {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+
+.document-card-menu-button {
+  justify-self: stretch;
+  width: 100%;
+  justify-content: center !important;
+}
+
+.admin-button--compact {
+  opacity: 0.9;
 }
 
 .detail-footer-actions {

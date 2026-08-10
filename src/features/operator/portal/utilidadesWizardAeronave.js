@@ -21,6 +21,108 @@ function normalizeAmenities(value = '') {
     .filter(Boolean)
 }
 
+const AIRCRAFT_MUTATION_MINIMAL_KEYS = [
+  'model',
+  'manufacturer',
+  'category',
+  'registration',
+  'year',
+  'capacity',
+  'base_airport',
+  'range_km',
+  'speed_kmh',
+  'amenities',
+  'coverage',
+  'hourly_rate',
+]
+
+function buildAircraftMinimalPayload(payload = {}) {
+  return AIRCRAFT_MUTATION_MINIMAL_KEYS.reduce((result, key) => {
+    if (Object.prototype.hasOwnProperty.call(payload, key)) {
+      result[key] = payload[key]
+    }
+    return result
+  }, {})
+}
+
+export function buildAircraftMutationCandidates({
+  method = 'post',
+  providerPath = '',
+  operatorPath = '',
+  payload = {},
+} = {}) {
+  const normalizedMethod = String(method || 'post').trim().toLowerCase()
+  const payloadVariants = [payload, buildAircraftMinimalPayload(payload)].filter(
+    (candidate, index, collection) =>
+      candidate &&
+      Object.keys(candidate).length &&
+      collection.findIndex((item) => JSON.stringify(item) === JSON.stringify(candidate)) === index,
+  )
+
+  return payloadVariants.flatMap((body) =>
+    [providerPath, operatorPath]
+      .filter(Boolean)
+      .map((path) => ({
+        method: normalizedMethod,
+        path,
+        body,
+      })),
+  )
+}
+
+function errorMessageIncludesSchemaMismatchToken(message = '') {
+  const normalized = String(message || '').trim().toLowerCase()
+  if (!normalized) return false
+
+  return [
+    'sqlstate',
+    'undefined column',
+    'does not exist',
+    'internal server error',
+    'column',
+    'climb_descent_source',
+    'climb_descent_minutes',
+  ].some((token) => normalized.includes(token))
+}
+
+function normalizeBackendErrorDetail(error) {
+  const candidates = [
+    error?.response?.data?.message,
+    error?.payload?.message,
+    error?.message,
+  ]
+
+  const detail = candidates
+    .map((value) => String(value || '').trim())
+    .find(Boolean)
+
+  if (!detail) return ''
+  return detail.length > 220 ? `${detail.slice(0, 217)}...` : detail
+}
+
+export function resolveAircraftMutationBackendErrorMessage(
+  error,
+  fallback = 'La aeronave no pudo guardarse en la base de datos.',
+) {
+  const attempts = Array.isArray(error?.candidateAttempts) ? error.candidateAttempts : []
+  const statuses = attempts
+    .map((attempt) => Number(attempt?.status || 0))
+    .filter((status) => Number.isFinite(status) && status > 0)
+  const hasOnlyServerFailures = statuses.length > 0 && statuses.every((status) => status >= 500)
+  const backendLooksMismatched =
+    errorMessageIncludesSchemaMismatchToken(error?.message) ||
+    errorMessageIncludesSchemaMismatchToken(error?.response?.data?.message) ||
+    (hasOnlyServerFailures && attempts.length >= 2)
+
+  if (!backendLooksMismatched) return fallback
+
+  const backendDetail = normalizeBackendErrorDetail(error)
+
+  return backendDetail
+    ? `No se pudo guardar la aeronave porque el backend activo parece desfasado o incompatible con este flujo. Detalle backend: ${backendDetail}`
+    : 'No se pudo guardar la aeronave porque el backend activo parece desfasado o incompatible con este flujo. Revisa migraciones, columnas nuevas o cambios pendientes del API antes de reintentar.'
+}
+
 export function buildAircraftWizardStepErrors(
   step,
   form,

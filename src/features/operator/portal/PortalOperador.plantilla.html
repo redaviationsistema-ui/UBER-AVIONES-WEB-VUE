@@ -1060,6 +1060,24 @@
                     {{ getAircraftApprovalMeta(item).label }}
                   </span>
                 </div>
+                <div v-if="getAircraftMissingDocumentNames(item).length" class="fleet-compact-doc-missing">
+                  <span class="fleet-compact-doc-missing__label">Faltan documentos:</span>
+                  <span
+                    v-for="documentName in getAircraftMissingDocumentNames(item).slice(0, 3)"
+                    :key="`${item.id}-missing-${documentName}`"
+                    class="status-pill"
+                    data-tone="warning"
+                  >
+                    {{ documentName }}
+                  </span>
+                  <span
+                    v-if="getAircraftMissingDocumentNames(item).length > 3"
+                    class="status-pill status-pill--ghost"
+                    data-tone="warning"
+                  >
+                    +{{ getAircraftMissingDocumentNames(item).length - 3 }}
+                  </span>
+                </div>
 
                 <details class="fleet-compact-details" @click.stop>
                   <summary>Panel operativo</summary>
@@ -1095,6 +1113,9 @@
 
                   <p class="fleet-compact-missing">
                     {{ getAircraftMissingItemsLabel(item) }}
+                  </p>
+                  <p v-if="getAircraftMissingDocumentNames(item).length" class="fleet-compact-missing fleet-compact-missing--docs">
+                    {{ getAircraftMissingDocumentsLabel(item) }}
                   </p>
                 </details>
 
@@ -1321,7 +1342,7 @@
                   }}</small>
                 </label>
                 <label>
-                  <span>Matricula <small>opcional</small></span>
+                  <span>Matricula </span>
                   <input
                     v-model="aircraftForm.registration"
                     type="text"
