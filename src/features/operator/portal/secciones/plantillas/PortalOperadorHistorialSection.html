@@ -1,0 +1,19 @@
+<section class="page-grid operator-history-luxury">
+      <article class="surface">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Historial</p>
+            <h2>Vista solo lectura</h2>
+          </div>
+          <span class="badge">No editable</span>
+        </div>
+
+        <div class="timeline">
+          <article v-for="entry in history" :key="entry.id" class="timeline-item">
+            <strong>{{ entry.action }}</strong>
+            <p class="muted">{{ entry.date }} - {{ entry.module }} - {{ entry.actor }}</p>
+          </article>
+        </div>
+      </article>
+    </section>
+

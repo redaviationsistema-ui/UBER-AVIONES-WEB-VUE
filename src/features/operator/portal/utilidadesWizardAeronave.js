@@ -175,6 +175,29 @@ export function buildAircraftWizardStepErrors(
   return errors
 }
 
+export function shouldBlockAircraftWizardStepTransition({
+  currentStep = 1,
+  targetStep = 1,
+  isLocked = false,
+  lastChangedAt = 0,
+  now = Date.now(),
+  lockMs = 250,
+} = {}) {
+  const normalizedCurrentStep = Number(currentStep || 1)
+  const normalizedTargetStep = Number(targetStep || normalizedCurrentStep)
+
+  if (normalizedCurrentStep === normalizedTargetStep) {
+    return false
+  }
+
+  if (isLocked) {
+    return true
+  }
+
+  const elapsedSinceLastChange = Number(now || 0) - Number(lastChangedAt || 0)
+  return Number(lastChangedAt || 0) > 0 && elapsedSinceLastChange >= 0 && elapsedSinceLastChange < Number(lockMs || 0)
+}
+
 export function buildAircraftPayload(
   form,
   {

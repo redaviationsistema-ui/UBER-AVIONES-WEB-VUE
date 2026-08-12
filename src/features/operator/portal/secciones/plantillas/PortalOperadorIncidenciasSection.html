@@ -1,0 +1,348 @@
+<section class="page-grid operator-incidents-dashboard">
+      <article class="surface operator-incidents-overview">
+        <div class="section-head operator-incidents-overview__head">
+          <div>
+            <p class="eyebrow">Portal proveedor</p>
+            <h2>Panel operativo de incidencias</h2>
+            <p class="muted">
+              Responde incidencias, valida disponibilidad y atiende solicitudes sin salir del flujo operativo.
+            </p>
+          </div>
+
+          <div class="hero-actions">
+            <button type="button" class="ghost-button" @click="goToSection('empresa')">
+              Mi empresa
+            </button>
+            <button type="button" class="primary-action" @click="openAircraftRegistrationFlow()">
+              Crear / gestionar aeronaves
+            </button>
+          </div>
+        </div>
+
+        <div class="metrics-grid operator-incidents-metrics">
+          <article
+            v-for="card in providerIncidentDashboardCards"
+            :key="card.label"
+            class="metric-card operator-incidents-metric-card"
+          >
+            <span>{{ card.label }}</span>
+            <strong>{{ card.value }}</strong>
+            <small>{{ card.detail }}</small>
+          </article>
+        </div>
+      </article>
+
+      <div class="operator-incidents-content">
+        <article class="surface operator-incidents-feed">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Seguimiento</p>
+              <h2>Incidencias abiertas</h2>
+            </div>
+            <span class="badge">{{ providerOpenIncidents.length }} activas</span>
+          </div>
+
+          <div v-if="providerOpenIncidents.length" class="list-grid operator-incidents-list">
+            <article
+              v-for="incident in providerOpenIncidents"
+              :key="incident.id"
+              class="list-card operator-incident-card"
+            >
+              <div class="card-top operator-incident-card__top">
+                <div>
+                  <span class="operator-incident-card__kicker">
+                    {{ incident.category || incident.type }} · {{ incident.route || incident.flight }}
+                  </span>
+                  <strong class="operator-incident-card__title">{{
+                    incident.comment || 'Incidencia operativa en seguimiento.'
+                  }}</strong>
+                </div>
+                <span class="badge">{{ incident.status }}</span>
+              </div>
+
+              <div class="operator-incident-card__meta">
+                <div>
+                  <span>Prioridad</span>
+                  <strong>{{ incident.priority }}</strong>
+                </div>
+                <div>
+                  <span>Origen</span>
+                  <strong>{{ incident.source }}</strong>
+                </div>
+                <div>
+                  <span>Evidencia</span>
+                  <div class="operator-incident-evidence">
+                    <template v-if="incident.evidenceFiles?.length">
+                      <a
+                        v-for="file in incident.evidenceFiles"
+                        :key="file.id"
+                        class="operator-incident-evidence__link"
+                        :href="file.fileUrl || undefined"
+                        :target="file.fileUrl ? '_blank' : undefined"
+                        :rel="file.fileUrl ? 'noreferrer' : undefined"
+                      >
+                        {{ file.name }}
+                      </a>
+                    </template>
+                    <strong v-else>{{ incident.evidence }}</strong>
+                  </div>
+                </div>
+                <div>
+                  <span>Alta</span>
+                  <strong>{{ formatDateTimeDisplay(incident.createdAt) }}</strong>
+                </div>
+              </div>
+
+              <div class="inline-actions operator-incident-card__actions">
+                <button
+                  type="button"
+                  class="primary-action"
+                  :disabled="isIncidentResolved(incident.status)"
+                  @click="respondToIncident(incident)"
+                >
+                  Responder incidencia
+                </button>
+                <button
+                  type="button"
+                  class="ghost-button"
+                  @click="viewIncidentDetail(incident)"
+                >
+                  Ver detalle
+                </button>
+              </div>
+            </article>
+          </div>
+
+          <article v-else class="list-card operator-incidents-empty operations-stable-card">
+            <div class="operations-stable-radar" aria-hidden="true">
+              <span></span>
+            </div>
+            <div class="operations-stable-copy">
+              <span class="eyebrow">Operacion estable</span>
+              <strong>OPERACION ESTABLE</strong>
+              <p class="muted">
+                No existen incidencias activas. La flota se encuentra operando dentro de parametros normales.
+              </p>
+            </div>
+            <div class="operations-stable-grid">
+              <div>
+                <span>Ultima incidencia resuelta</span>
+                <strong>{{ operationsStableState.lastResolved }}</strong>
+              </div>
+              <div>
+                <span>Tiempo sin incidencias</span>
+                <strong>{{ operationsStableState.timeWithoutIncidents }}</strong>
+              </div>
+              <div>
+                <span>Estado general</span>
+                <strong>{{ operationsStableState.generalStatus }}</strong>
+              </div>
+            </div>
+            <div class="operations-stable-icons">
+              <span data-icon="radar">Radar</span>
+              <span data-icon="tower">Torre de control</span>
+              <span data-icon="ops">Flight operations</span>
+            </div>
+          </article>
+        </article>
+
+        <aside class="operator-incidents-sidebar">
+
+         
+
+          
+
+          <article class="surface operator-side-card">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">Operaciones proximas</p>
+                <h2>Salidas visibles</h2>
+              </div>
+            </div>
+
+            <div v-if="providerUpcomingOperations.length" class="timeline operator-upcoming-list">
+              <article
+                v-for="operation in providerUpcomingOperations"
+                :key="operation.id"
+                class="timeline-item operator-upcoming-item"
+              >
+                <strong>{{ operation.route }}</strong>
+                <p class="muted">
+                  {{ formatDateTimeDisplay(operation.departure) }} · {{ operation.aircraft || 'Aeronave por definir' }}
+                </p>
+                <span class="badge">{{ operation.status }}</span>
+              </article>
+            </div>
+
+            <article v-else class="timeline-item operator-upcoming-item operator-upcoming-item--empty upcoming-activity-card">
+              <span class="eyebrow">Proxima actividad operacional</span>
+              <strong>PROXIMA ACTIVIDAD OPERACIONAL</strong>
+              <p class="muted">
+                Actualmente no existen vuelos confirmados pendientes de coordinacion.
+              </p>
+              <div class="upcoming-readiness-list">
+                <span>Flota disponible</span>
+                <span>Sin conflictos</span>
+                <span>Sin bloqueos</span>
+              </div>
+            </article>
+          </article>
+
+         
+
+         
+
+     
+        </aside>
+      </div>
+
+      <div
+        v-if="incidentDetailModal.open && incidentDetailModal.incident"
+        class="document-preview-overlay"
+        @click.self="closeIncidentDetail"
+      >
+        <article class="document-preview-modal operator-incident-modal">
+          <div class="document-preview-head">
+            <div>
+              <span class="mini-label">{{ incidentDetailModal.incident.folio }}</span>
+              <h3>{{ incidentDetailModal.incident.type }}</h3>
+              <p class="muted">
+                {{ incidentDetailModal.incident.route || incidentDetailModal.incident.flight }} ·
+                {{ incidentDetailModal.incident.phase }}
+              </p>
+            </div>
+            <button type="button" class="ghost-button" @click="closeIncidentDetail">Cerrar</button>
+          </div>
+
+          <div class="operator-incident-modal__body">
+            <div class="operator-incident-modal__summary">
+              <span class="badge">{{ incidentDetailModal.incident.status }}</span>
+              <span class="badge">Prioridad: {{ incidentDetailModal.incident.priority }}</span>
+              <span class="badge">{{ incidentDetailModal.incident.category }}</span>
+              <span class="badge">{{ incidentDetailModal.incident.source }}</span>
+            </div>
+
+            <div class="operator-incident-modal__grid">
+              <article class="operator-incident-modal__panel">
+                <span class="mini-label">Informacion operativa</span>
+                <div class="status-list">
+                  <div class="status-row">
+                    <span>Folio</span>
+                    <strong>{{ incidentDetailModal.incident.folio }}</strong>
+                  </div>
+                  <div class="status-row">
+                    <span>Estado</span>
+                    <strong>{{ incidentDetailModal.incident.status }}</strong>
+                  </div>
+                  <div class="status-row">
+                    <span>Prioridad</span>
+                    <strong>{{ incidentDetailModal.incident.priority }}</strong>
+                  </div>
+                  <div class="status-row">
+                    <span>Categoria</span>
+                    <strong>{{ incidentDetailModal.incident.category }}</strong>
+                  </div>
+                  <div class="status-row">
+                    <span>Fase</span>
+                    <strong>{{ incidentDetailModal.incident.phase }}</strong>
+                  </div>
+                  <div class="status-row">
+                    <span>Ruta</span>
+                    <strong>{{ incidentDetailModal.incident.route || incidentDetailModal.incident.flight }}</strong>
+                  </div>
+                  <div class="status-row">
+                    <span>Origen</span>
+                    <strong>{{ incidentDetailModal.incident.source }}</strong>
+                  </div>
+                </div>
+              </article>
+            </div>
+
+            <article class="operator-incident-modal__panel">
+              <span class="mini-label">Descripcion</span>
+              <strong>{{ incidentDetailModal.incident.comment || 'Sin descripcion visible.' }}</strong>
+            </article>
+
+            <article class="operator-incident-modal__panel">
+              <span class="mini-label">Evidencia</span>
+              <div class="operator-incident-evidence">
+                <template v-if="incidentDetailModal.incident.evidenceFiles?.length">
+                  <article
+                    v-for="file in incidentDetailModal.incident.evidenceFiles"
+                    :key="file.id"
+                    class="operator-incident-evidence__item"
+                  >
+                    <img
+                      v-if="file.fileUrl && getIncidentEvidenceKind(file) === 'image'"
+                      :src="file.fileUrl"
+                      :alt="file.name"
+                      class="operator-incident-evidence__preview"
+                    />
+                    <strong>{{ file.name }}</strong>
+                    <div v-if="file.fileUrl" class="inline-actions">
+                      <a
+                        class="ghost-button operator-incident-evidence__button"
+                        :href="file.fileUrl"
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Ver archivo
+                      </a>
+                      <a
+                        class="ghost-button operator-incident-evidence__button"
+                        :href="file.fileUrl"
+                        :download="file.name"
+                      >
+                        Descargar
+                      </a>
+                    </div>
+                    <small v-else class="muted">
+                      El backend aun no expone una URL publica para este archivo.
+                    </small>
+                  </article>
+                </template>
+                <strong v-else>{{ incidentDetailModal.incident.evidence }}</strong>
+              </div>
+            </article>
+
+            <article class="operator-incident-modal__panel">
+              <span class="mini-label">Seguimiento</span>
+              <div class="timeline operator-incident-timeline">
+                <article
+                  v-for="item in buildIncidentTimeline(incidentDetailModal.incident)"
+                  :key="item.id"
+                  class="timeline-item operator-incident-timeline__item"
+                >
+                  <strong>{{ formatDateTimeDisplay(item.at) }}</strong>
+                  <p>{{ item.title }}</p>
+                  <small>{{ item.detail }}</small>
+                </article>
+              </div>
+            </article>
+
+            <div class="inline-actions">
+              <button
+                type="button"
+                class="primary-action"
+                :disabled="isIncidentResolved(incidentDetailModal.incident.status)"
+                @click="respondToIncident(incidentDetailModal.incident)"
+              >
+                Responder incidencia
+              </button>
+              <button
+                type="button"
+                class="ghost-button"
+                :disabled="incidentDetailModal.incident.status === 'En revision'"
+                @click="markIncidentInReview(incidentDetailModal.incident)"
+              >
+                Marcar en revision
+              </button>
+              <button type="button" class="ghost-button" @click="closeIncidentDetail">
+                Cerrar detalle
+              </button>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+

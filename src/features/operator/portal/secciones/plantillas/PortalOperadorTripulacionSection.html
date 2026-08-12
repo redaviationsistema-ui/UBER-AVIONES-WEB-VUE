@@ -1,0 +1,95 @@
+<section class="page-grid operator-crew-luxury">
+      <OperatorCrewSection
+        :crew-form="crewForm"
+        :crew-errors="formErrors.crew"
+        :tripulation="crew"
+        :crew-roles="crewRoleOptions"
+        :crew-states="crewStateOptions"
+        :crew-bases="crewBases"
+        :aircraft-options="aircraftOptions"
+        :editing-crew-id="editingCrewId"
+        :loading="loading"
+        :backend-status="crewBackendStatus"
+        :last-sync-label="crewLastSyncLabel"
+        :saving-crew="savingCrew"
+        @update-field="updateCrewField"
+        @activate="activateCrewMember"
+        @assign-flight="assignCrewMemberToFlight"
+        @create="createOrUpdateCrew"
+        @mark-availability="markCrewAvailability"
+        @select-person="populateCrewForm"
+        @suspend="suspendCrewMember"
+        @reset-form="resetCrewForm"
+        @view-documents="viewCrewDocuments"
+        @view-history="viewCrewHistory"
+      />
+
+      <p v-if="formSuccess.crew" class="form-feedback form-feedback-success">
+        {{ formSuccess.crew }}
+      </p>
+
+      <article class="surface">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Control</p>
+            <h2>Politica operacional</h2>
+          </div>
+        </div>
+
+        <div class="request-detail-grid">
+          <div class="status-list">
+            <div class="status-row">
+              <span>Horas maximas vuelo</span>
+              <strong>Segun rol, fatiga y operacion vigente</strong>
+            </div>
+            <div class="status-row">
+              <span>Descanso obligatorio</span>
+              <strong>Bloquear antes de reasignar tripulacion</strong>
+            </div>
+            <div class="status-row">
+              <span>Certificaciones requeridas</span>
+              <strong>Licencia, medico, visa, pasaporte y habilitacion</strong>
+            </div>
+            <div class="status-row">
+              <span>Reglas FAA / DGAC</span>
+              <strong>Aplican segun ruta y operador</strong>
+            </div>
+          </div>
+
+          <div class="status-list">
+            <div class="status-row">
+              <span>Modo de aprobacion</span>
+              <strong>{{
+                settings.crewApprovalMode === 'suggest_only'
+                  ? 'Proveedor sugiere / Admin confirma'
+                  : 'Proveedor confirma'
+              }}</strong>
+            </div>
+            <div class="status-row">
+              <span>Ultima sincronizacion</span>
+              <strong>{{ crewLastSyncLabel }}</strong>
+            </div>
+            <div class="status-row">
+              <span>Backend status</span>
+              <strong>{{ crewBackendStatus }}</strong>
+            </div>
+            <div class="status-row">
+              <span>Usuarios conectados</span>
+              <strong>{{ crewConnectedUsers }} operativo(s)</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="status-list">
+          <div class="status-row">
+            <span>Funcion del proveedor</span>
+            <strong>Confirmar Tripulacion y disponibilidad operativa</strong>
+          </div>
+          <div class="status-row">
+            <span>Equipo registrado</span>
+            <strong>{{ crew.length }} tripulante(s) sincronizados</strong>
+          </div>
+        </div>
+      </article>
+    </section>
+

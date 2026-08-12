@@ -20,6 +20,7 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
   const PENDING_BILLING_STATUSES = ['pending_payment', 'payment_pending', 'pending', 'processing', 'open', 'requires_action']
   const FAILED_BILLING_STATUSES = ['failed', 'rejected']
   const EXPIRED_BILLING_STATUSES = ['past_due', 'expired', 'unpaid']
+  const loggedInconsistentAircraftStates = new Set()
 
   function normalizeStatus(value = '') {
     return String(value || '')
@@ -78,6 +79,10 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
     return ['under_review', 'pending_review', 'draft'].includes(status)
   }
 
+  function isBlockedOperationalStatus(status = '') {
+    return ['blocked', 'manual_block', 'out_of_service', 'inactive', 'suspended'].includes(status)
+  }
+
   function formatSubscriptionEndsAtLabel(item = {}) {
     const rawEndsAt = getSubscriptionEndsAt(item)
     if (!rawEndsAt) return ''
@@ -88,6 +93,18 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
 
   function logInconsistentAircraftState(item = {}, reason = '') {
     if (!import.meta.env?.DEV) return
+
+    const key = [
+      reason,
+      item.id ?? 'no-id',
+      item.status ?? '',
+      item.billing_status ?? item.billingStatus ?? '',
+      item.subscription_status ?? item.subscriptionStatus ?? '',
+      item.subscription_ends_at ?? item.subscriptionEndsAt ?? '',
+    ].join('|')
+
+    if (loggedInconsistentAircraftStates.has(key)) return
+    loggedInconsistentAircraftStates.add(key)
 
     console.warn('[portalOperador] Estado de aeronave inconsistente detectado.', {
       reason,
@@ -180,16 +197,30 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
     const paymentStatus = getPaymentStatus(item)
     const hasActiveSubscription = ACTIVE_SUBSCRIPTION_STATUSES.includes(subscriptionStatus)
     const hasPendingSubscription =
-      PENDING_SUBSCRIPTION_STATUSES.includes(subscriptionStatus) ||
-      PENDING_BILLING_STATUSES.includes(billingStatus)
+      !hasActiveSubscription &&
+      (
+        PENDING_SUBSCRIPTION_STATUSES.includes(subscriptionStatus) ||
+        PENDING_BILLING_STATUSES.includes(billingStatus)
+      )
     const hasFailedSubscription =
-      FAILED_SUBSCRIPTION_STATUSES.includes(subscriptionStatus) ||
-      FAILED_BILLING_STATUSES.includes(billingStatus)
+      !hasActiveSubscription &&
+      (
+        FAILED_SUBSCRIPTION_STATUSES.includes(subscriptionStatus) ||
+        FAILED_BILLING_STATUSES.includes(billingStatus)
+      )
     const hasExpiredSubscription =
-      EXPIRED_SUBSCRIPTION_STATUSES.includes(subscriptionStatus) ||
-      EXPIRED_BILLING_STATUSES.includes(billingStatus)
-    const hasCancelledSubscription = CANCELLED_SUBSCRIPTION_STATUSES.includes(subscriptionStatus)
+      !hasActiveSubscription &&
+      (
+        EXPIRED_SUBSCRIPTION_STATUSES.includes(subscriptionStatus) ||
+        EXPIRED_BILLING_STATUSES.includes(billingStatus)
+      )
+    const hasCancelledSubscription =
+      !hasActiveSubscription && CANCELLED_SUBSCRIPTION_STATUSES.includes(subscriptionStatus)
     const hasActiveBilling = ACTIVE_BILLING_STATUSES.includes(billingStatus)
+    const isExpectedInactiveOperationalState =
+      isHiddenOperationalStatus(operationalStatus) ||
+      isUnderReviewOperationalStatus(operationalStatus) ||
+      isBlockedOperationalStatus(operationalStatus)
 
     if (item.canOperate === true && operationalStatus === 'active') {
       return {
@@ -214,7 +245,7 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
         }
       }
 
-      if (!isHiddenOperationalStatus(operationalStatus) && !isUnderReviewOperationalStatus(operationalStatus)) {
+      if (!isExpectedInactiveOperationalState) {
         logInconsistentAircraftState(item, 'payment_active_with_inactive_operation')
         return {
           key: 'sync_required',
@@ -380,8 +411,7 @@ export function createOperatorPortalBillingDomain(ctx = {}) {
       operationalStatus !== 'active' &&
       hasActiveSubscription &&
       hasActiveBilling &&
-      !isHiddenOperationalStatus(operationalStatus) &&
-      !isUnderReviewOperationalStatus(operationalStatus)
+      !isExpectedInactiveOperationalState
     ) {
       logInconsistentAircraftState(item, 'inactive_with_active_subscription')
       return {

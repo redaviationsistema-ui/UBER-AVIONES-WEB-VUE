@@ -840,6 +840,14 @@ function normalizeDocumentReviewStatus(value = '') {
 }
 
 function documentStatusMeta(document = {}) {
+  if (document?.status_label) {
+    const normalizedLabel = String(document.status_label).trim().toLowerCase()
+    if (normalizedLabel.includes('aprob')) return { key: 'approved', label: document.status_label, tone: 'success' }
+    if (normalizedLabel.includes('rechaz')) return { key: 'rejected', label: document.status_label, tone: 'danger' }
+    if (normalizedLabel.includes('cargar')) return { key: 'missing', label: document.status_label, tone: 'neutral' }
+    if (normalizedLabel.includes('revisi')) return { key: 'pending', label: document.status_label, tone: 'warning' }
+  }
+
   const normalizedStatus = normalizeDocumentReviewStatus(
     document.status || document.approval_status || document.review_status || document.validation_status,
   )
@@ -852,6 +860,9 @@ function documentStatusMeta(document = {}) {
   }
   if (normalizedStatus === 'expired') {
     return { key: 'expired', label: 'Vencido', tone: 'danger' }
+  }
+  if (normalizedStatus === 'missing') {
+    return { key: 'missing', label: 'Pendiente de cargar', tone: 'neutral' }
   }
 
   return { key: 'pending', label: 'Pendiente', tone: 'warning' }

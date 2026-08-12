@@ -1,0 +1,163 @@
+<section class="page-grid flight-tracking-luxury">
+      <article class="surface flight-tracking-shell">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Operaciones</p>
+            <h2>Centro de seguimiento de vuelos ejecutivos</h2>
+            <p class="muted helper-copy">
+              Monitorea vuelos confirmados, estados de tracking, eventos operativos y cierre de servicio.
+            </p>
+          </div>
+        </div>
+
+        <div class="flight-tracking-kpis">
+          <article
+            v-for="card in flightTrackingKpis"
+            :key="card.label"
+            class="flight-tracking-kpi"
+            :data-tone="card.tone"
+          >
+            <span>{{ card.label }}</span>
+            <strong>{{ card.value }}</strong>
+            <p>{{ card.detail }}</p>
+          </article>
+        </div>
+
+        <div v-if="flightTrackingOperations.length" class="flight-tracking-layout">
+          <aside class="flight-tracking-queue">
+            <article
+              v-for="operation in flightTrackingOperations"
+              :key="operation.id"
+              class="flight-tracking-queue-card"
+              :class="{ 'is-active': selectedTrackingOperation?.id === operation.id }"
+              :data-status="normalizeFlightTrackingStatus(operation).id"
+              @click="selectedOperationId = String(operation.id)"
+            >
+              <div class="flight-tracking-queue-top">
+                <strong>{{ operation.route }}</strong>
+                <span class="status-pill" :data-tone="normalizeFlightTrackingStatus(operation).tone">
+                  {{ normalizeFlightTrackingStatus(operation).label }}
+                </span>
+              </div>
+              <p>{{ operation.aircraft }}</p>
+              <div class="flight-tracking-queue-meta">
+                <span>{{ getOperationPassengerCount(operation) }} pax</span>
+                <span>ETD {{ getOperationTimeLabel(operation.departure) }}</span>
+                <span>ETA {{ getOperationTimeLabel(operation.arrival) }}</span>
+              </div>
+            </article>
+          </aside>
+
+          <article v-if="selectedTrackingOperation" class="flight-command-workspace">
+            <div class="flight-command-head">
+              <div>
+                <p class="eyebrow">Flight Command Workspace</p>
+                <h3>{{ selectedTrackingOperation.route }}</h3>
+                <p class="muted">
+                  {{ selectedTrackingOperation.aircraft }} ·
+                  {{ getOperationPassengerCount(selectedTrackingOperation) }} pax ·
+                  {{ normalizeFlightTrackingStatus(selectedTrackingOperation).label }}
+                </p>
+              </div>
+              <span class="status-pill" :data-tone="normalizeFlightTrackingStatus(selectedTrackingOperation).tone">
+                {{ normalizeFlightTrackingStatus(selectedTrackingOperation).label }}
+              </span>
+            </div>
+
+            <div class="flight-command-facts">
+              <article v-for="item in selectedTrackingOperationFacts" :key="item.label">
+                <span>{{ item.label }}</span>
+                <strong>{{ item.value }}</strong>
+              </article>
+            </div>
+
+            <div class="flight-tracking-workflow">
+              <article
+                v-for="step in selectedTrackingTimeline"
+                :key="step.id"
+                :data-state="step.state"
+              >
+                <span>{{ step.state === 'done' ? '✓' : step.state === 'active' ? '●' : '○' }}</span>
+                <strong>{{ step.label }}</strong>
+              </article>
+            </div>
+
+            <div class="flight-command-grid">
+              <section class="flight-live-map">
+                <div>
+                  <span class="mini-label">Live Flight Tracking</span>
+                  <strong>{{ selectedTrackingOperation.route }}</strong>
+                  <p class="muted">
+                    {{ getOperationTimeLabel(selectedTrackingOperation.departure) }} →
+                    {{ getOperationTimeLabel(selectedTrackingOperation.arrival) }}
+                  </p>
+                </div>
+              </section>
+
+              <section class="flight-tracking-details">
+                <article v-for="item in selectedTrackingDetails" :key="item.label">
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.value }}</strong>
+                </article>
+              </section>
+            </div>
+
+            <section class="flight-events-timeline">
+              <div class="section-head compact-head">
+                <div>
+                  <p class="eyebrow">Tracking y eventos</p>
+                  <h3>Eventos operativos</h3>
+                </div>
+              </div>
+              <article v-for="event in selectedTrackingEvents" :key="event.id">
+                <span>{{ event.time }}</span>
+                <div>
+                  <strong>{{ event.title }}</strong>
+                  <p class="muted">{{ event.detail }}</p>
+                </div>
+              </article>
+            </section>
+          </article>
+        </div>
+
+        <p v-else class="empty-state">
+          Sin vuelos confirmados en seguimiento. Cuando existan operaciones activas apareceran aqui.
+        </p>
+
+        <div class="list-grid">
+          <article v-for="operation in operations" :key="operation.id" class="list-card">
+            <div class="card-top">
+              <div>
+                <strong>Operacion #{{ operation.id }} · {{ operation.route }}</strong>
+                <p class="muted">
+                  {{ operation.aircraft }} - {{ operation.departure }} -> {{ operation.arrival }}
+                </p>
+              </div>
+              <span class="badge">{{ operation.status }}</span>
+            </div>
+
+           
+            <p v-if="operation.crewConfirmedAt" class="muted">
+              Confirmado: {{ operation.crewConfirmedAt }}
+            </p>
+            <p v-if="operation.crewCheckinAt" class="muted">
+              Check-in: {{ operation.crewCheckinAt }}
+            </p>
+            <p v-if="operation.crewServiceStartedAt" class="muted">
+              Servicio iniciado: {{ operation.crewServiceStartedAt }}
+            </p>
+            <p v-if="operation.crewServiceCompletedAt" class="muted">
+              Servicio completado: {{ operation.crewServiceCompletedAt }}
+            </p>
+            <p v-if="operation.crewDeclineReason" class="muted">
+              Motivo rechazo: {{ operation.crewDeclineReason }}
+            </p>
+            <p class="muted">{{ operation.crewNotes || operation.notes }}</p>
+
+            
+            
+          </article>
+        </div>
+      </article>
+    </section>
+

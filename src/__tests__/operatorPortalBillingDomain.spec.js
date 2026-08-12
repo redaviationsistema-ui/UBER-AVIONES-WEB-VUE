@@ -176,6 +176,26 @@ describe('operator portal billing domain', () => {
     warningSpy.mockRestore()
   })
 
+  it('does not warn when an approved subscription is paired with a blocked operational status', () => {
+    const domain = buildDomain(true)
+    const warningSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const meta = domain.getAircraftBillingStatusMeta({
+      id: 44,
+      status: 'blocked',
+      billingStatus: 'processing',
+      subscriptionStatus: 'active',
+      paymentStatus: 'active',
+      approved: false,
+    })
+
+    expect(meta.label).toBe('Inactiva')
+    expect(meta.code).toBe('billing_inactive')
+    expect(warningSpy).not.toHaveBeenCalled()
+
+    warningSpy.mockRestore()
+  })
+
   it('counts only aircraft.status=active as active in filters and counters', () => {
     const activeAircraft = {
       id: 35,

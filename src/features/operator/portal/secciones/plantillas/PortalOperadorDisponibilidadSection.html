@@ -1,0 +1,283 @@
+<section class="page-grid availability-control-luxury">
+      <article class="surface availability-hero">
+        <div>
+          <p class="eyebrow">Fleet Availability Operations Center</p>
+          <h2>Control de Disponibilidad</h2>
+          <p class="muted">Centro ejecutivo para disponibilidad, bloqueos, vuelos y mantenimiento de flota.</p>
+        </div>
+        <span class="status-pill" :data-tone="availabilityGlobalStatus.tone">{{
+          availabilityGlobalStatus.title
+        }}</span>
+      </article>
+
+      <div class="fleet-kpi-grid">
+        <article
+          v-for="card in availabilitySummaryCards"
+          :key="card.label"
+          class="fleet-kpi-card"
+          :data-tone="card.tone"
+        >
+          <span class="availability-kpi-icon" :data-label="card.label" aria-hidden="true"></span>
+          <span>{{ card.label }}</span>
+          <strong>{{ card.value }}</strong>
+          <p>{{ card.detail }}</p>
+        </article>
+      </div>
+
+      <div class="fleet-layout">
+        <div class="fleet-main-column">
+          <article class="surface fleet-section-card">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">Flight Restriction Wizard</p>
+                <h2>Bloqueo operativo</h2>
+              </div>
+            </div>
+
+            <div class="company-progress-steps availability-stepper">
+              <span
+                v-for="step in availabilityFormSteps"
+                :key="step.id"
+                class="progress-chip"
+                :data-tone="step.complete ? 'success' : 'neutral'"
+              >
+                {{ String(step.id).padStart(2, '0') }} · {{ step.label }}
+              </span>
+            </div>
+
+            <div class="form-grid">
+              <label class="span-2">
+                <span>Aeronave</span>
+                <select
+                  v-model="availabilityForm.aircraftId"
+                  :disabled="!aircraftOptions.length"
+                  :class="{ 'input-error': formErrors.availability.aircraftId }"
+                >
+                  <option :value="null" disabled>Selecciona una aeronave</option>
+                  <option v-for="item in aircraftOptions" :key="item.id" :value="item.id">
+                    {{ item.label }}
+                  </option>
+                </select>
+                <small v-if="formErrors.availability.aircraftId" class="field-error">{{
+                  formErrors.availability.aircraftId
+                }}</small>
+              </label>
+              <label>
+                <span>Inicio</span>
+                <input
+                  v-model="availabilityForm.from"
+                  type="datetime-local"
+                  :class="{ 'input-error': formErrors.availability.from }"
+                />
+                <small v-if="formErrors.availability.from" class="field-error">{{
+                  formErrors.availability.from
+                }}</small>
+              </label>
+              <label>
+                <span>Fin</span>
+                <input
+                  v-model="availabilityForm.to"
+                  type="datetime-local"
+                  :class="{ 'input-error': formErrors.availability.to }"
+                />
+                <small v-if="formErrors.availability.to" class="field-error">{{
+                  formErrors.availability.to
+                }}</small>
+              </label>
+              <label>
+                <span>Estado operacional</span>
+                <select
+                  v-model="availabilityForm.status"
+                  :class="{ 'input-error': formErrors.availability.status }"
+                >
+                  <option v-for="option in availabilityStatusOptions" :key="option" :value="option">
+                    {{ getAvailabilityStatusMeta(option).label }}
+                  </option>
+                </select>
+                <small v-if="formErrors.availability.status" class="field-error">{{
+                  formErrors.availability.status
+                }}</small>
+              </label>
+              <label>
+                <span>Motivo</span>
+                <input
+                  v-model="availabilityForm.reason"
+                  type="text"
+                  :class="{ 'input-error': formErrors.availability.reason }"
+                />
+                <small v-if="formErrors.availability.reason" class="field-error">{{
+                  formErrors.availability.reason
+                }}</small>
+              </label>
+            </div>
+
+            <p v-if="formErrors.availability._form" class="form-feedback form-feedback-error">
+              {{ formErrors.availability._form }}
+            </p>
+            <p v-if="formSuccess.availability" class="form-feedback form-feedback-success">
+              {{ formSuccess.availability }}
+            </p>
+            <p v-if="selectedAvailabilityAircraft" class="muted helper-copy">
+              Trabajando sobre: {{ selectedAvailabilityAircraft.name }} ·
+              {{ selectedAvailabilityAircraft.registration || 'Sin matricula' }} ·
+              {{ selectedAvailabilityAircraft.base || 'Sin base' }}
+            </p>
+            <p v-else class="empty-state">
+              Primero necesitas tener al menos una aeronave registrada para gestionar
+              disponibilidad.
+            </p>
+
+            <div class="inline-actions">
+              <button
+                type="button"
+                class="primary-action"
+                :disabled="!selectedAvailabilityAircraft"
+                @click="createAvailabilityBlock"
+              >
+                Guardar bloqueo
+              </button>
+            </div>
+          </article>
+
+          <article class="surface fleet-section-card">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">Fleet Availability Timeline</p>
+                <h2>Disponibilidad visual de la flota</h2>
+              </div>
+            </div>
+
+            <div v-if="aircraft.length" class="availability-calendar-shell">
+              <div class="availability-calendar-toolbar">
+                <div>
+                  <strong>{{ availabilityCalendarWindowLabel }}</strong>
+                  <p class="muted">Haz click en una celda para precargar el bloqueo en el wizard.</p>
+                </div>
+                <div class="availability-calendar-actions">
+                  <label class="availability-calendar-filter">
+                    <span>Aeronave</span>
+                    <select v-model="selectedAvailabilityCalendarAircraftId">
+                      <option
+                        v-for="option in availabilityCalendarAircraftOptions"
+                        :key="option.id"
+                        :value="option.id"
+                      >
+                        {{ option.label }}
+                      </option>
+                    </select>
+                  </label>
+                  <button type="button" class="ghost-button" @click="moveAvailabilityWeek(-1)">
+                    Semana previa
+                  </button>
+                  <button type="button" class="ghost-button" @click="jumpAvailabilityWeekToToday()">
+                    Hoy
+                  </button>
+                  <button type="button" class="ghost-button" @click="moveAvailabilityWeek(1)">
+                    Siguiente
+                  </button>
+                </div>
+              </div>
+
+              <div class="availability-calendar-grid">
+                <div class="availability-calendar-row availability-calendar-row--head">
+                  <div class="availability-calendar-aircraft-head">Flota</div>
+                  <div
+                    v-for="day in availabilityCalendarWeekDays"
+                    :key="day.key"
+                    class="availability-calendar-day-head"
+                    :class="{ 'is-today': day.isToday }"
+                  >
+                    <strong>{{ day.shortLabel }}</strong>
+                    <span>{{ day.dayNumber }} {{ day.monthLabel }}</span>
+                  </div>
+                </div>
+
+                <article
+                  v-for="row in availabilityCalendarRows"
+                  :key="row.plane.id"
+                  class="availability-calendar-row availability-calendar-row--body"
+                >
+                  <div class="availability-calendar-aircraft">
+                    <strong>{{ row.plane.name }}</strong>
+                    <span class="muted">
+                      {{ getAvailabilityOperationalStatus(row.plane).label }} ·
+                      {{ row.plane.base || 'Sin base' }}
+                    </span>
+                  </div>
+                  <button
+                    v-for="cell in row.cells"
+                    :key="cell.key"
+                    type="button"
+                    class="availability-calendar-cell"
+                    :data-tone="cell.tone"
+                    :class="{ 'is-available': cell.isAvailable }"
+                    :title="`${cell.title} · ${cell.detail}`"
+                    @click="selectAvailabilityCalendarCell(row.plane, cell)"
+                  >
+                    <strong>{{ cell.label }}</strong>
+                    <span>{{ cell.detail }}</span>
+                  </button>
+                </article>
+              </div>
+            </div>
+            <p v-else class="empty-state">
+              Sin aeronaves registradas para construir el calendario.
+            </p>
+          </article>
+        </div>
+
+        <div class="fleet-side-column">
+          <article class="surface fleet-section-card">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">Operational Timeline</p>
+                <h2>Agenda operacional</h2>
+              </div>
+            </div>
+
+            <div v-if="availability.length" class="availability-records">
+              <article v-for="item in availability" :key="item.id" class="availability-record-card">
+                <span class="availability-record-icon" :data-status="item.status" aria-hidden="true"></span>
+                <div class="card-top">
+                  <div>
+                    <strong>{{ item.aircraft }}</strong>
+                    <p class="muted">{{ item.reason }}</p>
+                  </div>
+                  <span
+                    class="status-pill"
+                    :data-tone="getAvailabilityStatusMeta(item.status).tone"
+                  >
+                    {{ getAvailabilityStatusMeta(item.status).label }}
+                  </span>
+                </div>
+                <div class="fleet-inline-metrics">
+                  <span
+                    >📍
+                    {{
+                      aircraft.find((plane) => plane.id === Number(item.aircraftId))?.base ||
+                      'Base pendiente'
+                    }}</span
+                  >
+                  <span>🕓 {{ formatDateTimeDisplay(item.from) }}</span>
+                  <span>→ {{ formatDateTimeDisplay(item.to) }}</span>
+                </div>
+                <div class="inline-actions">
+                  <button
+                    type="button"
+                    class="ghost-button availability-action"
+                    @click="releaseAvailability(item.id)"
+                  >
+                    Liberar
+                  </button>
+                </div>
+              </article>
+            </div>
+            <p v-else class="empty-state">
+              No hay registros de disponibilidad guardados para esta flota.
+            </p>
+          </article>
+
+  
+        </div>
+      </div>
+    </section>

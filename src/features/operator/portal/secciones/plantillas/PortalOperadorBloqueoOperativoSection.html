@@ -1,0 +1,23 @@
+<section class="page-grid operator-blocked-state">
+  <article class="surface operator-blocked-state__card">
+    <div class="section-head">
+      <div>
+        <p class="eyebrow">Acceso operativo</p>
+        <h2>{{ currentOperationalBlockNotice.title }}</h2>
+        <p class="muted">{{ currentOperationalBlockNotice.detail }}</p>
+      </div>
+      <span class="status-pill" :data-tone="currentOperationalBlockNotice.tone">
+        {{ providerOperationalAccess.companyStatus === 'unknown' ? 'Revision' : companyStatusMeta.label }}
+      </span>
+    </div>
+
+    <div class="operator-blocked-state__actions">
+      <button type="button" class="primary-action" @click="goToSection('empresa')">
+        Revisar mi empresa
+      </button>
+      <button type="button" class="ghost-button" @click="goToSection('aeronaves')">
+        Revisar aeronaves
+      </button>
+    </div>
+  </article>
+</section>

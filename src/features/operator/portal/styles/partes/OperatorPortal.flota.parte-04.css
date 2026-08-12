@@ -258,6 +258,1921 @@
   box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.03);
 }
 
+/* Premium aircraft wizard refresh */
+.fleet-operations-luxury .wizard-overlay {
+  padding: 20px;
+  background:
+    radial-gradient(circle at top left, rgba(148, 163, 184, 0.28), transparent 28%),
+    rgba(15, 23, 42, 0.38);
+  backdrop-filter: blur(18px);
+}
+
+.fleet-operations-luxury .wizard-modal {
+  width: min(1480px, calc(100vw - 40px));
+  max-height: calc(100vh - 40px);
+  border: 1px solid rgba(226, 232, 240, 0.96);
+  border-radius: 28px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(244, 247, 252, 0.985)),
+    #ffffff;
+  color: #12233d;
+  box-shadow:
+    0 40px 90px rgba(15, 23, 42, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+.fleet-operations-luxury .wizard-sticky-head,
+.fleet-operations-luxury .wizard-footer {
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(16px);
+}
+
+.fleet-operations-luxury .wizard-sticky-head {
+  max-height: none;
+  padding: 28px 28px 18px;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.9);
+}
+
+.fleet-operations-luxury .wizard-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 20px;
+  align-items: start;
+  min-height: auto;
+  padding-right: 0;
+}
+
+.fleet-operations-luxury .wizard-hero-copy {
+  display: grid;
+  gap: 10px;
+}
+
+.fleet-operations-luxury .wizard-hero-copy .eyebrow,
+.fleet-operations-luxury .wizard-panel label > span,
+.fleet-operations-luxury .document-upload-grid .field > span,
+.fleet-operations-luxury .mini-label {
+  color: #7387a2;
+  font-size: 0.77rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.fleet-operations-luxury .wizard-hero-copy h2 {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  margin: 0;
+  color: #10233d;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: clamp(3.3rem, 5vw, 4.9rem);
+  line-height: 0.9;
+}
+
+.fleet-operations-luxury .wizard-hero-route {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: #1d2b3f;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.fleet-operations-luxury .wizard-hero-route span {
+  color: #7a8ea8;
+}
+
+.fleet-operations-luxury .wizard-hero-description,
+.fleet-operations-luxury .wizard-hero-copy .muted,
+.fleet-operations-luxury .wizard-stage-header .muted,
+.fleet-operations-luxury .wizard-panel .muted,
+.fleet-operations-luxury .wizard-sidebar-card .muted,
+.fleet-operations-luxury .wizard-checklist-item .muted {
+  color: #64748b;
+}
+
+.fleet-operations-luxury .wizard-hero-copy .muted {
+  max-width: 760px;
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.45;
+  -webkit-line-clamp: unset;
+}
+
+.fleet-operations-luxury .wizard-hero-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.fleet-operations-luxury .wizard-hero-step {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid rgba(226, 232, 240, 0.96);
+  border-radius: 999px;
+  background: rgba(248, 250, 252, 0.98);
+  color: #556987;
+  font-weight: 700;
+}
+
+.fleet-operations-luxury .wizard-header-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.fleet-operations-luxury .wizard-progress-shell {
+  width: 264px;
+  min-width: 264px;
+  height: auto;
+  padding: 14px 16px;
+  border: 1px solid rgba(226, 232, 240, 0.96);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.06);
+}
+
+.fleet-operations-luxury .wizard-progress-copy {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.fleet-operations-luxury .wizard-progress-copy span {
+  color: #7387a2;
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.fleet-operations-luxury .wizard-progress-copy strong {
+  color: #10233d;
+  font-size: 1.12rem;
+}
+
+.fleet-operations-luxury .wizard-progress-bar {
+  height: 10px;
+  border-radius: 999px;
+  background: #e8eef5;
+}
+
+.fleet-operations-luxury .wizard-progress-bar .progress-bar-fill {
+  background: linear-gradient(90deg, #173a67, #8eb5ff);
+  box-shadow: none;
+}
+
+.fleet-operations-luxury .wizard-close-button,
+.fleet-operations-luxury .wizard-footer .ghost-button {
+  min-height: 56px;
+  padding: 0 20px;
+  border: 1px solid rgba(226, 232, 240, 0.96);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.98);
+  color: #667a94;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+}
+
+.fleet-operations-luxury .wizard-close-button:hover,
+.fleet-operations-luxury .wizard-footer .ghost-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(191, 219, 254, 0.98);
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08);
+}
+
+.fleet-operations-luxury .wizard-stepper {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(140px, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+  padding: 8px 0 0;
+  overflow-x: auto;
+}
+
+.fleet-operations-luxury .wizard-stepper::before {
+  content: '';
+  position: absolute;
+  top: 31px;
+  left: 12px;
+  right: 12px;
+  height: 2px;
+  background: linear-gradient(90deg, rgba(191, 219, 254, 0.9), rgba(203, 213, 225, 0.9));
+  z-index: 0;
+}
+
+.fleet-operations-luxury .wizard-step {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  width: auto;
+  height: auto;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: #10233d;
+  text-align: left;
+}
+
+.fleet-operations-luxury .wizard-step:hover,
+.fleet-operations-luxury .wizard-step.active,
+.fleet-operations-luxury .wizard-step.complete {
+  transform: none;
+  box-shadow: none;
+}
+
+.fleet-operations-luxury .wizard-step-indicator {
+  display: inline-grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid rgba(203, 213, 225, 0.96);
+  border-radius: 999px;
+  background: #ffffff;
+  color: #70839d;
+  font-size: 0.9rem;
+  font-weight: 800;
+  line-height: 1;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
+}
+
+.fleet-operations-luxury .wizard-step-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.fleet-operations-luxury .wizard-step strong {
+  color: #24364b;
+  font-size: 0.98rem;
+  line-height: 1.1;
+}
+
+.fleet-operations-luxury .wizard-step small {
+  display: block;
+  color: #7d90aa;
+  font-size: 0.74rem;
+  line-height: 1.25;
+}
+
+.fleet-operations-luxury .wizard-step.complete .wizard-step-indicator {
+  border-color: rgba(187, 247, 208, 0.98);
+  background: linear-gradient(135deg, #ecfdf3, #d9fbe8);
+  color: #1f8b4c;
+}
+
+.fleet-operations-luxury .wizard-step.complete strong {
+  color: #174c35;
+}
+
+.fleet-operations-luxury .wizard-step.active .wizard-step-indicator {
+  border-color: rgba(147, 197, 253, 0.96);
+  background: linear-gradient(135deg, #173a67, #355d92);
+  color: #ffffff;
+}
+
+.fleet-operations-luxury .wizard-step.active strong {
+  color: #10233d;
+}
+
+.fleet-operations-luxury .wizard-shell {
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 24px;
+  padding: 24px 28px 20px;
+}
+
+.fleet-operations-luxury .wizard-body,
+.fleet-operations-luxury .wizard-sidebar {
+  gap: 20px;
+}
+
+.fleet-operations-luxury .wizard-stage-header,
+.fleet-operations-luxury .wizard-panel,
+.fleet-operations-luxury .wizard-review-card,
+.fleet-operations-luxury .wizard-sidebar-card {
+  border: 1px solid #e5eaf0;
+  background: #ffffff;
+  color: #10233d;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.06);
+}
+
+.fleet-operations-luxury .wizard-stage-header {
+  grid-template-columns: minmax(0, 1fr) minmax(220px, auto);
+  gap: 20px;
+  align-items: center;
+  min-height: auto;
+  padding: 18px 22px;
+  border-radius: 20px;
+}
+
+.fleet-operations-luxury .wizard-stage-header h3 {
+  margin: 6px 0 0;
+  color: #10233d;
+  font-size: 1.8rem;
+  line-height: 1;
+}
+
+.fleet-operations-luxury .wizard-stage-header p {
+  margin: 8px 0 0;
+}
+
+.fleet-operations-luxury .wizard-stage-detail {
+  display: grid;
+  gap: 6px;
+  max-width: 280px;
+  padding: 14px 16px;
+  border: 1px solid rgba(226, 232, 240, 0.96);
+  border-radius: 16px;
+  background: linear-gradient(180deg, #fafcff, #f4f8fc);
+}
+
+.fleet-operations-luxury .wizard-stage-detail p {
+  margin: 0;
+  color: #5f738e;
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
+.fleet-operations-luxury .wizard-panel {
+  padding: 24px;
+  border-radius: 20px;
+}
+
+.fleet-operations-luxury .wizard-section-head {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  padding-bottom: 18px;
+  margin-bottom: 22px;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.9);
+}
+
+.fleet-operations-luxury .wizard-section-head--split {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.fleet-operations-luxury .wizard-section-head__group {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.fleet-operations-luxury .wizard-section-head__icon {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  border: 1px solid rgba(191, 219, 254, 0.98);
+  border-radius: 16px;
+  background: linear-gradient(180deg, #eff6ff, #f8fbff);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.fleet-operations-luxury .wizard-section-head__icon::before,
+.fleet-operations-luxury .wizard-section-head__icon::after {
+  content: '';
+  position: absolute;
+}
+
+.fleet-operations-luxury .wizard-section-head__icon[data-icon='general']::before {
+  inset: 15px 12px 15px 14px;
+  border: 2px solid #2f5f93;
+  border-radius: 14px 14px 6px 6px;
+  transform: skewX(-10deg);
+}
+
+.fleet-operations-luxury .wizard-section-head__icon[data-icon='operation']::before {
+  top: 17px;
+  left: 11px;
+  width: 30px;
+  height: 16px;
+  border: 2px solid #2f5f93;
+  border-radius: 999px 60% 60% 999px;
+  transform: rotate(-8deg);
+}
+
+.fleet-operations-luxury .wizard-section-head__icon[data-icon='gallery']::before {
+  top: 12px;
+  left: 12px;
+  width: 28px;
+  height: 24px;
+  border: 2px solid #2f5f93;
+  border-radius: 8px;
+}
+
+.fleet-operations-luxury .wizard-section-head__icon[data-icon='gallery']::after {
+  right: 15px;
+  bottom: 15px;
+  width: 14px;
+  height: 8px;
+  border-left: 2px solid #2f5f93;
+  border-bottom: 2px solid #2f5f93;
+  transform: skew(-25deg);
+}
+
+.fleet-operations-luxury .wizard-section-head__icon[data-icon='documents']::before {
+  top: 11px;
+  left: 15px;
+  width: 22px;
+  height: 28px;
+  border: 2px solid #2f5f93;
+  border-radius: 8px;
+}
+
+.fleet-operations-luxury .wizard-section-head__icon[data-icon='documents']::after {
+  top: 18px;
+  left: 21px;
+  width: 10px;
+  height: 2px;
+  background: #2f5f93;
+  box-shadow: 0 6px 0 #2f5f93, 0 12px 0 #2f5f93;
+}
+
+.fleet-operations-luxury .wizard-section-head__icon[data-icon='review']::before {
+  top: 12px;
+  left: 14px;
+  width: 24px;
+  height: 28px;
+  border: 2px solid #2f5f93;
+  border-radius: 10px;
+}
+
+.fleet-operations-luxury .wizard-section-head__icon[data-icon='review']::after {
+  top: 24px;
+  left: 21px;
+  width: 12px;
+  height: 6px;
+  border-left: 2px solid #2f5f93;
+  border-bottom: 2px solid #2f5f93;
+  transform: rotate(-45deg);
+}
+
+.fleet-operations-luxury .wizard-section-head h3 {
+  margin: 4px 0 0;
+  color: #10233d;
+  font-size: 1.2rem;
+  line-height: 1.15;
+}
+
+.fleet-operations-luxury .wizard-section-head p {
+  margin: 6px 0 0;
+}
+
+.fleet-operations-luxury .wizard-panel .form-grid,
+.fleet-operations-luxury .wizard-review-grid {
+  gap: 18px;
+}
+
+.fleet-operations-luxury .wizard-panel .form-grid label,
+.fleet-operations-luxury .document-upload-grid .field {
+  gap: 8px;
+}
+
+.fleet-operations-luxury .wizard-panel input,
+.fleet-operations-luxury .wizard-panel select,
+.fleet-operations-luxury .document-upload-grid select,
+.fleet-operations-luxury .document-library-search input {
+  min-height: 56px;
+  border: 1px solid rgba(203, 213, 225, 0.94);
+  border-radius: 16px;
+  background: #ffffff;
+  color: #10233d;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.fleet-operations-luxury .wizard-panel input:focus,
+.fleet-operations-luxury .wizard-panel select:focus,
+.fleet-operations-luxury .document-upload-grid select:focus,
+.fleet-operations-luxury .document-library-search input:focus {
+  border-color: rgba(147, 197, 253, 0.98);
+  box-shadow: 0 0 0 4px rgba(191, 219, 254, 0.38);
+  outline: none;
+}
+
+.fleet-operations-luxury .wizard-panel input:disabled,
+.fleet-operations-luxury .wizard-panel select:disabled {
+  background: #f8fafc;
+  color: #7b8da6;
+}
+
+.fleet-operations-luxury .wizard-panel input[type='file'],
+.fleet-operations-luxury .document-dropzone {
+  border: 1.5px dashed rgba(203, 213, 225, 0.98);
+  border-radius: 18px;
+  background: linear-gradient(180deg, #fbfdff, #f4f8fc);
+  color: #10233d;
+  box-shadow: none;
+}
+
+.fleet-operations-luxury .wizard-panel input[type='file'] {
+  min-height: 8.5rem;
+  padding: 3.1rem 1rem 1rem;
+}
+
+.fleet-operations-luxury .document-dropzone {
+  min-height: 10rem;
+}
+
+.fleet-operations-luxury .wizard-panel input[type='file']:hover,
+.fleet-operations-luxury .document-dropzone:hover,
+.fleet-operations-luxury .document-dropzone.active {
+  border-color: rgba(147, 197, 253, 0.98);
+  background: linear-gradient(180deg, #f8fbff, #eef5ff);
+}
+
+.fleet-operations-luxury .document-type-card,
+.fleet-operations-luxury .document-preview-card,
+.fleet-operations-luxury .stored-document-card,
+.fleet-operations-luxury .stored-image-card,
+.fleet-operations-luxury .wizard-review-card,
+.fleet-operations-luxury .wizard-sidebar-card {
+  border: 1px solid #e5eaf0;
+  border-radius: 20px;
+  background: #ffffff;
+  color: #10233d;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.05);
+}
+
+.fleet-operations-luxury .document-type-card.active,
+.fleet-operations-luxury .document-type-card:hover,
+.fleet-operations-luxury .document-preview-card:hover,
+.fleet-operations-luxury .stored-document-card:hover {
+  border-color: rgba(191, 219, 254, 0.96);
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+  transform: translateY(-2px);
+}
+
+.fleet-operations-luxury .wizard-review-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.fleet-operations-luxury .wizard-review-card {
+  min-height: 120px;
+}
+
+.fleet-operations-luxury .wizard-executive-table {
+  margin-top: 16px;
+  border: 1px solid #e5eaf0;
+  border-radius: 20px;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.fleet-operations-luxury .wizard-executive-table div {
+  min-height: 52px;
+  padding: 12px 16px;
+  border-color: rgba(226, 232, 240, 0.96);
+}
+
+.fleet-operations-luxury .wizard-executive-table span {
+  color: #7387a2;
+}
+
+.fleet-operations-luxury .wizard-executive-table strong,
+.fleet-operations-luxury .wizard-review-card strong,
+.fleet-operations-luxury .wizard-sidebar-card strong,
+.fleet-operations-luxury .wizard-sidebar-stat strong {
+  color: #10233d;
+}
+
+.fleet-operations-luxury .wizard-sidebar {
+  position: sticky;
+  top: 0;
+  width: 320px;
+  min-width: 320px;
+  max-height: none;
+  overflow: visible;
+}
+
+.fleet-operations-luxury .wizard-sidebar-card {
+  padding: 18px;
+}
+
+.fleet-operations-luxury .wizard-sidebar-card--hero {
+  min-height: auto;
+  padding: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.998), rgba(246, 250, 255, 0.99)),
+    #ffffff;
+}
+
+.fleet-operations-luxury .wizard-sidebar-jet-image {
+  position: relative;
+  top: auto;
+  left: auto;
+  right: auto;
+  height: 98px;
+  margin-bottom: 16px;
+  border-radius: 16px;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+
+.fleet-operations-luxury .wizard-sidebar-jet-image--empty {
+  background-image:
+    linear-gradient(135deg, rgba(20, 45, 80, 0.9), rgba(79, 109, 147, 0.82)),
+    linear-gradient(180deg, #dce9f7, #f5f9ff);
+}
+
+.fleet-operations-luxury .wizard-sidebar-jet-image--empty::after {
+  content: '';
+  position: absolute;
+  inset: 36px auto auto 50%;
+  width: 54px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.84);
+  border-radius: 999px 70% 70% 999px;
+  transform: translateX(-50%) rotate(-7deg);
+}
+
+.fleet-operations-luxury .wizard-sidebar-facts,
+.fleet-operations-luxury .wizard-sidebar-highlight {
+  gap: 8px;
+}
+
+.fleet-operations-luxury .wizard-sidebar-facts span,
+.fleet-operations-luxury .wizard-sidebar-highlight span {
+  padding: 8px 10px;
+  border: 1px solid rgba(191, 219, 254, 0.88);
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #315885;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.fleet-operations-luxury .wizard-readiness-score {
+  min-height: 66px;
+  margin-top: 10px;
+  padding: 14px 16px;
+  border: 1px solid rgba(252, 211, 77, 0.45);
+  border-radius: 18px;
+  background: linear-gradient(180deg, #fffaf0, #fffdf8);
+}
+
+.fleet-operations-luxury .wizard-readiness-score span {
+  color: #c18726;
+}
+
+.fleet-operations-luxury .wizard-readiness-score strong {
+  color: #10233d;
+}
+
+.fleet-operations-luxury .wizard-sidebar-stats {
+  gap: 12px;
+}
+
+.fleet-operations-luxury .wizard-sidebar-stat {
+  display: grid;
+  gap: 4px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.96);
+}
+
+.fleet-operations-luxury .wizard-sidebar-stat:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.fleet-operations-luxury .wizard-checklist {
+  display: grid;
+  gap: 12px;
+}
+
+.fleet-operations-luxury .wizard-checklist-item {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.96);
+}
+
+.fleet-operations-luxury .wizard-checklist-item:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.fleet-operations-luxury .wizard-checklist-item__icon {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #7387a2;
+  font-weight: 800;
+}
+
+.fleet-operations-luxury .wizard-checklist-item[data-status='complete'] .wizard-checklist-item__icon {
+  background: #dcfce7;
+  color: #1f8b4c;
+}
+
+.fleet-operations-luxury .wizard-checklist-item[data-status='active'] .wizard-checklist-item__icon {
+  background: #dbeafe;
+  color: #1d4f91;
+}
+
+.fleet-operations-luxury .wizard-checklist-item__copy {
+  display: grid;
+  gap: 3px;
+}
+
+.fleet-operations-luxury .wizard-checklist-item__copy strong {
+  color: #24364b;
+  font-size: 0.92rem;
+}
+
+.fleet-operations-luxury .wizard-checklist-item__copy p {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.fleet-operations-luxury .wizard-checklist-item__status {
+  color: #7d90aa;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.fleet-operations-luxury .wizard-review-status {
+  border: 1px solid #e5eaf0;
+  background: linear-gradient(180deg, #ffffff, #f8fbff);
+}
+
+.fleet-operations-luxury .wizard-review-status p {
+  color: #4e647f;
+}
+
+.fleet-operations-luxury .wizard-footer {
+  position: sticky;
+  bottom: 0;
+  height: auto;
+  min-height: 84px;
+  padding: 16px 28px 22px;
+  border-top: 1px solid rgba(226, 232, 240, 0.96);
+}
+
+.fleet-operations-luxury .wizard-footer .primary-action {
+  min-height: 56px;
+  padding: 0 26px;
+  border: 1px solid rgba(24, 50, 84, 0.08);
+  border-radius: 18px;
+  background: linear-gradient(135deg, #173a67, #203d66);
+  color: #ffffff;
+  box-shadow: 0 14px 30px rgba(23, 58, 103, 0.2);
+}
+
+.fleet-operations-luxury .wizard-footer .primary-action:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 18px 34px rgba(23, 58, 103, 0.24);
+}
+
+.fleet-operations-luxury .form-feedback-error {
+  border-color: rgba(248, 113, 113, 0.34);
+  background: rgba(254, 242, 242, 0.94);
+  color: #b42318;
+}
+
+.fleet-operations-luxury .form-feedback-success {
+  border-color: rgba(74, 222, 128, 0.34);
+  background: rgba(240, 253, 244, 0.94);
+  color: #15803d;
+}
+
+@media (max-width: 1180px) {
+  .fleet-operations-luxury .wizard-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .fleet-operations-luxury .wizard-sidebar {
+    position: static;
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+@media (max-width: 920px) {
+  .fleet-operations-luxury .wizard-overlay {
+    padding: 12px;
+  }
+
+  .fleet-operations-luxury .wizard-modal {
+    width: calc(100vw - 24px);
+    max-height: calc(100vh - 24px);
+    border-radius: 24px;
+  }
+
+  .fleet-operations-luxury .wizard-sticky-head,
+  .fleet-operations-luxury .wizard-shell,
+  .fleet-operations-luxury .wizard-footer {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+
+  .fleet-operations-luxury .wizard-header {
+    grid-template-columns: 1fr;
+  }
+
+  .fleet-operations-luxury .wizard-header-actions {
+    flex-wrap: wrap;
+  }
+
+  .fleet-operations-luxury .wizard-progress-shell {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .fleet-operations-luxury .wizard-stepper {
+    display: flex;
+    padding-bottom: 6px;
+  }
+
+  .fleet-operations-luxury .wizard-stepper::before {
+    left: 0;
+    right: 0;
+  }
+
+  .fleet-operations-luxury .wizard-step {
+    min-width: 196px;
+  }
+
+  .fleet-operations-luxury .wizard-stage-header,
+  .fleet-operations-luxury .wizard-section-head--split,
+  .fleet-operations-luxury .wizard-stage-header {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .fleet-operations-luxury .wizard-hero-copy h2 {
+    font-size: 2.8rem;
+  }
+
+  .fleet-operations-luxury .wizard-panel,
+  .fleet-operations-luxury .wizard-sidebar-card {
+    padding: 18px;
+  }
+
+  .fleet-operations-luxury .wizard-review-grid,
+  .fleet-operations-luxury .document-type-grid,
+  .fleet-operations-luxury .document-upload-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .fleet-operations-luxury .wizard-checklist-item {
+    grid-template-columns: 26px minmax(0, 1fr);
+  }
+
+  .fleet-operations-luxury .wizard-checklist-item__status {
+    grid-column: 2;
+  }
+
+  .fleet-operations-luxury .wizard-footer {
+    gap: 12px;
+  }
+
+  .fleet-operations-luxury .wizard-footer-actions,
+  .fleet-operations-luxury .wizard-footer .primary-action,
+  .fleet-operations-luxury .wizard-footer .ghost-button {
+    width: 100%;
+  }
+}
+
+/* Alternate executive cockpit direction */
+.fleet-operations-luxury .wizard-overlay {
+  background:
+    radial-gradient(circle at 15% 10%, rgba(214, 180, 112, 0.18), transparent 24%),
+    radial-gradient(circle at 88% 16%, rgba(59, 130, 246, 0.14), transparent 24%),
+    rgba(8, 15, 28, 0.58);
+}
+
+.fleet-operations-luxury .wizard-modal {
+  border: 1px solid rgba(17, 37, 68, 0.18);
+  border-radius: 34px;
+  background:
+    linear-gradient(180deg, #f7f5ef 0%, #f4f6f8 38%, #eef2f6 100%);
+  box-shadow:
+    0 48px 110px rgba(7, 15, 27, 0.28),
+    0 12px 26px rgba(255, 255, 255, 0.38) inset;
+}
+
+.fleet-operations-luxury .wizard-sticky-head {
+  padding: 0;
+  border-bottom: 0;
+  background:
+    linear-gradient(135deg, rgba(10, 24, 47, 0.98), rgba(21, 42, 73, 0.96));
+  color: #f8fafc;
+  overflow: hidden;
+}
+
+.fleet-operations-luxury .wizard-sticky-head::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 18% 22%, rgba(214, 180, 112, 0.24), transparent 26%),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.05), transparent 38%);
+  pointer-events: none;
+}
+
+.fleet-operations-luxury .wizard-header {
+  position: relative;
+  grid-template-columns: minmax(0, 1fr) 330px;
+  gap: 28px;
+  padding: 28px 30px 20px;
+  align-items: end;
+}
+
+.fleet-operations-luxury .wizard-hero-copy {
+  gap: 12px;
+}
+
+.fleet-operations-luxury .wizard-hero-copy .eyebrow,
+.fleet-operations-luxury .wizard-progress-copy span {
+  color: rgba(214, 226, 244, 0.72);
+}
+
+.fleet-operations-luxury .wizard-hero-copy .eyebrow {
+  color: #6f84a2;
+  text-shadow: none;
+}
+
+.fleet-operations-luxury .wizard-hero-copy h2 {
+  color: #f8fbff;
+  font-family: 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, serif;
+  font-size: clamp(3.2rem, 5.6vw, 5.6rem);
+  line-height: 0.88;
+  letter-spacing: -0.05em;
+  text-shadow: 0 10px 30px rgba(0, 0, 0, 0.24);
+}
+
+.fleet-operations-luxury .wizard-hero-route {
+  color: #edf4ff;
+  font-size: 1.08rem;
+}
+
+.fleet-operations-luxury .wizard-hero-route span {
+  color: rgba(214, 180, 112, 0.86);
+}
+
+.fleet-operations-luxury .wizard-hero-copy .muted {
+  color: rgba(214, 226, 244, 0.72);
+  max-width: 52rem;
+}
+
+.fleet-operations-luxury .wizard-hero-meta {
+  gap: 12px;
+}
+
+.fleet-operations-luxury .wizard-hero-meta .status-pill,
+.fleet-operations-luxury .wizard-hero-step {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.08);
+  color: #f8fbff;
+  backdrop-filter: blur(14px);
+}
+
+.fleet-operations-luxury .wizard-header-actions {
+  align-items: stretch;
+  gap: 16px;
+}
+
+.fleet-operations-luxury .wizard-progress-shell {
+  width: 100%;
+  min-width: 0;
+  padding: 18px 18px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.09);
+  box-shadow:
+    0 16px 42px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(18px);
+}
+
+.fleet-operations-luxury .wizard-progress-copy strong {
+  color: #ffffff;
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.fleet-operations-luxury .wizard-progress-bar {
+  height: 12px;
+  background: rgba(226, 232, 240, 0.18);
+}
+
+.fleet-operations-luxury .wizard-progress-bar .progress-bar-fill {
+  background: linear-gradient(90deg, #d3a34e, #6ca6ff);
+  box-shadow: 0 0 22px rgba(108, 166, 255, 0.28);
+}
+
+.fleet-operations-luxury .wizard-close-button {
+  min-width: 56px;
+  padding: 0;
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.08);
+  color: #f8fbff;
+  box-shadow: none;
+}
+
+.fleet-operations-luxury .wizard-close-button:hover {
+  border-color: rgba(214, 180, 112, 0.42);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.fleet-operations-luxury .wizard-stepper {
+  display: flex;
+  gap: 10px;
+  margin-top: 0;
+  padding: 0 30px 22px;
+}
+
+.fleet-operations-luxury .wizard-stepper::before {
+  display: none;
+}
+
+.fleet-operations-luxury .wizard-step {
+  min-width: 168px;
+  padding: 14px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  transition:
+    transform 180ms ease,
+    border-color 180ms ease,
+    background 180ms ease;
+}
+
+.fleet-operations-luxury .wizard-step:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.fleet-operations-luxury .wizard-step-indicator {
+  width: 36px;
+  height: 36px;
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.12);
+  color: #dbe7f6;
+  box-shadow: none;
+}
+
+.fleet-operations-luxury .wizard-step strong {
+  color: #f8fbff;
+}
+
+.fleet-operations-luxury .wizard-step small {
+  color: rgba(214, 226, 244, 0.68);
+}
+
+.fleet-operations-luxury .wizard-step.complete {
+  background: linear-gradient(135deg, rgba(25, 73, 50, 0.38), rgba(255, 255, 255, 0.06));
+  border-color: rgba(74, 222, 128, 0.2);
+}
+
+.fleet-operations-luxury .wizard-step.complete .wizard-step-indicator {
+  border-color: rgba(74, 222, 128, 0.28);
+  background: rgba(220, 252, 231, 0.12);
+  color: #8cf3b2;
+}
+
+.fleet-operations-luxury .wizard-step.complete strong {
+  color: #dcfce7;
+}
+
+.fleet-operations-luxury .wizard-step.active {
+  background: linear-gradient(135deg, rgba(214, 180, 112, 0.2), rgba(108, 166, 255, 0.12));
+  border-color: rgba(214, 180, 112, 0.34);
+}
+
+.fleet-operations-luxury .wizard-step.active .wizard-step-indicator {
+  border-color: rgba(214, 180, 112, 0.4);
+  background: linear-gradient(135deg, #c89443, #e4bf76);
+  color: #10233d;
+}
+
+.fleet-operations-luxury .wizard-step.active strong {
+  color: #fff8ec;
+}
+
+.fleet-operations-luxury .wizard-shell {
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 28px;
+  padding: 28px 30px 22px;
+}
+
+.fleet-operations-luxury .wizard-stage-header {
+  border: 0;
+  border-radius: 28px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(247, 244, 236, 0.94));
+  box-shadow:
+    0 22px 48px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.fleet-operations-luxury .wizard-stage-header h3 {
+  font-size: 2.4rem;
+  letter-spacing: -0.04em;
+}
+
+.fleet-operations-luxury .wizard-stage-detail {
+  border: 0;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #fffaf0, #f4f8ff);
+  box-shadow: inset 0 0 0 1px rgba(214, 180, 112, 0.14);
+}
+
+.fleet-operations-luxury .wizard-panel {
+  border: 0;
+  border-radius: 30px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 249, 251, 0.96));
+  box-shadow:
+    0 24px 56px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82);
+}
+
+.fleet-operations-luxury .wizard-section-head {
+  padding-bottom: 20px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid rgba(184, 196, 214, 0.42);
+}
+
+.fleet-operations-luxury .wizard-section-head__icon {
+  border: 0;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #fff7e8, #eef5ff);
+  box-shadow:
+    inset 0 0 0 1px rgba(214, 180, 112, 0.2),
+    0 12px 22px rgba(15, 23, 42, 0.07);
+}
+
+.fleet-operations-luxury .wizard-section-head h3 {
+  font-size: 1.9rem;
+  letter-spacing: -0.03em;
+}
+
+.fleet-operations-luxury .wizard-panel input,
+.fleet-operations-luxury .wizard-panel select,
+.fleet-operations-luxury .document-upload-grid select,
+.fleet-operations-luxury .document-library-search input {
+  min-height: 60px;
+  border: 1px solid rgba(176, 190, 210, 0.52);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.84);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 6px 16px rgba(15, 23, 42, 0.03);
+}
+
+.fleet-operations-luxury .wizard-panel input:focus,
+.fleet-operations-luxury .wizard-panel select:focus,
+.fleet-operations-luxury .document-upload-grid select:focus,
+.fleet-operations-luxury .document-library-search input:focus {
+  border-color: rgba(214, 180, 112, 0.54);
+  box-shadow:
+    0 0 0 4px rgba(214, 180, 112, 0.12),
+    0 10px 24px rgba(15, 23, 42, 0.05);
+}
+
+.fleet-operations-luxury .wizard-panel input[type='file'],
+.fleet-operations-luxury .document-dropzone {
+  border: 1.5px dashed rgba(186, 165, 122, 0.52);
+  background:
+    linear-gradient(180deg, rgba(255, 250, 240, 0.9), rgba(242, 247, 255, 0.92));
+}
+
+.fleet-operations-luxury .wizard-panel input[type='file']:hover,
+.fleet-operations-luxury .document-dropzone:hover,
+.fleet-operations-luxury .document-dropzone.active {
+  border-color: rgba(214, 180, 112, 0.72);
+  background:
+    linear-gradient(180deg, rgba(255, 247, 230, 0.96), rgba(236, 243, 255, 0.98));
+}
+
+.fleet-operations-luxury .document-type-card,
+.fleet-operations-luxury .document-preview-card,
+.fleet-operations-luxury .stored-document-card,
+.fleet-operations-luxury .stored-image-card,
+.fleet-operations-luxury .wizard-review-card,
+.fleet-operations-luxury .wizard-sidebar-card {
+  border: 0;
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 249, 252, 0.96));
+  box-shadow:
+    0 20px 44px rgba(15, 23, 42, 0.07),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.fleet-operations-luxury .document-type-card.active,
+.fleet-operations-luxury .document-type-card:hover,
+.fleet-operations-luxury .document-preview-card:hover,
+.fleet-operations-luxury .stored-document-card:hover {
+  border: 0;
+  box-shadow:
+    0 24px 50px rgba(15, 23, 42, 0.1),
+    inset 0 0 0 1px rgba(214, 180, 112, 0.22);
+}
+
+.fleet-operations-luxury .wizard-sidebar {
+  top: 10px;
+  width: 340px;
+  min-width: 340px;
+}
+
+.fleet-operations-luxury .wizard-sidebar-card {
+  padding: 20px;
+}
+
+.fleet-operations-luxury .wizard-sidebar-card--hero {
+  background:
+    linear-gradient(180deg, rgba(12, 25, 46, 0.98), rgba(25, 43, 72, 0.96));
+  color: #f8fbff;
+}
+
+.fleet-operations-luxury .wizard-sidebar-card--hero .mini-label,
+.fleet-operations-luxury .wizard-sidebar-card--hero .muted {
+  color: rgba(214, 226, 244, 0.74);
+}
+
+.fleet-operations-luxury .wizard-sidebar-card--hero strong {
+  color: #ffffff;
+}
+
+.fleet-operations-luxury .wizard-sidebar-jet-image {
+  height: 118px;
+  border-radius: 20px;
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.22);
+}
+
+.fleet-operations-luxury .wizard-sidebar-jet-image--empty {
+  background-image:
+    radial-gradient(circle at 60% 28%, rgba(214, 180, 112, 0.45), transparent 22%),
+    linear-gradient(135deg, rgba(24, 48, 86, 0.94), rgba(9, 22, 40, 0.92));
+}
+
+.fleet-operations-luxury .wizard-sidebar-facts span,
+.fleet-operations-luxury .wizard-sidebar-highlight span {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f1f6ff;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.fleet-operations-luxury .wizard-readiness-score {
+  border: 0;
+  background: linear-gradient(135deg, rgba(214, 180, 112, 0.14), rgba(108, 166, 255, 0.12));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.fleet-operations-luxury .wizard-readiness-score span {
+  color: rgba(214, 226, 244, 0.72);
+}
+
+.fleet-operations-luxury .wizard-readiness-score strong {
+  color: #ffffff;
+}
+
+.fleet-operations-luxury .wizard-sidebar-card:not(.wizard-sidebar-card--hero) {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(244, 247, 251, 0.96));
+}
+
+.fleet-operations-luxury .wizard-sidebar-stat {
+  border-bottom-color: rgba(194, 204, 218, 0.5);
+}
+
+.fleet-operations-luxury .wizard-checklist-item {
+  border-bottom-color: rgba(194, 204, 218, 0.46);
+}
+
+.fleet-operations-luxury .wizard-checklist-item__icon {
+  background: linear-gradient(135deg, #fff7e8, #eef4ff);
+  color: #7a6240;
+}
+
+.fleet-operations-luxury .wizard-checklist-item[data-status='complete'] .wizard-checklist-item__icon {
+  background: linear-gradient(135deg, #dbffe8, #eafff3);
+  color: #147a46;
+}
+
+.fleet-operations-luxury .wizard-checklist-item[data-status='active'] .wizard-checklist-item__icon {
+  background: linear-gradient(135deg, #fff0d4, #e8f1ff);
+  color: #9a6a22;
+}
+
+.fleet-operations-luxury .wizard-footer {
+  background:
+    linear-gradient(180deg, rgba(250, 246, 239, 0.94), rgba(244, 247, 250, 0.98));
+  border-top: 1px solid rgba(184, 196, 214, 0.34);
+}
+
+.fleet-operations-luxury .wizard-footer .ghost-button {
+  border: 1px solid rgba(174, 188, 206, 0.54);
+  background: rgba(255, 255, 255, 0.78);
+  color: #17304f;
+}
+
+.fleet-operations-luxury .wizard-footer .primary-action {
+  border: 0;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #132d52, #23497e);
+  box-shadow: 0 18px 36px rgba(19, 45, 82, 0.24);
+}
+
+@media (max-width: 1180px) {
+  .fleet-operations-luxury .wizard-header {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .fleet-operations-luxury .wizard-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .fleet-operations-luxury .wizard-sidebar {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+@media (max-width: 920px) {
+  .fleet-operations-luxury .wizard-header,
+  .fleet-operations-luxury .wizard-stepper,
+  .fleet-operations-luxury .wizard-shell,
+  .fleet-operations-luxury .wizard-footer {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+
+  .fleet-operations-luxury .wizard-step {
+    min-width: 188px;
+  }
+}
+
+/* Compact density pass */
+.fleet-operations-luxury .wizard-modal {
+  width: min(1420px, calc(100vw - 40px));
+}
+
+.fleet-operations-luxury .wizard-header {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 310px);
+  gap: 16px;
+  padding: 8px 22px 4px;
+  align-items: start;
+}
+
+.fleet-operations-luxury .wizard-hero-copy {
+  gap: 3px;
+  min-width: 0;
+  max-width: 880px;
+}
+
+.fleet-operations-luxury .wizard-hero-copy h2 {
+  font-size: clamp(2rem, 3vw, 2.9rem);
+  line-height: 0.86;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: -1px;
+}
+
+.fleet-operations-luxury .wizard-hero-route {
+  font-size: 0.78rem;
+}
+
+.fleet-operations-luxury .wizard-hero-route-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 18px;
+  flex-wrap: wrap;
+}
+
+.fleet-operations-luxury .wizard-hero-copy .muted {
+  display: -webkit-box;
+  max-width: 44rem;
+  font-size: 0.76rem;
+  line-height: 1.14;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+}
+
+.fleet-operations-luxury .wizard-hero-meta {
+  gap: 6px;
+  margin-left: auto;
+}
+
+.fleet-operations-luxury .wizard-hero-step,
+.fleet-operations-luxury .wizard-hero-meta .status-pill {
+  min-height: 26px;
+  padding: 0 9px;
+  font-size: 0.72rem;
+}
+
+.fleet-operations-luxury .wizard-progress-shell {
+  align-self: start;
+  width: 100%;
+  min-width: 0;
+  max-width: 248px;
+  padding: 8px 12px 9px;
+  border-radius: 16px;
+  justify-self: end;
+}
+
+.fleet-operations-luxury .wizard-progress-copy {
+  margin-bottom: 5px;
+}
+
+.fleet-operations-luxury .wizard-progress-copy strong {
+  font-size: 0.88rem;
+}
+
+.fleet-operations-luxury .wizard-progress-bar {
+  height: 6px;
+}
+
+.fleet-operations-luxury .wizard-close-button {
+  align-self: start;
+  min-width: 42px;
+  min-height: 42px;
+}
+
+.fleet-operations-luxury .wizard-header-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 12px;
+  min-width: 0;
+}
+
+.fleet-operations-luxury .wizard-stepper {
+  gap: 8px;
+  padding: 0 22px 10px;
+  margin-top: 0;
+}
+
+.fleet-operations-luxury .wizard-step {
+  min-width: 132px;
+  padding: 8px 12px;
+  border-radius: 18px;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.fleet-operations-luxury .wizard-step-indicator {
+  width: 30px;
+  height: 30px;
+  font-size: 0.8rem;
+}
+
+.fleet-operations-luxury .wizard-step strong {
+  font-size: 0.8rem;
+  line-height: 1.05;
+}
+
+.fleet-operations-luxury .wizard-step small {
+  display: none;
+}
+
+.fleet-operations-luxury .wizard-shell {
+  grid-template-columns: minmax(0, 1fr) 290px;
+  gap: 16px;
+  padding: 12px 22px 14px;
+}
+
+.fleet-operations-luxury .wizard-body,
+.fleet-operations-luxury .wizard-sidebar {
+  gap: 14px;
+}
+
+.fleet-operations-luxury .wizard-stage-header {
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 14px;
+  padding: 14px 18px;
+  border-radius: 22px;
+}
+
+.fleet-operations-luxury .wizard-stage-header h3 {
+  margin-top: 4px;
+  font-size: 1.2rem;
+}
+
+.fleet-operations-luxury .wizard-stage-header p {
+  margin-top: 4px;
+  font-size: 0.88rem;
+}
+
+.fleet-operations-luxury .wizard-stage-detail {
+  padding: 12px 14px;
+  border-radius: 16px;
+}
+
+.fleet-operations-luxury .wizard-stage-detail p {
+  font-size: 0.8rem;
+}
+
+.fleet-operations-luxury .wizard-panel {
+  padding: 18px;
+  border-radius: 24px;
+}
+
+.fleet-operations-luxury .wizard-section-head {
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 12px;
+  padding-bottom: 14px;
+  margin-bottom: 16px;
+}
+
+.fleet-operations-luxury .wizard-section-head__group {
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.fleet-operations-luxury .wizard-section-head__icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+}
+
+.fleet-operations-luxury .wizard-section-head h3 {
+  font-size: 1rem;
+}
+
+.fleet-operations-luxury .wizard-section-head p {
+  margin-top: 4px;
+  font-size: 0.82rem;
+}
+
+.fleet-operations-luxury .wizard-panel .form-grid,
+.fleet-operations-luxury .wizard-review-grid,
+.fleet-operations-luxury .document-upload-grid,
+.fleet-operations-luxury .document-type-grid,
+.fleet-operations-luxury .document-preview-grid,
+.fleet-operations-luxury .stored-images-grid,
+.fleet-operations-luxury .stored-documents-list {
+  gap: 12px;
+}
+
+.fleet-operations-luxury .wizard-panel input,
+.fleet-operations-luxury .wizard-panel select,
+.fleet-operations-luxury .document-upload-grid select,
+.fleet-operations-luxury .document-library-search input {
+  min-height: 50px;
+  border-radius: 14px;
+}
+
+.fleet-operations-luxury .wizard-panel input[type='file'] {
+  min-height: 7rem;
+  padding: 2.5rem 0.85rem 0.85rem;
+}
+
+.fleet-operations-luxury .document-dropzone {
+  min-height: 8rem;
+  padding: 0.9rem;
+}
+
+.fleet-operations-luxury .wizard-review-card,
+.fleet-operations-luxury .wizard-sidebar-card,
+.fleet-operations-luxury .document-type-card,
+.fleet-operations-luxury .document-preview-card,
+.fleet-operations-luxury .stored-document-card,
+.fleet-operations-luxury .stored-image-card {
+  border-radius: 18px;
+}
+
+.fleet-operations-luxury .wizard-review-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.fleet-operations-luxury .wizard-review-card {
+  min-height: 0;
+  padding: 14px 16px;
+  border-radius: 16px;
+}
+
+.fleet-operations-luxury .wizard-review-card::before {
+  width: 22px;
+  height: 22px;
+  margin-bottom: 6px;
+}
+
+.fleet-operations-luxury .wizard-review-card .mini-label {
+  font-size: 0.68rem;
+}
+
+.fleet-operations-luxury .wizard-review-card strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.92rem;
+  line-height: 1.2;
+}
+
+.fleet-operations-luxury .wizard-review-card p {
+  margin: 6px 0 0;
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.fleet-operations-luxury .wizard-sidebar {
+  width: 290px;
+  min-width: 290px;
+}
+
+.fleet-operations-luxury .wizard-sidebar-card {
+  padding: 14px;
+}
+
+.fleet-operations-luxury .wizard-sidebar-jet-image {
+  height: 84px;
+  margin-bottom: 12px;
+  border-radius: 14px;
+}
+
+.fleet-operations-luxury .wizard-sidebar-facts span,
+.fleet-operations-luxury .wizard-sidebar-highlight span {
+  padding: 7px 9px;
+  font-size: 0.72rem;
+}
+
+.fleet-operations-luxury .wizard-readiness-score {
+  min-height: 56px;
+  margin-top: 8px;
+  padding: 12px 14px;
+}
+
+.fleet-operations-luxury .wizard-sidebar-stats {
+  gap: 8px;
+}
+
+.fleet-operations-luxury .wizard-sidebar-stat {
+  gap: 2px;
+  padding-bottom: 8px;
+}
+
+.fleet-operations-luxury .wizard-checklist {
+  gap: 8px;
+}
+
+.fleet-operations-luxury .wizard-checklist-item {
+  gap: 10px;
+  padding: 8px 0;
+}
+
+.fleet-operations-luxury .wizard-checklist-item__copy strong {
+  font-size: 0.82rem;
+}
+
+.fleet-operations-luxury .wizard-checklist-item__copy p {
+  font-size: 0.74rem;
+  line-height: 1.25;
+}
+
+.fleet-operations-luxury .wizard-checklist-item__status {
+  font-size: 0.72rem;
+}
+
+.fleet-operations-luxury .wizard-footer {
+  min-height: 72px;
+  padding: 10px 22px 16px;
+}
+
+.fleet-operations-luxury .wizard-footer .ghost-button,
+.fleet-operations-luxury .wizard-footer .primary-action {
+  min-height: 48px;
+}
+
+@media (max-width: 1180px) {
+  .fleet-operations-luxury .wizard-header {
+    grid-template-columns: 1fr;
+  }
+
+  .fleet-operations-luxury .wizard-hero-copy h2 {
+    white-space: normal;
+  }
+
+  .fleet-operations-luxury .wizard-hero-route-row {
+    align-items: flex-start;
+  }
+
+  .fleet-operations-luxury .wizard-hero-meta {
+    margin-left: 0;
+  }
+
+  .fleet-operations-luxury .wizard-header-actions {
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+
+  .fleet-operations-luxury .wizard-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .fleet-operations-luxury .wizard-sidebar {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .fleet-operations-luxury .wizard-review-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 920px) {
+  .fleet-operations-luxury .wizard-header,
+  .fleet-operations-luxury .wizard-stepper,
+  .fleet-operations-luxury .wizard-shell,
+  .fleet-operations-luxury .wizard-footer {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .fleet-operations-luxury .wizard-stage-header {
+    grid-template-columns: 1fr;
+  }
+
+  .fleet-operations-luxury .wizard-progress-shell {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .fleet-operations-luxury .wizard-review-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Stepper cleanup */
+.fleet-operations-luxury .wizard-stepper {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  align-items: stretch;
+}
+
+.fleet-operations-luxury .wizard-step {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 64px;
+  padding: 0 18px;
+  border: 1px solid rgba(207, 216, 228, 0.9);
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 249, 252, 0.96));
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.04);
+}
+
+.fleet-operations-luxury .wizard-step-copy {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  width: auto;
+  height: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  position: static;
+  transform: none;
+}
+
+.fleet-operations-luxury .wizard-step-copy::before,
+.fleet-operations-luxury .wizard-step-copy::after,
+.fleet-operations-luxury .wizard-step-indicator::before,
+.fleet-operations-luxury .wizard-step-indicator::after,
+.fleet-operations-luxury .wizard-step.complete .wizard-step-copy::after,
+.fleet-operations-luxury .wizard-step.complete .wizard-step-indicator::after {
+  content: none !important;
+}
+
+.fleet-operations-luxury .wizard-step.complete .wizard-step-copy,
+.fleet-operations-luxury .wizard-step.active .wizard-step-copy,
+.fleet-operations-luxury .wizard-step:not(.active):not(.complete) .wizard-step-copy {
+  width: auto;
+  height: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.fleet-operations-luxury .wizard-step strong {
+  display: block;
+  overflow: hidden;
+  color: #163154;
+  font-size: 0.92rem;
+  font-weight: 800;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fleet-operations-luxury .wizard-step-indicator {
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  margin-right: 14px;
+  border: 1px solid rgba(206, 176, 107, 0.35);
+  border-radius: 999px;
+  background: linear-gradient(180deg, #f3cd79, #d9a846);
+  color: #11284a;
+  font-size: 0.92rem;
+  font-weight: 900;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.fleet-operations-luxury .wizard-step small {
+  display: none;
+}
+
+.fleet-operations-luxury .wizard-step:hover {
+  transform: translateY(-1px);
+  border-color: rgba(165, 184, 211, 0.95);
+  background: linear-gradient(180deg, #ffffff, #f5f8fc);
+}
+
+.fleet-operations-luxury .wizard-step.complete {
+  border-color: rgba(187, 247, 208, 0.95);
+  background: linear-gradient(180deg, rgba(247, 255, 250, 0.98), rgba(239, 253, 244, 0.95));
+  box-shadow: 0 8px 20px rgba(34, 197, 94, 0.06);
+}
+
+.fleet-operations-luxury .wizard-step.complete .wizard-step-indicator {
+  border-color: rgba(74, 222, 128, 0.42);
+  background: linear-gradient(180deg, #dcfce7, #bbf7d0);
+  color: #177245;
+}
+
+.fleet-operations-luxury .wizard-step.complete strong {
+  color: #1c6a46;
+}
+
+.fleet-operations-luxury .wizard-step.active {
+  border-color: rgba(37, 99, 235, 0.95);
+  background: linear-gradient(180deg, rgba(241, 247, 255, 0.98), rgba(231, 241, 255, 0.96));
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.12);
+}
+
+.fleet-operations-luxury .wizard-step.active .wizard-step-indicator {
+  border-color: rgba(29, 78, 216, 0.45);
+  background: linear-gradient(180deg, #1f5fbf, #164596);
+  color: #ffffff;
+}
+
+.fleet-operations-luxury .wizard-step.active strong {
+  color: #102a4a;
+}
+
+.fleet-operations-luxury .wizard-step:not(.active):not(.complete) .wizard-step-indicator {
+  border-color: rgba(203, 213, 225, 0.95);
+  background: #ffffff;
+  color: #6b7f99;
+  box-shadow: none;
+}
+
+@media (max-width: 920px) {
+  .fleet-operations-luxury .wizard-stepper {
+    display: flex;
+    gap: 8px;
+  }
+
+  .fleet-operations-luxury .wizard-step {
+    min-width: 168px;
+    min-height: 58px;
+    padding: 0 14px;
+  }
+
+  .fleet-operations-luxury .wizard-step-indicator {
+    width: 34px;
+    height: 34px;
+    margin-right: 12px;
+  }
+}
+
 .availability-control-luxury input::placeholder {
   color: #8ca0b8;
 }
@@ -423,3 +2338,105 @@
   }
 }
 
+/* Final wizard header alignment fix */
+.fleet-operations-luxury .wizard-sticky-head {
+  padding: 14px 22px 10px;
+}
+
+.fleet-operations-luxury .wizard-header {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px 20px;
+  align-items: center;
+  padding: 0;
+}
+
+.fleet-operations-luxury .wizard-hero-copy {
+  gap: 6px;
+  max-width: none;
+}
+
+.fleet-operations-luxury .wizard-hero-copy .eyebrow {
+  margin: 0;
+  color: #6f84a2;
+}
+
+.fleet-operations-luxury .wizard-hero-copy h2 {
+  margin: 0;
+  font-size: clamp(2.35rem, 3.4vw, 3.5rem);
+  line-height: 0.9;
+}
+
+.fleet-operations-luxury .wizard-hero-route-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px 18px;
+}
+
+.fleet-operations-luxury .wizard-hero-route {
+  font-size: 0.95rem;
+}
+
+.fleet-operations-luxury .wizard-hero-meta {
+  gap: 8px;
+  margin-left: 0;
+}
+
+.fleet-operations-luxury .wizard-hero-description {
+  max-width: 62rem;
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.3;
+}
+
+.fleet-operations-luxury .wizard-header-actions {
+  align-self: center;
+  gap: 10px;
+}
+
+.fleet-operations-luxury .wizard-progress-shell {
+  max-width: 300px;
+  padding: 10px 14px;
+}
+
+.fleet-operations-luxury .wizard-progress-copy strong {
+  font-size: 0.96rem;
+}
+
+.fleet-operations-luxury .wizard-close-button {
+  min-width: 46px;
+  min-height: 46px;
+}
+
+.fleet-operations-luxury .wizard-stepper {
+  padding: 8px 22px 10px;
+}
+
+@media (max-width: 1180px) {
+  .fleet-operations-luxury .wizard-sticky-head {
+    padding: 14px 18px 10px;
+  }
+
+  .fleet-operations-luxury .wizard-header {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .fleet-operations-luxury .wizard-hero-route-row {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .fleet-operations-luxury .wizard-hero-meta {
+    justify-content: flex-start;
+  }
+
+  .fleet-operations-luxury .wizard-header-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .fleet-operations-luxury .wizard-progress-shell {
+    max-width: none;
+  }
+}

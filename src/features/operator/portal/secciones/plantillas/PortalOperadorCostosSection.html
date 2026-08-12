@@ -1,0 +1,99 @@
+<section class="page-grid operator-costs-luxury">
+      <article class="surface">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Costos base</p>
+            <h2>Matriz operativa para capturar costos por aeronave</h2>
+          </div>
+          <span class="badge">Multiples aeronaves en una sola vista</span>
+        </div>
+
+        <p class="muted helper-copy">
+          Cada fila representa una aeronave. Aqui capturas costos base y parametros operativos; la
+          plataforma conserva el control del precio final y los margenes.
+        </p>
+
+        <div v-if="aircraftPricingRows.length" class="table-shell pricing-table-shell">
+          <div class="pricing-table-head">
+            <span>Aeronave</span>
+            <span>Precio/hr</span>
+            <span>Min hrs</span>
+            <span>Repo</span>
+            <span>Pernocta</span>
+            <span>Espera</span>
+            <span>FBO</span>
+            <span>Permisos</span>
+            <span>Catering</span>
+            <span>Accion</span>
+          </div>
+
+          <div v-for="row in aircraftPricingRows" :key="row.id" class="pricing-table-row">
+            <div class="pricing-aircraft-cell">
+              <strong>{{ row.name }}</strong>
+              <span class="muted">Tarifa base y costos operativos</span>
+            </div>
+            <input
+              :value="row.hourlyPrice"
+              type="number"
+              min="0"
+              @input="updatePricing(row.id, 'hourlyPrice', $event.target.value)"
+            />
+            <input
+              :value="row.minimumHours"
+              type="number"
+              min="0"
+              step="0.1"
+              @input="updatePricing(row.id, 'minimumHours', $event.target.value)"
+            />
+            <input
+              :value="row.repositioningCost"
+              type="number"
+              min="0"
+              @input="updatePricing(row.id, 'repositioningCost', $event.target.value)"
+            />
+            <input
+              :value="row.overnightCost"
+              type="number"
+              min="0"
+              @input="updatePricing(row.id, 'overnightCost', $event.target.value)"
+            />
+            <input
+              :value="row.waitingCost"
+              type="number"
+              min="0"
+              @input="updatePricing(row.id, 'waitingCost', $event.target.value)"
+            />
+            <input
+              :value="row.fboCost"
+              type="number"
+              min="0"
+              @input="updatePricing(row.id, 'fboCost', $event.target.value)"
+            />
+            <input
+              :value="row.permitsCost"
+              type="number"
+              min="0"
+              @input="updatePricing(row.id, 'permitsCost', $event.target.value)"
+            />
+            <input
+              :value="row.cateringBaseCost"
+              type="number"
+              min="0"
+              @input="updatePricing(row.id, 'cateringBaseCost', $event.target.value)"
+            />
+            <button
+              type="button"
+              class="primary-action pricing-save-button"
+              :disabled="savingPricingAircraftId === row.id"
+              @click="savePricing(row.id)"
+            >
+              {{ savingPricingAircraftId === row.id ? 'Guardando...' : 'Guardar' }}
+            </button>
+          </div>
+        </div>
+        <p v-else class="empty-state">
+          Todavia no hay aeronaves registradas para construir la matriz de cotizacion.
+        </p>
+      </article>
+    </section>
+

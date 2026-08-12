@@ -1,0 +1,71 @@
+<section class="page-grid two-columns operator-settings-luxury">
+      <article class="surface">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Configuracion</p>
+            <h2>Preferencias del portal</h2>
+          </div>
+        </div>
+
+        <div class="toggle-list">
+          <label class="toggle-row">
+            <span>Notificaciones por email</span>
+            <input v-model="settings.emailNotifications" type="checkbox" />
+          </label>
+          <label class="toggle-row">
+            <span>Alertas de pagos</span>
+            <input v-model="settings.paymentAlerts" type="checkbox" />
+          </label>
+          <label class="toggle-row">
+            <span>Alertas operativas</span>
+            <input v-model="settings.opsAlerts" type="checkbox" />
+          </label>
+          <label class="toggle-row">
+            <span>Modo de tripulacion</span>
+            <select
+              v-model="settings.crewApprovalMode"
+              :class="{ 'input-error': formErrors.settings.crewApprovalMode }"
+            >
+              <option value="suggest_only">Proveedor sugiere / Admin confirma</option>
+              <option value="provider_confirms">Proveedor confirma directo</option>
+            </select>
+          </label>
+        </div>
+
+        <p v-if="formErrors.settings._form" class="form-feedback form-feedback-error">
+          {{ formErrors.settings._form }}
+        </p>
+        <p v-if="formSuccess.settings" class="form-feedback form-feedback-success">
+          {{ formSuccess.settings }}
+        </p>
+        <div class="inline-actions">
+          <button type="button" class="primary-action" @click="saveSettings">
+            Guardar configuracion
+          </button>
+        </div>
+      </article>
+    </section>
+
+      <article class="surface">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Alcance del rol</p>
+            <h2>Lo que si y no hace el proveedor</h2>
+          </div>
+        </div>
+
+        <div class="status-list">
+          <div class="status-row">
+            <span>Si hace</span>
+            <strong>
+              Publica aeronaves, mantiene disponibilidad, captura costos base y responde solicitudes
+            </strong>
+          </div>
+          <div class="status-row">
+            <span>No hace</span>
+            <strong>
+              No define precio final, no habla directo con cliente y no controla reglas comerciales
+            </strong>
+          </div>
+        </div>
+      </article>

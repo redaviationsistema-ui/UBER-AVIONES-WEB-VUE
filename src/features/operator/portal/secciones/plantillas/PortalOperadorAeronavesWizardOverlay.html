@@ -1,0 +1,883 @@
+      <div v-if="aircraftWizardOpen" class="wizard-overlay" @click.self="closeAircraftWizard">
+        <article class="wizard-modal surface">
+          <div class="wizard-sticky-head">
+            <div class="wizard-header">
+              <div class="wizard-hero-copy">
+                <p class="eyebrow">REGISTRO PREMIUM</p>
+                <h2>
+                  <span>{{ aircraftForm.name || 'Aeronave ejecutiva' }}</span>
+                </h2>
+                <div class="wizard-hero-route-row">
+                  <div class="wizard-hero-route">
+                    <strong>{{ aircraftForm.category || 'Categoria pendiente' }}</strong>
+                    <span>&bull;</span>
+                    <strong>{{ aircraftForm.base || 'Base pendiente' }}</strong>
+                  </div>
+                  <div class="wizard-hero-meta">
+                    <span class="status-pill" :data-tone="aircraftWizardModeMeta.tone">
+                      {{ aircraftWizardModeMeta.label }}
+                    </span>
+                    <span class="wizard-hero-step">
+                      Paso {{ aircraftWizardCurrentStepMeta.id }} de {{ aircraftWizardSteps.length }}
+                    </span>
+                  </div>
+                </div>
+                <p class="muted wizard-hero-description">
+                  {{
+                    aircraftWizardReadOnly
+                      ? 'Consulta completa de la aeronave: navega por general, operacion, galeria, documentacion y revision sin editar.'
+                      : 'Configure la informacion operativa, comercial y documental de la aeronave.'
+                  }}
+                </p>
+              </div>
+
+              <div class="wizard-header-actions">
+                <div class="wizard-progress-shell">
+                  <div class="wizard-progress-copy">
+                    <span>Progreso del registro</span>
+                    <strong>{{ aircraftWizardCompletion }}%</strong>
+                  </div>
+                  <div class="progress-bar wizard-progress-bar">
+                    <span
+                      class="progress-bar-fill"
+                      :style="{ width: `${aircraftWizardCompletion}%` }"
+                    ></span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  class="ghost-button wizard-close-button"
+                  aria-label="Cerrar registro premium"
+                  @click="closeAircraftWizard"
+                >
+                  <span aria-hidden="true">X</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="wizard-stepper">
+              <button
+                v-for="step in aircraftWizardSteps"
+                :key="step.id"
+                type="button"
+                class="wizard-step"
+                :title="step.description"
+                :class="{
+                  active: aircraftWizardStep === step.id,
+                  complete: aircraftWizardStep > step.id,
+                }"
+                :disabled="aircraftWizardSubmitting"
+                @click="handleAircraftWizardStepSelection(step.id)"
+              >
+                <span class="wizard-step-indicator">
+                  <template v-if="aircraftWizardStep > step.id">✓</template>
+                  <template v-else>{{ String(step.id).padStart(2, '0') }}</template>
+                </span>
+                <span class="wizard-step-copy">
+                  <strong>{{ step.label }}</strong>
+                  <small>{{ step.description }}</small>
+                </span>
+              </button>
+            </div>
+          </div>
+
+          <div class="wizard-shell">
+            <div class="wizard-body">
+              <div class="wizard-stage-header">
+                <div>
+                  <span class="mini-label">Etapa actual</span>
+                  <h3>{{ aircraftWizardCurrentStepMeta.label }}</h3>
+                  <p class="muted">{{ aircraftWizardCurrentStepMeta.description }}</p>
+                </div>
+                <div class="wizard-stage-detail">
+                  <span class="mini-label">Contexto</span>
+                  <p>{{ aircraftWizardModeMeta.detail }}</p>
+                </div>
+              </div>
+
+              <p v-if="aircraftWizardStepError" class="form-feedback form-feedback-error">
+                {{ aircraftWizardStepError }}
+              </p>
+
+              <div v-if="aircraftWizardStep === 1" class="wizard-panel">
+            
+
+              <div class="form-grid">
+                <label>
+                  <span>Modelo</span>
+                  <input
+                    v-model="aircraftForm.name"
+                    type="text"
+                    :disabled="aircraftWizardReadOnly"
+                    :class="{ 'input-error': formErrors.aircraft.name }"
+                    @input="setUppercaseAircraftField('name', $event.target.value)"
+                  />
+                  <small v-if="formErrors.aircraft.name" class="field-error">{{
+                    formErrors.aircraft.name
+                  }}</small>
+                </label>
+                <label>
+                  <span>Fabricante</span>
+                  <input
+                    v-model="aircraftForm.manufacturer"
+                    type="text"
+                    :disabled="aircraftWizardReadOnly"
+                    :class="{ 'input-error': formErrors.aircraft.manufacturer }"
+                    @input="setUppercaseAircraftField('manufacturer', $event.target.value)"
+                  />
+                  <small v-if="formErrors.aircraft.manufacturer" class="field-error">{{
+                    formErrors.aircraft.manufacturer
+                  }}</small>
+                </label>
+                <label>
+                  <span>Categoria</span>
+                  <select
+                    v-model="aircraftForm.category"
+                    :disabled="aircraftWizardReadOnly"
+                    :class="{ 'input-error': formErrors.aircraft.category }"
+                  >
+                    <option value="">Selecciona</option>
+                    <option v-for="option in aircraftCategoryOptions" :key="option.value" :value="option.value">
+                      {{ option.label }}
+                    </option>
+                  </select>
+                  <small v-if="formErrors.aircraft.category" class="field-error">{{
+                    formErrors.aircraft.category
+                  }}</small>
+                </label>
+                <label>
+                  <span>Matricula </span>
+                  <input
+                    v-model="aircraftForm.registration"
+                    type="text"
+                    :disabled="aircraftWizardReadOnly"
+                    :class="{ 'input-error': formErrors.aircraft.registration }"
+                    @input="setUppercaseAircraftField('registration', $event.target.value)"
+                  />
+                  <small v-if="formErrors.aircraft.registration" class="field-error">{{
+                    formErrors.aircraft.registration
+                  }}</small>
+                </label>
+                <label>
+                  <span>Anio</span>
+                  <input
+                    v-model="aircraftForm.year"
+                    type="number"
+                    min="1900"
+                    :disabled="aircraftWizardReadOnly"
+                    :class="{ 'input-error': formErrors.aircraft.year }"
+                  />
+                  <small v-if="formErrors.aircraft.year" class="field-error">{{
+                    formErrors.aircraft.year
+                  }}</small>
+                </label>
+                <label class="span-2">
+                  <span>Base operativa</span>
+                  <input
+                    v-model="aircraftForm.base"
+                    type="text"
+                    :disabled="aircraftWizardReadOnly"
+                    :class="{ 'input-error': formErrors.aircraft.base }"
+                    @input="setUppercaseAircraftField('base', $event.target.value)"
+                  />
+                  <small v-if="formErrors.aircraft.base" class="field-error">{{
+                    formErrors.aircraft.base
+                  }}</small>
+                </label>
+              </div>
+              </div>
+
+              <div v-if="aircraftWizardStep === 2" class="wizard-panel">
+              
+
+              <div class="form-grid">
+                <label>
+                  <span>Tipo de motor</span>
+                  <input v-model="aircraftForm.engineType" type="text" disabled />
+                </label>
+                <label>
+                  <span>Clase de motor</span>
+                  <input v-model="aircraftForm.engineClass" type="text" disabled />
+                </label>
+                <label>
+                  <span>Gastos aeroportuarios USD</span>
+                  <input
+                    v-model="aircraftForm.airportExpensesUsd"
+                    type="number"
+                    min="0"
+                    disabled
+                  />
+                </label>
+                <label>
+                  <span>Capacidad</span>
+                  <input
+                    v-model="aircraftForm.capacity"
+                    type="number"
+                    min="1"
+                    :disabled="aircraftWizardReadOnly"
+                    :class="{ 'input-error': formErrors.aircraft.capacity }"
+                  />
+                  <small v-if="formErrors.aircraft.capacity" class="field-error">{{
+                    formErrors.aircraft.capacity
+                  }}</small>
+                </label>
+                <label>
+                  <span>Rango máximo (km)</span>
+                  <input
+                    v-model="aircraftForm.range_km"
+                    type="number"
+                    min="1"
+                    placeholder="2500"
+                    :disabled="aircraftWizardReadOnly"
+                    :class="{ 'input-error': formErrors.aircraft.range_km }"
+                  />
+                  <small>Distancia máxima aproximada que puede recorrer la aeronave sin reabastecimiento.</small>
+                  <small v-if="formErrors.aircraft.range_km" class="field-error">{{
+                    formErrors.aircraft.range_km
+                  }}</small>
+                </label>
+                <label>
+                  <span>Velocidad crucero (knots)</span>
+                  <input
+                    v-model="aircraftForm.speedKnots"
+                    type="number"
+                    min="0"
+                    :disabled="aircraftWizardReadOnly"
+                    :class="{ 'input-error': formErrors.aircraft.speedKnots }"
+                  />
+                  <small v-if="formErrors.aircraft.speedKnots" class="field-error">{{
+                    formErrors.aircraft.speedKnots
+                  }}</small>
+                </label>
+                <label>
+                  <span>Precio por hora</span>
+                  <input
+                    v-model="aircraftForm.hourlyPrice"
+                    type="number"
+                    min="0"
+                    :disabled="aircraftWizardReadOnly"
+                    :class="{ 'input-error': formErrors.aircraft.hourlyPrice }"
+                  />
+                  <small v-if="formErrors.aircraft.hourlyPrice" class="field-error">{{
+                    formErrors.aircraft.hourlyPrice
+                  }}</small>
+                </label>
+              </div>
+              </div>
+
+              <div v-if="aircraftWizardStep === 3" class="wizard-panel">
+            
+
+              <div class="form-grid">
+                <label>
+                  <span>Imagen principal</span>
+                  <input
+                    type="file"
+                    :disabled="aircraftWizardReadOnly"
+                    accept="image/*"
+                    @change="setAircraftImageField('mainFile', $event.target.files?.[0] || null)"
+                  />
+                </label>
+                <label>
+                  <span>Cabina</span>
+                  <input
+                    type="file"
+                    :disabled="aircraftWizardReadOnly"
+                    accept="image/*"
+                    @change="setAircraftImageField('cabinFile', $event.target.files?.[0] || null)"
+                  />
+                </label>
+                <label>
+                  <span>Asientos</span>
+                  <input
+                    type="file"
+                    :disabled="aircraftWizardReadOnly"
+                    accept="image/*"
+                    @change="setAircraftImageField('seatsFile', $event.target.files?.[0] || null)"
+                  />
+                </label>
+                <label>
+                  <span>Servicios proporcionados</span>
+                  <input
+                    type="file"
+                    :disabled="aircraftWizardReadOnly"
+                    accept="image/*"
+                    @change="
+                      setAircraftImageField('amenitiesFile', $event.target.files?.[0] || null)
+                    "
+                  />
+                </label>
+              </div>
+
+              <div v-if="selectedImageAircraft?.images?.length" class="stored-images-grid">
+                <article class="stored-image-card">
+                  <span>Principal guardada</span>
+                  <img
+                    v-if="getAircraftImageByKind(selectedImageAircraft, 'main')?.imageUrl"
+                    :src="getAircraftImageByKind(selectedImageAircraft, 'main').imageUrl"
+                    alt="Imagen principal guardada"
+                    class="stored-image-preview"
+                  />
+                </article>
+                <article class="stored-image-card">
+                  <span>Cabina guardada</span>
+                  <img
+                    v-if="getAircraftImageByKind(selectedImageAircraft, 'cabin')?.imageUrl"
+                    :src="getAircraftImageByKind(selectedImageAircraft, 'cabin').imageUrl"
+                    alt="Imagen de cabina guardada"
+                    class="stored-image-preview"
+                  />
+                </article>
+              </div>
+              </div>
+
+              <div v-if="aircraftWizardStep === 4" class="wizard-panel">
+              
+
+              <div class="document-type-grid">
+                <button
+                  v-for="type in aircraftDocumentTypes"
+                  :key="type.id"
+                  type="button"
+                  class="document-type-card document-category-card"
+                  :class="{ active: documentForm.type === type.id }"
+                  @click="selectDocumentType(type.id)"
+                >
+                  <div class="document-category-icon">
+                    {{ getAircraftDocumentTypeIcon(type) }}
+                  </div>
+
+                  <h3 class="document-category-title">
+                    {{ type.label }}
+                  </h3>
+
+                  <div class="document-category-formats">
+                    <span v-for="format in getAircraftDocumentTypeFormats(type)" :key="`${type.id}-${format}`">
+                      {{ format }}
+                    </span>
+                  </div>
+
+                  <p class="document-category-status">
+                    {{ getAircraftDocumentTypeStatus(type) }}
+                  </p>
+
+                  <p class="document-category-expiration">
+                    {{ getAircraftDocumentTypeExpirationLabel(type) }}
+                  </p>
+                </button>
+              </div>
+
+              <div class="document-upload-grid">
+                <label class="field">
+                  <span>Tipo de archivo</span>
+                  <select v-model="documentForm.type" :class="{ 'input-error': formErrors.document.type }" @change="selectDocumentType($event.target.value)">
+                    <option v-for="type in aircraftDocumentTypes" :key="type.id" :value="type.id">
+                      {{ type.label }}
+                    </option>
+                  </select>
+                  <small v-if="formErrors.document.type" class="field-error">{{ formErrors.document.type }}</small>
+                </label>
+
+                <label
+                  class="document-dropzone"
+                  :class="{ active: documentForm.dragActive, 'input-error': formErrors.document.file }"
+                  @dragover.prevent="documentForm.dragActive = true"
+                  @dragleave.prevent="documentForm.dragActive = false"
+                  @drop.prevent="handleDocumentDrop"
+                >
+                  <input
+                    type="file"
+                    multiple
+                    accept=".jpg,.jpeg,.png,.webp,.heic,.heif,.pdf,image/*,application/pdf"
+                    @change="setAircraftDocumentFiles"
+                  />
+                  <strong>Arrastra archivos aqui o selecciona multiples</strong>
+                  <span>Imagen max 8MB. PDF max 25MB. Hasta {{ maxAircraftDocumentFiles }} archivos por carga.</span>
+                  <small>Categoria activa: {{ selectedDocumentType.label }}</small>
+                </label>
+              </div>
+
+              <p v-if="formErrors.document._form" class="form-feedback form-feedback-error">
+                {{ formErrors.document._form }}
+              </p>
+              <p v-if="formErrors.document.file" class="form-feedback form-feedback-error">
+                {{ formErrors.document.file }}
+              </p>
+              <p v-if="formSuccess.document" class="form-feedback form-feedback-success">
+                {{ formSuccess.document }}
+              </p>
+
+              <div v-if="documentForm.files.length" class="document-preview-grid">
+                <article
+                  v-for="item in documentForm.files"
+                  :key="item.id"
+                  class="document-preview-card"
+                  role="button"
+                  tabindex="0"
+                  @click="openDocumentPreview(item)"
+                  @keydown.enter.prevent="openDocumentPreview(item)"
+                >
+                  <img v-if="item.previewUrl" :src="item.previewUrl" :alt="item.name" />
+                  <div v-else class="pdf-preview">PDF</div>
+                  <strong>{{ item.name }}</strong>
+                  <span>{{ item.typeLabel }} · {{ item.kind.toUpperCase() }} · {{ formatFileSize(item.size) }}</span>
+                  <button type="button" class="ghost-button danger-button" @click.stop="removeAircraftDocumentFile(item.id)">
+                    Eliminar
+                  </button>
+                </article>
+              </div>
+
+              <div class="document-library-header">
+                <div class="document-library-heading">
+                  <span class="mini-label">CONTENIDO DOCUMENTAL</span>
+                  <strong>Biblioteca de la aeronave</strong>
+                  <p class="muted">Consulta, organiza y administra los documentos registrados para esta aeronave.</p>
+                </div>
+                <div class="document-library-summary">
+                  <span class="badge">{{ documentLibrarySummary.total }} documentos</span>
+                  <span class="badge" data-tone="success">{{ documentLibrarySummary.valid }} vigentes</span>
+                  <span class="badge" data-tone="warning">{{ documentLibrarySummary.pending }} pendientes</span>
+                  <span class="badge" data-tone="danger">{{ documentLibrarySummary.expired }} vencido<span v-if="documentLibrarySummary.expired !== 1">s</span></span>
+                </div>
+              </div>
+
+              <div v-if="storedAircraftDocuments.length" class="document-library-toolbar">
+                <label class="document-library-search">
+                  <span class="mini-label">Buscar</span>
+                  <input v-model="documentLibrarySearch" type="search" placeholder="Buscar documento..." />
+                </label>
+
+                <label>
+                  <span class="mini-label">Categoria</span>
+                  <select v-model="documentLibraryCategory">
+                    <option v-for="option in documentLibraryCategoryOptions" :key="option.value" :value="option.value">
+                      {{ option.label }}
+                    </option>
+                  </select>
+                </label>
+
+                <label>
+                  <span class="mini-label">Estado</span>
+                  <select v-model="documentLibraryState">
+                    <option v-for="option in documentLibraryStateOptions" :key="option.value" :value="option.value">
+                      {{ option.label }}
+                    </option>
+                  </select>
+                </label>
+
+                <label>
+                  <span class="mini-label">Orden</span>
+                  <select v-model="documentLibrarySort">
+                    <option v-for="option in documentLibrarySortOptions" :key="option.value" :value="option.value">
+                      {{ option.label }}
+                    </option>
+                  </select>
+                </label>
+
+                <button type="button" class="ghost-button" @click="clearDocumentLibraryFilters">
+                  Limpiar filtros
+                </button>
+              </div>
+
+              <div v-if="filteredStoredAircraftDocuments.length" class="stored-documents-list document-library">
+                <article
+                  v-for="document in filteredStoredAircraftDocuments"
+                  :key="getAircraftDocumentKey(document)"
+                  :class="['stored-document-card', { 'stored-document-card--menu-open': documentLibraryMenuId === document.id }]"
+                  role="button"
+                  tabindex="0"
+                  @click="openStoredDocumentPreview(document)"
+                  @keydown.enter.prevent="openStoredDocumentPreview(document)"
+                >
+                  <div class="stored-document-visual" :data-kind="document.kind">
+                    <span class="stored-document-visual__icon">{{ document.kindIcon }}</span>
+                    <span class="stored-document-visual__type">{{ document.fileExtension }}</span>
+                  </div>
+
+                  <div class="stored-document-main">
+                    <div class="stored-document-copy">
+                      <p class="stored-document-file">{{ document.name }}</p>
+                      <strong>{{ document.typeLabel }}</strong>
+                      <p class="stored-document-date">{{ document.uploadedAtLabel }}</p>
+                    </div>
+
+                    <div class="stored-document-tags">
+                      <span class="document-chip">
+                        <span class="document-chip__label">Categoria</span>
+                        <span class="document-chip__value">{{ document.categoryLabel }}</span>
+                      </span>
+                      <span class="document-chip">
+                        <span class="document-chip__label">Archivo</span>
+                        <span class="document-chip__value">{{ document.fileExtension }}</span>
+                      </span>
+                      <span class="document-chip">
+                        <span class="document-chip__label">Vigencia</span>
+                        <span class="document-chip__value">{{ document.expiryLabel }}</span>
+                      </span>
+                    </div>
+                  </div>
+
+                  <div class="stored-document-side">
+                    <span
+                      class="document-status-badge"
+                      :data-tone="document.stateMeta.tone"
+                    >
+                      <span class="document-status-badge__dot" :data-tone="document.stateMeta.dot"></span>
+                      <span class="document-status-badge__text">
+                        {{ document.stateMeta.label }}
+                      </span>
+                    </span>
+
+                    <div class="stored-document-actions">
+                      <button type="button" class="primary-action stored-document-actions__primary" @click.stop="openStoredDocumentPreview(document)">
+                        Ver
+                      </button>
+                      <div class="stored-document-actions__secondary">
+                        <button type="button" class="ghost-button" @click.stop="downloadDocumentFile(document)">
+                          Descargar
+                        </button>
+                        <button type="button" class="card-menu-button" @click.stop="toggleDocumentLibraryMenu(document, $event)">
+                          ⋮
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </article>
+              </div>
+              <p v-else-if="storedAircraftDocuments.length" class="empty-state">
+                No hay documentos que coincidan con los filtros actuales.
+              </p>
+              <p v-else class="empty-state">
+                Aun no hay documentos guardados para esta aeronave. Cuando subas archivos aqui se iran mostrando en esta biblioteca.
+              </p>
+              </div>
+
+              <Teleport to="body">
+                <div
+                  v-if="activeDocumentMenu"
+                  ref="documentMenuRef"
+                  class="document-actions-popover"
+                  :style="documentMenuPosition"
+                  role="menu"
+                >
+                  <button type="button" role="menuitem" @click="showDocumentLibraryComingSoon('Editar informacion', activeDocumentMenu)">
+                    Editar informacion
+                  </button>
+
+                  <button type="button" role="menuitem" @click="showDocumentLibraryComingSoon('Reemplazar archivo', activeDocumentMenu)">
+                    Reemplazar archivo
+                  </button>
+
+                  <div class="document-actions-divider"></div>
+
+                  <button
+                    type="button"
+                    class="document-actions-danger"
+                    role="menuitem"
+                    @click="promptStoredAircraftDocumentRemoval(selectedDocumentAircraft?.id, activeDocumentMenu.id)"
+                  >
+                    Eliminar documento
+                  </button>
+                </div>
+              </Teleport>
+
+              <div
+                v-if="pendingAircraftDocumentDelete"
+                class="wizard-overlay operator-delete-document-overlay"
+                role="dialog"
+                aria-modal="true"
+                @click.self="cancelStoredAircraftDocumentRemoval"
+              >
+                <article class="wizard-modal surface operator-delete-document-modal">
+                  <div class="operator-delete-document-modal__copy">
+                    <p class="eyebrow">Eliminar documento</p>
+                    <h3>{{ pendingAircraftDocumentDelete.name }}</h3>
+                    <p>
+                      Esta accion eliminara el documento de la aeronave y no se puede deshacer.
+                    </p>
+                  </div>
+
+                  <div class="operator-delete-document-modal__actions">
+                    <button
+                      type="button"
+                      class="ghost-button"
+                      :disabled="deletingAircraftDocumentId === pendingAircraftDocumentDelete.documentId"
+                      @click="cancelStoredAircraftDocumentRemoval"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      class="primary-action danger"
+                      :disabled="deletingAircraftDocumentId === pendingAircraftDocumentDelete.documentId"
+                      @click="removeStoredAircraftDocument"
+                    >
+                      {{
+                        deletingAircraftDocumentId === pendingAircraftDocumentDelete.documentId
+                          ? 'Eliminando...'
+                          : 'Eliminar documento'
+                      }}
+                    </button>
+                  </div>
+                </article>
+              </div>
+
+              <div v-if="aircraftWizardStep === 5" class="wizard-panel">
+              <div class="wizard-section-head">
+                <div class="wizard-section-head__icon" data-icon="review" aria-hidden="true"></div>
+                <div>
+                  <p class="eyebrow">Executive Aircraft Summary</p>
+                  <h3>Resumen y envio</h3>
+                  <p class="muted">Resumen final antes de publicar, guardar cambios o revisar.</p>
+                </div>
+              </div>
+
+              <div class="wizard-review-grid">
+                <article class="wizard-review-card" data-summary="aircraft">
+                  <span class="mini-label">Aeronave</span>
+                  <strong>{{ aircraftForm.name || 'Sin modelo' }}</strong>
+                  <p class="muted">
+                    {{ aircraftForm.registration || 'Sin matricula' }} ·
+                    {{ aircraftForm.base || 'Sin base' }}
+                  </p>
+                </article>
+                <article class="wizard-review-card" data-summary="operation">
+                  <span class="mini-label">Operacion</span>
+                  <strong
+                    >{{ aircraftForm.capacity || 0 }} pax ·
+                    {{ aircraftForm.speedKnots || 0 }} kt</strong
+                  >
+                  <p class="muted">
+                    {{ formatCurrency(aircraftForm.hourlyPrice) }} · Min
+                    {{ inferredAircraftMinimumHours }} hr
+                  </p>
+                </article>
+                <article class="wizard-review-card" data-summary="gallery">
+                  <span class="mini-label">Galeria</span>
+                  <strong>{{ countSelectedImageFiles() }} archivos listos</strong>
+                  <p class="muted">
+                    Principal, cabina, asientos y amenidades listas para sincronizar.
+                  </p>
+                </article>
+                <article class="wizard-review-card" data-summary="dossier">
+                  <span class="mini-label">Expediente</span>
+                  <strong>{{ documentForm.files.length ? `${documentForm.files.length} archivo(s) listos` : 'Sin nuevo documento' }}</strong>
+                  <p class="muted">
+                    {{ documentForm.type }} ·
+                    
+                  </p>
+                </article>
+              </div>
+
+              <div class="wizard-executive-table">
+                <div>
+                  <span>Modelo</span>
+                  <strong>{{ aircraftForm.name || 'Sin modelo' }}</strong>
+                </div>
+                <div>
+                  <span>Matricula</span>
+                  <strong>{{ aircraftForm.registration || 'Sin matricula' }}</strong>
+                </div>
+                <div>
+                  <span>Base</span>
+                  <strong>{{ aircraftForm.base || 'Sin base' }}</strong>
+                </div>
+                <div>
+                  <span>Capacidad</span>
+                  <strong>{{ aircraftForm.capacity || 0 }} pax</strong>
+                </div>
+                <div>
+                  <span>Rango máximo</span>
+                  <strong>{{ Number(aircraftForm.range_km || 0).toLocaleString('es-MX') }} km</strong>
+                </div>
+                <div>
+                  <span>Tarifa</span>
+                  <strong>{{ formatCurrency(aircraftForm.hourlyPrice) }}</strong>
+                </div>
+                <div>
+                  <span>Galeria</span>
+                  <strong>{{ countSelectedImageFiles() }} archivo(s)</strong>
+                </div>
+                <div>
+                  <span>Documentos</span>
+                  <strong>{{ documentForm.files.length }} nuevo(s)</strong>
+                </div>
+                <div>
+                  <span>Facturacion</span>
+                  <strong>{{ inferredAircraftMinimumHours }} hr minimo</strong>
+                </div>
+              </div>
+
+              <p v-if="formErrors.aircraft._form" class="form-feedback form-feedback-error">
+                {{ formErrors.aircraft._form }}
+              </p>
+              <p v-if="formSuccess.aircraft" class="form-feedback form-feedback-success">
+                {{ formSuccess.aircraft }}
+              </p>
+              <article class="wizard-review-status">
+                <div class="card-top">
+                  <div>
+                    <span class="mini-label">Estado de revision</span>
+                    <strong>{{ aircraftWizardReviewState.label }}</strong>
+                  </div>
+                  <span class="status-pill" :data-tone="aircraftWizardReviewState.tone">
+                    {{ aircraftWizardReviewState.label }}
+                  </span>
+                </div>
+                <p>{{ aircraftWizardReviewState.message }}</p>
+                <p v-if="aircraftWizardReviewState.notes" class="muted">
+                  {{ aircraftWizardReviewState.notes }}
+                </p>
+              </article>
+              </div>
+            </div>
+
+            <aside class="wizard-sidebar">
+              <article class="wizard-sidebar-card wizard-sidebar-card--hero">
+                <div
+                  class="wizard-sidebar-jet-image"
+                  :class="{ 'wizard-sidebar-jet-image--empty': !aircraftWizardHeroImageUrl }"
+                  :style="aircraftWizardHeroImageUrl ? { backgroundImage: `url('${aircraftWizardHeroImageUrl}')` } : undefined"
+                  aria-hidden="true"
+                ></div>
+                <span class="mini-label">Snapshot</span>
+                <strong>{{ aircraftForm.name || 'Aeronave en construccion' }}</strong>
+                <p class="muted">
+                  {{ aircraftForm.category || 'Categoria pendiente' }} ·
+                  {{ aircraftForm.manufacturer || 'Fabricante pendiente' }}
+                </p>
+                <div class="wizard-sidebar-facts">
+                  <span>{{ aircraftForm.manufacturer || 'Fabricante pendiente' }}</span>
+                  <span>{{ aircraftForm.category || 'Categoria pendiente' }}</span>
+                  <span>{{ aircraftForm.capacity || 0 }} pasajeros</span>
+                </div>
+                <div class="wizard-sidebar-highlight">
+                  <span>{{ aircraftForm.registration || 'Sin matricula' }}</span>
+                  <span>{{ aircraftForm.base || 'Base pendiente' }}</span>
+                </div>
+                <div class="wizard-readiness-score">
+                  <span>Readiness score</span>
+                  <strong>{{ aircraftWizardCompletion }}%</strong>
+                </div>
+              </article>
+
+            </aside>
+          </div>
+
+          <div class="wizard-footer">
+            <button
+              type="button"
+              class="ghost-button"
+              :disabled="aircraftWizardStep === 1 || aircraftWizardSubmitting"
+              @click="previousAircraftWizardStep"
+            >
+              &larr; Anterior
+            </button>
+            <div class="wizard-footer-actions">
+              <button
+                v-if="aircraftWizardStep < aircraftWizardSteps.length"
+                type="button"
+                class="primary-action"
+                :disabled="aircraftWizardSubmitting"
+                @click="nextAircraftWizardStep"
+              >
+                Continuar &rarr;
+              </button>
+              <button
+                v-else
+                type="button"
+                class="primary-action"
+                :disabled="aircraftWizardSubmitting"
+                @click="aircraftWizardReadOnly ? closeAircraftWizard() : submitAircraftWizard()"
+              >
+                {{
+                  aircraftWizardSubmitting
+                    ? 'Guardando...'
+                    : aircraftWizardReadOnly
+                      ? 'Cerrar'
+                    : editingAircraftId
+                      ? 'Guardar cambios'
+                      : 'Registrar aeronave'
+                }}
+              </button>
+            </div>
+          </div>
+        </article>
+
+        <div v-if="documentPreview.open" class="document-preview-overlay" @click.self="closeDocumentPreview">
+          <article class="document-preview-modal">
+            <div class="document-preview-head">
+              <div class="document-preview-head__copy">
+                <span class="mini-label">{{ documentPreview.file?.typeLabel }}</span>
+                <h3>{{ documentPreview.file?.name }}</h3>
+                <div class="document-preview-meta">
+                  <span class="document-chip">{{ documentPreview.file?.categoryLabel }}</span>
+                  <span class="document-chip">{{ documentPreview.file?.kindLabel || documentPreview.file?.kind?.toUpperCase() }}</span>
+                  <span class="document-chip">{{ documentPreview.file?.expiryLabel }}</span>
+                </div>
+              </div>
+              <div class="document-preview-head__actions">
+                <button type="button" class="ghost-button" @click="downloadDocumentFile(documentPreview.file)">Descargar</button>
+                <button type="button" class="ghost-button" @click="closeDocumentPreview">Cerrar</button>
+              </div>
+            </div>
+
+            <div class="document-preview-layout">
+              <aside class="document-preview-sidebar">
+                <div>
+                  <span class="mini-label">Estado</span>
+                  <span
+                    class="document-status-badge"
+                    :data-tone="documentPreview.file?.stateMeta?.tone || 'neutral'"
+                    :data-label="documentPreview.file?.stateMeta?.label || 'Sin estado'"
+                  >
+                    <span class="document-status-badge__dot" :data-tone="documentPreview.file?.stateMeta?.dot || 'neutral'"></span>
+                    <span class="document-status-badge__text">
+                      {{ documentPreview.file?.stateMeta?.label || 'Sin estado' }}
+                    </span>
+                  </span>
+                </div>
+                <div>
+                  <span class="mini-label">Categoria</span>
+                  <strong>{{ documentPreview.file?.categoryLabel || 'Otros' }}</strong>
+                </div>
+                <div>
+                  <span class="mini-label">Fecha de carga</span>
+                  <strong>{{ documentPreview.file?.uploadedAtLabel || 'Fecha no disponible' }}</strong>
+                </div>
+                <div>
+                  <span class="mini-label">Vencimiento</span>
+                  <strong>{{ documentPreview.file?.expiryLabel || 'Sin vencimiento' }}</strong>
+                </div>
+              </aside>
+
+              <div v-if="documentPreview.canPreview" class="document-preview-canvas">
+            <img
+              v-if="documentPreview.file?.kind === 'image'"
+              :src="documentPreview.url"
+              :alt="documentPreview.file?.name"
+              class="document-preview-full"
+            />
+            <iframe
+              v-else
+              :src="documentPreview.url"
+              class="document-preview-frame"
+              title="Vista previa PDF"
+            ></iframe>
+              </div>
+
+              <div v-else class="document-preview-fallback">
+                <div class="document-preview-fallback__icon">{{ documentPreview.file?.kindIcon || 'FILE' }}</div>
+                <strong>Vista previa no disponible para este formato</strong>
+                <p class="muted">
+                  Puedes descargar el archivo para revisarlo en tu equipo.
+                </p>
+                <button type="button" class="primary-action" @click="downloadDocumentFile(documentPreview.file)">
+                  Descargar archivo
+                </button>
+              </div>
+            </div>
+          </article>
+        </div>
+      </div>

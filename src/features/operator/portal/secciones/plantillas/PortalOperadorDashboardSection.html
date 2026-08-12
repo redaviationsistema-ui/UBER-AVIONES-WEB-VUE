@@ -1,0 +1,298 @@
+<section class="page-grid operator-dashboard-luxury">
+      <div
+        v-if="loading && !sectionLoadState.dashboard"
+        class="dashboard-loading-overlay"
+        role="status"
+        aria-live="polite"
+        aria-label="Cargando dashboard del operador"
+      >
+        <div class="dashboard-loading-shell">
+          <div class="dashboard-loading-spinner" aria-hidden="true">
+            <span v-for="segment in 12" :key="`dashboard-loading-segment-${segment}`"></span>
+          </div>
+          <p class="eyebrow">Centro operativo</p>
+          <h2>Preparando Nuestra Cabina </h2>
+          
+        </div>
+      </div>
+
+      <article
+        v-if="visibleRealtimeRequests.length"
+        class="surface realtime-flight-request-banner"
+      >
+        <div class="realtime-flight-request-banner__signal" aria-hidden="true">
+          <span></span>
+        </div>
+        <div class="realtime-flight-request-banner__content">
+          <p class="eyebrow">Live Flight Request</p>
+          <h2>Nueva solicitud de vuelo</h2>
+          <div class="realtime-flight-request-banner__meta">
+            <span>{{ visibleRealtimeRequests[0].aircraft_name}}</span>
+          <strong>{{ visibleRealtimeRequests[0].route }}</strong>
+            <span>{{ formatDateTimeRange(visibleRealtimeRequests[0].created_at).slice(0, 10) }}</span>
+          </div>
+        </div>
+        <div class="realtime-flight-request-banner__actions">
+          <span v-if="visibleUnreadRealtimeCount" class="realtime-flight-request-banner__count">
+            {{ visibleUnreadRealtimeCount }} nueva{{ visibleUnreadRealtimeCount === 1 ? '' : 's' }}
+          </span>
+          <button
+            type="button"
+            class="primary-action"
+            @click="openRealtimeRequest(visibleRealtimeRequests[0])"
+          >
+            Ver solicitud
+          </button>
+        </div>
+      </article>
+
+      <article class="surface dashboard-hero-premium">
+        <div class="section-head dashboard-hero-head">
+          <div>
+            <h1>{{ providerName }}</h1>
+            <p class="muted">
+              Operador {{ companyStatusMeta.label.toLowerCase() }} · {{ aircraft.length }} aeronaves
+              · {{ companyOperationalBase }}
+            </p>
+          </div>
+          <span class="status-pill" :data-tone="dashboardGlobalStatus.tone">
+            {{ dashboardGlobalStatus.title }}
+          </span>
+        </div>
+
+        <p class="muted helper-copy">{{ dashboardGlobalStatus.detail }}</p>
+
+        <div class="dashboard-hero-facts">
+          <article>
+            <span>Estado operacional</span>
+            <strong>{{ companyStatusMeta.headline }}</strong>
+          </article>
+          <article>
+            <span>Aeronaves registradas</span>
+            <strong>{{ aircraft.length }}</strong>
+          </article>
+          <article>
+            <span>Base principal</span>
+            <strong>{{ companyOperationalBase }}</strong>
+          </article>
+        </div>
+
+        <div class="company-progress-card">
+          <div class="company-progress-head">
+            <div>
+              <span class="mini-label">Centro operativo</span>
+              <strong
+                >{{ dashboardCompletion.completed }} de {{ dashboardCompletion.total }} modulos
+                completados</strong
+              >
+            </div>
+            <strong>{{ dashboardCompletion.percent }}%</strong>
+          </div>
+          <div class="progress-bar">
+            <span
+              class="progress-bar-fill"
+              :style="{ width: `${dashboardCompletion.percent}%` }"
+            ></span>
+          </div>
+        </div>
+
+        <div class="dashboard-alert-strip">
+          <article
+            v-for="alert in dashboardAlerts"
+            :key="alert.title"
+            class="company-alert"
+            :data-tone="alert.tone"
+          >
+            <span class="company-alert-icon" aria-hidden="true"></span>
+            <strong>{{ alert.title }}</strong>
+            <button type="button" class="ghost-link-button" @click="goToSection(alert.section)">
+              {{ alert.action }}
+            </button>
+          </article>
+        </div>
+
+        <div class="dashboard-quick-actions">
+          <button
+            v-for="action in dashboardQuickActions"
+            :key="action.id"
+            type="button"
+            class="quick-action-card"
+            :data-action="action.id"
+            @click="action.action()"
+          >
+            <span class="quick-action-icon" aria-hidden="true"></span>
+            <strong>{{ action.label }}</strong>
+            <small>{{ action.detail }}</small>
+          </button>
+        </div>
+      </article>
+
+      <div class="dashboard-layout">
+        <div class="dashboard-main-column">
+          <article class="surface dashboard-kpi-panel">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">Indicadores</p>
+                <h2>KPI ejecutivo del operador</h2>
+              </div>
+            </div>
+
+            <div class="metrics-grid dashboard-metric-grid">
+              <article
+                v-for="card in dashboardCards"
+                :key="card.label"
+                class="metric-card dashboard-metric-card"
+                :data-tone="card.tone"
+              >
+                <span>{{ card.label }}</span>
+                <strong>{{ card.value }}</strong>
+                <p class="metric-status">{{ card.status }}</p>
+                <small>{{ card.detail }}</small>
+              </article>
+            </div>
+          </article>
+
+          <article class="surface dashboard-workflow-panel">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">Workflow</p>
+                <h2>Activacion premium</h2>
+              </div>
+            </div>
+
+            <div class="dashboard-checklist">
+              <button
+                v-for="item in dashboardChecklist"
+                :key="item.id"
+                type="button"
+                class="checklist-card"
+                :data-tone="item.status"
+                :data-section="item.id"
+                @click="goToSection(item.section)"
+              >
+                <span class="checklist-icon" :data-icon="item.id" aria-hidden="true">
+                  <svg v-if="item.id === 'empresa'" viewBox="0 0 48 48" fill="none">
+                    <path d="M24 8L34 12V21C34 29 29 35 24 38C19 35 14 29 14 21V12L24 8Z"></path>
+                    <path d="M19 23L22.5 26.5L29 19.5"></path>
+                  </svg>
+                  <svg v-else-if="item.id === 'aeronaves'" viewBox="0 0 48 48" fill="none">
+                    <path d="M8 25L40 19"></path>
+                    <path d="M18 23.5L25 13L29 12L27.5 21.5"></path>
+                    <path d="M17 27.5L24.5 34"></path>
+                    <path d="M13 28.5L11 23.5"></path>
+                    <path d="M28 22L36 28"></path>
+                  </svg>
+                  <svg v-else-if="item.id === 'costos'" viewBox="0 0 48 48" fill="none">
+                    <ellipse cx="24" cy="16" rx="9" ry="4"></ellipse>
+                    <path d="M15 16V24C15 26.2 19 28 24 28C29 28 33 26.2 33 24V16"></path>
+                    <path d="M15 24V32C15 34.2 19 36 24 36C29 36 33 34.2 33 32V24"></path>
+                    <path d="M24 20V32"></path>
+                    <path d="M20.5 24.5H27.5"></path>
+                  </svg>
+                  <svg v-else-if="item.id === 'disponibilidad'" viewBox="0 0 48 48" fill="none">
+                    <circle cx="24" cy="24" r="12"></circle>
+                    <path d="M24 24L31.5 17.5"></path>
+                    <path d="M24 24L18.5 29.5"></path>
+                    <circle cx="24" cy="24" r="2.5"></circle>
+                  </svg>
+                  <svg v-else-if="item.id === 'solicitudes'" viewBox="0 0 48 48" fill="none">
+                    <rect x="13" y="10" width="22" height="28" rx="5"></rect>
+                    <path d="M19 10H29"></path>
+                    <path d="M18 20H30"></path>
+                    <path d="M18 26H30"></path>
+                    <path d="M18 32H25"></path>
+                    <path d="M29 31L31 33L35 28"></path>
+                  </svg>
+                  <svg v-else viewBox="0 0 48 48" fill="none">
+                    <circle cx="24" cy="24" r="14"></circle>
+                    <path d="M24 10L35 24L24 38L13 24L24 10Z"></path>
+                    <path d="M18 24L22 28L30 20"></path>
+                  </svg>
+                </span>
+                <div>
+                  <strong>{{ item.label }}</strong>
+                  <p>{{ item.detail }}</p>
+                </div>
+                <div class="checklist-progress">
+                  <strong>
+                    {{
+                      item.status === 'complete'
+                        ? '100%'
+                        : item.status === 'warning'
+                          ? '72%'
+                          : item.status === 'neutral'
+                            ? '84%'
+                            : '35%'
+                    }}
+                  </strong>
+                  <span>{{ item.cta }}</span>
+                </div>
+              </button>
+            </div>
+          </article>
+        </div>
+
+        <div class="dashboard-side-column">
+          <article class="surface dashboard-executive-feed">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">Bitacora</p>
+                <h2>Actividad reciente</h2>
+              </div>
+            </div>
+
+            <div class="ops-timeline">
+              <article
+                v-for="entry in dashboardRecentActivity"
+                :key="entry.id"
+                class="ops-timeline-item"
+              >
+                <span class="ops-timeline-time">{{ entry.date }}</span>
+                <div>
+                  <strong>{{ entry.title }}</strong>
+                  <p class="muted">{{ entry.detail }}</p>
+                </div>
+              </article>
+             
+            </div>
+          </article>
+
+          <article class="surface dashboard-executive-panel">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">Panel ejecutivo</p>
+                <h2>Readiness operacional</h2>
+              </div>
+            </div>
+
+            
+
+            <div class="priority-list">
+              <article class="priority-item priority-item--static">
+                <strong>Estado del operador</strong>
+                <span>{{ companyStatusMeta.headline }}</span>
+              </article>
+              <article class="priority-item priority-item--static">
+                <strong>Estado de flota</strong>
+                <span
+                  >{{ activeAircraft }} aeronaves activas y {{ fleetGroupedByStatus.revision }} en
+                  revision.</span
+                >
+              </article>
+              <article class="priority-item priority-item--static">
+                <strong>Estado operacional</strong>
+                <span
+                  >{{ pendingRequests }} solicitudes pendientes y {{ activeOperations }} operaciones
+                  activas.</span
+                >
+              </article>
+              <article class="priority-item priority-item--static">
+                <strong>Proximas acciones</strong>
+                <span>{{ dashboardAlerts[0]?.action || 'Mantener monitoreo ejecutivo' }}</span>
+              </article>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+

@@ -1,0 +1,559 @@
+<section class="page-grid two-columns operator-certification-luxury">
+      <article class="surface company-shell">
+        <div class="section-head">
+          <div class="company-shell-hero-copy">
+            <p class="eyebrow">Perfil de empresa</p>
+            <h2>{{ providerName }}</h2>
+            <strong class="operator-certification-name">{{ providerName }}</strong>
+            <p class="muted">
+              {{ companyStatusMeta.label }} · {{ companyOperationalBase }} · {{ aircraft.length }} aeronaves ·
+              {{ companyStatusMeta.label }}
+            </p>
+          </div>
+          <div class="company-shell-hero-meta">
+            <div class="operator-certification-badges">
+              <span>{{ companyStatusMeta.label }}</span>
+              <span>{{ companyOperationalBase }}</span>
+              <span>{{ aircraft.length }} aeronaves</span>
+              <span>{{ activeAircraft }} activas</span>
+            </div>
+            <span class="status-pill" :data-tone="companyStatusMeta.tone">{{
+              companyStatusMeta.label
+            }}</span>
+          </div>
+        </div>
+
+        <div class="company-progress-card">
+          <div class="company-progress-head">
+            <div>
+              <span class="mini-label">Onboarding</span>
+              <strong
+                >{{ companyOnboardingProgress.completed }} de
+                {{ companyOnboardingProgress.total }} pasos completados</strong
+              >
+            </div>
+            <strong>{{ companyOnboardingProgress.percent }}%</strong>
+          </div>
+          <div class="progress-bar">
+            <span
+              class="progress-bar-fill"
+              :style="{ width: `${companyOnboardingProgress.percent}%` }"
+            ></span>
+          </div>
+        </div>
+
+        <div class="company-form-sections">
+          <section class="company-form-section" data-company-section="company-identity">
+            <div class="section-head compact-head">
+              <div>
+                <p class="eyebrow">Corporate Identity</p>
+                <h3>Identidad corporativa</h3>
+                <p class="muted">Completa los datos fiscales y operativos que Admin va a revisar.</p>
+              </div>
+            </div>
+
+            <div class="form-grid">
+              <label>
+                <span>Razon social</span>
+                <input
+                  v-model="companyForm.legalName"
+                  type="text"
+                  :class="{ 'input-error': formErrors.company.legalName }"
+                />
+                <small v-if="formErrors.company.legalName" class="field-error">{{
+                  formErrors.company.legalName
+                }}</small>
+              </label>
+              <label>
+                <span>RFC</span>
+                <input
+                  v-model="companyForm.rfc"
+                  type="text"
+                  maxlength="13"
+                  placeholder=" "
+                  :class="{ 'input-error': formErrors.company.rfc }"
+                />
+                <small v-if="!formErrors.company.rfc && companyForm.rfc && !companyRfcIsValid" class="field-error">
+                  El RFC debe tener formato mexicano valido.
+                </small>
+                <small v-if="formErrors.company.rfc" class="field-error">{{
+                  formErrors.company.rfc
+                }}</small>
+              </label>
+              <label class="company-airport-field">
+                <span>Base operativa principal</span>
+                <input
+                  :value="companyForm.operationalBase"
+                  type="text"
+                  autocomplete="off"
+                  placeholder=" "
+                  :class="{ 'input-error': formErrors.company.operationalBase }"
+                  @focus="scheduleCompanyBaseAirportSearch(companyForm.operationalBase)"
+                  @blur="window.setTimeout(closeCompanyBaseAirportOptions, 120)"
+                  @input="handleCompanyOperationalBaseInput"
+                />
+                <div
+                  v-if="companyBaseAirportLoading || (companyBaseAirportOptionsOpen && companyBaseAirportSuggestions.length)"
+                  class="company-airport-options"
+                >
+                  <span v-if="companyBaseAirportLoading">Buscando aeropuertos...</span>
+                  <button
+                    v-for="airport in companyBaseAirportSuggestions"
+                    v-else
+                    :key="`${airport.code}-${airport.iata}-${airport.name}`"
+                    type="button"
+                    @mousedown.prevent="selectCompanyOperationalBaseAirport(airport)"
+                  >
+                    <strong>{{ airport.city || airport.name || 'Aeropuerto' }}</strong>
+                    <small>{{ airport.code || airport.iata }}<template v-if="airport.iata && airport.code"> · {{ airport.iata }}</template></small>
+                  </button>
+                </div>
+                <small v-if="formErrors.company.operationalBase" class="field-error">{{
+                  formErrors.company.operationalBase
+                }}</small>
+              </label>
+              <label class="span-2">
+                <span>Direccion fiscal</span>
+                <input
+                  v-model="companyForm.address"
+                  type="text"
+                  :class="{ 'input-error': formErrors.company.address }"
+                />
+                <small v-if="formErrors.company.address" class="field-error">{{
+                  formErrors.company.address
+                }}</small>
+              </label>
+              <label class="span-2">
+                <span>Nombre comercial</span>
+                <input
+                  v-model="companyForm.tradeName"
+                  type="text"
+                  :class="{ 'input-error': formErrors.company.tradeName }"
+                />
+                <small v-if="formErrors.company.tradeName" class="field-error">{{
+                  formErrors.company.tradeName
+                }}</small>
+              </label>
+            </div>
+          </section>
+
+          <section class="company-form-section" data-company-section="company-contact">
+            <div class="section-head compact-head">
+              <div>
+                <p class="eyebrow">Operations Communication</p>
+                <h3>Canal de coordinacion</h3>
+              </div>
+            </div>
+
+            <div class="form-grid">
+              <label>
+                <span>Telefono</span>
+                <input
+                  v-model="companyForm.phone"
+                  type="text"
+                  :class="{ 'input-error': formErrors.company.phone }"
+                />
+                <small v-if="formErrors.company.phone" class="field-error">{{
+                  formErrors.company.phone
+                }}</small>
+              </label>
+              <label>
+                <span>Email</span>
+                <input
+                  v-model="companyForm.email"
+                  type="email"
+                  :class="{ 'input-error': formErrors.company.email }"
+                />
+                <small v-if="formErrors.company.email" class="field-error">{{
+                  formErrors.company.email
+                }}</small>
+              </label>
+            </div>
+          </section>
+
+          <section class="company-form-section" data-company-section="company-representative">
+            <div class="section-head compact-head">
+              <div>
+                <p class="eyebrow">Authorized Representative</p>
+                <h3>Responsable autorizado</h3>
+              </div>
+            </div>
+
+            <div class="form-grid">
+              <label class="span-2">
+                <span>Nombre</span>
+                <input
+                  v-model="companyForm.legalRepresentative"
+                  type="text"
+                  :class="{ 'input-error': formErrors.company.legalRepresentative }"
+                />
+                <small v-if="formErrors.company.legalRepresentative" class="field-error">{{
+                  formErrors.company.legalRepresentative
+                }}</small>
+              </label>
+            </div>
+          </section>
+
+          <section class="company-form-section">
+            <div class="section-head compact-head">
+              <div>
+                <p class="eyebrow">Commercial Settings</p>
+                <h3>Jet A, utilidad y fee fijo</h3>
+              </div>
+            </div>
+
+            <div class="form-grid">
+              <label>
+                <span>Jet A USD/gal</span>
+                <input
+                  v-model="companyForm.jetAPrice"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  :class="{ 'input-error': formErrors.company.jetAPrice }"
+                />
+                <small v-if="formErrors.company.jetAPrice" class="field-error">{{
+                  formErrors.company.jetAPrice
+                }}</small>
+              </label>
+              <label>
+                <span>Utilidad %</span>
+                <input
+                  v-model="companyForm.marginPercent"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  :class="{ 'input-error': formErrors.company.marginPercent }"
+                />
+                <small v-if="formErrors.company.marginPercent" class="field-error">{{
+                  formErrors.company.marginPercent
+                }}</small>
+              </label>
+              <label class="span-2">
+                <span>Fee fijo global USD</span>
+                <input
+                  v-model="companyForm.fixedFee"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  :class="{ 'input-error': formErrors.company.fixedFee }"
+                />
+                <small v-if="formErrors.company.fixedFee" class="field-error">{{
+                  formErrors.company.fixedFee
+                }}</small>
+              </label>
+            </div>
+          </section>
+
+          <section class="company-form-section" data-company-section="sat">
+            <div class="section-head compact-head">
+              <div>
+                <p class="eyebrow">SAT Validation</p>
+                <h3>Validacion SAT / Constancia fiscal</h3>
+                <p class="muted">Sube la constancia de situacion fiscal y reemplazala cuando cambie.</p>
+              </div>
+            </div>
+
+            <article class="company-doc-card company-doc-card--sat">
+              <transition name="company-doc-bubble">
+                <div
+                  v-if="getCompanyDocumentReminderBubble('sat_certificate')"
+                  class="company-doc-bubble"
+                >
+                  {{ getCompanyDocumentReminderBubble('sat_certificate') }}
+                </div>
+              </transition>
+              <div class="company-doc-card__main">
+                <div>
+                  <strong>{{ getCompanyDocumentDefinition('sat_certificate')?.label }}</strong>
+                  <p class="muted">
+                    {{ companySatDocument ? 'Archivo cargado en expediente.' : 'Aun no hay constancia cargada.' }}
+                  </p>
+                </div>
+                <span class="status-pill" :data-tone="companySatDocument ? getCompanyDocumentStateTone(companySatDocument.state) : 'warning'">
+                  {{ companySatDocument ? humanizeCompanyDocumentState(companySatDocument.state) : 'Pendiente' }}
+                </span>
+              </div>
+
+              <div class="company-doc-card__meta">
+                <span>{{ companySatDocument?.name || 'Sin archivo' }}</span>
+                <span v-if="companySatDocument?.notes">Comentario admin: {{ companySatDocument.notes }}</span>
+              </div>
+
+              <div class="company-doc-card__actions">
+                <label class="ghost-button company-doc-upload-button company-doc-action company-doc-action--upload">
+                  <input
+                    type="file"
+                    class="upload-dropzone-input"
+                    accept=".pdf,image/*"
+                    @change="setCompanyDocumentDraft('sat_certificate', $event.target.files?.[0] || null)"
+                  />
+                  {{ companySatDocument ? 'Reemplazar archivo' : 'Subir archivo' }}
+                </label>
+                  <button
+                    type="button"
+                    class="ghost-button company-doc-action company-doc-action--save"
+                    :disabled="!getCompanyDocumentDraft('sat_certificate').file || isCompanyDocumentActionLoading('sat_certificate', 'save')"
+                    @click="uploadCompanyDocumentDraft('sat_certificate')"
+                  >
+                  {{ isCompanyDocumentActionLoading('sat_certificate', 'save') ? 'Guardando...' : 'Guardar constancia' }}
+                </button>
+                  <button
+                    type="button"
+                    class="ghost-button company-doc-action company-doc-action--view"
+                    :disabled="!companySatDocument || isCompanyDocumentActionLoading('sat_certificate', 'view')"
+                    @click="handleOpenCompanyDocument('sat_certificate', companySatDocument)"
+                  >
+                  {{ isCompanyDocumentActionLoading('sat_certificate', 'view') ? 'Abriendo...' : 'Ver archivo' }}
+                </button>
+              </div>
+
+              <small v-if="getCompanyDocumentDraft('sat_certificate').name" class="helper-copy">
+                Listo para subir: {{ getCompanyDocumentDraft('sat_certificate').name }}
+              </small>
+              <small v-if="formErrors.company.sat_certificate" class="field-error">{{ formErrors.company.sat_certificate }}</small>
+            </article>
+          </section>
+
+          <section class="company-form-section" data-company-section="legal-documents">
+            <div class="section-head compact-head">
+              <div>
+                <p class="eyebrow">Legal Document Center</p>
+                <h3>Carga legal y respaldo</h3>
+                <p class="muted">Carga cada requisito por separado para que el estado refleje el avance real.</p>
+              </div>
+            </div>
+
+            <div class="company-doc-grid">
+              <article
+                v-for="definition in companyRequiredLegalDocuments"
+                :key="definition.id"
+                class="company-doc-card"
+              >
+                <transition name="company-doc-bubble">
+                  <div
+                    v-if="getCompanyDocumentReminderBubble(definition.id)"
+                    class="company-doc-bubble"
+                  >
+                    {{ getCompanyDocumentReminderBubble(definition.id) }}
+                  </div>
+                </transition>
+                <div class="company-doc-card__main">
+                  <div>
+                    <strong>{{ definition.label }}</strong>
+                    <p class="muted">{{ definition.helper }}</p>
+                  </div>
+                  <span
+                    class="status-pill"
+                    :data-tone="companyDocumentsByDefinition[definition.id] ? getCompanyDocumentStateTone(companyDocumentsByDefinition[definition.id].state) : 'warning'"
+                  >
+                    {{
+                      companyDocumentsByDefinition[definition.id]
+                        ? humanizeCompanyDocumentState(companyDocumentsByDefinition[definition.id].state)
+                        : 'Pendiente'
+                    }}
+                  </span>
+                </div>
+
+                <div class="company-doc-card__meta">
+                  <span>{{ companyDocumentsByDefinition[definition.id]?.name || 'Sin archivo cargado' }}</span>
+                  <span v-if="companyDocumentsByDefinition[definition.id]?.notes">
+                    Comentario admin: {{ companyDocumentsByDefinition[definition.id].notes }}
+                  </span>
+                </div>
+
+                <div class="company-doc-card__actions">
+                  <label class="ghost-button company-doc-upload-button company-doc-action company-doc-action--upload">
+                    <input
+                      type="file"
+                      class="upload-dropzone-input"
+                      :accept="definition.accepts"
+                      @change="setCompanyDocumentDraft(definition.id, $event.target.files?.[0] || null)"
+                    />
+                    {{ companyDocumentsByDefinition[definition.id] ? 'Reemplazar archivo' : 'Subir archivo' }}
+                  </label>
+                  <button
+                    type="button"
+                    class="ghost-button company-doc-action company-doc-action--save"
+                    :disabled="!getCompanyDocumentDraft(definition.id).file || isCompanyDocumentActionLoading(definition.id, 'save')"
+                    @click="uploadCompanyDocumentDraft(definition.id)"
+                  >
+                    {{ isCompanyDocumentActionLoading(definition.id, 'save') ? 'Guardando...' : 'Guardar' }}
+                  </button>
+                  <button
+                    type="button"
+                    class="ghost-button company-doc-action company-doc-action--view"
+                    :disabled="!companyDocumentsByDefinition[definition.id] || isCompanyDocumentActionLoading(definition.id, 'view')"
+                    @click="handleOpenCompanyDocument(definition.id, companyDocumentsByDefinition[definition.id])"
+                  >
+                    {{ isCompanyDocumentActionLoading(definition.id, 'view') ? 'Abriendo...' : 'Ver archivo' }}
+                  </button>
+                </div>
+
+                <small v-if="getCompanyDocumentDraft(definition.id).name" class="helper-copy">
+                  Listo para subir: {{ getCompanyDocumentDraft(definition.id).name }}
+                </small>
+                <small v-if="formErrors.company[definition.id]" class="field-error">{{ formErrors.company[definition.id] }}</small>
+              </article>
+            </div>
+          </section>
+
+          <section class="company-form-section" data-company-section="fleet">
+            <div class="section-head compact-head">
+              <div>
+                <p class="eyebrow">Fleet Registration</p>
+                <h3>Flota registrada</h3>
+                <p class="muted">Registra aeronaves y completa su expediente sin salir de la revision de empresa.</p>
+              </div>
+              <button type="button" class="primary-action" @click="openAircraftRegistrationFlow()">
+                Agregar aeronave
+              </button>
+            </div>
+
+            <div v-if="aircraft.length" class="company-fleet-list">
+              <article v-for="item in aircraft.slice(0, 4)" :key="item.id" class="company-fleet-card">
+                <div class="company-fleet-card__head">
+                  <div>
+                    <strong>{{ item.registration || 'Sin matricula' }}</strong>
+                    <p class="muted">{{ item.manufacturer || 'Fabricante pendiente' }} · {{ item.name || 'Modelo pendiente' }}</p>
+                  </div>
+                  <span class="status-pill" :data-tone="getAircraftLiveStatus(item).tone">
+                    {{ getAircraftLiveStatus(item).label }}
+                  </span>
+                </div>
+                <div class="company-fleet-card__grid">
+                  <span><strong>Categoria:</strong> {{ item.category || 'Pendiente' }}</span>
+                  <span><strong>Pax:</strong> {{ item.capacity || 'Pendiente' }}</span>
+                  <span><strong>Base:</strong> {{ item.base || 'Pendiente' }}</span>
+                  <span><strong>Documentos:</strong> {{ item.documents?.length || 0 }}</span>
+                </div>
+                <div class="company-doc-card__actions">
+                  <button type="button" class="ghost-button" @click="openAircraftWizard(item, 'edit')">Editar aeronave</button>
+                  <button type="button" class="ghost-button" @click="openAircraftWizardAtStep(item, 4, 'edit')">Documentos</button>
+                  <button type="button" class="ghost-button" @click="openAircraftWizardAtStep(item, 3, 'edit')">Fotos</button>
+                </div>
+              </article>
+            </div>
+
+            <div v-else class="company-empty-inline">
+              <strong>No hay aeronaves registradas.</strong>
+              <p class="muted">Agrega al menos una aeronave con matricula, fabricante, modelo, categoria, capacidad, base y expediente tecnico.</p>
+              <button type="button" class="ghost-button" @click="openAircraftRegistrationFlow()">Agregar aeronave</button>
+            </div>
+          </section>
+        </div>
+
+        <p v-if="formErrors.company._form" class="form-feedback form-feedback-error">
+          {{ formErrors.company._form }}
+        </p>
+        <p v-if="formSuccess.company" class="form-feedback form-feedback-success">
+          {{ formSuccess.company }}
+        </p>
+        <p v-if="companyForm.newDocumentName" class="muted helper-copy">
+          Documento general listo: {{ companyForm.newDocumentName }}
+        </p>
+
+        <div class="inline-actions">
+          <button
+            type="button"
+            class="ghost-button company-save-button"
+            :disabled="savingCompany || sendingCompanyToReview"
+            @click="saveCompany"
+          >
+            {{ savingCompany ? 'Guardando...' : 'Guardar cambios' }}
+          </button>
+          <button
+            type="button"
+            class="primary-action"
+            v-if="companyCanSendForReview"
+            :disabled="savingCompany || sendingCompanyToReview || !companyCanSendForReview"
+            @click="sendCompanyToReview"
+          >
+            {{ sendingCompanyToReview ? 'Enviando a revision...' : 'Enviar empresa a revision' }}
+          </button>
+        </div>
+      </article>
+
+      <article class="surface company-status-shell">
+        <transition name="company-doc-bubble">
+          <div
+            v-if="operationalInfoBubble.visible"
+            class="company-status-bubble"
+            role="status"
+            aria-live="polite"
+          >
+            <strong>{{ operationalInfoBubble.title }}</strong>
+            <span>{{ operationalInfoBubble.message }}</span>
+          </div>
+        </transition>
+
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Operator Validation Center</p>
+            <h2>Centro de validacion de operador aeronautico</h2>
+          </div>
+          <span class="status-pill" :data-tone="companyStatusMeta.tone">{{
+            companyStatusMeta.label
+          }}</span>
+        </div>
+
+        <OperatorReadinessCard
+          :progress="companyOnboardingProgress"
+          :checklist="companyReadinessChecklist"
+          :alerts="companyReviewFlow.alerts"
+          title="Readiness del expediente"
+          subtitle="Vista compacta del avance real del operador"
+        />
+
+        <CompanyProfileCard
+          eyebrow="Empresa"
+          title="Informacion capturada por el proveedor"
+          :items="companyProfileItems"
+        />
+
+        <CompanyCommercialCard
+          eyebrow="Comercial"
+          title="Configuracion comercial"
+          :items="companyCommercialItems"
+        />
+
+        <FleetSummary
+          eyebrow="Flota"
+          title="Aeronaves registradas"
+          :fleet="companyFleetSummary"
+        />
+
+        <OperatorValidationSummary
+          :summary="companyValidationSummary"
+          :badge-label="companyStatusMeta.label"
+        />
+
+        <OperatorDocumentList
+          role="provider"
+          title="Documentacion legal"
+          subtitle="Misma informacion que ve administracion"
+          :documents="companySharedDocuments"
+          @view="openCompanyDocumentDrawer"
+          @download="openCompanyDocument"
+          @replace="handleCompanyAlertAction({ actionKey: $event.definitionKey === 'sat_certificate' ? 'sat' : 'legal-documents' })"
+        />
+
+        <OperatorActivityTimeline
+          title="Actividad del expediente"
+          :entries="companySharedActivity"
+        />
+      </article>
+
+      <OperatorDocumentDrawer
+        :open="companyDocumentDrawer.open"
+        role="provider"
+        :document="companyDocumentDrawer.document"
+        :versions="companyDocumentDrawer.versions"
+        :activity="companySharedActivity"
+        :loading-versions="companyDocumentDrawer.loadingVersions"
+        @close="closeCompanyDocumentDrawer"
+        @download="openCompanyDocument"
+        @replace="handleCompanyAlertAction({ actionKey: $event.definitionKey === 'sat_certificate' ? 'sat' : 'legal-documents' })"
+      />
+    </section>
+

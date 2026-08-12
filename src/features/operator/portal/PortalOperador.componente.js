@@ -2,16 +2,21 @@
 // VISTA DE COMPONENTE PRINCIPAL DEL PORTAL DE OPERADOR
 /*----------------------------------------------------------------------------------------------*/    
 
-import { defineComponent } from 'vue'
-import OperatorCrewSection from '../secciones/personal/OperatorCrewSection.vue'
-import CompanyCommercialCard from '../validation/CompanyCommercialCard.vue'
-import CompanyProfileCard from '../validation/CompanyProfileCard.vue'
-import FleetSummary from '../validation/FleetSummary.vue'
-import OperatorActivityTimeline from '../validation/OperatorActivityTimeline.vue'
-import OperatorDocumentDrawer from '../validation/OperatorDocumentDrawer.vue'
-import OperatorDocumentList from '../validation/OperatorDocumentList.vue'
-import OperatorReadinessCard from '../validation/OperatorReadinessCard.vue'
-import OperatorValidationSummary from '../validation/OperatorValidationSummary.vue'
+import { defineComponent, provide } from 'vue'
+import PortalOperadorAeronavesSection from './secciones/PortalOperadorAeronavesSection.vue'
+import PortalOperadorConfiguracionSection from './secciones/PortalOperadorConfiguracionSection.vue'
+import PortalOperadorBloqueoOperativoSection from './secciones/PortalOperadorBloqueoOperativoSection.vue'
+import PortalOperadorCostosSection from './secciones/PortalOperadorCostosSection.vue'
+import PortalOperadorDashboardSection from './secciones/PortalOperadorDashboardSection.vue'
+import PortalOperadorDisponibilidadSection from './secciones/PortalOperadorDisponibilidadSection.vue'
+import PortalOperadorEmpresaSection from './secciones/PortalOperadorEmpresaSection.vue'
+import PortalOperadorHistorialSection from './secciones/PortalOperadorHistorialSection.vue'
+import PortalOperadorIncidenciasSection from './secciones/PortalOperadorIncidenciasSection.vue'
+import PortalOperadorOperacionesSection from './secciones/PortalOperadorOperacionesSection.vue'
+import PortalOperadorPagosSection from './secciones/PortalOperadorPagosSection.vue'
+import PortalOperadorReleaseProviderSection from './secciones/PortalOperadorReleaseProviderSection.vue'
+import PortalOperadorSolicitudesSection from './secciones/PortalOperadorSolicitudesSection.vue'
+import PortalOperadorTripulacionSection from './secciones/PortalOperadorTripulacionSection.vue'
 import {
   findOperatorRequestByIdentifier,
   hasOperatorTrackingActivity,
@@ -38,20 +43,29 @@ export {
 export default defineComponent({
   name: 'PortalOperador',
   components: {
-    CompanyCommercialCard,
-    CompanyProfileCard,
-    FleetSummary,
-    OperatorCrewSection,
-    OperatorActivityTimeline,
-    OperatorDocumentDrawer,
-    OperatorDocumentList,
-    OperatorReadinessCard,
-    OperatorValidationSummary,
+    PortalOperadorAeronavesSection,
+    PortalOperadorBloqueoOperativoSection,
+    PortalOperadorConfiguracionSection,
+    PortalOperadorCostosSection,
+    PortalOperadorDashboardSection,
+    PortalOperadorDisponibilidadSection,
+    PortalOperadorEmpresaSection,
+    PortalOperadorHistorialSection,
+    PortalOperadorIncidenciasSection,
+    PortalOperadorOperacionesSection,
+    PortalOperadorPagosSection,
+    PortalOperadorReleaseProviderSection,
+    PortalOperadorSolicitudesSection,
+    PortalOperadorTripulacionSection,
   },
   props: {
     section: { type: String, required: true },
   },
   setup(props) {
-    return useOperatorPortalSetup(props)
+    const portal = useOperatorPortalSetup(props)
+
+    provide('operatorPortalContext', portal)
+
+    return portal
   },
 })

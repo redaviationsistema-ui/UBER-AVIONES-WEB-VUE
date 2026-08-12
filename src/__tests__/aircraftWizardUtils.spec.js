@@ -5,6 +5,7 @@ import {
   buildAircraftPayload,
   buildAircraftWizardStepErrors,
   resolveAircraftMutationBackendErrorMessage,
+  shouldBlockAircraftWizardStepTransition,
 } from '../features/operator/portal/utilidadesWizardAeronave'
 
 const baseForm = {
@@ -70,6 +71,30 @@ describe('aircraft wizard utils', () => {
     const errors = buildAircraftWizardStepErrors(2, { ...baseForm, range_km: 0 }, {})
 
     expect(errors.range_km).toBe('Debe capturar el rango máximo de la aeronave.')
+  })
+
+  it('blocks rapid consecutive step transitions to avoid skipping documents', () => {
+    expect(
+      shouldBlockAircraftWizardStepTransition({
+        currentStep: 3,
+        targetStep: 4,
+        isLocked: false,
+        lastChangedAt: 1_000,
+        now: 1_120,
+        lockMs: 250,
+      }),
+    ).toBe(true)
+
+    expect(
+      shouldBlockAircraftWizardStepTransition({
+        currentStep: 4,
+        targetStep: 5,
+        isLocked: false,
+        lastChangedAt: 1_000,
+        now: 1_320,
+        lockMs: 250,
+      }),
+    ).toBe(false)
   })
 
   it('builds a normalized aircraft payload for create/update requests', () => {

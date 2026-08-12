@@ -3382,26 +3382,52 @@ async function handleActivateAircraft(aircraftId) {
     ])
 
     const responseAircraft = response?.aircraft
+    const mergedAircraft = normalizeAdminAircraft({
+      ...(aircraft.value.find((item) => Number(item.id) === normalizedAircraftId) || {}),
+      ...(responseAircraft && typeof responseAircraft === 'object' ? responseAircraft : {}),
+      id: normalizedAircraftId,
+    })
+
     aircraft.value = aircraft.value.map((item) =>
-      Number(item.id) === normalizedAircraftId
-        ? normalizeAdminAircraft({
-            ...item,
-            ...(responseAircraft && typeof responseAircraft === 'object' ? responseAircraft : {}),
-            id: normalizedAircraftId,
-            status: 'active',
-            is_active: true,
-            operational_status: 'active',
-            ready_to_quote: responseAircraft?.ready_to_quote ?? true,
-            ready_to_book: responseAircraft?.ready_to_book ?? true,
-          })
-        : item,
+      Number(item.id) === normalizedAircraftId ? mergedAircraft : item,
     )
 
-    ui.pushToast({
-      tone: 'success',
-      title: 'Aeronave activada correctamente',
-      message: `La aeronave #${normalizedAircraftId} quedo activa.`,
-    })
+    const activationState =
+      mergedAircraft?.activation && typeof mergedAircraft.activation === 'object'
+        ? mergedAircraft.activation
+        : mergedAircraft?.aircraft_state?.activation && typeof mergedAircraft.aircraft_state.activation === 'object'
+          ? mergedAircraft.aircraft_state.activation
+          : response?.state?.activation && typeof response.state.activation === 'object'
+            ? response.state.activation
+            : {}
+    const backendCommercialStatus = String(activationState?.commercial_status || '').trim().toLowerCase()
+    const backendBlockReason = String(
+      activationState?.commercial_block_reason ||
+        response?.message ||
+        '',
+    ).trim()
+    const backendIsActive =
+      backendCommercialStatus === 'active' ||
+      mergedAircraft?.status === 'active' ||
+      mergedAircraft?.operational_status === 'active' ||
+      mergedAircraft?.operational?.is_active === true ||
+      mergedAircraft?.activation?.is_active === true
+
+    if (backendIsActive) {
+      ui.pushToast({
+        tone: 'success',
+        title: 'Aeronave activada correctamente',
+        message: `La aeronave #${normalizedAircraftId} quedo activa.`,
+      })
+    } else {
+      ui.pushToast({
+        tone: backendCommercialStatus === 'blocked' ? 'warning' : 'info',
+        title: 'La aeronave no pudo activarse',
+        message:
+          backendBlockReason ||
+          `La aeronave #${normalizedAircraftId} sigue inactiva segun el backend.`,
+      })
+    }
 
     try {
       const detailResponse = await requestWithCandidates([

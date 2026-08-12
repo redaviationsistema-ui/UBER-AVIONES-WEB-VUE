@@ -121,6 +121,7 @@ import {
   buildAircraftPayload,
   resolveAircraftMutationBackendErrorMessage,
   buildAircraftWizardStepErrors,
+  shouldBlockAircraftWizardStepTransition,
 } from './utilidadesWizardAeronave'
 
 export {
@@ -346,15 +347,15 @@ const NOTIFICATIONS_ROUTE_CANDIDATES = [
 ]
 
 const AIRCRAFT_LIST_ROUTE_CANDIDATES = [
-  '/proveedor/mis-aeronaves',
-  '/proveedor/aeronaves',
   '/operator/aircraft',
   '/operator/my-aircraft',
+  '/proveedor/mis-aeronaves',
+  '/proveedor/aeronaves',
 ]
 
 const AIRCRAFT_DETAIL_ROUTE_TEMPLATES = [
-  '/proveedor/aeronaves/:id',
   '/operator/aircraft/:id',
+  '/proveedor/aeronaves/:id',
 ]
 
 const AIRCRAFT_COLLECTION_RESPONSE_KEYS = ['aircraft', 'aeronaves', 'fleet', 'data', 'items']
@@ -743,6 +744,9 @@ const aircraftWizardSubmitting = ref(false)
 const aircraftWizardReadOnly = ref(false)
 
 const aircraftWizardStepError = ref('')
+const aircraftWizardNavigationLocked = ref(false)
+const aircraftWizardLastStepChangeAt = ref(0)
+const AIRCRAFT_WIZARD_NAVIGATION_LOCK_MS = 250
 
 const editingCrewId = ref(null)
 
@@ -923,7 +927,7 @@ const aircraftWizardSteps = [
   { id: 1, label: 'General', description: 'Modelo, fabricante, matricula y base operativa.' },
   { id: 2, label: 'Operacion', description: 'Capacidad, cobertura y costos base.' },
   { id: 3, label: 'Galeria', description: 'Imagen principal, cabina, asientos y amenidades.' },
-  { id: 4, label: 'Documentacion', description: 'Seguro, vigencias y expediente tecnico.' },
+  { id: 4, label: 'Documentos', description: 'Seguro, vigencias y expediente tecnico.' },
   { id: 5, label: 'Revision', description: 'Resumen final antes de publicar o revisar.' },
 ]
 
@@ -2094,8 +2098,12 @@ const selectedDocumentType = computed(
   () => aircraftDocumentTypes.find((item) => item.id === documentForm.type) || aircraftDocumentTypes[0],
 )
 
+function getSelectedAircraftDocuments(aircraftRecord = null) {
+  return deduplicateAircraftDocuments(Array.isArray(aircraftRecord?.documents) ? aircraftRecord.documents : [])
+}
+
 const selectedDocumentRecordCountLabel = computed(() => {
-  const total = Number(selectedDocumentAircraft.value?.documents?.length || 0)
+  const total = getSelectedAircraftDocuments(selectedDocumentAircraft.value).length
   return `${total} ${total === 1 ? 'registro' : 'registros'}`
 })
 
@@ -2128,7 +2136,7 @@ const documentLibrarySortOptions = [
 ]
 
 const storedAircraftDocuments = computed(() =>
-  deduplicateAircraftDocuments(selectedDocumentAircraft.value?.documents || []).map((document, index) =>
+  getSelectedAircraftDocuments(selectedDocumentAircraft.value).map((document, index) =>
     normalizeStoredDocument(document, index),
   ),
 )
@@ -2608,6 +2616,35 @@ const aircraftWizardSnapshot = computed(() => [
       : 'Pendiente',
   },
 ])
+
+const aircraftWizardChecklist = computed(() =>
+  aircraftWizardSteps.map((step) => {
+    const errors = getAircraftWizardStepErrors(step.id)
+    const hasErrors = Object.keys(errors).length > 0
+    const complete =
+      step.id === 5
+        ? aircraftWizardReadyForRegistration.value
+        : aircraftWizardReadOnly.value
+          ? !hasErrors
+          : aircraftWizardStep.value > step.id && !hasErrors
+
+    return {
+      id: step.id,
+      label: step.label,
+      detail: step.description,
+      status: complete ? 'complete' : aircraftWizardStep.value === step.id ? 'active' : 'pending',
+      indicator: complete ? 'Completado' : aircraftWizardStep.value === step.id ? 'En curso' : 'Pendiente',
+    }
+  }),
+)
+
+const aircraftWizardHeroImageUrl = computed(
+  () =>
+    getAircraftImageByKind(
+      selectedImageAircraft.value || selectedEditingAircraft.value || aircraftWizardCurrentRecord.value,
+      'main',
+    )?.imageUrl || '',
+)
 
 const companyReviewFlow = computed(() =>
   buildProviderReviewFlow({
@@ -5368,6 +5405,51 @@ function aircraftYearValidationMessage() {
   return `Ingresa un ano valido entre ${minimumAircraftYear} y ${maximumAircraftYear}.`
 }
 
+function buildNormalizedAircraftDocumentsState(raw = {}) {
+  const status = String(
+    raw.documentation_status ||
+      raw.documentationStatus ||
+      raw.documents_state?.status ||
+      raw.documentsState?.status ||
+      '',
+  )
+    .trim()
+    .toLowerCase()
+
+  const summary =
+    raw.documents_summary && typeof raw.documents_summary === 'object'
+      ? raw.documents_summary
+      : raw.documentsSummary && typeof raw.documentsSummary === 'object'
+        ? raw.documentsSummary
+        : raw.documents_state?.summary && typeof raw.documents_state.summary === 'object'
+          ? raw.documents_state.summary
+          : raw.documentsState?.summary && typeof raw.documentsState.summary === 'object'
+            ? raw.documentsState.summary
+            : null
+
+  const requirements = Array.isArray(raw.documents_state?.requirements)
+    ? raw.documents_state.requirements
+    : Array.isArray(raw.documentsState?.requirements)
+      ? raw.documentsState.requirements
+      : []
+
+  if (!status && !summary && !requirements.length) {
+    return null
+  }
+
+  return {
+    status: status || 'pending',
+    status_label:
+      raw.documentation_status_label ||
+      raw.documentationStatusLabel ||
+      raw.documents_state?.status_label ||
+      raw.documentsState?.status_label ||
+      '',
+    summary: summary || {},
+    requirements,
+  }
+}
+
 function normalizeAircraft(raw = {}, index = 0) {
   const billingState =
     raw.billing_state && typeof raw.billing_state === 'object'
@@ -5375,6 +5457,15 @@ function normalizeAircraft(raw = {}, index = 0) {
       : raw.billingState && typeof raw.billingState === 'object'
         ? raw.billingState
         : null
+  const activationState =
+    raw.activation && typeof raw.activation === 'object'
+      ? raw.activation
+      : raw.aircraft_state?.activation && typeof raw.aircraft_state.activation === 'object'
+        ? raw.aircraft_state.activation
+        : raw.aircraftState?.activation && typeof raw.aircraftState.activation === 'object'
+          ? raw.aircraftState.activation
+          : null
+  const normalizedDocumentsState = buildNormalizedAircraftDocumentsState(raw)
   const statusRaw = resolveAircraftOperationalStatus(raw)
   const validationStatusRaw = String(
     raw.validation_status || raw.validationStatus || raw.review_status || raw.reviewStatus || '',
@@ -5419,12 +5510,18 @@ function normalizeAircraft(raw = {}, index = 0) {
       raw.approved_at ||
       raw.approved ||
       raw.is_approved ||
+      String(raw.review_status || raw.reviewStatus || '').trim().toLowerCase() === 'approved' ||
       raw.review?.approved ||
       raw.aircraft_state?.review?.approved ||
       raw.aircraftState?.review?.approved,
     ) ||
     validationStatus === 'approved' ||
     ['active', 'trial_active', 'approved', 'aprobada', 'aprobado'].includes(statusRaw)
+  const derivedDocumentsValid =
+    normalizedDocumentsState?.status === 'complete' ||
+    normalizedDocuments.some((document) =>
+      ['vigente', 'validado', 'approved'].includes(String(document.state).toLowerCase()),
+    )
 
   return {
     id: raw.id || index + 1,
@@ -5560,6 +5657,79 @@ function normalizeAircraft(raw = {}, index = 0) {
       raw.canOperate ??
       false,
     billingState,
+    activation: activationState,
+    aircraftState:
+      raw.aircraft_state && typeof raw.aircraft_state === 'object'
+        ? raw.aircraft_state
+        : raw.aircraftState && typeof raw.aircraftState === 'object'
+          ? raw.aircraftState
+          : null,
+    commercialStatus:
+      raw.commercial_status ||
+      raw.commercialStatus ||
+      activationState?.commercial_status ||
+      '',
+    commercial_status:
+      raw.commercial_status ||
+      raw.commercialStatus ||
+      activationState?.commercial_status ||
+      '',
+    readyToBook:
+      raw.ready_to_book ??
+      raw.readyToBook ??
+      raw.aircraft_state?.ready_to_book ??
+      raw.aircraftState?.ready_to_book ??
+      false,
+    ready_to_book:
+      raw.ready_to_book ??
+      raw.readyToBook ??
+      raw.aircraft_state?.ready_to_book ??
+      raw.aircraftState?.ready_to_book ??
+      false,
+    readyToQuote:
+      raw.ready_to_quote ??
+      raw.readyToQuote ??
+      raw.aircraft_state?.ready_to_quote ??
+      raw.aircraftState?.ready_to_quote ??
+      false,
+    ready_to_quote:
+      raw.ready_to_quote ??
+      raw.readyToQuote ??
+      raw.aircraft_state?.ready_to_quote ??
+      raw.aircraftState?.ready_to_quote ??
+      false,
+    isReservable:
+      raw.is_reservable ??
+      raw.isReservable ??
+      false,
+    is_reservable:
+      raw.is_reservable ??
+      raw.isReservable ??
+      false,
+    isQuotable:
+      raw.is_quotable ??
+      raw.isQuotable ??
+      false,
+    is_quotable:
+      raw.is_quotable ??
+      raw.isQuotable ??
+      false,
+    approvalStatus:
+      raw.approval_status ||
+      raw.approvalStatus ||
+      raw.review_status ||
+      raw.reviewStatus ||
+      raw.validation_status ||
+      raw.validationStatus ||
+      '',
+    approval_status:
+      raw.approval_status ||
+      raw.approvalStatus ||
+      raw.review_status ||
+      raw.reviewStatus ||
+      raw.validation_status ||
+      raw.validationStatus ||
+      '',
     isActive: Boolean(derivedOperationallyActive),
     is_active: Boolean(derivedOperationallyActive),
     approved: derivedApproved,
@@ -5567,12 +5737,18 @@ function normalizeAircraft(raw = {}, index = 0) {
     mainImage,
     images: normalizedImages,
     documents: normalizedDocuments,
+    documentsState: normalizedDocumentsState,
+    documents_state: normalizedDocumentsState,
+    documentsSummary: normalizedDocumentsState?.summary || {},
+    documents_summary: normalizedDocumentsState?.summary || {},
+    documentationStatus: normalizedDocumentsState?.status || '',
+    documentation_status: normalizedDocumentsState?.status || '',
+    documentationStatusLabel: normalizedDocumentsState?.status_label || '',
+    documentation_status_label: normalizedDocumentsState?.status_label || '',
     documentsValid:
       raw.documents_valid ??
       raw.documentsValid ??
-      normalizedDocuments.some((document) =>
-        ['vigente', 'validado', 'approved'].includes(String(document.state).toLowerCase()),
-      ),
+      derivedDocumentsValid,
     rejectionReason:
       raw.rejection_reason ||
       raw.rejectionReason ||
@@ -7999,9 +8175,10 @@ function openAircraftWizard(item = null, mode = 'edit') {
     clearFormFeedback('document')
   }
 
-  aircraftWizardReadOnly.value = mode === 'view'
+  aircraftWizardReadOnly.value = false
   aircraftWizardStep.value = 1
   aircraftWizardStepError.value = ''
+  resetAircraftWizardNavigationLock()
   aircraftWizardOpen.value = true
 }
 
@@ -8010,14 +8187,75 @@ function closeAircraftWizard() {
   aircraftWizardReadOnly.value = false
   aircraftWizardStep.value = 1
   aircraftWizardStepError.value = ''
+  resetAircraftWizardNavigationLock()
   cancelEditingAircraft()
   resetImageForm()
   resetDocumentForm()
   clearFormFeedback('document')
 }
 
+function activateAircraftWizardEditMode(source = 'general') {
+  if (!aircraftWizardReadOnly.value) return true
+
+  const hasExistingAircraft = Boolean(editingAircraftId.value || documentForm.aircraftId || imageForm.aircraftId)
+  if (!hasExistingAircraft) return false
+
+  aircraftWizardReadOnly.value = false
+
+  ui.pushToast({
+    tone: 'info',
+    title: 'Modo edicion activado',
+    message:
+      source === 'documents'
+        ? 'Ahora ya puedes cargar documentos para esta aeronave.'
+        : 'Ahora ya puedes editar la informacion de esta aeronave.',
+  })
+
+  return true
+}
+
 function clearAircraftWizardStepFeedback() {
   aircraftWizardStepError.value = ''
+}
+
+function resetAircraftWizardNavigationLock() {
+  aircraftWizardNavigationLocked.value = false
+  aircraftWizardLastStepChangeAt.value = 0
+}
+
+function unlockAircraftWizardNavigationSoon() {
+  if (typeof window === 'undefined') {
+    aircraftWizardNavigationLocked.value = false
+    return
+  }
+
+  window.setTimeout(() => {
+    aircraftWizardNavigationLocked.value = false
+  }, AIRCRAFT_WIZARD_NAVIGATION_LOCK_MS)
+}
+
+function setAircraftWizardStep(step) {
+  const normalizedStep = Math.min(Math.max(Number(step || 1), 1), aircraftWizardSteps.length)
+  const now = Date.now()
+
+  if (
+    shouldBlockAircraftWizardStepTransition({
+      currentStep: aircraftWizardStep.value,
+      targetStep: normalizedStep,
+      isLocked: aircraftWizardNavigationLocked.value,
+      lastChangedAt: aircraftWizardLastStepChangeAt.value,
+      now,
+      lockMs: AIRCRAFT_WIZARD_NAVIGATION_LOCK_MS,
+    })
+  ) {
+    return false
+  }
+
+  aircraftWizardNavigationLocked.value = true
+  aircraftWizardStep.value = normalizedStep
+  aircraftWizardLastStepChangeAt.value = now
+  unlockAircraftWizardNavigationSoon()
+  return true
 }
 
 function getAircraftWizardStepErrors(step = aircraftWizardStep.value) {
@@ -8068,31 +8306,69 @@ function goToAircraftWizardStep(step) {
 
   if (aircraftWizardReadOnly.value || nextStep <= aircraftWizardStep.value) {
     clearAircraftWizardStepFeedback()
-    aircraftWizardStep.value = nextStep
+    setAircraftWizardStep(nextStep)
     return true
   }
 
   for (let currentStep = aircraftWizardStep.value; currentStep < nextStep; currentStep += 1) {
     if (!validateAircraftWizardStep(currentStep)) {
-      aircraftWizardStep.value = currentStep
+      setAircraftWizardStep(currentStep)
       return false
     }
   }
 
-  aircraftWizardStep.value = nextStep
-  return true
+  return setAircraftWizardStep(nextStep)
+}
+
+function handleAircraftWizardStepSelection(step) {
+  const normalizedStep = Math.min(Math.max(Number(step || 1), 1), aircraftWizardSteps.length)
+
+  if (normalizedStep === 4 && aircraftWizardReadOnly.value) {
+    activateAircraftWizardEditMode('documents')
+  }
+
+  clearAircraftWizardStepFeedback()
+  return setAircraftWizardStep(normalizedStep)
 }
 
 function nextAircraftWizardStep() {
-  goToAircraftWizardStep(aircraftWizardStep.value + 1)
+  const nextStep = Math.min(aircraftWizardStep.value + 1, aircraftWizardSteps.length)
+  clearAircraftWizardStepFeedback()
+  return setAircraftWizardStep(nextStep)
 }
 
 function previousAircraftWizardStep() {
   clearAircraftWizardStepFeedback()
-  aircraftWizardStep.value = Math.max(aircraftWizardStep.value - 1, 1)
+  return setAircraftWizardStep(Math.max(aircraftWizardStep.value - 1, 1))
 }
 
 function getAircraftDocumentHealth(item) {
+  const backendDocumentsState =
+    item?.documents_state && typeof item.documents_state === 'object'
+      ? item.documents_state
+      : item?.documentsState && typeof item.documentsState === 'object'
+        ? item.documentsState
+        : null
+
+  if (backendDocumentsState?.status) {
+    const toneByStatus = {
+      complete: 'success',
+      pending: 'warning',
+      incomplete: 'warning',
+      rejected: 'danger',
+    }
+
+    return {
+      label: backendDocumentsState.status_label || 'Documentación',
+      tone: toneByStatus[backendDocumentsState.status] || 'warning',
+      detail:
+        item?.commercial_block_reason ||
+        item?.activation?.commercial_block_reason ||
+        backendDocumentsState.status_label ||
+        'Estado documental sincronizado desde backend.',
+    }
+  }
+
   const validationState = getAircraftDocumentValidationState(item)
   return {
     label: validationState.label,
@@ -8178,6 +8454,41 @@ function isDocumentExpiredAt(value) {
 }
 
 function getAircraftDocumentValidationState(item = {}) {
+  const backendDocumentsState =
+    item?.documents_state && typeof item.documents_state === 'object'
+      ? item.documents_state
+      : item?.documentsState && typeof item.documentsState === 'object'
+        ? item.documentsState
+        : null
+
+  if (backendDocumentsState?.status) {
+    const summary =
+      backendDocumentsState.summary && typeof backendDocumentsState.summary === 'object'
+        ? backendDocumentsState.summary
+        : {}
+    const requirements = Array.isArray(backendDocumentsState.requirements)
+      ? backendDocumentsState.requirements
+      : []
+    const approved = backendDocumentsState.status === 'complete'
+    const toneByStatus = {
+      complete: 'success',
+      pending: 'warning',
+      incomplete: 'warning',
+      rejected: 'danger',
+    }
+
+    return {
+      requirements,
+      approved,
+      tone: toneByStatus[backendDocumentsState.status] || 'warning',
+      label: backendDocumentsState.status_label || 'Documentación',
+      detail:
+        item?.commercial_block_reason ||
+        item?.activation?.commercial_block_reason ||
+        `Aprobados: ${summary.approved || 0} · Pendientes: ${summary.pending || 0} · Rechazados: ${summary.rejected || 0} · Faltantes: ${summary.missing || 0}`,
+    }
+  }
+
   const documents = Array.isArray(item?.documents) ? item.documents : []
   const requirements = AIRCRAFT_REQUIRED_DOCUMENTS.map((requirement) => {
     const matchedDocuments = documents.filter((document) =>
@@ -8443,7 +8754,18 @@ function getAircraftCommercialState(item = {}, provider = companyStatusMeta.valu
   const aircraftIsActive = isAircraftOperationallyActive(item)
   const hasRange = Number(item?.rangeKm || 0) > 0
   const hasValidPrice = Number(item?.hourlyPrice || 0) > 0
-  const matchingEnabled = Boolean(item?.matching_visible ?? item?.matchingVisible ?? item?.marketplace_visible ?? item?.visible_for_matching ?? false)
+  const explicitMatchingSetting = item?.matching_visible ?? item?.matchingVisible ?? item?.marketplace_visible ?? item?.visible_for_matching
+  const canonicalCommercialStatus = String(item?.commercial_status || item?.activation?.commercial_status || '').toLowerCase()
+  const backendMarketplaceReady = (
+    item?.is_reservable === true ||
+    item?.is_quotable === true ||
+    item?.ready_to_book === true ||
+    item?.ready_to_quote === true ||
+    canonicalCommercialStatus === 'active'
+  )
+  const matchingEnabled = explicitMatchingSetting == null
+    ? backendMarketplaceReady
+    : Boolean(explicitMatchingSetting)
   const billingReady = resolvedBillingMeta?.ready === true
 
   if (normalizedOperationalStatus === 'hidden') {
@@ -8639,6 +8961,7 @@ function closeAircraftCatalogMenu() {
 function openAircraftWizardAtStep(item = null, step = 1, mode = 'edit') {
   openAircraftWizard(item, mode)
   aircraftWizardStep.value = Math.min(Math.max(Number(step || 1), 1), aircraftWizardSteps.length)
+  resetAircraftWizardNavigationLock()
   closeAircraftCatalogMenu()
 }
 
@@ -8653,6 +8976,7 @@ function duplicateAircraft(item) {
   aircraftWizardReadOnly.value = false
   aircraftWizardStep.value = 1
   aircraftWizardStepError.value = ''
+  resetAircraftWizardNavigationLock()
   aircraftWizardOpen.value = true
   closeAircraftCatalogMenu()
 }
@@ -8947,11 +9271,36 @@ function resolveDocumentCategory(type = '') {
 }
 
 function getDocumentStateMeta(document = {}) {
-  const normalizedState = String(document?.state || '').trim().toLowerCase()
+  if (document?.statusLabel) {
+    const normalizedLabel = String(document.statusLabel).trim().toLowerCase()
+    if (normalizedLabel.includes('aprob')) return { key: 'approved', label: document.statusLabel, tone: 'success', dot: 'success' }
+    if (normalizedLabel.includes('rechaz')) return { key: 'rejected', label: document.statusLabel, tone: 'danger', dot: 'danger' }
+    if (normalizedLabel.includes('cargar')) return { key: 'missing', label: document.statusLabel, tone: 'neutral', dot: 'neutral' }
+    if (normalizedLabel.includes('revisi')) return { key: 'pending', label: document.statusLabel, tone: 'warning', dot: 'warning' }
+  }
+
+  const normalizedState = String(
+    document?.state ||
+      document?.status ||
+      document?.approval_status ||
+      document?.review_status ||
+      document?.validation_status ||
+      '',
+  )
+    .trim()
+    .toLowerCase()
   const expiredByDate = Boolean(document?.expiresAt) && isDocumentExpiredAt(document.expiresAt)
 
-  if (expiredByDate || ['expired', 'vencido', 'vencida', 'rejected'].includes(normalizedState)) {
+  if (expiredByDate || ['expired', 'vencido', 'vencida'].includes(normalizedState)) {
     return { key: 'expired', label: 'Vencido', tone: 'danger', dot: 'danger' }
+  }
+
+  if (['rejected', 'rechazado', 'rechazada'].includes(normalizedState)) {
+    return { key: 'rejected', label: 'Rechazado', tone: 'danger', dot: 'danger' }
+  }
+
+  if (['missing', 'faltante', 'not_uploaded'].includes(normalizedState)) {
+    return { key: 'missing', label: 'Pendiente de cargar', tone: 'neutral', dot: 'neutral' }
   }
 
   if (['approved', 'validado', 'validated', 'vigente', 'active'].includes(normalizedState)) {
@@ -9009,7 +9358,7 @@ function normalizeStoredDocument(document = {}, index = 0) {
   const category = resolveDocumentCategory(document.type)
   const stateMeta = getDocumentStateMeta(document)
   const typeLabel = formatDocumentType(document.typeLabel || document.type)
-  const fileExtension = getDocumentFileExtension(document.name, document.fileType)
+  const fileExtension = document.fileExtension || getDocumentFileExtension(document.name, document.fileType)
 
   return {
     ...document,
@@ -9023,7 +9372,7 @@ function normalizeStoredDocument(document = {}, index = 0) {
     stateMeta,
     fileExtension,
     uploadedAtLabel: getDocumentUploadedAtLabel(document),
-    expiryLabel: document.expiresAt ? formatDocumentExpiry(document.expiresAt) : 'Sin vencimiento',
+    expiryLabel: document.expirationLabel || (document.expiresAt ? formatDocumentExpiry(document.expiresAt) : 'Sin vencimiento'),
     previewSupported: ['image', 'pdf'].includes(kind),
   }
 }
@@ -9101,12 +9450,14 @@ function addAircraftDocumentFiles(fileList) {
 }
 
 function setAircraftDocumentFiles(event) {
+  activateAircraftWizardEditMode('documents')
   addAircraftDocumentFiles(event.target.files)
   event.target.value = ''
 }
 
 function handleDocumentDrop(event) {
   documentForm.dragActive = false
+  activateAircraftWizardEditMode('documents')
   addAircraftDocumentFiles(event.dataTransfer?.files)
 }
 
@@ -12584,6 +12935,7 @@ watch(
       documentLibraryCategoryOptions,
       documentLibraryStateOptions,
       documentLibrarySortOptions,
+      storedAircraftDocuments,
       documentLibrarySummary,
       filteredStoredAircraftDocuments,
       crewBases,
@@ -12609,6 +12961,8 @@ watch(
       aircraftWizardModeMeta,
       aircraftWizardReviewState,
       aircraftWizardSnapshot,
+      aircraftWizardChecklist,
+      aircraftWizardHeroImageUrl,
       companyStatusMeta,
       companyRfcIsValid,
       companyHasIdentityData,
@@ -12829,6 +13183,7 @@ watch(
       openAircraftWizard,
       closeAircraftWizard,
       goToAircraftWizardStep,
+      handleAircraftWizardStepSelection,
       nextAircraftWizardStep,
       previousAircraftWizardStep,
       getAircraftLiveStatus,

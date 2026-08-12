@@ -35,6 +35,7 @@ export function createOperatorPortalAircraftDomain(ctx = {}) {
     const fileUrl = normalizeMediaUrl(raw.file_url || raw.document_url || raw.url || '')
     const fileType = raw.file_type || raw.mime_type || ''
     const fileName =
+      raw.original_file_name ||
       raw.document_name ||
       raw.name ||
       raw.file_name ||
@@ -44,14 +45,25 @@ export function createOperatorPortalAircraftDomain(ctx = {}) {
     return {
       id: raw.id || index + 1,
       type,
-      typeLabel: getAircraftDocumentTypeMeta(type).label,
+      typeLabel: raw.label || raw.type_label || getAircraftDocumentTypeMeta(type).label,
       name: fileName,
       state: raw.status || raw.state || 'pendiente',
+      statusLabel: raw.status_label || '',
+      category: raw.category || '',
+      categoryLabel: raw.category_label || '',
       expiresAt: raw.expires_at || raw.expiration_date || null,
+      expirationLabel: raw.expiration_label || '',
       fileUrl,
       fileType,
+      fileExtension: raw.file_extension || '',
       uploadedAt: raw.updated_at || raw.updatedAt || raw.created_at || raw.createdAt || null,
       updatedAt: raw.updated_at || raw.updatedAt || raw.modified_at || raw.modifiedAt || null,
+      reviewedAt: raw.reviewed_at || raw.reviewedAt || null,
+      reviewedBy: raw.reviewed_by || raw.reviewedBy || null,
+      rejectionReason: raw.rejection_reason || raw.rejectionReason || '',
+      canPreview: raw.can_preview ?? null,
+      canDownload: raw.can_download ?? null,
+      canReplace: raw.can_replace ?? null,
     }
   }
 

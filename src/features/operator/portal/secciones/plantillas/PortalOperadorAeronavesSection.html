@@ -1,0 +1,328 @@
+<section class="page-grid fleet-operations-luxury">
+      <article class="surface fleet-hero">
+        <div class="fleet-hero-content">
+          <div>
+            <p class="eyebrow">Fleet Operations & Commercial Readiness</p>
+            <h1>Aeronaves Operativas</h1>
+            <p class="muted">
+              Centro ejecutivo para disponibilidad, control comercial y readiness documental de flota.
+            </p>
+          </div>
+
+          <div class="hero-actions">
+            <span class="badge">Empresa: {{ company.reviewStatus }}</span>
+            <button
+              type="button"
+              class="primary-action"
+              :disabled="!providerCanRegisterAircraft"
+              @click="openAircraftWizard()"
+            >
+              + Registrar aeronave
+            </button>
+          </div>
+        </div>
+
+        <div class="fleet-kpi-grid fleet-hero-kpis">
+          <article
+            v-for="kpi in aircraftOperationalKpis"
+            :key="`hero-${kpi.label}`"
+            class="fleet-kpi-card"
+            :data-tone="kpi.tone"
+          >
+            <span>{{ kpi.label }}</span>
+            <strong>{{ kpi.value }}</strong>
+            <p>{{ kpi.detail }}</p>
+          </article>
+        </div>
+      </article>
+
+      <article v-if="!providerCanRegisterAircraft" class="surface empty-state">
+        Tu cuenta de proveedor sigue pendiente de validacion administrativa. Solo cuando Admin la
+        apruebe manualmente y habilite el acceso operativo podras registrar aeronaves y activar la
+        mensualidad por cada una.
+      </article>
+
+      <div class="fleet-kpi-grid fleet-kpi-grid--secondary">
+        <article
+          v-for="kpi in aircraftOperationalKpis"
+          :key="kpi.label"
+          class="fleet-kpi-card"
+          :data-tone="kpi.tone"
+        >
+          <span>{{ kpi.label }}</span>
+          <strong>{{ kpi.value }}</strong>
+          <p>{{ kpi.detail }}</p>
+        </article>
+      </div>
+
+      <div class="fleet-layout fleet-layout--catalog">
+        <article class="surface fleet-section-card fleet-section-card--catalog">
+          <div class="fleet-toolbar">
+            <div>
+              <p class="eyebrow">Command center</p>
+              <h2>Flota ejecutiva</h2>
+              <p class="muted">Busqueda, filtros y lectura comercial sin saturar la cabina operativa.</p>
+            </div>
+            <div class="fleet-toolbar-actions">
+              <button type="button" class="ghost-button" @click="exportAircraftCatalog()">Exportar</button>
+              <button type="button" class="ghost-button" @click="reloadAircraftList()">Actualizar</button>
+              <button
+                type="button"
+                class="primary-action"
+                :disabled="!providerCanRegisterAircraft"
+                @click="openAircraftWizard()"
+              >
+                + Nueva aeronave
+              </button>
+            </div>
+          </div>
+
+          <div class="fleet-filter-shell">
+            <label class="fleet-search-field">
+              <span>Buscar aeronave</span>
+              <input v-model="aircraftCatalogSearch" type="search" placeholder="Modelo, matrícula, base o fabricante..." />
+            </label>
+
+            <div class="fleet-filter-row">
+              <label>
+                <span>Categoria</span>
+                <select v-model="aircraftCatalogCategory">
+                  <option v-for="option in aircraftCatalogCategoryOptions" :key="option.value" :value="option.value">
+                    {{ option.label }}
+                  </option>
+                </select>
+              </label>
+
+              <label>
+                <span>Base</span>
+                <select v-model="aircraftCatalogBase">
+                  <option v-for="option in aircraftCatalogBaseOptions" :key="option.value" :value="option.value">
+                    {{ option.label }}
+                  </option>
+                </select>
+              </label>
+
+              <div class="fleet-view-switch" role="tablist" aria-label="Vista de aeronaves">
+                <button type="button" :class="{ active: aircraftCatalogView === 'cards' }" @click="aircraftCatalogView = 'cards'">Cards</button>
+                <button type="button" :class="{ active: aircraftCatalogView === 'table' }" @click="aircraftCatalogView = 'table'">Tabla</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="fleet-status-tabs" role="tablist" aria-label="Estado de aeronaves">
+            <button
+              v-for="tab in aircraftCatalogStatusTabs"
+              :key="tab.id"
+              type="button"
+              :class="{ active: aircraftCatalogStatus === tab.id }"
+              @click="aircraftCatalogStatus = tab.id"
+            >
+              {{ tab.label }} <span>{{ tab.count }}</span>
+            </button>
+          </div>
+
+          <div v-if="filteredAircraftCatalog.length && aircraftCatalogView === 'cards'" class="fleet-compact-grid">
+            <article
+              v-for="item in filteredAircraftCatalog"
+              :key="item.id"
+              class="fleet-compact-card"
+              @click="openAircraftWizard(item, 'view')"
+            >
+              <div class="fleet-compact-visual" :style="getAircraftVisualStyle(item)">
+                <img
+                  v-if="hasImage(item.mainImage)"
+                  :src="normalizeMediaUrl(item.mainImage)"
+                  :alt="`Imagen de ${item.name}`"
+                  class="fleet-visual-image"
+                />
+                <div class="fleet-visual-top">
+                  <span class="status-pill" :data-tone="getAircraftLiveStatus(item).tone">
+                    {{ getAircraftLiveStatus(item).label }}
+                  </span>
+                  <span class="status-pill status-pill--ghost" :data-tone="getAircraftApprovalMeta(item).tone">
+                    {{ getAircraftApprovalMeta(item).label }}
+                  </span>
+                </div>
+              </div>
+
+              <div class="fleet-compact-body">
+                <div class="fleet-compact-title">
+                  <strong>{{ item.name }}</strong>
+                  <p class="fleet-category-line">{{ item.category || 'Categoria pendiente' }}</p>
+                  <p>{{ item.category || 'Categoria pendiente' }} · {{ item.registration || 'Sin matricula' }} · Base: {{ item.base || 'Sin base' }}</p>
+                </div>
+
+                <div class="fleet-compact-stats">
+                  <div class="fleet-base-stat">
+                    <span>Base</span>
+                    <strong>{{ item.base || 'Sin base' }}</strong>
+                  </div>
+                  <div>
+                    <span>Capacidad</span>
+                    <strong>{{ item.capacity || 'N/D' }} pax</strong>
+                  </div>
+                  <div>
+                    <span>Tarifa</span>
+                    <strong>{{ getAircraftHourlyPriceLabel(item) }}</strong>
+                  </div>
+                  <div>
+                    <span>Membresia</span>
+                    <strong>{{
+                      loadingProviderAircraftBillingPlan
+                        ? 'Consultando...'
+                        : providerAircraftPlanAmount
+                          ? `${formatCurrency(providerAircraftPlanAmount)} / mes`
+                          : 'Pendiente'
+                    }}</strong>
+                  </div>
+                </div>
+
+                <div class="fleet-compact-meta">
+                  <span class="status-pill" :data-tone="getAircraftLiveStatus(item).tone">
+                    {{ getAircraftLiveStatus(item).label }}
+                  </span>
+                  <span class="status-pill" :data-tone="getAircraftApprovalMeta(item).tone">
+                    {{ getAircraftApprovalMeta(item).label }}
+                  </span>
+                </div>
+                <div v-if="getAircraftMissingDocumentNames(item).length" class="fleet-compact-doc-missing">
+                  <span class="fleet-compact-doc-missing__label">Faltan documentos:</span>
+                  <span
+                    v-for="documentName in getAircraftMissingDocumentNames(item).slice(0, 3)"
+                    :key="`${item.id}-missing-${documentName}`"
+                    class="status-pill"
+                    data-tone="warning"
+                  >
+                    {{ documentName }}
+                  </span>
+                  <span
+                    v-if="getAircraftMissingDocumentNames(item).length > 3"
+                    class="status-pill status-pill--ghost"
+                    data-tone="warning"
+                  >
+                    +{{ getAircraftMissingDocumentNames(item).length - 3 }}
+                  </span>
+                </div>
+
+                <details class="fleet-compact-details" @click.stop>
+                  <summary>Panel operativo</summary>
+                  <div class="fleet-compact-info-grid">
+                  <div class="fleet-compact-info-card">
+                    <span>Estado comercial</span>
+                    <strong>{{ getAircraftCommercialMeta(item).label }}</strong>
+                    <small>{{ getAircraftCommercialMeta(item).detail }}</small>
+                  </div>
+
+                  <div class="fleet-compact-info-card">
+                    <span>Pago y membresia</span>
+                    <strong>{{ getAircraftBillingStatusMeta(item).label }}</strong>
+                    <small>{{
+                      Number(billingStatusRefreshAircraftId) === Number(item.id)
+                        ? 'Validando la respuesta de Stripe y sincronizando la activacion...'
+                        : getAircraftBillingStatusMeta(item).detail
+                    }}</small>
+                  </div>
+
+                  <div class="fleet-compact-info-card">
+                    <span>Disponibilidad</span>
+                    <strong>{{
+                      getAircraftCommercialState(item).isAvailable && getAircraftUpcomingOperation(item)?.departure
+                        ? formatDateTimeDisplay(getAircraftUpcomingOperation(item).departure)
+                        : getAircraftCommercialState(item).isAvailable
+                          ? 'Disponible hoy'
+                          : 'No disponible comercialmente'
+                    }}</strong>
+                    <small>{{ getAircraftDocumentHealth(item).detail }}</small>
+                  </div>
+                </div>
+
+                  <p class="fleet-compact-missing">
+                    {{ getAircraftMissingItemsLabel(item) }}
+                  </p>
+                  <p v-if="getAircraftMissingDocumentNames(item).length" class="fleet-compact-missing fleet-compact-missing--docs">
+                    {{ getAircraftMissingDocumentsLabel(item) }}
+                  </p>
+                </details>
+
+                <div class="fleet-card-actions" @click.stop>
+                  <button type="button" class="ghost-button" @click="openAircraftWizard(item, 'view')">
+                    Ver
+                  </button>
+                  <button type="button" class="ghost-button" @click="openAircraftWizard(item, 'edit')">
+                    Editar
+                  </button>
+                  <button type="button" class="card-menu-button" @click="toggleAircraftCatalogMenu(item.id)">
+                    ...
+                  </button>
+                </div>
+
+                <div v-if="aircraftCatalogMenuId === item.id" class="fleet-card-menu" @click.stop>
+                  <button
+                    v-if="shouldShowAircraftOperationalMenuActions(item)"
+                    type="button"
+                    @click="goToSection('disponibilidad', { aircraft_id: String(item.id) }); closeAircraftCatalogMenu()"
+                  >
+                    Configurar disponibilidad
+                  </button>
+                  <button
+                    v-if="shouldShowAircraftOperationalMenuActions(item)"
+                    type="button"
+                    @click="openAircraftWizardAtStep(item, 2, 'edit')"
+                  >
+                    Actualizar tarifas
+                  </button>
+                  <button
+                    v-if="shouldShowAircraftBillingMenuAction(item)"
+                    type="button"
+                    :disabled="isAircraftBillingMenuActionDisabled(item)"
+                    @click="runAircraftBillingPrimaryAction(item); closeAircraftCatalogMenu()"
+                  >
+                    {{ getAircraftBillingMenuLabel(item) }}
+                  </button>
+                  <button
+                    v-if="shouldShowAircraftDocumentMenuAction(item)"
+                    type="button"
+                    @click="openAircraftWizardAtStep(item, 4, 'edit')"
+                  >
+                    {{ getAircraftDocumentMenuLabel(item) }}
+                  </button>
+                  <button type="button" @click="focusAircraftBilling(item.id); openAircraftBillingPayments(); closeAircraftCatalogMenu()">Ver historial</button>
+                </div>
+              </div>
+            </article>
+          </div>
+
+          <div v-else-if="filteredAircraftCatalog.length" class="fleet-table-shell">
+            <div class="fleet-table-head">
+              <span>Aeronave</span>
+              <span>Categoria</span>
+              <span>Base</span>
+              <span>Pax</span>
+              <span>Tarifa</span>
+              <span>Estado</span>
+              <span>Acciones</span>
+            </div>
+
+            <div v-for="item in filteredAircraftCatalog" :key="`table-${item.id}`" class="fleet-table-row">
+              <div class="fleet-table-aircraft">
+                <strong>{{ item.name }}</strong>
+                <small>{{ item.registration || 'Sin matricula' }}</small>
+              </div>
+              <span>{{ item.category || 'N/D' }}</span>
+              <span>{{ item.base || 'Sin base' }}</span>
+              <span>{{ item.capacity || 'N/D' }}</span>
+              <span>{{ getAircraftHourlyPriceLabel(item) }}</span>
+              <span>{{ getAircraftLiveStatus(item).label }}</span>
+              <div class="fleet-table-actions">
+                <button type="button" class="ghost-button" @click="openAircraftWizard(item, 'view')">Ver</button>
+                <button type="button" class="ghost-button" @click="openAircraftWizard(item, 'edit')">Editar</button>
+              </div>
+            </div>
+          </div>
+
+          <p v-else class="empty-state">No hay aeronaves que coincidan con los filtros actuales.</p>
+        </article>
+      </div>
+
+  <PortalOperadorAeronavesWizardOverlay />
+</section>

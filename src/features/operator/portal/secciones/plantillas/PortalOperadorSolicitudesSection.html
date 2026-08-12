@@ -1,0 +1,387 @@
+<section class="page-grid flight-ops-command-luxury">
+      <article class="surface requests-dispatch-surface">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Flight Operations Center</p>
+            <h2>Solicitudes operativas</h2>
+            <p v-if="false" class="muted helper-copy">
+              Escanea la cola, prioriza urgencias y acepta o rechaza solicitudes desde una sola bandeja.
+            </p>
+            <p class="muted helper-copy">{{ getRequestHelperCopy(selectedRequest) }}</p>
+          </div>
+          <div class="requests-head-actions">
+            <div class="provider-notification-center">
+              <button
+                type="button"
+                class="provider-notification-trigger"
+                :class="{ 'has-unread': unreadRealtimeNotifications > 0 }"
+                @click="toggleRealtimeNotifications"
+              >
+                <span class="provider-notification-trigger__icon" aria-hidden="true">AL</span>
+                <span class="provider-notification-trigger__label">Alertas</span>
+                <strong v-if="unreadRealtimeNotifications">{{ unreadRealtimeNotifications }}</strong>
+              </button>
+              <div
+                v-if="realtimeNotificationsOpen"
+                class="provider-notification-dropdown"
+              >
+                <div class="provider-notification-dropdown__head">
+                  <div>
+                    <p class="eyebrow">Live operations</p>
+                    <h3>Notificaciones</h3>
+                  </div>
+                  <button
+                    type="button"
+                    class="provider-notification-link"
+                    @click="markAllRealtimeNotificationsRead"
+                  >
+                    Leer todas
+                  </button>
+                </div>
+
+                <div v-if="activeRealtimeNotifications.length" class="provider-notification-list">
+                  <article
+                    v-for="notification in activeRealtimeNotifications"
+                    :key="notification.id"
+                    class="provider-notification-item"
+                    :class="{ 'is-unread': !notification.readAt }"
+                    @click="openRealtimeNotification(notification)"
+                  >
+                    <span class="provider-notification-item__signal" aria-hidden="true"></span>
+                    <div>
+                      <strong>{{ notification.title }}</strong>
+                      <p>{{ notification.message }}</p>
+                      <small>{{ notification.createdAt }}</small>
+                    </div>
+                    <button
+                      v-if="!notification.readAt"
+                      type="button"
+                      class="provider-notification-link"
+                      @click.stop="markRealtimeNotificationRead(notification.id)"
+                    >
+                      Leida
+                    </button>
+                  </article>
+                </div>
+
+                <div v-else class="provider-notification-empty">
+                  <strong>Centro listo</strong>
+                  <p>No hay alertas nuevas de solicitudes.</p>
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              class="provider-notification-permission"
+              @click="enableBrowserNotifications"
+            >
+              Activar avisos
+            </button>
+            <button
+              type="button"
+              class="archive-toggle"
+              :class="{ 'is-active': archivedTrayOpen }"
+              @click="archivedTrayOpen = !archivedTrayOpen"
+            >
+              <span class="archive-toggle__icon" aria-hidden="true">🗂</span>
+              <span class="archive-toggle__label">Archivadas</span>
+              <strong>{{ archivedRequests.length }}</strong>
+            </button>
+            <span class="badge">Proveedor decide aqui: aceptar o rechazar</span>
+          </div>
+        </div>
+
+    
+
+    
+
+        <div class="requests-toolbar">
+          <label class="request-search">
+            <span>Buscar</span>
+            <input
+              v-model="requestSearch"
+              type="search"
+              placeholder="Ruta, codigo, matricula o aeronave"
+            />
+          </label>
+
+          <div class="requests-tab-row">
+            <button
+              v-for="tab in requestStatusTabs"
+              :key="tab.id"
+              type="button"
+              class="request-tab"
+              :class="{ 'is-active': requestStatusFilter === tab.id }"
+              @click="requestStatusFilter = tab.id"
+            >
+              <span>{{ tab.label }}</span>
+              <strong>{{ tab.count }}</strong>
+            </button>
+          </div>
+
+          <label class="request-priority-filter">
+            <span>Prioridad</span>
+            <select v-model="requestPriorityFilter">
+              <option value="all">Todas</option>
+              <option value="urgent">Urgente</option>
+              <option value="high">Alta prioridad</option>
+              <option value="normal">Programada</option>
+              <option value="expired">SLA vencido</option>
+            </select>
+          </label>
+        </div>
+
+        <section v-if="archivedTrayOpen" class="archived-requests-panel">
+          <div class="section-head compact-head">
+            <div>
+              <p class="eyebrow">Archivadas</p>
+              <h3>Solicitudes rechazadas</h3>
+            </div>
+            <span class="badge">Solo lectura</span>
+          </div>
+
+          <div v-if="archivedRequests.length" class="archived-requests-list">
+            <article
+              v-for="request in archivedRequests"
+              :key="`archived-${request.id}`"
+              class="archived-request-card"
+            >
+              <div class="request-queue-top">
+                <strong>Solicitud #{{ request.id }}</strong>
+                <span class="status-pill status-pill--ghost" data-tone="neutral">Archivada</span>
+              </div>
+              <p class="request-queue-route">{{ getRequestRouteLabel(request) }}</p>
+              <div class="request-queue-meta">
+                <span>{{ request.passengers || 0 }} pax</span>
+                <span>{{ formatDateTimeDisplay(request.date) }}</span>
+              </div>
+              <div class="request-queue-meta">
+                <span class="package-chip" :data-tone="getRequestServiceTierTone(request)">
+                  {{ getRequestServiceTierLabel(request) }}
+                </span>
+                <span>{{ getRequestQuoteLabel(request) }}</span>
+                <span>Rechazada por proveedor</span>
+              </div>
+            </article>
+          </div>
+
+          <p v-else class="empty-state">No hay solicitudes archivadas por el momento.</p>
+        </section>
+
+        <div
+          v-if="requests.length && (filteredRequests.length || !archivedTrayOpen)"
+          class="requests-dispatch-layout"
+        >
+          <aside class="requests-queue">
+            <div class="requests-queue-head">
+              <div>
+                <p class="eyebrow">Bandeja viva</p>
+                <strong>{{ filteredRequests.length }} solicitudes visibles</strong>
+              </div>
+              <span class="status-pill status-pill--ghost" data-tone="neutral">
+                {{ requestStatusTabs.find((tab) => tab.id === requestStatusFilter)?.label || 'Pendientes' }}
+              </span>
+            </div>
+
+            <article
+              v-for="request in filteredRequests"
+              :key="request.id"
+              class="request-queue-card"
+              :class="{ 'is-active': selectedRequest?.id === request.id }"
+              @click="selectRequest(request.id)"
+            >
+              <div class="request-queue-top">
+                <span class="status-pill" :data-tone="getRequestPriorityMeta(request).tone">
+                  {{ getRequestPriorityMeta(request).label }}
+                </span>
+                <span
+                  class="status-pill status-pill--ghost"
+                  :data-tone="getRequestStatusMeta(request).tone"
+                >
+                  {{ getRequestStatusMeta(request).label }}
+                </span>
+              </div>
+
+              <strong>Solicitud #{{ request.id }}</strong>
+              <p class="request-queue-route">{{ getRequestRouteLabel(request) }}</p>
+              <p class="request-queue-client">{{ getRequestClientLabel(request) }}</p>
+              <p class="request-queue-aircraft">{{ getRequestSuggestedAircraft(request).label }}</p>
+
+              <div class="request-queue-meta">
+                <span>{{ request.passengers || 0 }} pax</span>
+                <span>{{ formatDateTimeDisplay(request.date) }}</span>
+              </div>
+
+              <div class="request-queue-meta">
+                <span class="package-chip" :data-tone="getRequestServiceTierTone(request)">
+                  {{ getRequestServiceTierLabel(request) }}
+                </span>
+                <span>{{ getRequestQuoteLabel(request) }}</span>
+                <span>SLA: {{ getRequestResponseCountdown(request).label }}</span>
+              </div>
+            </article>
+
+            <p v-if="!filteredRequests.length" class="empty-state">
+              No hay solicitudes que coincidan con el filtro actual.
+            </p>
+          </aside>
+
+          <article v-if="selectedRequest" class="request-detail-surface">
+            <div class="request-detail-head">
+          <div>
+            <p class="eyebrow">Detalle operativo</p>
+            <h3>{{ getRequestRouteLabel(selectedRequest) }}</h3>
+            <p class="muted">
+                  {{ getProviderOperationalReleaseAircraftLabel() }} ·
+                  {{ selectedRequest.passengers || 0 }} pax ·
+                  {{ formatDateTimeDisplay(selectedRequest.date) }} ·
+                  {{ getRequestServiceTierLabel(selectedRequest) }}
+            </p>
+          </div>
+
+              <div
+                v-if="getRequestStatusMeta(selectedRequest).queue === 'pending'"
+                class="request-detail-actions"
+              >
+                <button
+                  type="button"
+                  class="ghost-button"
+                  :disabled="
+                    isRequestRejected(selectedRequest) ||
+                    isRequestAccepted(selectedRequest) ||
+                    isRequestPendingValidation(selectedRequest) ||
+                    isUpdatingRequestStatus(selectedRequest.id)
+                  "
+                  @click="updateRequestStatus(selectedRequest.id, 'Rechazada')"
+                >
+                  <span
+                    v-if="isUpdatingRequestStatus(selectedRequest.id, 'reject')"
+                    class="button-spinner"
+                    aria-hidden="true"
+                  ></span>
+                  {{ isUpdatingRequestStatus(selectedRequest.id, 'reject') ? 'Rechazando...' : 'Rechazar' }}
+                </button>
+                <button
+                  type="button"
+                  class="primary-action"
+                  :disabled="!canTriggerRequestPrimaryAction(selectedRequest)"
+                  @click="handleRequestPrimaryAction(selectedRequest)"
+                >
+                  <span
+                    v-if="isUpdatingRequestStatus(selectedRequest.id, 'accept')"
+                    class="button-spinner"
+                    aria-hidden="true"
+                  ></span>
+                  {{ isUpdatingRequestStatus(selectedRequest.id, 'accept') ? 'Guardando...' : getRequestPrimaryActionLabel(selectedRequest) }}
+                </button>
+              </div>
+              <div v-else class="request-detail-status-chip">
+                <span
+                  class="status-pill"
+                  :data-tone="getRequestStatusMeta(selectedRequest).tone"
+                >
+                  {{ getRequestStatusMeta(selectedRequest).headline }}
+                </span>
+              </div>
+            </div>
+
+           
+            <div
+              v-if="requestOperationalAlerts.length"
+              class="dashboard-alert-strip request-alert-strip"
+            >
+              <article
+                v-for="alert in requestOperationalAlerts"
+                :key="alert.id"
+                class="alert-chip"
+                :data-tone="alert.tone"
+              >
+                <strong>{{ alert.text }}</strong>
+              </article>
+            </div>
+
+            <div class="request-flow-strip">
+              <article
+                v-for="step in buildOperatorRequestFlowSteps(selectedRequest)"
+                :key="step.id"
+                class="request-flow-pill"
+                :data-state="step.state"
+              >
+                <span class="request-flow-pill__index">
+                  <span class="request-flow-pill__icon">
+                    {{ step.state === 'done' ? '✓' : step.state === 'active' ? '●' : '○' }}
+                  </span>
+                  <span>{{ step.shortLabel }}</span>
+                </span>
+                <strong>{{ step.title }}</strong>
+              </article>
+            </div>
+
+           <!--  <article class="request-workflow-status">
+              <span class="mini-label">Estado de la operacion</span>
+              <select
+                class="request-workflow-status__select"
+                :value="getSelectedRequestOperationStage()"
+                :disabled="isUpdatingRequestStatus(selectedRequest.id, 'workflow')"
+                @change="updateSelectedRequestOperationStage($event.target.value)"
+              >
+                <option v-for="option in operationWorkflowOptions" :key="option.value" :value="option.value">
+                  {{ option.label }}
+                </option>
+              </select>
+              <strong>{{ selectedRequestWorkflowPreview.label }}</strong>
+              <p class="muted">{{ selectedRequestWorkflowPreview.detail }}</p>
+            </article> -->
+
+            <article class="provider-release-cta">
+              <div>
+                <span class="mini-label"> Liberacion</span>
+                <strong>Liberacion operativa en vista separada</strong>
+                <p class="muted">
+                  Cuando la etapa compartida esta en `Vuelo confirmado`, abrimos una vista separada
+                  para que el proveedor confirme solo aeronave y operacion.
+                </p>
+              </div>
+              <button
+                type="button"
+                class="primary-action"
+                :disabled="!['flight_confirmed', 'tracking_live'].includes(resolveWorkflowState(resolveRequestWorkflowValue(selectedRequest)).id)"
+                @click="openProviderRelease(selectedRequest)"
+              >
+                Abrir Liberacion
+              </button>
+            </article>
+          </article>
+
+          <article v-else class="request-detail-empty">
+            <p class="eyebrow">Workspace</p>
+            <strong>La bandeja quedo sin resultados con este filtro.</strong>
+            <p>
+              Restablece la vista para volver a ver solicitudes activas o abre archivadas si
+              acabas de rechazar una operacion.
+            </p>
+            <div class="request-detail-empty__actions">
+              <button
+                type="button"
+                class="ghost-button"
+                @click="requestSearch = ''; requestPriorityFilter = 'all'; requestStatusFilter = 'pending'"
+              >
+                Limpiar filtros
+              </button>
+              <button
+                type="button"
+                class="ghost-button"
+                @click="archivedTrayOpen = !archivedTrayOpen"
+              >
+                {{ archivedTrayOpen ? 'Ocultar archivadas' : 'Ver archivadas' }}
+              </button>
+            </div>
+          </article>
+        </div>
+
+        <p v-if="!requests.length" class="empty-state">
+          No hay solicitudes operativas disponibles para este proveedor.
+        </p>
+      </article>
+    </section>
+
