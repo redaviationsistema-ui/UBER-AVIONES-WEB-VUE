@@ -3576,7 +3576,19 @@ export function usePortalClienteVista(props) {
     ].includes(String(invalidReason || '').trim())
   }
 
-  function isAircraftAvailabilityConflictError(error = null) {
+  function resolveAircraftAvailabilityConflictMessage(error = null) {
+    return (
+      error?.payload?.message ||
+      error?.message ||
+      'La disponibilidad de esta aeronave cambio. Te mostramos otras opciones disponibles para tu vuelo.'
+    )
+  }
+
+  function resolveAircraftAvailabilityConflictId(error = null, aircraftId = null) {
+    return resolveEntityIdentifier(aircraftId || error?.payload?.aircraft_id || error?.aircraft_id || '')
+  }
+
+  function isAircraftAvailabilityConflict(error = null) {
     const invalidReason = String(
       error?.payload?.invalid_reason || error?.payload?.reason || '',
     ).trim()
@@ -3590,6 +3602,35 @@ export function usePortalClienteVista(props) {
       message.includes('aeronave ya no está disponible') ||
       message.includes('acaba de ser reservada')
     )
+  }
+
+  function isAircraftAvailabilityConflictError(error = null) {
+    return isAircraftAvailabilityConflict(error)
+  }
+
+  async function processAircraftAvailabilityConflict({
+    error = null,
+    aircraftId = null,
+    targetId = '',
+    title = 'Disponibilidad actualizada',
+    message = '',
+  } = {}) {
+    const conflictedAircraftId = resolveAircraftAvailabilityConflictId(error, aircraftId)
+
+    if (conflictedAircraftId) {
+      rememberConflictedAircraftId(conflictedAircraftId)
+    }
+
+    if (targetId) {
+      markReservationAvailabilityConflict(targetId, error)
+    }
+
+    resetAvailabilityConflictLoadingState()
+    await handleAircraftAvailabilityConflict({
+      aircraftId: conflictedAircraftId,
+      title,
+      message: message || resolveAircraftAvailabilityConflictMessage(error),
+    })
   }
 
   function parseDateTimeCandidate(value = '') {
@@ -6670,14 +6711,14 @@ export function usePortalClienteVista(props) {
 
         return normalizedAvailability
       } catch (error) {
-        if (isAircraftAvailabilityConflictError(error)) {
+        if (isAircraftAvailabilityConflict(error)) {
           markReservationAvailabilityConflict(reservationId, error)
         }
 
         const fallbackState = normalizeReservationPaymentAvailability({
           success: false,
           can_pay: false,
-          invalid_reason: isAircraftAvailabilityConflictError(error)
+          invalid_reason: isAircraftAvailabilityConflict(error)
             ? 'aircraft_booked_by_other_reservation'
             : 'network_error',
           message: error?.message || '',
@@ -6805,7 +6846,10 @@ export function usePortalClienteVista(props) {
 
       if (!paymentAvailability?.can_pay) {
         if (shouldRefreshAvailabilityResults(paymentAvailability?.invalid_reason)) {
-          await handleAircraftAvailabilityConflict({
+          await processAircraftAvailabilityConflict({
+            aircraftId:
+              selectedReservation.value?.aircraft_id ||
+              selectedReservation.value?.assigned_aircraft_id,
             message: paymentAvailabilityMessage,
             title: 'Disponibilidad actualizada',
           })
@@ -6940,15 +6984,16 @@ export function usePortalClienteVista(props) {
       ).trim()
 
       if (
-        (Number(error?.status || 0) === 409 && shouldRefreshAvailabilityResults(invalidReason)) ||
-        ['AIRCRAFT_NOT_AVAILABLE', 'AIRCRAFT_ALREADY_RESERVED'].includes(
-          String(error?.payload?.code || '').trim(),
-        ) ||
+        isAircraftAvailabilityConflict(error) ||
         String(error?.message || '')
           .toLowerCase()
           .includes('retencion')
       ) {
-        await handleAircraftAvailabilityConflict({
+        await processAircraftAvailabilityConflict({
+          error,
+          aircraftId:
+            selectedReservation.value?.aircraft_id ||
+            selectedReservation.value?.assigned_aircraft_id,
           message:
             error?.message ||
             'La retencion expiro. Verificaremos nuevamente la disponibilidad para mostrarte opciones vigentes.',
@@ -7214,13 +7259,14 @@ export function usePortalClienteVista(props) {
       if (!reservationId) throw new Error('El backend no devolvió el identificador de la reserva.')
       go('contrato', reservationId)
     } catch (error) {
-      if (isAircraftAvailabilityConflictError(error)) {
-        markReservationAvailabilityConflict(targetId, error)
-        resetAvailabilityConflictLoadingState()
-        await handleAircraftAvailabilityConflict({
-          title: 'No se pudo abrir el contrato',
+      if (isAircraftAvailabilityConflict(error)) {
+        await processAircraftAvailabilityConflict({
+          error,
+          targetId,
+          title: 'Disponibilidad actualizada',
           message:
-            error?.message || 'Esta aeronave ya no esta disponible para el horario seleccionado.',
+            error?.message ||
+            'La aeronave seleccionada ya no se encuentra disponible. Te mostramos otras opciones disponibles para tu vuelo.',
         })
         return
       }
@@ -7278,13 +7324,24 @@ export function usePortalClienteVista(props) {
         go('contrato', resolvedContractRouteId)
       }
     } catch (error) {
-      ui.pushToast({
-        tone: 'warning',
-        title: 'Contrato en preparación',
-        message:
-          error?.message ||
-          'Seguimos preparando tu reserva para abrir el contrato. Intenta de nuevo en unos segundos.',
-      })
+      if (isAircraftAvailabilityConflict(error)) {
+        await processAircraftAvailabilityConflict({
+          error,
+          targetId,
+          title: 'Disponibilidad actualizada',
+          message:
+            error?.message ||
+            'La aeronave seleccionada ya no se encuentra disponible. Te mostramos otras opciones disponibles para tu vuelo.',
+        })
+      } else {
+        ui.pushToast({
+          tone: 'warning',
+          title: 'Contrato en preparación',
+          message:
+            error?.message ||
+            'Seguimos preparando tu reserva para abrir el contrato. Intenta de nuevo en unos segundos.',
+        })
+      }
     } finally {
       if (activeContractReservationBootstrapKey.value === bootstrapKey) {
         activeContractReservationBootstrapKey.value = ''
@@ -7813,9 +7870,11 @@ export function usePortalClienteVista(props) {
   }
 
   async function handleAircraftAvailabilityConflict({
+    aircraftId = '',
     message = 'Esta aeronave acaba de dejar de estar disponible para el horario seleccionado. Te mostramos otras opciones.',
     title = 'Aeronave no disponible',
   } = {}) {
+    rememberConflictedAircraftId(aircraftId)
     resetAvailabilityConflictLoadingState()
     serverSearchError.value = message
     setAircraftHold(null)
@@ -7964,9 +8023,17 @@ export function usePortalClienteVista(props) {
 
   async function requestReservation(aircraft = selectedAircraft.value) {
     if (!aircraft || reservingAircraftId.value) return
+    const selectedAircraftId =
+      aircraft?.aircraft_id || aircraft?.assigned_aircraft_id || aircraft?.id || ''
 
     if (aircraft?.is_available === false) {
-      await handleAircraftAvailabilityConflict()
+      await processAircraftAvailabilityConflict({
+        aircraftId: selectedAircraftId,
+        title: 'Aeronave no disponible',
+        message:
+          aircraft.availability_reason ||
+          'Esta aeronave acaba de dejar de estar disponible para el horario seleccionado. Te mostramos otras opciones.',
+      })
       return
     }
 
@@ -8279,7 +8346,7 @@ export function usePortalClienteVista(props) {
         await auth.refreshSession({ force: true, preferCache: false })
       }
 
-      const isAircraftUnavailableConflict = isAircraftAvailabilityConflictError(error)
+      const isAircraftUnavailableConflict = isAircraftAvailabilityConflict(error)
 
       const message =
         Number(error?.status || 0) === 402
@@ -8300,11 +8367,10 @@ export function usePortalClienteVista(props) {
         user: auth.user,
       })
       if (isAircraftUnavailableConflict) {
-        markReservationAvailabilityConflict(
-          createdReservationId || createdFlightRequestId || aircraft?.id || '',
+        await processAircraftAvailabilityConflict({
           error,
-        )
-        await handleAircraftAvailabilityConflict({
+          aircraftId: selectedAircraftId,
+          targetId: createdReservationId || createdFlightRequestId || aircraft?.id || '',
           message,
           title: 'Disponibilidad actualizada',
         })

@@ -842,6 +842,24 @@ function normalizeMatches(payload, itinerary = {}, requestMeta = {}) {
         aircraftRecord?.provider_id ||
         aircraftRecord?.provider?.id ||
         '',
+      is_available:
+        match.is_available === true
+          ? true
+          : match.is_available === false
+            ? false
+            : aircraftRecord?.is_available === true
+              ? true
+              : aircraftRecord?.is_available === false
+                ? false
+                : null,
+      availability_status:
+        match.availability_status ??
+        aircraftRecord?.availability_status ??
+        null,
+      availability_reason:
+        match.availability_reason ??
+        aircraftRecord?.availability_reason ??
+        null,
       aircraft: aircraftName,
       aircraft_name: aircraftName,
       trip_type: match.trip_type || responseContext.tripType,
