@@ -519,6 +519,38 @@ export function createOperatorPortalReleaseHelpers({
     providerOperationalReleaseActiveStep.value = stepId
   }
 
+  function getProviderOperationalNextStep() {
+    const sections = buildProviderOperationalWizardSections()
+    const currentIndex = sections.findIndex(
+      (section) => section.id === providerOperationalReleaseActiveStep.value,
+    )
+
+    if (currentIndex < 0) return sections[0] || null
+
+    for (let index = currentIndex + 1; index < sections.length; index += 1) {
+      const candidate = sections[index]
+      if (!candidate?.locked) return candidate
+    }
+
+    return null
+  }
+
+  function canAdvanceProviderOperationalStep() {
+    return Boolean(getProviderOperationalNextStep())
+  }
+
+  function getProviderOperationalNextStepLabel() {
+    const nextStep = getProviderOperationalNextStep()
+    if (!nextStep) return 'Checklist completo'
+    return `Siguiente: ${nextStep.shortTitle || nextStep.title}`
+  }
+
+  function goToNextProviderOperationalStep() {
+    const nextStep = getProviderOperationalNextStep()
+    if (!nextStep) return
+    setProviderOperationalActiveStep(nextStep.id)
+  }
+
   function toggleProviderOperationalIssuePanel(forceValue) {
     providerOperationalIssueOpen.value =
       typeof forceValue === 'boolean' ? forceValue : !providerOperationalIssueOpen.value
@@ -551,6 +583,8 @@ export function createOperatorPortalReleaseHelpers({
     getProviderOperationalReleaseCurrentStatus,
     getProviderOperationalReleaseProgress,
     getProviderOperationalSectionCompletion,
+    getProviderOperationalNextStep,
+    getProviderOperationalNextStepLabel,
     getProviderOperationalWorkflowStage,
     getProviderReleaseLoadingMessage,
     getProviderReleaseLoadingTitle,
@@ -561,6 +595,8 @@ export function createOperatorPortalReleaseHelpers({
     isProviderOperationalReady,
     isProviderOperationalStatusConfirmed,
     isProviderReleaseFinalized,
+    canAdvanceProviderOperationalStep,
+    goToNextProviderOperationalStep,
     requestProviderOperationalSupport,
     setProviderOperationalActiveStep,
     toggleProviderOperationalIssuePanel,

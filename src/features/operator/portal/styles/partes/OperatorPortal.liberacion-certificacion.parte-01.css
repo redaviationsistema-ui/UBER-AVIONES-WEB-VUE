@@ -88,7 +88,7 @@
 
 .flight-release-luxury .eyebrow,
 .flight-release-luxury .mini-label {
-  color: #cbd5e1;
+  color: #0f172a;
   letter-spacing: 0.16em;
 }
 
@@ -106,7 +106,7 @@
   font-size: clamp(4rem, 7vw, 8rem);
   font-weight: 800;
   line-height: 0.88;
-  color: #ffffff;
+  color: #0f172a;
 }
 
 .flight-release-luxury .flight-release-hero-meta {
@@ -127,7 +127,7 @@
 }
 
 .flight-release-luxury .summary-label {
-  color: rgba(203, 213, 225, 0.88);
+  color: #0f172a;
   font-size: 0.68rem;
   font-weight: 800;
   letter-spacing: 0.14em;
@@ -135,7 +135,7 @@
 }
 
 .flight-release-luxury .flight-release-hero-meta .summary-value {
-  color: #ffffff;
+  color: #111827;
   font-size: clamp(1rem, 1.6vw, 1.35rem);
   line-height: 1.2;
 }
@@ -156,7 +156,7 @@
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.1);
-  color: #f8fafc;
+  color: #111827;
   font-size: 0.75rem;
   font-weight: 800;
   letter-spacing: 0.08em;
@@ -173,7 +173,7 @@
 .flight-release-luxury .provider-release-step__main small,
 .flight-release-luxury .provider-release-summary__item small,
 .flight-release-luxury .provider-release-alert p {
-  color: #64748b;
+  color: #111827;
 }
 
 .flight-release-luxury .requests-head-actions {
@@ -501,6 +501,16 @@
 
 .flight-release-luxury .provider-release-detail {
   min-width: 0;
+}
+
+.flight-release-luxury .provider-release-step-navigation {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.25rem;
+}
+
+.flight-release-luxury .provider-release-step-navigation__next {
+  min-width: 13.5rem;
 }
 
 .flight-release-luxury .provider-release-card {

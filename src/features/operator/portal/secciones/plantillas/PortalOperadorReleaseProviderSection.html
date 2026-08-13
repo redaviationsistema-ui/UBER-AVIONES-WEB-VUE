@@ -605,6 +605,21 @@
                     </div>
                   </div>
                 </article>
+
+                <div class="provider-release-step-navigation">
+                  <button
+                    type="button"
+                    class="primary-action provider-release-step-navigation__next"
+                    :disabled="
+                      !canManageProviderOperationalRelease(releaseProviderRequest) ||
+                      syncingProviderOperationalRelease ||
+                      !canAdvanceProviderOperationalStep()
+                    "
+                    @click="goToNextProviderOperationalStep()"
+                  >
+                    <span>{{ getProviderOperationalNextStepLabel() }}</span>
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -713,4 +728,3 @@
         </article>
       </div>
     </section>
-
