@@ -153,14 +153,100 @@ export function operationDisplayClient(operation = {}) {
   return operation.clientName ? `Cliente: ${summarizePersonName(operation.clientName, 'Cliente privado')}` : 'Cliente privado'
 }
 
-export function operationDisplayCrew(operation = {}) {
-  return operation.crew ? summarizePersonName(operation.crew) : 'Pendiente asignar'
+export function resolveCrewAssignment(operation = {}) {
+  const assignment = operation?.crewAssignment && typeof operation.crewAssignment === 'object'
+    ? operation.crewAssignment
+    : null
+  if (!assignment) return null
+  return assignment
+}
+
+export function resolveCrewAssignmentStatus(operation = {}) {
+  const assignment = resolveCrewAssignment(operation)
+  const normalized = normalizeToken(
+    assignment?.status ||
+      operation.crewOperationalState ||
+      operation.raw?.assignment?.status ||
+      operation.raw?.operation?.assignment?.status ||
+      operation.raw?.crew_status ||
+      operation.raw?.operation?.crew_status ||
+      '',
+  )
+
+  if (assignment?.acceptedAt) return 'accepted'
+  if (assignment?.rejectedAt) return 'rejected'
+  if (assignment?.cancelledAt) return 'cancelled'
+  if (normalized === 'confirmed' || normalized === 'accepted' || normalized === 'crew confirmed') return 'accepted'
+  if (normalized === 'pending confirmation' || normalized === 'pending crew response' || normalized === 'pending') {
+    return 'pending_confirmation'
+  }
+  if (normalized === 'rejected' || normalized === 'crew declined') return 'rejected'
+  if (normalized === 'cancelled') return 'cancelled'
+  return normalized.replace(/\s+/g, '_')
+}
+
+export function hasCrewAssignmentRecord(operation = {}) {
+  const status = resolveCrewAssignmentStatus(operation)
+  return Boolean(
+    status ||
+      String(operation.crew || operation.crewId || '').trim() ||
+      operation.raw?.assignment ||
+      operation.raw?.operation?.assignment,
+  )
+}
+
+export function isCrewReadyForOperation(operation = {}) {
+  const assignment = resolveCrewAssignment(operation)
+  return resolveCrewAssignmentStatus(operation) === 'accepted' && Boolean(assignment?.acceptedAt)
+}
+
+export function operationDisplayCrew(operation = {}, linkedCrew = null) {
+  const raw = operation?.raw && typeof operation.raw === 'object' ? operation.raw : {}
+  const resolvedCrewName = String(
+    operation.crew ||
+      linkedCrew?.name ||
+      raw.crew_name ||
+      raw.sobrecargo_name ||
+      raw.sobrecargo?.name ||
+      raw.operation?.sobrecargo?.name ||
+      raw.latestOperation?.sobrecargo?.name ||
+      '',
+  ).trim()
+
+  return resolvedCrewName ? summarizePersonName(resolvedCrewName) : 'Pendiente asignar'
 }
 
 export function operationCrewStateLabel(operation = {}, linkedCrew = null) {
+  switch (resolveCrewAssignmentStatus(operation)) {
+    case 'pending_confirmation':
+      return 'Pendiente de confirmacion'
+    case 'accepted':
+      return 'Lista'
+    case 'rejected':
+      return 'Rechazada'
+    case 'cancelled':
+      return 'Cancelada'
+    default:
+      break
+  }
   if (operation.crewOperationalState) return humanizeStatus(operation.crewOperationalState)
   if (linkedCrew) return humanizeStatus(linkedCrew.state || linkedCrew.operationalState || '')
-  return String(operation.crew || operation.crewId || '').trim() ? 'Asignada' : 'Pendiente'
+  return hasCrewAssignmentRecord(operation) ? 'Asignada' : 'Sin asignar'
+}
+
+export function operationAssignmentBadgeLabel(operation = {}) {
+  switch (resolveCrewAssignmentStatus(operation)) {
+    case 'pending_confirmation':
+      return 'Apartada'
+    case 'accepted':
+      return 'Lista'
+    case 'rejected':
+      return 'Rechazada'
+    case 'cancelled':
+      return 'Cancelada'
+    default:
+      return hasCrewAssignmentRecord(operation) ? 'Con sobrecargo' : 'Sin asignar'
+  }
 }
 
 export function operationDisplayState(operation = {}, linkedCrew = null) {
@@ -239,6 +325,6 @@ export function buildOperationStatusBucket(operation = {}) {
 
   if (isActiveFlightOperation(operation)) return 'tracking'
   if (normalized === 'flight_confirmed') return 'confirmed'
-  if (String(operation.crew || operation.crewId || '').trim()) return 'assigned'
+  if (hasCrewAssignmentRecord(operation)) return 'assigned'
   return 'pending'
 }

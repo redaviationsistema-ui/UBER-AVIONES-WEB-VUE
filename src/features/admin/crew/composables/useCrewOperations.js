@@ -16,10 +16,15 @@ import {
   buildOperationStatusBucket,
   buildPresentationPlaceValue,
   canAssignCrew,
+  hasCrewAssignmentRecord,
+  isCrewReadyForOperation,
   isOperationClosed,
   operationDateRange,
+  operationAssignmentBadgeLabel,
+  resolveCrewAssignmentStatus,
   operationDisplayClient,
   operationDisplayCrew,
+  operationCrewStateLabel,
   operationDisplayState,
   operationFlightBase,
   operationIncidentLabel,
@@ -162,11 +167,11 @@ export function useCrewOperations(props, { viewMode = 'operations' } = {}) {
           return false
         }
 
-        if (assignmentFilter.value === 'assigned' && !String(operation.crew || operation.crewId || '').trim()) {
+        if (assignmentFilter.value === 'assigned' && !hasCrewAssignmentRecord(operation)) {
           return false
         }
 
-        if (assignmentFilter.value === 'unassigned' && String(operation.crew || operation.crewId || '').trim()) {
+        if (assignmentFilter.value === 'unassigned' && hasCrewAssignmentRecord(operation)) {
           return false
         }
 
@@ -193,8 +198,8 @@ export function useCrewOperations(props, { viewMode = 'operations' } = {}) {
         const rightActive = isActiveFlightOperation(right) ? 0 : 1
         if (leftActive !== rightActive) return leftActive - rightActive
 
-        const leftAssigned = String(left.crew || left.crewId || '').trim() ? 0 : 1
-        const rightAssigned = String(right.crew || right.crewId || '').trim() ? 0 : 1
+        const leftAssigned = hasCrewAssignmentRecord(left) ? 0 : 1
+        const rightAssigned = hasCrewAssignmentRecord(right) ? 0 : 1
         if (leftAssigned !== rightAssigned) return leftAssigned - rightAssigned
 
         return String(right.departure || '').localeCompare(String(left.departure || ''))
@@ -209,12 +214,12 @@ export function useCrewOperations(props, { viewMode = 'operations' } = {}) {
     },
     {
       label: 'Con sobrecargo',
-      value: filteredOperations.value.filter((item) => String(item.crew || item.crewId || '').trim()).length,
+      value: filteredOperations.value.filter((item) => hasCrewAssignmentRecord(item)).length,
       detail: 'Operaciones que hoy ya cuentan con asignacion.',
     },
     {
       label: 'Sin asignar',
-      value: filteredOperations.value.filter((item) => !String(item.crew || item.crewId || '').trim()).length,
+      value: filteredOperations.value.filter((item) => !hasCrewAssignmentRecord(item)).length,
       detail: 'Vuelos que todavia requieren sobrecargo.',
     },
     {
@@ -245,11 +250,14 @@ export function useCrewOperations(props, { viewMode = 'operations' } = {}) {
     () => props.operations,
     (operations) => {
       operations.forEach((operation) => {
+        const existingCrewId = String(operation.crewId || '').trim()
+        const existingCrewNote = String(operation.crewNotes || operation.raw?.operation?.crew_notes || operation.notes || '').trim()
+
         if (!assignmentDrafts[operation.id]) {
           const placeDraft = resolvePresentationPlaceDraft(operation)
           assignmentDrafts[operation.id] = {
             crewId: operation.crewId || '',
-            note: String(operation.raw?.operation?.crew_notes || operation.notes || '').trim(),
+            note: existingCrewNote,
             presentationTime: operationPresentationTime(operation),
             presentationPlaceType: placeDraft.presentationPlaceType,
             presentationPlaceDetail: placeDraft.presentationPlaceDetail,
@@ -257,6 +265,12 @@ export function useCrewOperations(props, { viewMode = 'operations' } = {}) {
           return
         }
 
+        if (!String(assignmentDrafts[operation.id].crewId || '').trim() && existingCrewId) {
+          assignmentDrafts[operation.id].crewId = operation.crewId
+        }
+        if (!String(assignmentDrafts[operation.id].note || '').trim() && existingCrewNote) {
+          assignmentDrafts[operation.id].note = existingCrewNote
+        }
         if (!assignmentDrafts[operation.id].presentationTime) {
           assignmentDrafts[operation.id].presentationTime = operationPresentationTime(operation)
         }
@@ -511,8 +525,13 @@ export function useCrewOperations(props, { viewMode = 'operations' } = {}) {
     formatShortDate,
     operationDisplayClient,
     operationDisplayCrew,
+    operationCrewStateLabel,
+    operationAssignmentBadgeLabel,
     operationDisplayState,
     operationIncidentLabel,
+    resolveCrewAssignmentStatus,
+    hasCrewAssignmentRecord,
+    isCrewReadyForOperation,
     canAssignCrew,
     isOperationClosed,
     linkedCrewForOperation,

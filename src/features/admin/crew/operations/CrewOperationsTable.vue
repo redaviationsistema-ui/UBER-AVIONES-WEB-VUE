@@ -4,6 +4,8 @@ defineProps({
   selectedOperationId: { type: [String, Number, null], default: null },
   operationDisplayClient: { type: Function, required: true },
   operationDisplayCrew: { type: Function, required: true },
+  operationCrewStateLabel: { type: Function, required: true },
+  operationAssignmentBadgeLabel: { type: Function, required: true },
   operationDisplayState: { type: Function, required: true },
   formatDateTime: { type: Function, required: true },
 })
@@ -77,11 +79,11 @@ function clientInitials(value) {
             <td>
               <div class="stack-cell">
                 <strong>{{ operationDisplayCrew(operation) }}</strong>
-                <small>{{ operation.crew ? 'Asignado' : 'Pendiente asignar' }}</small>
+                <small>{{ operationCrewStateLabel(operation) }}</small>
               </div>
             </td>
             <td><span class="inline-badge inline-badge--state">{{ operationDisplayState(operation) }}</span></td>
-            <td><span class="inline-badge inline-badge--assignment">{{ operation.crew ? 'Con sobrecargo' : 'Sin asignar' }}</span></td>
+            <td><span class="inline-badge inline-badge--assignment">{{ operationAssignmentBadgeLabel(operation) }}</span></td>
             <td @click.stop>
               <button
                 type="button"

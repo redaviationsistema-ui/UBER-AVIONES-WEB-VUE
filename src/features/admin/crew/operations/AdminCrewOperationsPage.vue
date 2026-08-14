@@ -22,6 +22,7 @@ const metricsLoading = ref(false)
 const metricsError = ref('')
 const operationalMetrics = ref(null)
 const assignmentSuccessMessage = ref('')
+const assignmentLoadingByOperation = reactive({})
 const ADMIN_CREW_METRICS_TIMEOUT_MS = 60000
 
 async function loadMetrics() {
@@ -67,10 +68,7 @@ function operationStatusLabel(operation = {}) {
 }
 
 function operationCrewStateLabel(operation = {}) {
-  return (
-    operation.crewOperationalState ||
-    (String(operation.crew || operation.crewId || '').trim() ? 'Asignada' : 'Pendiente')
-  )
+  return controller.operationCrewStateLabel(operation, controller.linkedCrewForOperation(operation))
 }
 
 function auditEntrySummary(entry = {}) {
@@ -103,6 +101,8 @@ async function handleAssign(operationId) {
   const payload = controller.assignmentPayloadFor(operation)
   if (!payload) return
 
+  assignmentLoadingByOperation[operationId] = true
+
   emit('assign-crew', {
     operationId,
     crewId: Number(payload.sobrecargo_user_id || 0),
@@ -125,6 +125,9 @@ async function handleAssign(operationId) {
     },
     onError: ({ message } = {}) => {
       controller.assignmentErrors[operationId] = message || 'No fue posible completar la asignacion.'
+    },
+    onComplete: () => {
+      assignmentLoadingByOperation[operationId] = false
     },
   })
 }
@@ -216,7 +219,9 @@ const selectedDraft = computed(() =>
         :operations="controller.filteredOperations"
         :selected-operation-id="controller.selectedOperation?.id || null"
         :operation-display-client="controller.operationDisplayClient"
-        :operation-display-crew="controller.operationDisplayCrew"
+        :operation-display-crew="(operation) => controller.operationDisplayCrew(operation, controller.linkedCrewForOperation(operation))"
+        :operation-crew-state-label="(operation) => controller.operationCrewStateLabel(operation, controller.linkedCrewForOperation(operation))"
+        :operation-assignment-badge-label="controller.operationAssignmentBadgeLabel"
         :operation-display-state="(operation) => controller.operationDisplayState(operation, controller.linkedCrewForOperation(operation))"
         :format-date-time="formatDateTime"
         @select="controller.selectedOperationId = $event"
@@ -238,17 +243,21 @@ const selectedDraft = computed(() =>
         :draft="selectedDraft"
         :assignable-crew="controller.assignableCrewMembers(controller.selectedOperation)"
         :availability-state="controller.availableCrewState(controller.selectedOperation)"
+        :linked-crew-member="controller.linkedCrewForOperation(controller.selectedOperation)"
         :selected-crew-member="controller.selectedDraftCrew(controller.selectedOperation)"
         :assignment-error="controller.assignmentErrors[controller.selectedOperation.id] || ''"
         :can-assign="controller.canAssignCrew(controller.selectedOperation)"
         :is-closed="controller.isOperationClosed(controller.selectedOperation)"
+        :assigning-crew="assignmentLoadingByOperation[controller.selectedOperation.id] === true"
         :loading-available-crew="controller.isLoadingAvailableCrewForOperation(controller.selectedOperation)"
         :format-date-time="formatDateTime"
         :operation-incident-label="controller.operationIncidentLabel"
         :humanize-status="controller.humanizeStatus"
         :tone-class="controller.toneClass"
         :operation-status-label="operationStatusLabel"
-        :operation-crew-state-label="operationCrewStateLabel"
+        :operation-crew-state-label="(operation) => controller.operationCrewStateLabel(operation, controller.linkedCrewForOperation(operation))"
+        :operation-assignment-badge-label="controller.operationAssignmentBadgeLabel"
+        :is-crew-ready-for-operation="controller.isCrewReadyForOperation"
         :assignment-success-message="assignmentSuccessMessage"
         @update-draft="(operationId, key, value) => controller.updateDraft(operationId, key, value)"
         @assign="handleAssign"

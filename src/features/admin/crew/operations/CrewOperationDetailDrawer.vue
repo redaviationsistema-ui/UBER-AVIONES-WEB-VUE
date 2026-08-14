@@ -5,6 +5,7 @@ defineProps({
   operation: { type: Object, default: null },
   draft: { type: Object, default: null },
   assignableCrew: { type: Array, default: () => [] },
+  linkedCrewMember: { type: Object, default: null },
   availabilityState: {
     type: Object,
     default: () => ({
@@ -19,6 +20,7 @@ defineProps({
   canAssign: { type: Boolean, default: false },
   isClosed: { type: Boolean, default: false },
   isInFlight: { type: Boolean, default: false },
+  assigningCrew: { type: Boolean, default: false },
   loadingAvailableCrew: { type: Boolean, default: false },
   formatDateTime: { type: Function, required: true },
   operationIncidentLabel: { type: Function, required: true },
@@ -26,6 +28,8 @@ defineProps({
   toneClass: { type: Function, required: true },
   operationStatusLabel: { type: Function, required: true },
   operationCrewStateLabel: { type: Function, required: true },
+  operationAssignmentBadgeLabel: { type: Function, required: true },
+  isCrewReadyForOperation: { type: Function, required: true },
 })
 
 defineEmits(['update-draft', 'assign', 'load-available'])
@@ -72,7 +76,7 @@ defineEmits(['update-draft', 'assign', 'load-available'])
           <span>2</span>
           <strong>Cliente</strong>
         </div>
-        <div class="timeline__item" :class="{ 'timeline__item--done': Boolean(operation.crew || draft.crewId) }">
+        <div class="timeline__item" :class="{ 'timeline__item--done': isCrewReadyForOperation(operation) }">
           <span>3</span>
           <strong>Sobrecargo</strong>
         </div>
@@ -94,7 +98,8 @@ defineEmits(['update-draft', 'assign', 'load-available'])
       </article>
       <article class="detail-kpi-card">
         <span>Sobrecargo asignado</span>
-        <strong>{{ operation.crew || 'Pendiente asignar' }}</strong>
+        <strong>{{ operation.crew || linkedCrewMember?.name || 'Pendiente asignar' }}</strong>
+        <small>{{ operationAssignmentBadgeLabel(operation) }}</small>
       </article>
       <article class="detail-kpi-card">
         <span>Presentacion</span>
@@ -116,7 +121,7 @@ defineEmits(['update-draft', 'assign', 'load-available'])
 
     <article class="detail-block">
       <div class="section-mini-head">
-        <h4>{{ operation.crew ? 'Reasignacion operativa' : 'Asignacion operativa' }}</h4>
+        <h4>{{ operation.crew || linkedCrewMember?.name || operation.crewId ? 'Reasignacion operativa' : 'Asignacion operativa' }}</h4>
         <p>El backend conserva hora, lugar y notas en la misma fuente operativa.</p>
       </div>
 
@@ -194,10 +199,12 @@ defineEmits(['update-draft', 'assign', 'load-available'])
       <button
         type="button"
         class="primary-action"
-        :disabled="isClosed || !canAssign"
+        :class="{ 'primary-action--loading': assigningCrew }"
+        :disabled="isClosed || !canAssign || assigningCrew"
         @click="$emit('assign', operation.id)"
       >
-        {{ operation.crew ? 'Reasignar sobrecargo' : 'Asignar sobrecargo' }}
+        <span v-if="assigningCrew" class="button-spinner" aria-hidden="true"></span>
+        {{ assigningCrew ? 'Asignando...' : operation.crew || linkedCrewMember?.name || operation.crewId ? 'Reasignar sobrecargo' : 'Asignar sobrecargo' }}
       </button>
     </div>
   </aside>
@@ -515,6 +522,28 @@ defineEmits(['update-draft', 'assign', 'load-available'])
   background: linear-gradient(135deg, #d4af37, #e6bd4e);
   color: #2f2300;
   box-shadow: 0 14px 26px rgba(212, 175, 55, 0.24);
+}
+
+.primary-action--loading {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+}
+
+.button-spinner {
+  width: 1rem;
+  height: 1rem;
+  border-radius: 999px;
+  border: 2px solid rgba(47, 35, 0, 0.25);
+  border-top-color: #2f2300;
+  animation: crew-assign-spin 0.75s linear infinite;
+}
+
+@keyframes crew-assign-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .secondary-action:hover,

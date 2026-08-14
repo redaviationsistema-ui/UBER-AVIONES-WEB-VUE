@@ -134,10 +134,21 @@
   text-transform: uppercase;
 }
 
+.flight-release-luxury .flight-release-hero .summary-label,
+.flight-release-luxury .flight-release-hero .mini-label,
+.flight-release-luxury .flight-release-hero .eyebrow {
+  color: #0f172a !important;
+}
+
 .flight-release-luxury .flight-release-hero-meta .summary-value {
   color: #111827;
   font-size: clamp(1rem, 1.6vw, 1.35rem);
   line-height: 1.2;
+}
+
+.flight-release-luxury .flight-release-hero .summary-value,
+.flight-release-luxury .flight-release-hero .flight-release-hero-meta__item strong {
+  color: #111827 !important;
 }
 
 .flight-release-luxury .flight-release-badges {
@@ -163,6 +174,10 @@
   text-transform: uppercase;
 }
 
+.flight-release-luxury .flight-release-hero .flight-release-badges span {
+  color: #111827 !important;
+}
+
 .flight-release-luxury .flight-release-badges span::before {
   content: '•';
 }
@@ -174,6 +189,12 @@
 .flight-release-luxury .provider-release-summary__item small,
 .flight-release-luxury .provider-release-alert p {
   color: #111827;
+}
+
+.flight-release-luxury .flight-release-hero .muted,
+.flight-release-luxury .flight-release-hero .helper-copy,
+.flight-release-luxury .flight-release-hero p {
+  color: #111827 !important;
 }
 
 .flight-release-luxury .requests-head-actions {

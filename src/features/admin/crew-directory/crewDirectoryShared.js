@@ -38,6 +38,8 @@ export function toneClass(value = '') {
 
   if (normalized.includes('descanso') || normalized.includes('rest')) return 'chip-warning'
 
+  if (normalized.includes('apartad')) return 'chip-warning'
+
   if (
     normalized.includes('asignad') ||
     normalized.includes('operacion') ||
@@ -61,7 +63,8 @@ export function toneClass(value = '') {
     normalized.includes('confirm') ||
     normalized.includes('completa') ||
     normalized.includes('disponible') ||
-    normalized.includes('activo')
+    normalized.includes('activo') ||
+    normalized.includes('lista')
   ) {
     return 'chip-success'
   }
@@ -94,6 +97,10 @@ export function humanizeStatus(value = '') {
   if (normalizedState) return normalizedState
   const normalized = normalizeToken(value)
   if (!normalized) return ''
+  if (normalized === 'pending confirmation') return 'Pendiente de confirmacion'
+  if (normalized === 'accepted') return 'Lista'
+  if (normalized === 'confirmed') return 'Confirmada'
+  if (normalized === 'cancelled') return 'Cancelada'
   if (normalized === 'pending crew response') return 'Sin responder'
   if (normalized === 'crew confirmed') return 'Confirmado'
   if (normalized === 'crew declined') return 'Rechazado'

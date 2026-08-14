@@ -5,6 +5,7 @@ defineProps({
   operation: { type: Object, default: null },
   draft: { type: Object, default: null },
   assignableCrew: { type: Array, default: () => [] },
+  linkedCrewMember: { type: Object, default: null },
   availabilityState: {
     type: Object,
     default: () => ({
@@ -24,6 +25,8 @@ defineProps({
   toneClass: { type: Function, required: true },
   operationStatusLabel: { type: Function, required: true },
   operationCrewStateLabel: { type: Function, required: true },
+  operationAssignmentBadgeLabel: { type: Function, required: true },
+  isCrewReadyForOperation: { type: Function, required: true },
 })
 
 defineEmits(['update-draft', 'assign', 'load-available'])
@@ -35,6 +38,7 @@ defineEmits(['update-draft', 'assign', 'load-available'])
     :draft="draft"
     :assignable-crew="assignableCrew"
     :availability-state="availabilityState"
+    :linked-crew-member="linkedCrewMember"
     :selected-crew-member="selectedCrewMember"
     :assignment-error="assignmentError"
     :can-assign="canAssign"
@@ -47,6 +51,8 @@ defineEmits(['update-draft', 'assign', 'load-available'])
     :tone-class="toneClass"
     :operation-status-label="operationStatusLabel"
     :operation-crew-state-label="operationCrewStateLabel"
+    :operation-assignment-badge-label="operationAssignmentBadgeLabel"
+    :is-crew-ready-for-operation="isCrewReadyForOperation"
     @update-draft="(operationId, key, value) => $emit('update-draft', operationId, key, value)"
     @assign="$emit('assign', $event)"
     @load-available="$emit('load-available', $event)"

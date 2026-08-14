@@ -17,7 +17,7 @@ export function useCrewInFlight(props) {
     },
     {
       label: 'Sin respuesta crew',
-      value: controller.filteredOperations.value.filter((item) => String(item.crewOperationalState || '').includes('pending')).length,
+      value: controller.filteredOperations.value.filter((item) => controller.resolveCrewAssignmentStatus?.(item) === 'pending_confirmation').length,
       detail: 'Sobrecargos que aun no responden o confirman.',
     },
     {

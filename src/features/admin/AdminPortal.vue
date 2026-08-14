@@ -2694,247 +2694,252 @@ async function assignCrewToOperation({
   presentationPlaceDetail,
   onSuccess,
   onError,
+  onComplete,
 }) {
-  const normalizedOperationId = Number(operationId || 0)
-  const normalizedCrewId = Number(crewId || 0)
-  const operation = operations.value.find((item) => Number(item.id || 0) === normalizedOperationId)
-  const member = crewMembers.value.find((item) => Number(item.id || 0) === normalizedCrewId)
-
-  if (!operation || !member) {
-    onError?.({ message: 'Selecciona una operacion y un sobrecargo valido antes de asignar.' })
-    ui.pushToast({
-      tone: 'error',
-      title: 'Asignacion incompleta',
-      message: 'Selecciona una operacion y un sobrecargo valido antes de asignar.',
-    })
-    return
-  }
-
-  const normalizedOperationStatus = normalizeToken(operation.workflowStatus || operation.status || '')
-  if (
-    normalizedOperationStatus.includes('cancel') ||
-    normalizedOperationStatus.includes('finaliz') ||
-    normalizedOperationStatus.includes('cerrad')
-  ) {
-    onError?.({ message: 'La operacion ya esta cerrada, cancelada o finalizada.' })
-    ui.pushToast({
-      tone: 'warning',
-      title: 'Operacion no asignable',
-      message: 'La operacion ya esta cerrada, cancelada o finalizada.',
-    })
-    return
-  }
-
-  const currentWorkflowId = resolveWorkflowState(operation.workflowStatus || operation.status || '').id
-  if (!['flight_confirmed', 'tracking_live'].includes(currentWorkflowId)) {
-    onError?.({ message: 'La asignacion de sobrecargo se habilita cuando el vuelo ya quedo confirmado para despacho operativo.' })
-    ui.pushToast({
-      tone: 'warning',
-      title: 'Asignacion bloqueada',
-      message: 'La asignacion de sobrecargo se habilita cuando el vuelo ya quedo confirmado para despacho operativo.',
-    })
-    return
-  }
-
-  const normalizedCrewStatus = normalizeToken(member.state || member.operationalState || '')
-  const normalizedCrewProfileStatus = normalizeToken(member.profileState || member.validationState || '')
-  const memberAssignedToCurrentOperation = operations.value.some(
-    (item) =>
-      Number(item.id || 0) === normalizedOperationId &&
-      Number(item.crewId || 0) === Number(member.id || 0),
-  )
-
-  const crewHasBlockedValidationState =
-    normalizedCrewProfileStatus.includes('rech') ||
-    normalizedCrewProfileStatus.includes('pend') ||
-    normalizedCrewProfileStatus.includes('suspend')
-
-  if (crewHasBlockedValidationState) {
-    onError?.({ message: `${member.name} todavia no cuenta con validacion operativa para asignarse.` })
-    ui.pushToast({
-      tone: 'warning',
-      title: 'Sobrecargo no elegible',
-      message: `${member.name} todavia no cuenta con validacion operativa para asignarse.`,
-    })
-    return
-  }
-
-  if (
-    !['disponible', 'active', 'activo', 'assigned', 'asignado'].includes(normalizedCrewStatus) &&
-    !memberAssignedToCurrentOperation
-  ) {
-    onError?.({ message: `${member.name} no esta disponible para una nueva asignacion.` })
-    ui.pushToast({
-      tone: 'warning',
-      title: 'Sobrecargo no disponible',
-      message: `${member.name} no esta disponible para una nueva asignacion.`,
-    })
-    return
-  }
-
-  const duplicateAssignment = operations.value.find(
-    (item) =>
-      Number(item.id || 0) !== normalizedOperationId &&
-      Number(item.crewId || 0) === Number(member.id || 0) &&
-      !['cancelada', 'finalizada', 'cerrada'].some((token) =>
-        normalizeToken(item.workflowStatus || item.status || '').includes(token),
-      ),
-  )
-
-  if (duplicateAssignment) {
-    onError?.({ message: `${member.name} ya tiene una operacion activa ligada al folio ${duplicateAssignment.folio || `RA-${duplicateAssignment.id}`}.` })
-    ui.pushToast({
-      tone: 'error',
-      title: 'Asignacion duplicada',
-      message: `${member.name} ya tiene una operacion activa ligada al folio ${duplicateAssignment.folio || `RA-${duplicateAssignment.id}`}.`,
-    })
-    return
-  }
-
-  const operationRange = extractOperationRange(operation)
-  if (!operationRange.from) {
-    onError?.({ message: 'No pudimos identificar el rango operativo del vuelo para asignar.' })
-    ui.pushToast({
-      tone: 'error',
-      title: 'Operacion sin fechas',
-      message: 'No pudimos identificar el rango operativo del vuelo para asignar y bloquear disponibilidad.',
-    })
-    return
-  }
-
-  const nextPresentationTime = String(presentationTime || operation.briefingTime || '').trim()
-  const nextPresentationPlace = String(
-    presentationPlace ||
-      operation.presentationPlace ||
-      operation.origin ||
-      [presentationPlaceType, presentationPlaceDetail].filter(Boolean).join(' · '),
-  ).trim()
-  const nextOperationalNote = String(note || '').trim()
-
-  const payload = {
-    provider_id: operation.providerId || undefined,
-    aircraft_id: operation.aircraftId || undefined,
-    sobrecargo_user_id: member.id,
-    crew_id: member.id,
-    sobrecargo_id: member.id,
-    crew_name: member.name,
-    note: nextOperationalNote || undefined,
-    presentation_time: nextPresentationTime || undefined,
-    presentation_place: nextPresentationPlace || undefined,
-  }
-
-  let dedicatedAssignmentResponse = null
-
-  const persistentAssignmentPatch = {
-    sobrecargo_user_id: member.id,
-    crew_id: member.id,
-    sobrecargo_id: member.id,
-    crew_member_id: member.id,
-    crew_name: member.name,
-    crew_status: 'pending_crew_response',
-    presentation_time: nextPresentationTime || undefined,
-    presentation_place: nextPresentationPlace || undefined,
-    notes: nextOperationalNote ? `${operation.notes || ''} · ${nextOperationalNote}`.replace(/^ · /, '') : operation.notes,
-  }
-
   try {
-    dedicatedAssignmentResponse = await requestWithCandidates([
-      { method: 'post', path: `/admin/requests/${operation.requestId || operationId}/assign`, body: payload },
-    ])
-  } catch (error) {
-    onError?.({ message: error?.message || 'El backend no permitio asignar la sobrecargo a este vuelo.' })
-    ui.pushToast({
-      tone: 'error',
-      title: 'Asignacion rechazada',
-      message: error?.message || 'El backend no permitio asignar la sobrecargo a este vuelo.',
-    })
-    return
-  }
+    const normalizedOperationId = Number(operationId || 0)
+    const normalizedCrewId = Number(crewId || 0)
+    const operation = operations.value.find((item) => Number(item.id || 0) === normalizedOperationId)
+    const member = crewMembers.value.find((item) => Number(item.id || 0) === normalizedCrewId)
 
-  const persistentReservation = null
-  updateReservationLocalState(operation.id, {
-    crew: member.name,
-    crewId: member.id,
-    crewOperationalState: 'pending_crew_response',
-    briefingTime: nextPresentationTime || '',
-    presentationPlace: nextPresentationPlace || '',
-    notes: persistentAssignmentPatch.notes,
-  })
+    if (!operation || !member) {
+      onError?.({ message: 'Selecciona una operacion y un sobrecargo valido antes de asignar.' })
+      ui.pushToast({
+        tone: 'error',
+        title: 'Asignacion incompleta',
+        message: 'Selecciona una operacion y un sobrecargo valido antes de asignar.',
+      })
+      return
+    }
 
-  const promotedWorkflowStage = currentWorkflowId === 'flight_confirmed' ? 'tracking_live' : ''
-  const visibleWorkflowStage = currentWorkflowId === 'tracking_live' ? 'tracking_live' : promotedWorkflowStage
+    const normalizedOperationStatus = normalizeToken(operation.workflowStatus || operation.status || '')
+    if (
+      normalizedOperationStatus.includes('cancel') ||
+      normalizedOperationStatus.includes('finaliz') ||
+      normalizedOperationStatus.includes('cerrad')
+    ) {
+      onError?.({ message: 'La operacion ya esta cerrada, cancelada o finalizada.' })
+      ui.pushToast({
+        tone: 'warning',
+        title: 'Operacion no asignable',
+        message: 'La operacion ya esta cerrada, cancelada o finalizada.',
+      })
+      return
+    }
 
-  if (promotedWorkflowStage) {
+    const currentWorkflowId = resolveWorkflowState(operation.workflowStatus || operation.status || '').id
+    if (!['flight_confirmed', 'tracking_live'].includes(currentWorkflowId)) {
+      onError?.({ message: 'La asignacion de sobrecargo se habilita cuando el vuelo ya quedo confirmado para despacho operativo.' })
+      ui.pushToast({
+        tone: 'warning',
+        title: 'Asignacion bloqueada',
+        message: 'La asignacion de sobrecargo se habilita cuando el vuelo ya quedo confirmado para despacho operativo.',
+      })
+      return
+    }
+
+    const normalizedCrewStatus = normalizeToken(member.state || member.operationalState || '')
+    const normalizedCrewProfileStatus = normalizeToken(member.profileState || member.validationState || '')
+    const memberAssignedToCurrentOperation = operations.value.some(
+      (item) =>
+        Number(item.id || 0) === normalizedOperationId &&
+        Number(item.crewId || 0) === Number(member.id || 0),
+    )
+
+    const crewHasBlockedValidationState =
+      normalizedCrewProfileStatus.includes('rech') ||
+      normalizedCrewProfileStatus.includes('pend') ||
+      normalizedCrewProfileStatus.includes('suspend')
+
+    if (crewHasBlockedValidationState) {
+      onError?.({ message: `${member.name} todavia no cuenta con validacion operativa para asignarse.` })
+      ui.pushToast({
+        tone: 'warning',
+        title: 'Sobrecargo no elegible',
+        message: `${member.name} todavia no cuenta con validacion operativa para asignarse.`,
+      })
+      return
+    }
+
+    if (
+      !['disponible', 'active', 'activo', 'assigned', 'asignado'].includes(normalizedCrewStatus) &&
+      !memberAssignedToCurrentOperation
+    ) {
+      onError?.({ message: `${member.name} no esta disponible para una nueva asignacion.` })
+      ui.pushToast({
+        tone: 'warning',
+        title: 'Sobrecargo no disponible',
+        message: `${member.name} no esta disponible para una nueva asignacion.`,
+      })
+      return
+    }
+
+    const duplicateAssignment = operations.value.find(
+      (item) =>
+        Number(item.id || 0) !== normalizedOperationId &&
+        Number(item.crewId || 0) === Number(member.id || 0) &&
+        !['cancelada', 'finalizada', 'cerrada'].some((token) =>
+          normalizeToken(item.workflowStatus || item.status || '').includes(token),
+        ),
+    )
+
+    if (duplicateAssignment) {
+      onError?.({ message: `${member.name} ya tiene una operacion activa ligada al folio ${duplicateAssignment.folio || `RA-${duplicateAssignment.id}`}.` })
+      ui.pushToast({
+        tone: 'error',
+        title: 'Asignacion duplicada',
+        message: `${member.name} ya tiene una operacion activa ligada al folio ${duplicateAssignment.folio || `RA-${duplicateAssignment.id}`}.`,
+      })
+      return
+    }
+
+    const operationRange = extractOperationRange(operation)
+    if (!operationRange.from) {
+      onError?.({ message: 'No pudimos identificar el rango operativo del vuelo para asignar.' })
+      ui.pushToast({
+        tone: 'error',
+        title: 'Operacion sin fechas',
+        message: 'No pudimos identificar el rango operativo del vuelo para asignar y bloquear disponibilidad.',
+      })
+      return
+    }
+
+    const nextPresentationTime = String(presentationTime || operation.briefingTime || '').trim()
+    const nextPresentationPlace = String(
+      presentationPlace ||
+        operation.presentationPlace ||
+        operation.origin ||
+        [presentationPlaceType, presentationPlaceDetail].filter(Boolean).join(' · '),
+    ).trim()
+    const nextOperationalNote = String(note || '').trim()
+
+    const payload = {
+      provider_id: operation.providerId || undefined,
+      aircraft_id: operation.aircraftId || undefined,
+      sobrecargo_user_id: member.id,
+      crew_id: member.id,
+      sobrecargo_id: member.id,
+      crew_name: member.name,
+      note: nextOperationalNote || undefined,
+      presentation_time: nextPresentationTime || undefined,
+      presentation_place: nextPresentationPlace || undefined,
+    }
+
+    let dedicatedAssignmentResponse = null
+
+    const persistentAssignmentPatch = {
+      sobrecargo_user_id: member.id,
+      crew_id: member.id,
+      sobrecargo_id: member.id,
+      crew_member_id: member.id,
+      crew_name: member.name,
+      crew_status: 'pending_crew_response',
+      presentation_time: nextPresentationTime || undefined,
+      presentation_place: nextPresentationPlace || undefined,
+      notes: nextOperationalNote ? `${operation.notes || ''} · ${nextOperationalNote}`.replace(/^ · /, '') : operation.notes,
+    }
+
     try {
-      const { updateAdminReservationStage } = await loadAdminReservationsModule()
-      const updatedReservation = await updateAdminReservationStage(
-        operation,
-        promotedWorkflowStage,
-        nextOperationalNote || `Sobrecargo asignado: ${member.name}`,
-        { timeoutMs: ADMIN_FLOW_UPDATE_TIMEOUT_MS },
-      )
-      updateReservationLocalState(operation.id, updatedReservation)
-    } catch {
-      updateReservationLocalState(operation.id, {
-        status: promotedWorkflowStage,
-        workflowStatus: promotedWorkflowStage,
+      dedicatedAssignmentResponse = await requestWithCandidates([
+        { method: 'post', path: `/admin/requests/${operation.requestId || operationId}/assign`, body: payload },
+      ])
+    } catch (error) {
+      onError?.({ message: error?.message || 'El backend no permitio asignar la sobrecargo a este vuelo.' })
+      ui.pushToast({
+        tone: 'error',
+        title: 'Asignacion rechazada',
+        message: error?.message || 'El backend no permitio asignar la sobrecargo a este vuelo.',
+      })
+      return
+    }
+
+    const persistentReservation = null
+    updateReservationLocalState(operation.id, {
+      crew: member.name,
+      crewId: member.id,
+      crewOperationalState: 'pending_crew_response',
+      briefingTime: nextPresentationTime || '',
+      presentationPlace: nextPresentationPlace || '',
+      notes: persistentAssignmentPatch.notes,
+    })
+
+    const promotedWorkflowStage = currentWorkflowId === 'flight_confirmed' ? 'tracking_live' : ''
+    const visibleWorkflowStage = currentWorkflowId === 'tracking_live' ? 'tracking_live' : promotedWorkflowStage
+
+    if (promotedWorkflowStage) {
+      try {
+        const { updateAdminReservationStage } = await loadAdminReservationsModule()
+        const updatedReservation = await updateAdminReservationStage(
+          operation,
+          promotedWorkflowStage,
+          nextOperationalNote || `Sobrecargo asignado: ${member.name}`,
+          { timeoutMs: ADMIN_FLOW_UPDATE_TIMEOUT_MS },
+        )
+        updateReservationLocalState(operation.id, updatedReservation)
+      } catch {
+        updateReservationLocalState(operation.id, {
+          status: promotedWorkflowStage,
+          workflowStatus: promotedWorkflowStage,
+        })
+      }
+
+      emitWorkflowSync({
+        scope: 'reservation-workflow',
+        reservationId: operation.reservationId || operation.id,
+        requestId: operation.requestId || operation.id,
+        nextStage: promotedWorkflowStage,
+        action: 'crew-assigned',
+        source: adminPortalInstanceId,
       })
     }
 
-    emitWorkflowSync({
-      scope: 'reservation-workflow',
-      reservationId: operation.reservationId || operation.id,
-      requestId: operation.requestId || operation.id,
-      nextStage: promotedWorkflowStage,
-      action: 'crew-assigned',
-      source: adminPortalInstanceId,
+    operations.value = operations.value.map((item) =>
+      Number(item.id || 0) === normalizedOperationId
+        ? {
+            ...item,
+            ...persistentReservation,
+            crew: member.name,
+            crewId: member.id,
+            crewOperationalState:
+              persistentReservation?.crewOperationalState ||
+              dedicatedAssignmentResponse?.crew_status ||
+              'en_operacion',
+            briefingTime: nextPresentationTime || item.briefingTime,
+            presentationPlace: nextPresentationPlace || item.presentationPlace || item.origin || '',
+            status: visibleWorkflowStage || item.status,
+            workflowStatus: visibleWorkflowStage || item.workflowStatus,
+            notes: nextOperationalNote ? `${item.notes || ''} · ${nextOperationalNote}`.replace(/^ · /, '') : item.notes,
+          }
+        : item,
+    )
+
+    upsertCrewMember({
+      ...member,
+      state: 'En operacion',
+      lastAudit: new Date().toISOString().slice(0, 16).replace('T', ' '),
     })
-  }
 
-  operations.value = operations.value.map((item) =>
-    Number(item.id || 0) === normalizedOperationId
-      ? {
-          ...item,
-          ...persistentReservation,
-          crew: member.name,
-          crewId: member.id,
-          crewOperationalState:
-            persistentReservation?.crewOperationalState ||
-            dedicatedAssignmentResponse?.crew_status ||
-            'en_operacion',
-          briefingTime: nextPresentationTime || item.briefingTime,
-          presentationPlace: nextPresentationPlace || item.presentationPlace || item.origin || '',
-          status: visibleWorkflowStage || item.status,
-          workflowStatus: visibleWorkflowStage || item.workflowStatus,
-          notes: nextOperationalNote ? `${item.notes || ''} · ${nextOperationalNote}`.replace(/^ · /, '') : item.notes,
-        }
-      : item,
-  )
-
-  upsertCrewMember({
-    ...member,
-    state: 'En operacion',
-    lastAudit: new Date().toISOString().slice(0, 16).replace('T', ' '),
-  })
-
-  pushAuditEntry(
-    `Asignacion confirmada: ${member.name}`,
-    `Operacion #${operationId} asignada a ${member.name}. Rango ${operationRange.from}${operationRange.to !== operationRange.from ? ` a ${operationRange.to}` : ''} marcado como En operacion.${nextOperationalNote ? ` ${nextOperationalNote}` : ''}`,
-  )
-  const successMessage = promotedWorkflowStage
-    ? `${member.name} ya quedo ligada a la operacion #${operationId}, y su disponibilidad operativa se actualizo.`
-    : `${member.name} ya quedo ligada a la operacion #${operationId}.`
-  onSuccess?.({
-    title: 'Sobrecargo listo',
-    message: successMessage,
-  })
-
-  if (!onSuccess) {
-    ui.pushToast({
-      tone: 'success',
+    pushAuditEntry(
+      `Asignacion confirmada: ${member.name}`,
+      `Operacion #${operationId} asignada a ${member.name}. Rango ${operationRange.from}${operationRange.to !== operationRange.from ? ` a ${operationRange.to}` : ''} marcado como En operacion.${nextOperationalNote ? ` ${nextOperationalNote}` : ''}`,
+    )
+    const successMessage = promotedWorkflowStage
+      ? `${member.name} ya quedo ligada a la operacion #${operationId}, y su disponibilidad operativa se actualizo.`
+      : `${member.name} ya quedo ligada a la operacion #${operationId}.`
+    onSuccess?.({
       title: 'Sobrecargo listo',
       message: successMessage,
     })
+
+    if (!onSuccess) {
+      ui.pushToast({
+        tone: 'success',
+        title: 'Sobrecargo listo',
+        message: successMessage,
+      })
+    }
+  } finally {
+    onComplete?.()
   }
 }
 

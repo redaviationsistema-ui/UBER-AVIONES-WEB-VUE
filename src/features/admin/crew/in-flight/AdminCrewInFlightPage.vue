@@ -37,10 +37,7 @@ function operationStatusLabel(operation = {}) {
 }
 
 function operationCrewStateLabel(operation = {}) {
-  return (
-    operation.crewOperationalState ||
-    (String(operation.crew || operation.crewId || '').trim() ? 'Asignada' : 'Pendiente')
-  )
+  return controller.operationCrewStateLabel(operation, controller.linkedCrewForOperation(operation))
 }
 
 function auditEntrySummary(entry = {}) {
@@ -163,7 +160,8 @@ const selectedDraft = computed(() =>
         :operations="controller.filteredOperations"
         :selected-operation-id="controller.selectedOperation?.id || null"
         :operation-display-client="controller.operationDisplayClient"
-        :operation-display-crew="controller.operationDisplayCrew"
+        :operation-display-crew="(operation) => controller.operationDisplayCrew(operation, controller.linkedCrewForOperation(operation))"
+        :operation-crew-state-label="(operation) => controller.operationCrewStateLabel(operation, controller.linkedCrewForOperation(operation))"
         :operation-display-state="(operation) => controller.operationDisplayState(operation, controller.linkedCrewForOperation(operation))"
         :format-date-time="formatDateTime"
         @select="controller.selectedOperationId = $event"
@@ -185,6 +183,7 @@ const selectedDraft = computed(() =>
         :draft="selectedDraft"
         :assignable-crew="controller.assignableCrewMembers(controller.selectedOperation)"
         :availability-state="controller.availableCrewState(controller.selectedOperation)"
+        :linked-crew-member="controller.linkedCrewForOperation(controller.selectedOperation)"
         :selected-crew-member="controller.selectedDraftCrew(controller.selectedOperation)"
         :assignment-error="controller.assignmentErrors[controller.selectedOperation.id] || ''"
         :can-assign="controller.canAssignCrew(controller.selectedOperation)"
@@ -195,7 +194,9 @@ const selectedDraft = computed(() =>
         :humanize-status="controller.humanizeStatus"
         :tone-class="controller.toneClass"
         :operation-status-label="operationStatusLabel"
-        :operation-crew-state-label="operationCrewStateLabel"
+        :operation-crew-state-label="(operation) => controller.operationCrewStateLabel(operation, controller.linkedCrewForOperation(operation))"
+        :operation-assignment-badge-label="controller.operationAssignmentBadgeLabel"
+        :is-crew-ready-for-operation="controller.isCrewReadyForOperation"
         @update-draft="(operationId, key, value) => controller.updateDraft(operationId, key, value)"
         @assign="handleAssign"
         @load-available="controller.ensureAvailableCrewForOperation(controller.selectedOperation)"

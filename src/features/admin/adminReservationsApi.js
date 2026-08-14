@@ -23,8 +23,8 @@ const normalizedConfiguredAdminRequestDetailPath =
     ? `${normalizedConfiguredAdminRequestsPath.replace(/\/$/, '')}/:id`
     : normalizedConfiguredAdminRequestsPath
 const ADMIN_REQUESTS_PATH_CANDIDATES = [
-  '/admin/solicitudes',
   '/admin/requests',
+  '/admin/solicitudes',
   normalizedConfiguredAdminRequestsPath,
 ].filter(Boolean)
 
@@ -153,6 +153,27 @@ function collectCrewSources(record = {}, nestedReservation = {}) {
   ]
 }
 
+function normalizeCrewAssignmentStatus(value = '', timestamps = {}) {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+
+  if (timestamps.acceptedAt) return 'accepted'
+  if (timestamps.rejectedAt) return 'rejected'
+  if (timestamps.cancelledAt) return 'cancelled'
+  if (!normalized) return ''
+  if (['confirmed', 'accepted', 'aceptado', 'confirmado', 'confirmada', 'crew confirmed'].includes(normalized)) {
+    return 'accepted'
+  }
+  if (['pending confirmation', 'pending crew response', 'pending', 'assigned', 'asignado'].includes(normalized)) {
+    return 'pending_confirmation'
+  }
+  if (['rejected', 'rechazado', 'rechazada', 'crew declined'].includes(normalized)) return 'rejected'
+  if (['cancelled', 'cancelada'].includes(normalized)) return 'cancelled'
+  return normalized.replace(/\s+/g, '_')
+}
+
 function buildAdminReservationRecord(record = {}) {
   const normalizedTrip = normalizeTrip(record, {
     entityType: record.is_reservation ? 'reservation' : 'flight_request',
@@ -234,6 +255,58 @@ function buildAdminReservationRecord(record = {}) {
         '',
       )
       .find((value) => String(value || '').trim()) || ''
+  const resolvedAssignmentSource =
+    crewSources
+      .map((source) => source?.assignment || source?.latestCrewAssignment || source?.crew_assignment || null)
+      .find((source) => source && typeof source === 'object' && Object.keys(source).length) || null
+  const resolvedAssignmentAcceptedAt =
+    resolvedAssignmentSource?.accepted_at ||
+    record.accepted_at ||
+    record.operation?.assignment?.accepted_at ||
+    ''
+  const resolvedAssignmentRejectedAt =
+    resolvedAssignmentSource?.rejected_at ||
+    record.rejected_at ||
+    record.operation?.assignment?.rejected_at ||
+    ''
+  const resolvedAssignmentCancelledAt =
+    resolvedAssignmentSource?.cancelled_at ||
+    record.cancelled_at ||
+    record.operation?.assignment?.cancelled_at ||
+    ''
+  const normalizedAssignmentStatus = normalizeCrewAssignmentStatus(
+    resolvedAssignmentSource?.status ||
+      record.crew_status ||
+      record.operation?.crew_status ||
+      record.crew_status_label ||
+      '',
+    {
+      acceptedAt: resolvedAssignmentAcceptedAt,
+      rejectedAt: resolvedAssignmentRejectedAt,
+      cancelledAt: resolvedAssignmentCancelledAt,
+    },
+  )
+  const crewAssignment =
+    normalizedAssignmentStatus || resolvedAssignmentAcceptedAt || resolvedAssignmentRejectedAt || resolvedAssignmentCancelledAt
+      ? {
+          id: resolvedAssignmentSource?.id || null,
+          role: resolvedAssignmentSource?.role || '',
+          rawStatus:
+            resolvedAssignmentSource?.status ||
+            record.crew_status ||
+            record.operation?.crew_status ||
+            '',
+          status: normalizedAssignmentStatus,
+          assignedAt: resolvedAssignmentSource?.assigned_at || '',
+          responseDeadline: resolvedAssignmentSource?.response_deadline || '',
+          presentationTime: resolvedAssignmentSource?.presentation_time || '',
+          acceptedAt: resolvedAssignmentAcceptedAt || '',
+          rejectedAt: resolvedAssignmentRejectedAt || '',
+          rejectionReason: resolvedAssignmentSource?.rejection_reason || '',
+          cancelledAt: resolvedAssignmentCancelledAt || '',
+          cancellationReason: resolvedAssignmentSource?.cancellation_reason || '',
+        }
+      : null
 
   return {
     id: identifiers.reservationId || identifiers.requestId || normalizedTrip.id,
@@ -373,6 +446,7 @@ function buildAdminReservationRecord(record = {}) {
       visibilityPayload.special_requirements ||
       visibilityPayload.vip_requirements ||
       '',
+    crewAssignment,
     internalContact:
       record.internal_contact ||
       record.admin_contact ||
@@ -380,6 +454,7 @@ function buildAdminReservationRecord(record = {}) {
       visibilityPayload.internal_contact ||
       '',
     crewOperationalState:
+      crewAssignment?.status ||
       record.crew_status_label ||
       record.crew_status ||
       record.operation?.crew_status ||
