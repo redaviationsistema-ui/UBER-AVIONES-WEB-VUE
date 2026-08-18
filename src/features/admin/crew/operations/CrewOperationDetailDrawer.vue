@@ -1,7 +1,8 @@
 <script setup>
+import { computed } from 'vue'
 import PresentationPlaceFields from './PresentationPlaceFields.vue'
 
-defineProps({
+const props = defineProps({
   operation: { type: Object, default: null },
   draft: { type: Object, default: null },
   assignableCrew: { type: Array, default: () => [] },
@@ -16,8 +17,29 @@ defineProps({
   },
   selectedCrewMember: { type: Object, default: null },
   assignmentError: { type: String, default: '' },
+  assignmentWindowMessage: { type: String, default: '' },
   assignmentSuccessMessage: { type: String, default: '' },
+  assignmentEligibilityState: {
+    type: Object,
+    default: () => ({
+      kind: 'idle',
+      title: 'Elegibilidad de la operacion',
+      message: '',
+      detail: '',
+      canAssign: false,
+    }),
+  },
+  selectedCrewAvailabilityState: {
+    type: Object,
+    default: () => ({
+      kind: 'idle',
+      title: 'Disponibilidad de sobrecargo',
+      message: 'Selecciona una sobrecargo para revisar su disponibilidad operativa.',
+      detail: '',
+    }),
+  },
   canAssign: { type: Boolean, default: false },
+  canSubmitAssignment: { type: Boolean, default: false },
   isClosed: { type: Boolean, default: false },
   isInFlight: { type: Boolean, default: false },
   assigningCrew: { type: Boolean, default: false },
@@ -33,6 +55,19 @@ defineProps({
 })
 
 defineEmits(['update-draft', 'assign', 'load-available'])
+
+const duplicatedEligibilityMessage = computed(() => {
+  const error = String(props.assignmentError || '').trim()
+  const windowMessage = String(props.assignmentWindowMessage || '').trim()
+  const eligibilityMessage = String(props.assignmentEligibilityState?.message || '').trim()
+
+  return Boolean(
+    windowMessage &&
+      eligibilityMessage &&
+      windowMessage === eligibilityMessage &&
+      (!error || error === eligibilityMessage),
+  )
+})
 </script>
 
 <template>
@@ -98,7 +133,13 @@ defineEmits(['update-draft', 'assign', 'load-available'])
       </article>
       <article class="detail-kpi-card">
         <span>Sobrecargo asignado</span>
-        <strong>{{ operation.crew || linkedCrewMember?.name || 'Pendiente asignar' }}</strong>
+        <strong>
+          {{
+            operationAssignmentBadgeLabel(operation) === 'Sin asignar'
+              ? 'Pendiente asignar'
+              : operation.crew || linkedCrewMember?.name || 'Pendiente asignar'
+          }}
+        </strong>
         <small>{{ operationAssignmentBadgeLabel(operation) }}</small>
       </article>
       <article class="detail-kpi-card">
@@ -121,7 +162,7 @@ defineEmits(['update-draft', 'assign', 'load-available'])
 
     <article class="detail-block">
       <div class="section-mini-head">
-        <h4>{{ operation.crew || linkedCrewMember?.name || operation.crewId ? 'Reasignacion operativa' : 'Asignacion operativa' }}</h4>
+        <h4>{{ operationAssignmentBadgeLabel(operation) === 'Sin asignar' ? 'Asignacion operativa' : 'Reasignacion operativa' }}</h4>
         <p>El backend conserva hora, lugar y notas en la misma fuente operativa.</p>
       </div>
 
@@ -143,14 +184,14 @@ defineEmits(['update-draft', 'assign', 'load-available'])
         </label>
 
         <label class="field">
-          <span>Hora de presentacion</span>
+          <span>Hora de presentacion derivada</span>
           <input
             :value="draft.presentationTime"
-            type="text"
-            :disabled="!canAssign"
-            placeholder="20:00"
-            @input="$emit('update-draft', operation.id, 'presentationTime', $event.target.value)"
+            type="time"
+            :disabled="true"
+            readonly
           />
+          <small class="muted">Se calcula automaticamente desde la salida real del vuelo.</small>
         </label>
 
         <PresentationPlaceFields
@@ -176,10 +217,16 @@ defineEmits(['update-draft', 'assign', 'load-available'])
         </label>
       </div>
 
-      <div v-if="selectedCrewMember" class="availability-card">
-        <span class="eyebrow">Disponibilidad</span>
-        <strong>{{ selectedCrewMember.isAvailableToday ? 'Disponible para esta fecha' : 'Revisar disponibilidad' }}</strong>
-        <p>Base: {{ selectedCrewMember.base || 'Sin base' }}</p>
+      <div class="availability-card">
+        <span class="eyebrow">{{ selectedCrewAvailabilityState.title }}</span>
+        <strong>{{ selectedCrewAvailabilityState.message }}</strong>
+        <p v-if="selectedCrewAvailabilityState.detail">{{ selectedCrewAvailabilityState.detail }}</p>
+      </div>
+
+      <div class="availability-card" :class="{ 'availability-card--blocked': !assignmentEligibilityState.canAssign }">
+        <span class="eyebrow">{{ assignmentEligibilityState.title }}</span>
+        <strong>{{ assignmentEligibilityState.message }}</strong>
+        <p v-if="assignmentEligibilityState.detail">{{ assignmentEligibilityState.detail }}</p>
       </div>
 
       <div v-if="assignmentSuccessMessage" class="success-card" role="status" aria-live="polite">
@@ -188,7 +235,18 @@ defineEmits(['update-draft', 'assign', 'load-available'])
         <p>{{ assignmentSuccessMessage }}</p>
       </div>
 
-      <p v-if="assignmentError" class="inline-error">{{ assignmentError }}</p>
+      <p
+        v-if="assignmentError && assignmentError !== assignmentEligibilityState.message"
+        class="inline-error"
+      >
+        {{ assignmentError }}
+      </p>
+      <p
+        v-else-if="assignmentWindowMessage && !duplicatedEligibilityMessage"
+        class="inline-error"
+      >
+        {{ assignmentWindowMessage }}
+      </p>
       <p v-else-if="!canAssign" class="muted">
         La asignacion se habilita cuando el vuelo ya esta confirmado para despacho operativo.
       </p>
@@ -200,11 +258,17 @@ defineEmits(['update-draft', 'assign', 'load-available'])
         type="button"
         class="primary-action"
         :class="{ 'primary-action--loading': assigningCrew }"
-        :disabled="isClosed || !canAssign || assigningCrew"
+        :disabled="isClosed || !canSubmitAssignment || assigningCrew"
         @click="$emit('assign', operation.id)"
       >
         <span v-if="assigningCrew" class="button-spinner" aria-hidden="true"></span>
-        {{ assigningCrew ? 'Asignando...' : operation.crew || linkedCrewMember?.name || operation.crewId ? 'Reasignar sobrecargo' : 'Asignar sobrecargo' }}
+        {{
+          assigningCrew
+            ? 'Asignando...'
+            : operationAssignmentBadgeLabel(operation) === 'Sin asignar'
+              ? 'Asignar sobrecargo'
+              : 'Reasignar sobrecargo'
+        }}
       </button>
     </div>
   </aside>

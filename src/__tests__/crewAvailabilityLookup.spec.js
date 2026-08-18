@@ -2,7 +2,7 @@
 
 import { effectScope, reactive } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { fetchAvailableCrewByRange } = vi.hoisted(() => ({
   fetchAvailableCrewByRange: vi.fn(),
@@ -85,6 +85,8 @@ function mountDrawer(props = {}) {
       toneClass: () => '',
       operationStatusLabel: () => 'flight_confirmed',
       operationCrewStateLabel: () => 'Pendiente',
+      operationAssignmentBadgeLabel: () => 'Sin asignar',
+      isCrewReadyForOperation: () => false,
       ...props,
     },
   })
@@ -93,6 +95,10 @@ function mountDrawer(props = {}) {
 describe('crew availability lookup', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('starts with the general crew list and then narrows the selected operation with remote availability', async () => {
@@ -237,5 +243,218 @@ describe('crew availability lookup', () => {
     expect(wrapper.find('select').element.disabled).toBe(false)
     expect(wrapper.find('option').text()).toBe('No fue posible consultar disponibilidad')
     expect(wrapper.text()).toContain('No fue posible consultar disponibilidad')
+  })
+
+  it('enables assignment only when the selected crew is available and the derived presentation is still in the future', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-17T17:00:00-06:00'))
+
+    const props = reactive({
+      crewMembers: [buildCrewMember(17, 'VALERIA GARCIA RAMIREZ')],
+      operations: [
+        buildOperation(201, {
+          departure: '2026-08-17T20:00:00-06:00',
+        }),
+      ],
+      auditEntries: [],
+    })
+
+    const scope = effectScope()
+    const controller = scope.run(() => useCrewOperations(props, { viewMode: 'operations' }))
+    controller.updateDraft(201, 'crewId', 17)
+
+    expect(controller.assignmentEligibilityState(props.operations[0])).toMatchObject({
+      kind: 'ready',
+      canAssign: true,
+    })
+    expect(controller.selectedCrewAvailabilityState(props.operations[0])).toMatchObject({
+      kind: 'ready',
+      message: 'Disponible para esta fecha',
+    })
+    expect(controller.canSubmitAssignment(props.operations[0])).toBe(true)
+
+    scope.stop()
+  })
+
+  it('blocks assignment when the derived presentation time has already passed', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-17T17:00:00-06:00'))
+
+    const props = reactive({
+      crewMembers: [buildCrewMember(17, 'VALERIA GARCIA RAMIREZ')],
+      operations: [
+        buildOperation(201, {
+          departure: '2026-08-17T17:30:00-06:00',
+        }),
+      ],
+      auditEntries: [],
+    })
+
+    const scope = effectScope()
+    const controller = scope.run(() => useCrewOperations(props, { viewMode: 'operations' }))
+    controller.updateDraft(201, 'crewId', 17)
+
+    expect(controller.assignmentEligibilityState(props.operations[0])).toMatchObject({
+      kind: 'blocked',
+      message: 'No se puede asignar una sobrecargo porque la hora de presentacion de esta operacion ya paso.',
+      canAssign: false,
+    })
+    expect(controller.canSubmitAssignment(props.operations[0])).toBe(false)
+
+    scope.stop()
+  })
+
+  it('ignores stale visibility payload presentation snapshots when departure produces a future presentation', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-17T17:00:00-06:00'))
+
+    const props = reactive({
+      crewMembers: [buildCrewMember(17, 'VALERIA GARCIA RAMIREZ')],
+      operations: [
+        buildOperation(201, {
+          departure: '2026-08-17T20:00:00-06:00',
+          raw: {
+            visibility_payload: {
+              presentation_time: '11:00',
+            },
+          },
+        }),
+      ],
+      auditEntries: [],
+    })
+
+    const scope = effectScope()
+    const controller = scope.run(() => useCrewOperations(props, { viewMode: 'operations' }))
+    controller.updateDraft(201, 'crewId', 17)
+
+    expect(controller.getDraft(201).presentationTime).toBe('19:00')
+    expect(controller.canSubmitAssignment(props.operations[0])).toBe(true)
+
+    scope.stop()
+  })
+
+  it('recalculates eligibility immediately when departure changes from past to future', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-17T17:37:00-06:00'))
+
+    const props = reactive({
+      crewMembers: [buildCrewMember(17, 'VALERIA GARCIA RAMIREZ')],
+      operations: [
+        buildOperation(201, {
+          departure: '2026-08-17T15:00:00-06:00',
+        }),
+      ],
+      auditEntries: [],
+    })
+
+    const scope = effectScope()
+    const controller = scope.run(() => useCrewOperations(props, { viewMode: 'operations' }))
+    controller.updateDraft(201, 'crewId', 17)
+
+    expect(controller.canSubmitAssignment(props.operations[0])).toBe(false)
+
+    props.operations[0].departure = '2026-08-17T20:00:00-06:00'
+    await flushPromises()
+
+    expect(controller.getDraft(201).presentationTime).toBe('19:00')
+    expect(controller.assignmentEligibilityState(props.operations[0]).canAssign).toBe(true)
+    expect(controller.canSubmitAssignment(props.operations[0])).toBe(true)
+
+    scope.stop()
+  })
+
+  it('blocks assignment when a real active assignment already exists', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-17T17:00:00-06:00'))
+
+    const props = reactive({
+      crewMembers: [buildCrewMember(17, 'VALERIA GARCIA RAMIREZ')],
+      operations: [
+        buildOperation(201, {
+          departure: '2026-08-17T20:00:00-06:00',
+          crewAssignment: {
+            id: 901,
+            status: 'pending_confirmation',
+            assignedAt: '2026-08-17T12:00:00-06:00',
+          },
+        }),
+      ],
+      auditEntries: [],
+    })
+
+    const scope = effectScope()
+    const controller = scope.run(() => useCrewOperations(props, { viewMode: 'operations' }))
+    controller.updateDraft(201, 'crewId', 17)
+
+    expect(controller.assignmentEligibilityState(props.operations[0])).toMatchObject({
+      title: 'Operacion con sobrecargo asignada',
+      canAssign: false,
+    })
+    expect(controller.canSubmitAssignment(props.operations[0])).toBe(false)
+
+    scope.stop()
+  })
+
+  it('does not treat stale crew snapshots as active assignments when the real assignment row is missing', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-17T17:00:00-06:00'))
+
+    const props = reactive({
+      crewMembers: [buildCrewMember(17, 'VALERIA GARCIA RAMIREZ')],
+      operations: [
+        buildOperation(201, {
+          departure: '2026-08-17T20:00:00-06:00',
+          crew: 'VALERIA GARCIA RAMIREZ',
+          crewId: 17,
+          crewOperationalState: 'pending_confirmation',
+          crewAssignment: null,
+          raw: {
+            operation: {
+              sobrecargo_user_id: 17,
+              crew_status: 'pending_confirmation',
+            },
+          },
+        }),
+      ],
+      auditEntries: [],
+    })
+
+    const scope = effectScope()
+    const controller = scope.run(() => useCrewOperations(props, { viewMode: 'operations' }))
+    controller.updateDraft(201, 'crewId', 17)
+
+    expect(controller.linkedCrewForOperation(props.operations[0])).toBeNull()
+    expect(controller.selectedCrewAvailabilityState(props.operations[0])).toMatchObject({
+      kind: 'ready',
+    })
+    expect(controller.canSubmitAssignment(props.operations[0])).toBe(true)
+
+    scope.stop()
+  })
+
+  it('disables the button in the drawer when operational eligibility is blocked even if the crew is available', () => {
+    const wrapper = mountDrawer({
+      selectedCrewMember: buildCrewMember(17, 'VALERIA GARCIA RAMIREZ'),
+      selectedCrewAvailabilityState: {
+        kind: 'ready',
+        title: 'Disponibilidad de sobrecargo',
+        message: 'Disponible para esta fecha',
+        detail: 'Base: MMTO',
+      },
+      assignmentEligibilityState: {
+        kind: 'blocked',
+        title: 'Asignacion no disponible',
+        message: 'La hora de presentacion de esta operacion ya paso.',
+        detail: '',
+        canAssign: false,
+      },
+      canAssign: true,
+      canSubmitAssignment: false,
+      assignmentWindowMessage: 'La hora de presentacion de esta operacion ya paso.',
+    })
+
+    expect(wrapper.text()).toContain('Disponibilidad de sobrecargo')
+    expect(wrapper.text()).toContain('Asignacion no disponible')
+    expect(wrapper.find('button.primary-action').element.disabled).toBe(true)
   })
 })

@@ -52,15 +52,40 @@ export function operationPresentationTime(operation = {}) {
   const visibilityPayload =
     raw.visibility_payload && typeof raw.visibility_payload === 'object' ? raw.visibility_payload : {}
   const briefing = raw.briefing && typeof raw.briefing === 'object' ? raw.briefing : {}
+  const assignment = operation?.crewAssignment && typeof operation.crewAssignment === 'object'
+    ? operation.crewAssignment
+    : null
+  const derivedTime = derivePresentationTimeFromDeparture(operation)
 
   return String(
-    operation.briefingTime ||
+    assignment?.presentationTime ||
+      assignment?.presentation_time ||
+      operation.briefingTime ||
+      derivedTime ||
       raw.briefing_time ||
       raw.presentation_time ||
       visibilityPayload.presentation_time ||
       briefing.hora_presentacion ||
       '',
   ).trim()
+}
+
+export function operationTimezone(operation = {}) {
+  const raw = operation?.raw && typeof operation.raw === 'object' ? operation.raw : {}
+  const assignment = operation?.crewAssignment && typeof operation.crewAssignment === 'object'
+    ? operation.crewAssignment
+    : null
+
+  return String(
+    operation.timezone ||
+      operation.departureTimezone ||
+      assignment?.timezone ||
+      raw.timezone ||
+      raw.departure_timezone ||
+      raw.operation?.timezone ||
+      raw.operation?.departure_timezone ||
+      'America/Mexico_City',
+  ).trim() || 'America/Mexico_City'
 }
 
 export function operationPresentationPlace(operation = {}) {
@@ -122,6 +147,100 @@ export function operationDateRange(operation = {}) {
   }
 }
 
+export function derivePresentationTimeFromDeparture(operation = {}, offsetMinutes = 60) {
+  const presentation = resolveOperationPresentationDate(operation, offsetMinutes)
+  if (!presentation || Number.isNaN(presentation.getTime())) return ''
+
+  return `${String(presentation.getHours()).padStart(2, '0')}:${String(presentation.getMinutes()).padStart(2, '0')}`
+}
+
+function buildLocalDateFromParts(datePart = '', timePart = '00:00') {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(datePart || ''))) return null
+  const normalizedTime = /^\d{2}:\d{2}$/.test(String(timePart || '')) ? String(timePart) : '00:00'
+  const composed = `${datePart}T${normalizedTime}:00`
+  const candidate = new Date(composed)
+
+  return Number.isNaN(candidate.getTime()) ? null : candidate
+}
+
+export function resolveOperationDepartureDate(operation = {}) {
+  const raw = operation?.raw && typeof operation.raw === 'object' ? operation.raw : {}
+  const nestedOperation = raw.operation && typeof raw.operation === 'object' ? raw.operation : {}
+  const departure =
+    operation.departure ||
+    operation.departureDate ||
+    nestedOperation.departure_datetime ||
+    raw.departure_datetime ||
+    ''
+
+  const normalized = String(departure || '')
+  if (!normalized) return null
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    return buildLocalDateFromParts(normalized)
+  }
+
+  const candidate = new Date(normalized)
+  return Number.isNaN(candidate.getTime()) ? null : candidate
+}
+
+export function resolveOperationPresentationDate(operation = {}, offsetMinutes = 60) {
+  const raw = operation?.raw && typeof operation.raw === 'object' ? operation.raw : {}
+  const nestedOperation = raw.operation && typeof raw.operation === 'object' ? raw.operation : {}
+  const visibilityPayload =
+    raw.visibility_payload && typeof raw.visibility_payload === 'object' ? raw.visibility_payload : {}
+  const assignment = operation?.crewAssignment && typeof operation.crewAssignment === 'object'
+    ? operation.crewAssignment
+    : null
+  const explicitPresentation =
+    operation.presentationDateTime ||
+    operation.presentation_datetime ||
+    assignment?.presentationDateTime ||
+    assignment?.presentation_datetime ||
+    raw.presentation_datetime ||
+    nestedOperation.presentation_datetime ||
+    visibilityPayload.presentation_datetime ||
+    ''
+
+  if (explicitPresentation) {
+    const candidate = new Date(String(explicitPresentation))
+    if (!Number.isNaN(candidate.getTime())) return candidate
+  }
+
+  const departure = resolveOperationDepartureDate(operation)
+  if (!departure) return null
+
+  const presentation = new Date(departure.getTime() - Math.max(0, Number(offsetMinutes || 0)) * 60 * 1000)
+  return Number.isNaN(presentation.getTime()) ? null : presentation
+}
+
+export function resolveAssignmentWindowValidation(operation = {}, presentationTime = '', nowValue = new Date()) {
+  const presentationAt = resolveOperationPresentationDate(operation)
+  if (!presentationAt) return { code: '', message: '' }
+
+  const assignedAt = nowValue instanceof Date ? nowValue : new Date(nowValue)
+  if (Number.isNaN(assignedAt.getTime())) return { code: '', message: '' }
+
+  if (presentationAt.getTime() <= assignedAt.getTime()) {
+    return {
+      code: 'PRESENTATION_TIME_EXPIRED',
+      message: 'No se puede asignar una sobrecargo porque la hora de presentacion de esta operacion ya paso.',
+    }
+  }
+
+  const maximumResponseWindow = assignedAt.getTime() + 12 * 60 * 60 * 1000
+  const presentationLimit = presentationAt.getTime() - 60 * 60 * 1000
+  const responseDeadline = Math.min(maximumResponseWindow, presentationLimit)
+
+  if (responseDeadline <= assignedAt.getTime()) {
+    return {
+      code: 'NO_RESPONSE_WINDOW_AVAILABLE',
+      message: 'No existe tiempo suficiente para solicitar confirmacion a la sobrecargo antes de su presentacion.',
+    }
+  }
+
+  return { code: '', message: '' }
+}
+
 export function availabilityQueryKey(operation = {}) {
   const range = operationDateRange(operation)
   return `${range.from || 'sin-fecha'}:${range.to || 'sin-fecha'}:${operationFlightBase(operation) || 'sin-base'}`
@@ -140,6 +259,10 @@ export function canAssignCrew(operation = {}) {
   return ['flight_confirmed', 'tracking_live'].includes(
     resolveWorkflowState(operation.workflowStatus || operation.status || '').id,
   )
+}
+
+export function operationAllowsAssignment(operation = {}) {
+  return canAssignCrew(operation)
 }
 
 export function summarizePersonName(value = '', fallback = 'Sin asignar') {
@@ -163,15 +286,7 @@ export function resolveCrewAssignment(operation = {}) {
 
 export function resolveCrewAssignmentStatus(operation = {}) {
   const assignment = resolveCrewAssignment(operation)
-  const normalized = normalizeToken(
-    assignment?.status ||
-      operation.crewOperationalState ||
-      operation.raw?.assignment?.status ||
-      operation.raw?.operation?.assignment?.status ||
-      operation.raw?.crew_status ||
-      operation.raw?.operation?.crew_status ||
-      '',
-  )
+  const normalized = normalizeToken(assignment?.status || assignment?.rawStatus || '')
 
   if (assignment?.acceptedAt) return 'accepted'
   if (assignment?.rejectedAt) return 'rejected'
@@ -186,12 +301,20 @@ export function resolveCrewAssignmentStatus(operation = {}) {
 }
 
 export function hasCrewAssignmentRecord(operation = {}) {
+  const assignment = resolveCrewAssignment(operation)
   const status = resolveCrewAssignmentStatus(operation)
+
   return Boolean(
-    status ||
-      String(operation.crew || operation.crewId || '').trim() ||
-      operation.raw?.assignment ||
-      operation.raw?.operation?.assignment,
+    assignment &&
+      (
+        assignment.id ||
+        assignment.assignedAt ||
+        assignment.responseDeadline ||
+        assignment.acceptedAt ||
+        assignment.rejectedAt ||
+        assignment.cancelledAt ||
+        status
+      ),
   )
 }
 
@@ -201,6 +324,8 @@ export function isCrewReadyForOperation(operation = {}) {
 }
 
 export function operationDisplayCrew(operation = {}, linkedCrew = null) {
+  if (!hasCrewAssignmentRecord(operation)) return 'Pendiente asignar'
+
   const raw = operation?.raw && typeof operation.raw === 'object' ? operation.raw : {}
   const resolvedCrewName = String(
     operation.crew ||
@@ -217,6 +342,8 @@ export function operationDisplayCrew(operation = {}, linkedCrew = null) {
 }
 
 export function operationCrewStateLabel(operation = {}, linkedCrew = null) {
+  if (!hasCrewAssignmentRecord(operation)) return 'Sin asignar'
+
   switch (resolveCrewAssignmentStatus(operation)) {
     case 'pending_confirmation':
       return 'Pendiente de confirmacion'
@@ -231,7 +358,7 @@ export function operationCrewStateLabel(operation = {}, linkedCrew = null) {
   }
   if (operation.crewOperationalState) return humanizeStatus(operation.crewOperationalState)
   if (linkedCrew) return humanizeStatus(linkedCrew.state || linkedCrew.operationalState || '')
-  return hasCrewAssignmentRecord(operation) ? 'Asignada' : 'Sin asignar'
+  return 'Asignada'
 }
 
 export function operationAssignmentBadgeLabel(operation = {}) {

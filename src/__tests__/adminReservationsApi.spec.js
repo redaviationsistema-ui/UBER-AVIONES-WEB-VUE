@@ -26,19 +26,25 @@ describe('adminReservationsApi', () => {
     vi.clearAllMocks()
   })
 
+  function mockReservationRequest(overrides = {}) {
+    return {
+      id: 177,
+      request_id: 177,
+      flight_request_id: 177,
+      reservation_id: 29,
+      origin: 'MMTO',
+      destination: 'MMMM',
+      departure_datetime: '2026-07-22T11:00:00.000000Z',
+      aircraft_model: 'AGUSTA A109E POWER VIP',
+      workflow_status: 'tracking_live',
+      ...overrides,
+    }
+  }
+
   it('normalizes assigned crew when the backend only returns it inside operation payloads', async () => {
     api.get.mockResolvedValueOnce({
       requests: [
-        {
-          id: 177,
-          request_id: 177,
-          flight_request_id: 177,
-          reservation_id: 29,
-          origin: 'MMTO',
-          destination: 'MMMM',
-          departure_datetime: '2026-07-22T11:00:00.000000Z',
-          aircraft_model: 'AGUSTA A109E POWER VIP',
-          workflow_status: 'tracking_live',
+        mockReservationRequest({
           operation: {
             id: 12,
             sobrecargo_user_id: 44,
@@ -49,7 +55,7 @@ describe('adminReservationsApi', () => {
               name: 'VALERIA GARCIA RAMIREZ',
             },
           },
-        },
+        }),
       ],
     })
 
@@ -62,6 +68,147 @@ describe('adminReservationsApi', () => {
       crew: 'VALERIA GARCIA RAMIREZ',
       crewId: 44,
       crewOperationalState: 'pending_crew_response',
+    })
+  })
+
+  it('prefers operation.sobrecargo over assignment when assignment is null', async () => {
+    api.get.mockResolvedValueOnce({
+      requests: [
+        mockReservationRequest({
+          crew_name: 'NOMBRE RAIZ',
+          sobrecargo_id: 99,
+          operation: {
+            id: 35,
+            sobrecargo_user_id: 17,
+            crew_status: 'confirmed',
+            sobrecargo: {
+              id: 17,
+              name: 'VALERIA GARCIA RAMIREZ',
+            },
+            assignment: null,
+          },
+        }),
+      ],
+    })
+
+    const [reservation] = await getAdminReservations()
+
+    expect(reservation).toMatchObject({
+      crew: 'VALERIA GARCIA RAMIREZ',
+      crewId: 17,
+      crewOperationalState: 'confirmed',
+    })
+    expect(reservation.crewAssignment).toBeNull()
+  })
+
+  it('falls back to root sobrecargo fields when operation.sobrecargo is missing', async () => {
+    api.get.mockResolvedValueOnce({
+      requests: [
+        mockReservationRequest({
+          crew_name: 'VALERIA GARCIA RAMIREZ',
+          sobrecargo_id: 17,
+          crew_status: 'pending_confirmation',
+          sobrecargo: {
+            id: 17,
+            name: 'VALERIA GARCIA RAMIREZ',
+          },
+          assignment: null,
+        }),
+      ],
+    })
+
+    const [reservation] = await getAdminReservations()
+
+    expect(reservation).toMatchObject({
+      crew: 'VALERIA GARCIA RAMIREZ',
+      crewId: 17,
+      crewOperationalState: 'pending_confirmation',
+    })
+    expect(reservation.crewAssignment).toBeNull()
+  })
+
+  it('falls back to crew_name and sobrecargo_id when there is no sobrecargo object', async () => {
+    api.get.mockResolvedValueOnce({
+      requests: [
+        mockReservationRequest({
+          crew_name: 'VALERIA GARCIA RAMIREZ',
+          sobrecargo_id: 17,
+          crew_status: 'rejected',
+          assignment: null,
+        }),
+      ],
+    })
+
+    const [reservation] = await getAdminReservations()
+
+    expect(reservation).toMatchObject({
+      crew: 'VALERIA GARCIA RAMIREZ',
+      crewId: 17,
+      crewOperationalState: 'rejected',
+    })
+    expect(reservation.crewAssignment).toBeNull()
+  })
+
+  it('still works when crew data only exists inside assignment.sobrecargo', async () => {
+    api.get.mockResolvedValueOnce({
+      requests: [
+        mockReservationRequest({
+          assignment: {
+            id: 501,
+            status: 'pending_confirmation',
+            sobrecargo: {
+              id: 17,
+              name: 'VALERIA GARCIA RAMIREZ',
+            },
+          },
+        }),
+      ],
+    })
+
+    const [reservation] = await getAdminReservations()
+
+    expect(reservation).toMatchObject({
+      crew: 'VALERIA GARCIA RAMIREZ',
+      crewId: 17,
+    })
+    expect(reservation.crewAssignment?.status).toBe('pending_confirmation')
+  })
+
+  it('keeps departure datetime, presentation datetime and timezone from the backend truth source', async () => {
+    api.get.mockResolvedValueOnce({
+      requests: [
+        mockReservationRequest({
+          departure_datetime: '2026-08-17T20:00:00-06:00',
+          timezone: 'America/Mexico_City',
+          presentation_datetime: '2026-08-17T19:00:00-06:00',
+          visibility_payload: {
+            presentation_time: '11:00',
+          },
+          assignment: {
+            id: 501,
+            status: 'pending_confirmation',
+            presentation_datetime: '2026-08-17T19:00:00-06:00',
+            response_deadline: '2026-08-17T18:00:00-06:00',
+            sobrecargo: {
+              id: 17,
+              name: 'VALERIA GARCIA RAMIREZ',
+            },
+          },
+        }),
+      ],
+    })
+
+    const [reservation] = await getAdminReservations()
+
+    expect(reservation).toMatchObject({
+      departure: '2026-08-17T20:00:00-06:00',
+      departureDateTime: '2026-08-17T20:00:00-06:00',
+      presentationDateTime: '2026-08-17T19:00:00-06:00',
+      timezone: 'America/Mexico_City',
+    })
+    expect(reservation.crewAssignment).toMatchObject({
+      presentationDateTime: '2026-08-17T19:00:00-06:00',
+      timezone: 'America/Mexico_City',
     })
   })
 

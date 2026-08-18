@@ -16,12 +16,16 @@ import {
   buildOperationStatusBucket,
   buildPresentationPlaceValue,
   canAssignCrew,
+  derivePresentationTimeFromDeparture,
   hasCrewAssignmentRecord,
   isCrewReadyForOperation,
   isOperationClosed,
+  operationAllowsAssignment,
   operationDateRange,
   operationAssignmentBadgeLabel,
   resolveCrewAssignmentStatus,
+  resolveOperationDepartureDate,
+  resolveOperationPresentationDate,
   operationDisplayClient,
   operationDisplayCrew,
   operationCrewStateLabel,
@@ -31,6 +35,8 @@ import {
   operationPresentationPlace,
   operationPresentationTime,
   operationProviderName,
+  operationTimezone,
+  resolveAssignmentWindowValidation,
   resolvePresentationPlaceDraft,
 } from '../services/crewOperations.service'
 
@@ -67,6 +73,8 @@ export function useCrewOperations(props, { viewMode = 'operations' } = {}) {
     const map = new Map()
 
     props.operations.forEach((operation) => {
+      if (!hasCrewAssignmentRecord(operation)) return
+
       const crewId = String(operation.crewId || '').trim()
       const crewName = normalizeToken(operation.crew || '')
       if (crewId) map.set(`id:${crewId}`, operation)
@@ -102,6 +110,8 @@ export function useCrewOperations(props, { viewMode = 'operations' } = {}) {
   )
 
   function linkedCrewForOperation(operation = {}) {
+    if (!hasCrewAssignmentRecord(operation)) return null
+
     const byId = normalizedCrewLookup.value.get(`id:${String(operation.crewId || '').trim()}`)
     if (byId) {
       return normalizedCrewMembers.value.find((member) => Number(member.id || 0) === Number(byId.id || 0)) || byId
@@ -250,15 +260,15 @@ export function useCrewOperations(props, { viewMode = 'operations' } = {}) {
     () => props.operations,
     (operations) => {
       operations.forEach((operation) => {
-        const existingCrewId = String(operation.crewId || '').trim()
+        const existingCrewId = hasCrewAssignmentRecord(operation) ? String(operation.crewId || '').trim() : ''
         const existingCrewNote = String(operation.crewNotes || operation.raw?.operation?.crew_notes || operation.notes || '').trim()
 
         if (!assignmentDrafts[operation.id]) {
           const placeDraft = resolvePresentationPlaceDraft(operation)
           assignmentDrafts[operation.id] = {
-            crewId: operation.crewId || '',
+            crewId: existingCrewId,
             note: existingCrewNote,
-            presentationTime: operationPresentationTime(operation),
+            presentationTime: derivePresentationTimeFromDeparture(operation) || operationPresentationTime(operation),
             presentationPlaceType: placeDraft.presentationPlaceType,
             presentationPlaceDetail: placeDraft.presentationPlaceDetail,
           }
@@ -271,9 +281,7 @@ export function useCrewOperations(props, { viewMode = 'operations' } = {}) {
         if (!String(assignmentDrafts[operation.id].note || '').trim() && existingCrewNote) {
           assignmentDrafts[operation.id].note = existingCrewNote
         }
-        if (!assignmentDrafts[operation.id].presentationTime) {
-          assignmentDrafts[operation.id].presentationTime = operationPresentationTime(operation)
-        }
+        assignmentDrafts[operation.id].presentationTime = derivePresentationTimeFromDeparture(operation) || operationPresentationTime(operation)
         if (!assignmentDrafts[operation.id].presentationPlaceDetail) {
           const placeDraft = resolvePresentationPlaceDraft(operation)
           assignmentDrafts[operation.id].presentationPlaceType ||= placeDraft.presentationPlaceType
@@ -281,7 +289,7 @@ export function useCrewOperations(props, { viewMode = 'operations' } = {}) {
         }
       })
     },
-    { immediate: true },
+    { immediate: true, deep: true },
   )
 
   watch(
@@ -379,6 +387,10 @@ export function useCrewOperations(props, { viewMode = 'operations' } = {}) {
     return normalizedCrewMembers.value.filter((member) => isCrewAssignableToOperation(member, operation))
   }
 
+  function isCrewAvailableForOperation(member = {}, operation = {}) {
+    return assignableCrewMembers(operation).some((item) => Number(item.id || 0) === Number(member.id || 0))
+  }
+
   async function ensureAvailableCrewForOperation(operation = {}) {
     const range = operationDateRange(operation)
     const cacheKey = availabilityQueryKey(operation)
@@ -442,12 +454,130 @@ export function useCrewOperations(props, { viewMode = 'operations' } = {}) {
     }
   }
 
+  function selectedCrewAvailabilityState(operation = {}) {
+    const selectedCrewMember = selectedDraftCrew(operation)
+
+    if (!selectedCrewMember) {
+      return {
+        kind: 'idle',
+        title: 'Disponibilidad de sobrecargo',
+        message: 'Selecciona una sobrecargo para revisar su disponibilidad operativa.',
+        detail: '',
+      }
+    }
+
+    if (isCrewAvailableForOperation(selectedCrewMember, operation)) {
+      return {
+        kind: 'ready',
+        title: 'Disponibilidad de sobrecargo',
+        message: 'Disponible para esta fecha',
+        detail: `Base: ${selectedCrewMember.base || 'Sin base'}`,
+      }
+    }
+
+    return {
+      kind: 'blocked',
+      title: 'Disponibilidad de sobrecargo',
+      message: 'Revisar disponibilidad',
+      detail: 'La sobrecargo seleccionada no esta disponible para este rango operativo.',
+    }
+  }
+
+  function assignmentEligibilityState(operation = {}) {
+    const departureAt = resolveOperationDepartureDate(operation)
+    const presentationAt = resolveOperationPresentationDate(operation)
+    const timezone = operationTimezone(operation)
+    const presentationLabel = derivePresentationTimeFromDeparture(operation) || getDraft(operation.id).presentationTime || 'Por definir'
+
+    if (isOperationClosed(operation)) {
+      return {
+        kind: 'blocked',
+        title: 'Asignacion no disponible',
+        message: 'La operacion ya esta cerrada y no permite cambios de sobrecargo.',
+        detail: '',
+        canAssign: false,
+      }
+    }
+
+    if (!operationAllowsAssignment(operation)) {
+      return {
+        kind: 'blocked',
+        title: 'Asignacion no disponible',
+        message: 'La asignacion se habilita cuando el vuelo ya esta confirmado para despacho operativo.',
+        detail: '',
+        canAssign: false,
+      }
+    }
+
+    if (hasCrewAssignmentRecord(operation)) {
+      return {
+        kind: 'blocked',
+        title: 'Operacion con sobrecargo asignada',
+        message: 'Ya existe una asignacion activa para esta operacion.',
+        detail: '',
+        canAssign: false,
+      }
+    }
+
+    if (!departureAt) {
+      return {
+        kind: 'blocked',
+        title: 'Asignacion no disponible',
+        message: 'No existe una salida programada valida para esta operacion.',
+        detail: '',
+        canAssign: false,
+      }
+    }
+
+    if (!presentationAt) {
+      return {
+        kind: 'blocked',
+        title: 'Asignacion no disponible',
+        message: 'No fue posible calcular la hora de presentacion desde la salida real.',
+        detail: '',
+        canAssign: false,
+      }
+    }
+
+    const windowValidation = resolveAssignmentWindowValidation(operation, getDraft(operation.id).presentationTime)
+    if (windowValidation.message) {
+      return {
+        kind: 'blocked',
+        title: 'Asignacion no disponible',
+        message: windowValidation.message,
+        detail: windowValidation.code === 'PRESENTATION_TIME_EXPIRED'
+          ? `Debia presentarse a las ${presentationLabel} · Zona horaria: ${timezone}`
+          : '',
+        canAssign: false,
+      }
+    }
+
+    return {
+      kind: 'ready',
+      title: 'Elegibilidad de la operacion',
+      message: 'Puede asignarse a esta operacion.',
+      detail: `Presentacion: ${presentationLabel} · Zona horaria: ${timezone}`,
+      canAssign: true,
+    }
+  }
+
+  function canSubmitAssignment(operation = {}) {
+    const eligibility = assignmentEligibilityState(operation)
+    if (!eligibility.canAssign) return false
+
+    const selectedCrewMember = selectedDraftCrew(operation)
+    if (!selectedCrewMember) return false
+
+    return isCrewAvailableForOperation(selectedCrewMember, operation)
+  }
+
   function validateAssignmentDraft(operation = {}) {
     const draft = getDraft(operation.id)
     const selectedCrewMember = selectedDraftCrew(operation)
+    const eligibility = assignmentEligibilityState(operation)
 
-    if (!canAssignCrew(operation)) {
-      return 'Esta operacion aun no esta lista para asignacion.'
+    if (!eligibility.canAssign) {
+      return eligibility.message
     }
     if (!draft.crewId || !selectedCrewMember) {
       return 'Selecciona una sobrecargo antes de asignar.'
@@ -461,11 +591,19 @@ export function useCrewOperations(props, { viewMode = 'operations' } = {}) {
     if (!String(draft.note || '').trim()) {
       return 'Completa la nota operativa antes de asignar.'
     }
-    if (!isCrewAssignableToOperation(selectedCrewMember, operation)) {
+    const windowValidation = resolveAssignmentWindowValidation(operation, draft.presentationTime)
+    if (windowValidation.message) {
+      return windowValidation.message
+    }
+    if (!isCrewAvailableForOperation(selectedCrewMember, operation)) {
       return 'La sobrecargo seleccionada no esta disponible para este rango operativo.'
     }
 
     return ''
+  }
+
+  function assignmentWindowMessage(operation = {}) {
+    return assignmentEligibilityState(operation).canAssign ? '' : assignmentEligibilityState(operation).message
   }
 
   function assignmentPayloadFor(operation = {}) {
@@ -516,7 +654,11 @@ export function useCrewOperations(props, { viewMode = 'operations' } = {}) {
     ensureAvailableCrewForOperation,
     isLoadingAvailableCrewForOperation,
     availableCrewState,
+    selectedCrewAvailabilityState,
+    assignmentEligibilityState,
+    canSubmitAssignment,
     validateAssignmentDraft,
+    assignmentWindowMessage,
     assignmentPayloadFor,
     updateOperationLocalState,
     toneClass,
@@ -533,6 +675,7 @@ export function useCrewOperations(props, { viewMode = 'operations' } = {}) {
     hasCrewAssignmentRecord,
     isCrewReadyForOperation,
     canAssignCrew,
+    operationAllowsAssignment,
     isOperationClosed,
     linkedCrewForOperation,
     isActiveFlightOperation,

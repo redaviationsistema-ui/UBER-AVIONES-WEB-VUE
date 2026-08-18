@@ -720,16 +720,49 @@ function buildTimelineStatusSet(detail = {}) {
   )
 }
 
-function normalizeAssignmentResponseStatus(raw = {}, missionStatus = 'Pendiente') {
+function normalizeStatusToken(value = '') {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+}
+
+function normalizeAssignmentResponseStatus(assignment = null, missionStatus = 'Pendiente') {
+  const acceptedAt = assignment?.accepted_at || assignment?.acceptedAt || ''
+  const rejectedAt = assignment?.rejected_at || assignment?.rejectedAt || ''
+  const cancelledAt = assignment?.cancelled_at || assignment?.cancelledAt || ''
+  const statusCandidate =
+    assignment?.status ||
+    assignment?.rawStatus ||
+    ''
+  const normalizedStatus = normalizeStatusToken(statusCandidate)
+
+  if (acceptedAt || ['confirmed', 'accepted', 'aceptado', 'confirmado'].includes(normalizedStatus)) {
+    return 'Confirmado'
+  }
+  if (rejectedAt || ['rejected', 'declined', 'rechazado'].includes(normalizedStatus)) {
+    return 'Rechazado'
+  }
+  if (cancelledAt || ['cancelled', 'cancelada'].includes(normalizedStatus)) {
+    return 'Cancelada'
+  }
+  if (['clarification requested', 'review requested', 'requested changes', 'solicitar revision', 'revision'].includes(normalizedStatus)) {
+    return 'Solicitar revision'
+  }
+
+  if (assignment) {
+    return 'Pendiente'
+  }
+
   const responseCandidate =
-    raw.response_status ||
-    raw.assignment_response ||
-    raw.assignmentStatus ||
-    raw.response ||
-    raw.status ||
+    assignment?.response_status ||
+    assignment?.assignment_response ||
+    assignment?.assignmentStatus ||
+    assignment?.response ||
+    assignment?.status ||
     ''
 
-  const normalized = String(responseCandidate).toLowerCase()
+  const normalized = normalizeStatusToken(responseCandidate)
 
   if (['confirmado', 'confirmed', 'accepted', 'aceptado'].includes(normalized)) return 'Confirmado'
   if (['rechazado', 'rejected', 'declined'].includes(normalized)) return 'Rechazado'
@@ -827,13 +860,43 @@ function deriveCrewStatusFromAssignments() {
   return ''
 }
 
+function derivePresentationTimeFromDeparture(departureValue = '', offsetMinutes = 60) {
+  if (!departureValue) return ''
+  const departure = new Date(String(departureValue))
+  if (Number.isNaN(departure.getTime())) return ''
+
+  const presentation = new Date(departure.getTime() - Math.max(0, Number(offsetMinutes || 0)) * 60 * 1000)
+  if (Number.isNaN(presentation.getTime())) return ''
+
+  return `${String(presentation.getHours()).padStart(2, '0')}:${String(presentation.getMinutes()).padStart(2, '0')}`
+}
+
 function normalizeAssignment(raw = {}, detail = {}, index = 0) {
   const briefing = detail.briefing || {}
   const departure = briefing.salida || raw.departure_datetime || raw.started_at || ''
+  const assignment = raw.assignment || detail.assignment || null
   const latestTimelineStatus = resolveLatestTimelineStatus(detail)
   const operationStatus = latestTimelineStatus || detail.status || raw.status || ''
+  const persistedCrewStatus =
+    detail.crew_status ||
+    raw.crew_status ||
+    raw.crewStatus ||
+    detail.operation?.crew_status ||
+    raw.operation?.crew_status ||
+    ''
+  const assignmentStatus =
+    assignment?.status ||
+    assignment?.rawStatus ||
+    detail.assignment_status ||
+    raw.assignment_status ||
+    ''
   const crewLifecycleStatus =
-    detail.workflow_status || raw.workflow_status || detail.crew_status || raw.crew_status || raw.crewStatus || raw.crew_status_label || ''
+    detail.workflow_status ||
+    raw.workflow_status ||
+    persistedCrewStatus ||
+    assignmentStatus ||
+    raw.crew_status_label ||
+    ''
   const normalizedOperationStatus = String(operationStatus || '')
     .trim()
     .toLowerCase()
@@ -874,7 +937,7 @@ function normalizeAssignment(raw = {}, detail = {}, index = 0) {
             : hasCheckin
               ? 'En aeropuerto/base'
               : normalizeCrewLifecycleStatus(crewLifecycleStatus) || normalizeMissionStatus(operationStatus)
-  const responseStatus = normalizeAssignmentResponseStatus(raw, missionStatus)
+  const responseStatus = normalizeAssignmentResponseStatus(assignment, missionStatus)
   const origin = briefing.origen || raw.origin || ''
   const destination = briefing.destino || raw.destination || ''
   const originName =
@@ -894,6 +957,22 @@ function normalizeAssignment(raw = {}, detail = {}, index = 0) {
     detail.destination_label ||
     ''
   const route = origin && destination ? `${origin} -> ${destination}` : origin || destination || ''
+  const derivedPresentationTime = derivePresentationTimeFromDeparture(departure)
+  const presentationTime =
+    assignment?.presentation_time ||
+    assignment?.presentationTime ||
+    derivedPresentationTime ||
+    raw.presentation_time ||
+    detail.presentation_time ||
+    briefing.hora_presentacion ||
+    ''
+  const presentationPlace =
+    raw.presentation_place ||
+    raw.presentation_location ||
+    detail.presentation_place ||
+    detail.presentation_location ||
+    briefing.lugar_presentacion ||
+    ''
   const responseLocked = [
     'crew_confirmed',
     'crew_declined',
@@ -904,6 +983,15 @@ function normalizeAssignment(raw = {}, detail = {}, index = 0) {
     'crew_incident_reported',
   ].includes(normalizedCrewLifecycleStatus)
   const workflowStatus = normalizedCrewLifecycleStatus
+  const assignmentAccepted =
+    Boolean(assignment?.accepted_at || assignment?.acceptedAt || raw.crew_confirmed_at || detail.crew_confirmed_at) ||
+    ['confirmed', 'preparation_pending', 'ready_for_operation', 'checked_in', 'preflight_in_progress', 'cabin_ready', 'boarding', 'boarding_completed', 'in_flight', 'landed', 'postflight_pending', 'report_pending', 'crew_completed', 'administratively_closed'].includes(workflowStatus)
+  const responseDeadlineValue = assignment?.response_deadline || assignment?.responseDeadline || ''
+  const responseDeadlineTime = Date.parse(responseDeadlineValue)
+  const responseDeadlinePassed =
+    Number.isFinite(responseDeadlineTime) &&
+    responseDeadlineTime < Date.now() &&
+    ['pending_confirmation', 'pending_crew_response'].includes(workflowStatus)
   const canRespondToAssignment = ['pending_confirmation', 'pending_crew_response'].includes(workflowStatus) || !responseLocked && missionStatus === 'Pendiente'
   const canCheckin =
     ['ready_for_operation'].includes(workflowStatus) &&
@@ -921,8 +1009,10 @@ function normalizeAssignment(raw = {}, detail = {}, index = 0) {
     date: departure ? String(departure).slice(0, 10) : '',
     time: departure && String(departure).includes('T') ? String(departure).slice(11, 16) : '',
     aircraft: raw.aircraft || raw.aircraft_model || '',
-    briefing: departure ? String(departure).slice(11, 16) : '',
-    briefingTime: departure ? String(departure).slice(11, 16) : '',
+    briefing: presentationTime || (departure ? String(departure).slice(11, 16) : ''),
+    briefingTime: presentationTime || '',
+    presentationTime: presentationTime || '',
+    presentationPlace: presentationPlace || '',
     serviceLevel: raw.service_level || '',
     vipRequirements: raw.notes || detail.notes || '',
     client: raw.client || raw.client_name || detail.client || '',
@@ -938,9 +1028,9 @@ function normalizeAssignment(raw = {}, detail = {}, index = 0) {
     crewCheckinAt: raw.crew_checkin_at || detail.crew_checkin_at || null,
     crewServiceStartedAt: raw.crew_service_started_at || detail.crew_service_started_at || null,
     crewServiceCompletedAt: raw.crew_service_completed_at || detail.crew_service_completed_at || null,
-    assignmentConfirmed: ['Confirmado', 'Recibida'].includes(responseStatus) || missionStatus !== 'Pendiente',
+    assignmentConfirmed: assignmentAccepted,
     operationActive: ['Preparacion', 'En servicio', 'Incidencia'].includes(missionStatus),
-    responseDeadlinePassed: false,
+    responseDeadlinePassed,
     origin,
     originName,
     destination,
@@ -952,7 +1042,7 @@ function normalizeAssignment(raw = {}, detail = {}, index = 0) {
     providerName: providerName.value,
     timeline: Array.isArray(detail.timeline) ? detail.timeline : [],
     workflowStatus,
-    assignment: raw.assignment || detail.assignment || null,
+    assignment,
     checklists: Array.isArray(raw.checklists || detail.checklists) ? (raw.checklists || detail.checklists) : [],
     finalReport: raw.final_report || detail.final_report || null,
     canRespondToAssignment,

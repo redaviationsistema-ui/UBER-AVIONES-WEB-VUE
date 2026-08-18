@@ -78,7 +78,7 @@ const nextAction = computed(() => {
   if (item.canCheckin) {
     return {
       title: 'Siguiente accion',
-      detail: `Presentate en aeropuerto/base. Hora limite: ${item.briefingTime || item.time || 'Pendiente por Admin'} · Lugar: ${item.originName || item.origin || 'Pendiente por Admin'}.`,
+      detail: `Presentate en aeropuerto/base. Hora limite: ${item.briefingTime || item.time || 'Pendiente por Admin'} · Lugar: ${item.presentationPlace || item.originName || item.origin || 'Pendiente por Admin'}.`,
       cta: 'Confirmar llegada a aeropuerto/base',
       event: 'confirm-briefing',
     }
@@ -255,6 +255,7 @@ const selectedQuickSummary = computed(() => {
     { label: 'Ruta', value: item.route || 'Pendiente por Admin' },
     { label: 'Aeronave', value: item.aircraft || 'Pendiente por Admin' },
     { label: 'Presentacion', value: item.briefingTime || item.time || 'Pendiente por Admin' },
+    { label: 'Lugar de presentacion', value: item.presentationPlace || item.originName || item.origin || 'Pendiente por Admin' },
     { label: 'Pasajeros', value: item.passengers ? `${item.passengers} pax` : 'Sin dato' },
     { label: 'Estado actual', value: nextAction.value.cta || item.crewStatusLabel || item.missionStatus || 'Pendiente' },
   ]
@@ -444,7 +445,7 @@ function stageTone(state = '') {
               <strong>{{ [item.flight, item.route].filter(Boolean).join(' - ') || 'Operacion sin referencia completa' }}</strong>
               <p>{{ [item.date, item.time, item.aircraft].filter(Boolean).join(' - ') || 'Pendiente por Admin' }}</p>
               <small>{{ [item.client, item.passengers ? `${item.passengers} pax` : '', item.serviceLevel].filter(Boolean).join(' - ') || 'Cliente o servicio pendiente por Admin' }}</small>
-              <small>{{ [item.vipRequirements, item.briefingTime ? `Briefing ${item.briefingTime}` : ''].filter(Boolean).join(' - ') || 'Briefing o requerimientos pendientes por Admin' }}</small>
+              <small>{{ [item.vipRequirements, item.briefingTime ? `Briefing ${item.briefingTime}` : '', item.presentationPlace || ''].filter(Boolean).join(' - ') || 'Briefing o requerimientos pendientes por Admin' }}</small>
               <small v-if="item.internalContact">{{ item.internalContact }}</small>
             </div>
             <div class="row-side">
@@ -551,7 +552,7 @@ function stageTone(state = '') {
             </div>
             <div class="detail-item">
               <span>Lugar de presentacion</span>
-              <strong>{{ selectedAssignment.originName || selectedAssignment.origin || 'Pendiente por Admin' }}</strong>
+              <strong>{{ selectedAssignment.presentationPlace || selectedAssignment.originName || selectedAssignment.origin || 'Pendiente por Admin' }}</strong>
             </div>
             <div class="detail-item">
               <span>Cliente</span>

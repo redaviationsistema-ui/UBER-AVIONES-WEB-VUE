@@ -85,6 +85,12 @@ async function handleAssign(operationId) {
         crewOperationalState: 'pending_crew_response',
         briefingTime: payload.presentation_time || '',
         presentationPlace: payload.presentation_place || '',
+        crewAssignment: {
+          status: 'pending_confirmation',
+          rawStatus: 'pending_confirmation',
+          assignedAt: new Date().toISOString(),
+          presentationTime: payload.presentation_time || '',
+        },
       })
     },
     onError: ({ message } = {}) => {
@@ -185,8 +191,12 @@ const selectedDraft = computed(() =>
         :availability-state="controller.availableCrewState(controller.selectedOperation)"
         :linked-crew-member="controller.linkedCrewForOperation(controller.selectedOperation)"
         :selected-crew-member="controller.selectedDraftCrew(controller.selectedOperation)"
+        :selected-crew-availability-state="controller.selectedCrewAvailabilityState(controller.selectedOperation)"
+        :assignment-eligibility-state="controller.assignmentEligibilityState(controller.selectedOperation)"
         :assignment-error="controller.assignmentErrors[controller.selectedOperation.id] || ''"
-        :can-assign="controller.canAssignCrew(controller.selectedOperation)"
+        :assignment-window-message="controller.assignmentWindowMessage(controller.selectedOperation)"
+        :can-assign="controller.operationAllowsAssignment(controller.selectedOperation)"
+        :can-submit-assignment="controller.canSubmitAssignment(controller.selectedOperation)"
         :is-closed="controller.isOperationClosed(controller.selectedOperation)"
         :loading-available-crew="controller.isLoadingAvailableCrewForOperation(controller.selectedOperation)"
         :format-date-time="formatDateTime"

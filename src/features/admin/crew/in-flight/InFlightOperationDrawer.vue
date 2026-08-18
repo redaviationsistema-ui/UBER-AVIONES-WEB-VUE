@@ -16,7 +16,28 @@ defineProps({
   },
   selectedCrewMember: { type: Object, default: null },
   assignmentError: { type: String, default: '' },
+  assignmentWindowMessage: { type: String, default: '' },
+  assignmentEligibilityState: {
+    type: Object,
+    default: () => ({
+      kind: 'idle',
+      title: 'Elegibilidad de la operacion',
+      message: '',
+      detail: '',
+      canAssign: false,
+    }),
+  },
+  selectedCrewAvailabilityState: {
+    type: Object,
+    default: () => ({
+      kind: 'idle',
+      title: 'Disponibilidad de sobrecargo',
+      message: 'Selecciona una sobrecargo para revisar su disponibilidad operativa.',
+      detail: '',
+    }),
+  },
   canAssign: { type: Boolean, default: false },
+  canSubmitAssignment: { type: Boolean, default: false },
   isClosed: { type: Boolean, default: false },
   loadingAvailableCrew: { type: Boolean, default: false },
   formatDateTime: { type: Function, required: true },
@@ -40,8 +61,12 @@ defineEmits(['update-draft', 'assign', 'load-available'])
     :availability-state="availabilityState"
     :linked-crew-member="linkedCrewMember"
     :selected-crew-member="selectedCrewMember"
+    :selected-crew-availability-state="selectedCrewAvailabilityState"
+    :assignment-eligibility-state="assignmentEligibilityState"
     :assignment-error="assignmentError"
+    :assignment-window-message="assignmentWindowMessage"
     :can-assign="canAssign"
+    :can-submit-assignment="canSubmitAssignment"
     :is-closed="isClosed"
     :is-in-flight="true"
     :loading-available-crew="loadingAvailableCrew"

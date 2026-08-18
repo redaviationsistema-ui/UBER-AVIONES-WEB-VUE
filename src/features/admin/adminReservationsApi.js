@@ -142,14 +142,14 @@ function collectCrewSources(record = {}, nestedReservation = {}) {
       : {}
 
   return [
-    record,
-    nestedReservation,
     directOperation,
-    nestedOperation,
     latestOperation,
-    nestedLatestOperation,
     visibilityOperation,
+    record,
+    nestedOperation,
+    nestedLatestOperation,
     nestedVisibilityOperation,
+    nestedReservation,
   ]
 }
 
@@ -237,6 +237,9 @@ function buildAdminReservationRecord(record = {}) {
         source?.tripulation ||
         source?.sobrecargo_name ||
         source?.sobrecargo?.name ||
+        source?.assignment?.sobrecargo?.name ||
+        source?.latestCrewAssignment?.sobrecargo?.name ||
+        source?.crew_assignment?.sobrecargo?.name ||
         source?.crew_member?.name ||
         source?.crew_user?.name ||
         '',
@@ -248,6 +251,12 @@ function buildAdminReservationRecord(record = {}) {
         source?.crew_id ||
         source?.sobrecargo_user_id ||
         source?.sobrecargo_id ||
+        source?.assignment?.sobrecargo_user_id ||
+        source?.latestCrewAssignment?.sobrecargo_user_id ||
+        source?.crew_assignment?.sobrecargo_user_id ||
+        source?.assignment?.sobrecargo?.id ||
+        source?.latestCrewAssignment?.sobrecargo?.id ||
+        source?.crew_assignment?.sobrecargo?.id ||
         source?.crew_member_id ||
         source?.sobrecargo?.id ||
         source?.crew_member?.id ||
@@ -275,11 +284,7 @@ function buildAdminReservationRecord(record = {}) {
     record.operation?.assignment?.cancelled_at ||
     ''
   const normalizedAssignmentStatus = normalizeCrewAssignmentStatus(
-    resolvedAssignmentSource?.status ||
-      record.crew_status ||
-      record.operation?.crew_status ||
-      record.crew_status_label ||
-      '',
+    resolvedAssignmentSource?.status || '',
     {
       acceptedAt: resolvedAssignmentAcceptedAt,
       rejectedAt: resolvedAssignmentRejectedAt,
@@ -287,19 +292,29 @@ function buildAdminReservationRecord(record = {}) {
     },
   )
   const crewAssignment =
-    normalizedAssignmentStatus || resolvedAssignmentAcceptedAt || resolvedAssignmentRejectedAt || resolvedAssignmentCancelledAt
+    resolvedAssignmentSource
+      && (
+        normalizedAssignmentStatus ||
+        resolvedAssignmentAcceptedAt ||
+        resolvedAssignmentRejectedAt ||
+        resolvedAssignmentCancelledAt ||
+        resolvedAssignmentSource?.id
+      )
       ? {
           id: resolvedAssignmentSource?.id || null,
           role: resolvedAssignmentSource?.role || '',
-          rawStatus:
-            resolvedAssignmentSource?.status ||
-            record.crew_status ||
-            record.operation?.crew_status ||
-            '',
+          rawStatus: resolvedAssignmentSource?.status || '',
           status: normalizedAssignmentStatus,
           assignedAt: resolvedAssignmentSource?.assigned_at || '',
           responseDeadline: resolvedAssignmentSource?.response_deadline || '',
           presentationTime: resolvedAssignmentSource?.presentation_time || '',
+          presentationDateTime: resolvedAssignmentSource?.presentation_datetime || '',
+          timezone:
+            resolvedAssignmentSource?.timezone ||
+            record.timezone ||
+            record.departure_timezone ||
+            record.operation?.timezone ||
+            '',
           acceptedAt: resolvedAssignmentAcceptedAt || '',
           rejectedAt: resolvedAssignmentRejectedAt || '',
           rejectionReason: resolvedAssignmentSource?.rejection_reason || '',
@@ -370,6 +385,20 @@ function buildAdminReservationRecord(record = {}) {
     crew: resolvedCrewName,
     crewId: resolvedCrewId,
     departure: departureValue,
+    departureDateTime: departureValue,
+    presentationDateTime:
+      record.presentation_datetime ||
+      nestedReservation.presentation_datetime ||
+      visibilityPayload.presentation_datetime ||
+      crewAssignment?.presentationDateTime ||
+      '',
+    timezone:
+      record.timezone ||
+      record.departure_timezone ||
+      nestedReservation.timezone ||
+      nestedReservation.departure_timezone ||
+      visibilityPayload.timezone ||
+      'America/Mexico_City',
     departureDate: String(departureValue).includes('T') ? String(departureValue).slice(0, 10) : String(departureValue).slice(0, 10),
     departureTime: String(departureValue).includes('T') ? String(departureValue).slice(11, 16) : '',
     briefingTime:
@@ -454,11 +483,11 @@ function buildAdminReservationRecord(record = {}) {
       visibilityPayload.internal_contact ||
       '',
     crewOperationalState:
-      crewAssignment?.status ||
-      record.crew_status_label ||
       record.crew_status ||
       record.operation?.crew_status ||
       record.crew_overall_status ||
+      crewAssignment?.rawStatus ||
+      record.crew_status_label ||
       '',
     incidentsLabel:
       record.incident_status ||
