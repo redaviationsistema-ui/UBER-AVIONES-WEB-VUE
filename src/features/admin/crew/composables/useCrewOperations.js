@@ -24,8 +24,6 @@ import {
   operationDateRange,
   operationAssignmentBadgeLabel,
   resolveCrewAssignmentStatus,
-  resolveOperationDepartureDate,
-  resolveOperationPresentationDate,
   operationDisplayClient,
   operationDisplayCrew,
   operationCrewStateLabel,
@@ -35,8 +33,6 @@ import {
   operationPresentationPlace,
   operationPresentationTime,
   operationProviderName,
-  operationTimezone,
-  resolveAssignmentWindowValidation,
   resolvePresentationPlaceDraft,
 } from '../services/crewOperations.service'
 
@@ -351,7 +347,6 @@ export function useCrewOperations(props, { viewMode = 'operations' } = {}) {
 
   function isCrewAssignableToOperation(member = {}, operation = {}) {
     const validationState = normalizeToken(member.validationState || member.profileState || '')
-    const operationalState = member.operationalState || ''
     const hasExplicitValidationState = Boolean(validationState)
     const hasBlockedValidationState =
       validationState.includes('rech') ||
@@ -360,30 +355,10 @@ export function useCrewOperations(props, { viewMode = 'operations' } = {}) {
 
     if (hasBlockedValidationState || member.isSuspended) return false
     if (hasExplicitValidationState && !member.isApproved) return false
-    if (['No disponible', 'Descanso', 'En vuelo'].includes(operationalState)) return false
-
-    const assignedOperationId = Number(member.assignedOperation?.id || 0)
-    const targetOperationId = Number(operation.id || 0)
-
-    if (assignedOperationId && assignedOperationId !== targetOperationId) {
-      return false
-    }
-
-    return member.isAvailableToday || assignedOperationId === targetOperationId
+    return true
   }
 
   function assignableCrewMembers(operation = {}) {
-    const cacheKey = availabilityQueryKey(operation)
-    const lookupAttempted = availableCrewLookupAttempted[cacheKey] === true
-    const cached = Array.isArray(availableCrewCache[cacheKey]) ? availableCrewCache[cacheKey] : []
-
-    if (lookupAttempted) {
-      const allowedIds = new Set(cached.map((member) => Number(member.id || 0)).filter(Boolean))
-      return normalizedCrewMembers.value.filter(
-        (member) => allowedIds.has(Number(member.id || 0)) && isCrewAssignableToOperation(member, operation),
-      )
-    }
-
     return normalizedCrewMembers.value.filter((member) => isCrewAssignableToOperation(member, operation))
   }
 
@@ -460,35 +435,21 @@ export function useCrewOperations(props, { viewMode = 'operations' } = {}) {
     if (!selectedCrewMember) {
       return {
         kind: 'idle',
-        title: 'Disponibilidad de sobrecargo',
-        message: 'Selecciona una sobrecargo para revisar su disponibilidad operativa.',
+        title: 'Selección de sobrecargo',
+        message: 'Selecciona una sobrecargo para continuar.',
         detail: '',
       }
     }
 
-    if (isCrewAvailableForOperation(selectedCrewMember, operation)) {
-      return {
-        kind: 'ready',
-        title: 'Disponibilidad de sobrecargo',
-        message: 'Disponible para esta fecha',
-        detail: `Base: ${selectedCrewMember.base || 'Sin base'}`,
-      }
-    }
-
     return {
-      kind: 'blocked',
-      title: 'Disponibilidad de sobrecargo',
-      message: 'Revisar disponibilidad',
-      detail: 'La sobrecargo seleccionada no esta disponible para este rango operativo.',
+      kind: 'ready',
+      title: 'Selección de sobrecargo',
+      message: 'Sobrecargo seleccionada',
+      detail: `Base: ${selectedCrewMember.base || 'Sin base'}`,
     }
   }
 
   function assignmentEligibilityState(operation = {}) {
-    const departureAt = resolveOperationDepartureDate(operation)
-    const presentationAt = resolveOperationPresentationDate(operation)
-    const timezone = operationTimezone(operation)
-    const presentationLabel = derivePresentationTimeFromDeparture(operation) || getDraft(operation.id).presentationTime || 'Por definir'
-
     if (isOperationClosed(operation)) {
       return {
         kind: 'blocked',
@@ -519,44 +480,11 @@ export function useCrewOperations(props, { viewMode = 'operations' } = {}) {
       }
     }
 
-    if (!departureAt) {
-      return {
-        kind: 'blocked',
-        title: 'Asignacion no disponible',
-        message: 'No existe una salida programada valida para esta operacion.',
-        detail: '',
-        canAssign: false,
-      }
-    }
-
-    if (!presentationAt) {
-      return {
-        kind: 'blocked',
-        title: 'Asignacion no disponible',
-        message: 'No fue posible calcular la hora de presentacion desde la salida real.',
-        detail: '',
-        canAssign: false,
-      }
-    }
-
-    const windowValidation = resolveAssignmentWindowValidation(operation, getDraft(operation.id).presentationTime)
-    if (windowValidation.message) {
-      return {
-        kind: 'blocked',
-        title: 'Asignacion no disponible',
-        message: windowValidation.message,
-        detail: windowValidation.code === 'PRESENTATION_TIME_EXPIRED'
-          ? `Debia presentarse a las ${presentationLabel} · Zona horaria: ${timezone}`
-          : '',
-        canAssign: false,
-      }
-    }
-
     return {
       kind: 'ready',
       title: 'Elegibilidad de la operacion',
       message: 'Puede asignarse a esta operacion.',
-      detail: `Presentacion: ${presentationLabel} · Zona horaria: ${timezone}`,
+      detail: 'La fecha y la hora de presentación son únicamente informativas.',
       canAssign: true,
     }
   }
@@ -568,7 +496,7 @@ export function useCrewOperations(props, { viewMode = 'operations' } = {}) {
     const selectedCrewMember = selectedDraftCrew(operation)
     if (!selectedCrewMember) return false
 
-    return isCrewAvailableForOperation(selectedCrewMember, operation)
+    return true
   }
 
   function validateAssignmentDraft(operation = {}) {
@@ -582,23 +510,6 @@ export function useCrewOperations(props, { viewMode = 'operations' } = {}) {
     if (!draft.crewId || !selectedCrewMember) {
       return 'Selecciona una sobrecargo antes de asignar.'
     }
-    if (!String(draft.presentationTime || '').trim()) {
-      return 'Completa la hora de presentacion antes de asignar.'
-    }
-    if (!String(draft.presentationPlaceType || '').trim() || !String(draft.presentationPlaceDetail || '').trim()) {
-      return 'Completa el tipo y detalle del lugar de presentacion antes de asignar.'
-    }
-    if (!String(draft.note || '').trim()) {
-      return 'Completa la nota operativa antes de asignar.'
-    }
-    const windowValidation = resolveAssignmentWindowValidation(operation, draft.presentationTime)
-    if (windowValidation.message) {
-      return windowValidation.message
-    }
-    if (!isCrewAvailableForOperation(selectedCrewMember, operation)) {
-      return 'La sobrecargo seleccionada no esta disponible para este rango operativo.'
-    }
-
     return ''
   }
 

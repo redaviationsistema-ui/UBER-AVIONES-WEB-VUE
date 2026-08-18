@@ -234,29 +234,6 @@ function isCrewRefreshCoolingDown() {
   return Date.now() - lastCrewRefreshAt < ADMIN_CREW_REFRESH_COOLDOWN_MS
 }
 
-function extractOperationRange(operation = {}) {
-  const startCandidate =
-    operation.departureDate ||
-    String(operation.departure || '').slice(0, 10) ||
-    String(operation.raw?.operation?.departure_datetime || '').slice(0, 10) ||
-    String(operation.raw?.departure_datetime || '').slice(0, 10) ||
-    String(operation.raw?.departure_date || '').slice(0, 10)
-
-  const endCandidate =
-    String(operation.arrival || '').slice(0, 10) ||
-    String(operation.raw?.operation?.arrival_datetime || '').slice(0, 10) ||
-    String(operation.raw?.arrival_datetime || '').slice(0, 10) ||
-    String(operation.raw?.return_date || '').slice(0, 10)
-
-  const from = /^\d{4}-\d{2}-\d{2}$/.test(startCandidate) ? startCandidate : ''
-  const to = /^\d{4}-\d{2}-\d{2}$/.test(endCandidate) ? endCandidate : from
-
-  return {
-    from,
-    to: to && to >= from ? to : from,
-  }
-}
-
 const reservationStates = [
   'Pendiente',
   'Validando',
@@ -2738,13 +2715,7 @@ async function assignCrewToOperation({
       return
     }
 
-    const normalizedCrewStatus = normalizeToken(member.state || member.operationalState || '')
     const normalizedCrewProfileStatus = normalizeToken(member.profileState || member.validationState || '')
-    const memberAssignedToCurrentOperation = operations.value.some(
-      (item) =>
-        Number(item.id || 0) === normalizedOperationId &&
-        Number(item.crewId || 0) === Number(member.id || 0),
-    )
 
     const crewHasBlockedValidationState =
       normalizedCrewProfileStatus.includes('rech') ||
@@ -2757,49 +2728,6 @@ async function assignCrewToOperation({
         tone: 'warning',
         title: 'Sobrecargo no elegible',
         message: `${member.name} todavia no cuenta con validacion operativa para asignarse.`,
-      })
-      return
-    }
-
-    if (
-      !['disponible', 'active', 'activo', 'assigned', 'asignado'].includes(normalizedCrewStatus) &&
-      !memberAssignedToCurrentOperation
-    ) {
-      onError?.({ message: `${member.name} no esta disponible para una nueva asignacion.` })
-      ui.pushToast({
-        tone: 'warning',
-        title: 'Sobrecargo no disponible',
-        message: `${member.name} no esta disponible para una nueva asignacion.`,
-      })
-      return
-    }
-
-    const duplicateAssignment = operations.value.find(
-      (item) =>
-        Number(item.id || 0) !== normalizedOperationId &&
-        Number(item.crewId || 0) === Number(member.id || 0) &&
-        !['cancelada', 'finalizada', 'cerrada'].some((token) =>
-          normalizeToken(item.workflowStatus || item.status || '').includes(token),
-        ),
-    )
-
-    if (duplicateAssignment) {
-      onError?.({ message: `${member.name} ya tiene una operacion activa ligada al folio ${duplicateAssignment.folio || `RA-${duplicateAssignment.id}`}.` })
-      ui.pushToast({
-        tone: 'error',
-        title: 'Asignacion duplicada',
-        message: `${member.name} ya tiene una operacion activa ligada al folio ${duplicateAssignment.folio || `RA-${duplicateAssignment.id}`}.`,
-      })
-      return
-    }
-
-    const operationRange = extractOperationRange(operation)
-    if (!operationRange.from) {
-      onError?.({ message: 'No pudimos identificar el rango operativo del vuelo para asignar.' })
-      ui.pushToast({
-        tone: 'error',
-        title: 'Operacion sin fechas',
-        message: 'No pudimos identificar el rango operativo del vuelo para asignar y bloquear disponibilidad.',
       })
       return
     }
@@ -2921,11 +2849,9 @@ async function assignCrewToOperation({
 
     pushAuditEntry(
       `Asignacion confirmada: ${member.name}`,
-      `Operacion #${operationId} asignada a ${member.name}. Rango ${operationRange.from}${operationRange.to !== operationRange.from ? ` a ${operationRange.to}` : ''} marcado como En operacion.${nextOperationalNote ? ` ${nextOperationalNote}` : ''}`,
+      `Operacion #${operationId} asignada a ${member.name}.${nextOperationalNote ? ` ${nextOperationalNote}` : ''}`,
     )
-    const successMessage = promotedWorkflowStage
-      ? `${member.name} ya quedo ligada a la operacion #${operationId}, y su disponibilidad operativa se actualizo.`
-      : `${member.name} ya quedo ligada a la operacion #${operationId}.`
+    const successMessage = `${member.name} ya quedo ligada a la operacion #${operationId}.`
     onSuccess?.({
       title: 'Sobrecargo listo',
       message: successMessage,

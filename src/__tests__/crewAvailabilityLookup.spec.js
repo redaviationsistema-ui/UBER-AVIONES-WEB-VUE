@@ -101,7 +101,7 @@ describe('crew availability lookup', () => {
     vi.useRealTimers()
   })
 
-  it('starts with the general crew list and then narrows the selected operation with remote availability', async () => {
+  it('does not narrow the assignment selector with remote availability', async () => {
     const props = reactive({
       crewMembers: [
         buildCrewMember(18, 'Jimena Alvarez Mejia'),
@@ -136,13 +136,14 @@ describe('crew availability lookup', () => {
     })
     expect(controller.assignableCrewMembers(operation).map((member) => member.name)).toEqual([
       'Jimena Alvarez Mejia',
+      'VALERIA GARCIA RAMIREZ',
     ])
     expect(controller.availableCrewState(operation).kind).toBe('idle')
 
     scope.stop()
   })
 
-  it('shows an empty state when the remote availability lookup returns no assignable crew', async () => {
+  it('keeps valid crew assignable when the availability lookup is empty', async () => {
     const props = reactive({
       crewMembers: [buildCrewMember(18, 'Jimena Alvarez Mejia')],
       operations: [buildOperation(197, { origin: 'MMJC' })],
@@ -156,11 +157,11 @@ describe('crew availability lookup', () => {
     fetchAvailableCrewByRange.mockResolvedValueOnce([])
     await controller.ensureAvailableCrewForOperation(operation)
 
-    expect(controller.assignableCrewMembers(operation)).toEqual([])
+    expect(controller.assignableCrewMembers(operation)).toHaveLength(1)
     expect(controller.availableCrewState(operation)).toMatchObject({
-      kind: 'empty',
-      disableSelect: true,
-      message: 'No hay sobrecargos disponibles para MMJC',
+      kind: 'idle',
+      disableSelect: false,
+      message: 'Selecciona sobrecargo',
     })
 
     scope.stop()
@@ -198,10 +199,12 @@ describe('crew availability lookup', () => {
     await requestA
 
     expect(controller.assignableCrewMembers(props.operations[1]).map((member) => member.name)).toEqual([
+      'Jimena Alvarez Mejia',
       'VALERIA GARCIA RAMIREZ',
     ])
     expect(controller.assignableCrewMembers(props.operations[0]).map((member) => member.name)).toEqual([
       'Jimena Alvarez Mejia',
+      'VALERIA GARCIA RAMIREZ',
     ])
 
     scope.stop()
@@ -216,7 +219,7 @@ describe('crew availability lookup', () => {
       },
     })
 
-    expect(wrapper.find('select').element.disabled).toBe(true)
+    expect(wrapper.find('select').element.disabled).toBe(false)
     expect(wrapper.find('option').text()).toBe('Consultando disponibilidad...')
     expect(wrapper.text()).toContain('Consultando disponibilidad...')
 
@@ -269,14 +272,14 @@ describe('crew availability lookup', () => {
     })
     expect(controller.selectedCrewAvailabilityState(props.operations[0])).toMatchObject({
       kind: 'ready',
-      message: 'Disponible para esta fecha',
+      message: 'Sobrecargo seleccionada',
     })
     expect(controller.canSubmitAssignment(props.operations[0])).toBe(true)
 
     scope.stop()
   })
 
-  it('blocks assignment when the derived presentation time has already passed', () => {
+  it('allows assignment when the derived presentation time has already passed', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-08-17T17:00:00-06:00'))
 
@@ -295,11 +298,11 @@ describe('crew availability lookup', () => {
     controller.updateDraft(201, 'crewId', 17)
 
     expect(controller.assignmentEligibilityState(props.operations[0])).toMatchObject({
-      kind: 'blocked',
-      message: 'No se puede asignar una sobrecargo porque la hora de presentacion de esta operacion ya paso.',
-      canAssign: false,
+      kind: 'ready',
+      message: 'Puede asignarse a esta operacion.',
+      canAssign: true,
     })
-    expect(controller.canSubmitAssignment(props.operations[0])).toBe(false)
+    expect(controller.canSubmitAssignment(props.operations[0])).toBe(true)
 
     scope.stop()
   })
@@ -333,7 +336,7 @@ describe('crew availability lookup', () => {
     scope.stop()
   })
 
-  it('recalculates eligibility immediately when departure changes from past to future', async () => {
+  it('does not change assignment eligibility when departure changes', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-08-17T17:37:00-06:00'))
 
@@ -351,7 +354,7 @@ describe('crew availability lookup', () => {
     const controller = scope.run(() => useCrewOperations(props, { viewMode: 'operations' }))
     controller.updateDraft(201, 'crewId', 17)
 
-    expect(controller.canSubmitAssignment(props.operations[0])).toBe(false)
+    expect(controller.canSubmitAssignment(props.operations[0])).toBe(true)
 
     props.operations[0].departure = '2026-08-17T20:00:00-06:00'
     await flushPromises()

@@ -6,7 +6,6 @@ import {
   operationCrewStateLabel,
   operationTimezone,
   resolveOperationPresentationDate,
-  resolveAssignmentWindowValidation,
   resolveCrewAssignmentStatus,
 } from '../features/admin/crew/services/crewOperations.service'
 
@@ -48,30 +47,6 @@ describe('crewOperations.service assignment truth source', () => {
     expect(hasCrewAssignmentRecord(operation)).toBe(true)
     expect(operationCrewStateLabel(operation)).toBe('Pendiente de confirmacion')
     expect(operationAssignmentBadgeLabel(operation)).toBe('Apartada')
-  })
-
-  it('flags expired presentation times before calling the backend', () => {
-    const operation = {
-      departure: '2026-08-17T15:00:00',
-    }
-
-    expect(
-      resolveAssignmentWindowValidation(operation, '11:00', new Date('2026-08-17T16:00:00')),
-    ).toMatchObject({
-      code: 'PRESENTATION_TIME_EXPIRED',
-    })
-  })
-
-  it('flags missing confirmation windows before calling the backend', () => {
-    const operation = {
-      departure: '2026-08-17T18:00:00',
-    }
-
-    expect(
-      resolveAssignmentWindowValidation(operation, '15:00', new Date('2026-08-17T16:45:00')),
-    ).toMatchObject({
-      code: 'NO_RESPONSE_WINDOW_AVAILABLE',
-    })
   })
 
   it('prefers presentation_datetime and timezone from the normalized operation when available', () => {

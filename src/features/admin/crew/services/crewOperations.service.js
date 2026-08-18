@@ -213,34 +213,6 @@ export function resolveOperationPresentationDate(operation = {}, offsetMinutes =
   return Number.isNaN(presentation.getTime()) ? null : presentation
 }
 
-export function resolveAssignmentWindowValidation(operation = {}, presentationTime = '', nowValue = new Date()) {
-  const presentationAt = resolveOperationPresentationDate(operation)
-  if (!presentationAt) return { code: '', message: '' }
-
-  const assignedAt = nowValue instanceof Date ? nowValue : new Date(nowValue)
-  if (Number.isNaN(assignedAt.getTime())) return { code: '', message: '' }
-
-  if (presentationAt.getTime() <= assignedAt.getTime()) {
-    return {
-      code: 'PRESENTATION_TIME_EXPIRED',
-      message: 'No se puede asignar una sobrecargo porque la hora de presentacion de esta operacion ya paso.',
-    }
-  }
-
-  const maximumResponseWindow = assignedAt.getTime() + 12 * 60 * 60 * 1000
-  const presentationLimit = presentationAt.getTime() - 60 * 60 * 1000
-  const responseDeadline = Math.min(maximumResponseWindow, presentationLimit)
-
-  if (responseDeadline <= assignedAt.getTime()) {
-    return {
-      code: 'NO_RESPONSE_WINDOW_AVAILABLE',
-      message: 'No existe tiempo suficiente para solicitar confirmacion a la sobrecargo antes de su presentacion.',
-    }
-  }
-
-  return { code: '', message: '' }
-}
-
 export function availabilityQueryKey(operation = {}) {
   const range = operationDateRange(operation)
   return `${range.from || 'sin-fecha'}:${range.to || 'sin-fecha'}:${operationFlightBase(operation) || 'sin-base'}`

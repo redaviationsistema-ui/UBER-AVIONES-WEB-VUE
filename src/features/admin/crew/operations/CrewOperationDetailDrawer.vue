@@ -171,8 +171,7 @@ const duplicatedEligibilityMessage = computed(() => {
           <span>Sobrecargo</span>
           <select
             :value="draft.crewId"
-            :disabled="isClosed || !canAssign || availabilityState.disableSelect"
-            @focus="$emit('load-available', operation.id)"
+            :disabled="isClosed || !canAssign"
             @change="$emit('update-draft', operation.id, 'crewId', $event.target.value)"
           >
             <option value="">{{ availabilityState.message }}</option>
@@ -180,7 +179,6 @@ const duplicatedEligibilityMessage = computed(() => {
               {{ member.name }} · {{ member.base || 'Sin base' }}
             </option>
           </select>
-          <small v-if="availabilityState.kind !== 'idle'" class="muted">{{ availabilityState.message }}</small>
         </label>
 
         <label class="field">
