@@ -2721,7 +2721,7 @@ export function usePortalClienteVista(props) {
         access_status: state.status,
         has_paid_access: state.hasPaidAccess,
         access: {
-          ...(auth.user?.access || {}),
+          ...auth.user?.access,
           has_access: hasAccess,
           access_is_active: accessIsActive,
           access_is_expired: accessIsExpired,
@@ -7157,7 +7157,7 @@ export function usePortalClienteVista(props) {
       ...(reservation && typeof reservation === 'object' ? reservation : {}),
       id: reservationId,
       frontend_state: {
-        ...(reservation?.frontend_state || {}),
+        ...reservation?.frontend_state,
         availability_conflict: true,
         availability_conflict_code: String(
           error?.payload?.code || 'AIRCRAFT_ALREADY_RESERVED',
@@ -8480,8 +8480,8 @@ export function usePortalClienteVista(props) {
         ...secondary,
         ...preferred,
         frontend_state: {
-          ...(secondary?.frontend_state || {}),
-          ...(preferred?.frontend_state || {}),
+          ...secondary?.frontend_state,
+          ...preferred?.frontend_state,
         },
         is_reservation: Boolean(current?.is_reservation || item?.is_reservation),
         entity_type:
@@ -8544,8 +8544,8 @@ export function usePortalClienteVista(props) {
         frontend_state:
           currentReservation.frontend_state || reservation.frontend_state || mergedAircraftHold
             ? {
-                ...(currentReservation.frontend_state || {}),
-                ...(reservation.frontend_state || {}),
+                ...currentReservation.frontend_state,
+                ...reservation.frontend_state,
                 ...(mergedAircraftHold ? { aircraft_hold: mergedAircraftHold } : {}),
                 ...(String(
                   reservation?.frontend_state?.quote_key ||

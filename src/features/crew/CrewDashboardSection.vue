@@ -410,7 +410,7 @@ function checklistTone(state) {
           </article>
         </div>
 
-        <button class="ghost-button action-button" type="button" @click="$emit('start-checklist')">
+        <button class="action-button action-button-primary" type="button" @click="$emit('start-checklist')">
           <CrewUiIcon name="checklist" :size="16" />
           Ver misiones y checklist
         </button>
@@ -782,6 +782,41 @@ function checklistTone(state) {
   inset: 0 auto 0 0;
   border-radius: inherit;
   background: linear-gradient(90deg, #d4b154, #15916a);
+}
+
+.action-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: fit-content;
+  padding: 0.8rem 1.15rem;
+  font-weight: 800;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease, border-color 0.18s ease;
+}
+
+.action-button-primary {
+  border: 1px solid rgba(21, 145, 106, 0.28);
+  border-radius: 16px;
+  background: linear-gradient(135deg, #15916a, #0f7a5f);
+  color: #f8fffc;
+  box-shadow: 0 12px 26px rgba(21, 145, 106, 0.24);
+}
+
+.action-button-primary :deep(svg),
+.action-button-primary svg {
+  color: currentColor;
+}
+
+.action-button-primary:hover {
+  transform: translateY(-1px);
+  border-color: rgba(15, 122, 95, 0.9);
+  box-shadow: 0 16px 30px rgba(21, 145, 106, 0.3);
+  background: linear-gradient(135deg, #18a277, #0d6d55);
+}
+
+.action-button-primary:focus-visible {
+  outline: 3px solid rgba(21, 145, 106, 0.18);
+  outline-offset: 2px;
 }
 
 .checklist-item {

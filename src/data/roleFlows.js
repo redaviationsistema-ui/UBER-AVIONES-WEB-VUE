@@ -39,14 +39,10 @@ export const roleSections = {
     { id: 'configuracion', label: 'Configuracion', icon: 'grid' },
   ],
   crew: [
-    { id: 'dashboard', label: 'Centro Operativo', icon: 'overview' },
+    { id: 'dashboard', label: 'Inicio', icon: 'overview' },
     { id: 'disponibilidad', label: 'Disponibilidad', icon: 'calendar', path: '/sobrecargo/disponibilidad' },
-    { id: 'asignaciones', label: 'Operacion', icon: 'link' },
-    { id: 'calendario', label: 'Seguimiento', icon: 'checklist' },
-    { id: 'incidencias', label: 'Incidencias', icon: 'alert' },
-    { id: 'historial', label: 'Historial', icon: 'history' },
+    { id: 'asignaciones', label: 'Mi vuelo', icon: 'link' },
     { id: 'perfil', label: 'Cuenta', icon: 'account' },
-    { id: 'configuracion', label: 'Configuracion', icon: 'grid' },
   ],
   admin: [
     { id: 'ejecutivo', label: 'Dashboard', icon: 'overview' },
@@ -84,11 +80,10 @@ export const roleSectionGroups = {
     { label: 'Membresia', ids: ['membresia'] },
   ],
   crew: [
-    { label: 'Centro Operativo', ids: ['dashboard'] },
+    { label: 'Inicio', ids: ['dashboard'] },
     { label: 'Disponibilidad', ids: ['disponibilidad'] },
-    { label: 'Seguimiento', ids: ['incidencias', 'historial'] },
-    { label: 'Operacion', ids: ['asignaciones', 'calendario'] },
-    { label: 'Cuenta', ids: ['perfil', 'configuracion'] },
+    { label: 'Mi vuelo', ids: ['asignaciones'] },
+    { label: 'Cuenta', ids: ['perfil'] },
   ],
   operator: [
     {
@@ -184,9 +179,13 @@ export function resolveSection(role, section) {
       comparar: 'reservar',
     },
     crew: {
-      agenda: 'calendario',
-      checklist: 'calendario',
-      pagos: 'historial',
+      calendario: 'asignaciones',
+      incidencias: 'asignaciones',
+      historial: 'perfil',
+      configuracion: 'perfil',
+      checklist: 'asignaciones',
+      agenda: 'asignaciones',
+      pagos: 'perfil',
     },
   }
   const sections = roleSections[role] || []

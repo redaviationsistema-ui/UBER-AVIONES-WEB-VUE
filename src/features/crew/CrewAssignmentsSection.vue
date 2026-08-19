@@ -661,13 +661,11 @@ function stageTone(state = '') {
       aria-live="polite"
     >
       <div class="assignment-action-surface" :class="`assignment-action-surface--${props.actionState.tone || 'success'}`">
-        <div class="assignment-action-orb" aria-hidden="true">
-          <span v-if="props.actionState.tone === 'success' && props.actionState.title?.includes('Confirmado')">✓</span>
-          <template v-else>
-            <i></i>
-            <i></i>
-            <i></i>
-          </template>
+        <div class="assignment-action-glow" aria-hidden="true"></div>
+        <div class="assignment-action-spinner-shell">
+          <div class="assignment-action-spinner" aria-hidden="true">
+            <span v-for="segment in 12" :key="`assignment-action-segment-${segment}`"></span>
+          </div>
         </div>
         <p class="eyebrow">Operacion</p>
         <h3>{{ props.actionState.title }}</h3>
@@ -736,22 +734,25 @@ function stageTone(state = '') {
   background:
     radial-gradient(circle at top, rgba(194, 138, 18, 0.14), transparent 34%),
     rgba(248, 246, 241, 0.76);
-  backdrop-filter: blur(12px);
+  backdrop-filter: blur(18px);
 }
 
 .assignment-action-surface {
+  position: relative;
   display: grid;
-  gap: 0.8rem;
-  width: min(420px, 100%);
-  padding: 2rem 1.8rem;
-  border-radius: 28px;
+  justify-items: center;
+  gap: 0.9rem;
+  width: min(42rem, 100%);
+  min-height: 23rem;
+  padding: 2.3rem 2rem 1.9rem;
+  border-radius: 34px;
   border: 1px solid rgba(214, 199, 173, 0.8);
   background: linear-gradient(180deg, rgba(255, 253, 248, 0.98) 0%, rgba(245, 239, 228, 0.96) 100%);
   text-align: center;
   box-shadow:
     0 28px 70px rgba(24, 20, 14, 0.22),
     inset 0 1px 0 rgba(255, 255, 255, 0.76);
-  transform: translateY(-2vh);
+  overflow: hidden;
 }
 
 .assignment-action-surface h3,
@@ -759,48 +760,69 @@ function stageTone(state = '') {
   margin: 0;
 }
 
-.assignment-action-orb {
+.assignment-action-glow {
+  position: absolute;
+  inset: auto 50% 100%;
+  width: 72%;
+  height: 10rem;
+  transform: translateX(-50%);
+  background: radial-gradient(circle, rgba(239, 205, 129, 0.42), transparent 72%);
+  filter: blur(24px);
+}
+
+.assignment-action-spinner-shell {
   position: relative;
   display: grid;
   place-items: center;
-  width: 4.2rem;
-  height: 4.2rem;
-  margin: 0 auto 0.2rem;
+  width: 8.1rem;
+  height: 8.1rem;
+  margin-top: 0.15rem;
   border-radius: 999px;
-  background: radial-gradient(circle at 30% 30%, #fffaf0 0%, #e8d5a6 42%, #c28a12 100%);
-  box-shadow: 0 18px 32px rgba(194, 138, 18, 0.22);
-  color: #1d1a14;
-  font-size: 1.8rem;
-  font-weight: 800;
+  border: 1px solid rgba(229, 212, 176, 0.95);
+  background: linear-gradient(180deg, rgba(255, 250, 239, 0.96), rgba(243, 229, 190, 0.96));
+  box-shadow:
+    0 12px 30px rgba(205, 171, 87, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
 }
 
-.assignment-action-orb i {
+.assignment-action-spinner-shell::before {
+  content: '';
   position: absolute;
-  width: 4.2rem;
-  height: 4.2rem;
+  inset: 0.35rem;
   border-radius: inherit;
-  border: 1px solid rgba(194, 138, 18, 0.24);
-  animation: assignment-action-pulse 1.7s ease-out infinite;
+  border: 1px solid rgba(255, 255, 255, 0.68);
 }
 
-.assignment-action-orb i:nth-child(2) {
-  animation-delay: 0.22s;
+.assignment-action-spinner {
+  position: relative;
+  width: 4.6rem;
+  height: 4.6rem;
 }
 
-.assignment-action-orb i:nth-child(3) {
-  animation-delay: 0.44s;
+.assignment-action-spinner span {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0.62rem;
+  height: 1.72rem;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255, 253, 249, 0.98), rgba(208, 167, 71, 0.24));
+  transform-origin: center -1.35rem;
+  animation: assignment-action-spinner-fade 1.15s linear infinite;
 }
 
-@keyframes assignment-action-pulse {
-  0% {
-    transform: scale(0.84);
-    opacity: 0.7;
-  }
-  100% {
-    transform: scale(1.28);
-    opacity: 0;
-  }
-}
+.assignment-action-spinner span:nth-child(1) { transform: translate(-50%, -50%) rotate(0deg); animation-delay: -1.1s; }
+.assignment-action-spinner span:nth-child(2) { transform: translate(-50%, -50%) rotate(30deg); animation-delay: -1s; }
+.assignment-action-spinner span:nth-child(3) { transform: translate(-50%, -50%) rotate(60deg); animation-delay: -0.9s; }
+.assignment-action-spinner span:nth-child(4) { transform: translate(-50%, -50%) rotate(90deg); animation-delay: -0.8s; }
+.assignment-action-spinner span:nth-child(5) { transform: translate(-50%, -50%) rotate(120deg); animation-delay: -0.7s; }
+.assignment-action-spinner span:nth-child(6) { transform: translate(-50%, -50%) rotate(150deg); animation-delay: -0.6s; }
+.assignment-action-spinner span:nth-child(7) { transform: translate(-50%, -50%) rotate(180deg); animation-delay: -0.5s; }
+.assignment-action-spinner span:nth-child(8) { transform: translate(-50%, -50%) rotate(210deg); animation-delay: -0.4s; }
+.assignment-action-spinner span:nth-child(9) { transform: translate(-50%, -50%) rotate(240deg); animation-delay: -0.3s; }
+.assignment-action-spinner span:nth-child(10) { transform: translate(-50%, -50%) rotate(270deg); animation-delay: -0.2s; }
+.assignment-action-spinner span:nth-child(11) { transform: translate(-50%, -50%) rotate(300deg); animation-delay: -0.1s; }
+.assignment-action-spinner span:nth-child(12) { transform: translate(-50%, -50%) rotate(330deg); animation-delay: 0s; }
 
 .icon-badge {
   width: 2.6rem;
@@ -1362,6 +1384,21 @@ function stageTone(state = '') {
   .quick-summary-card strong {
     overflow-wrap: anywhere;
   }
+
+  .assignment-action-modal {
+    padding: 1rem;
+  }
+
+  .assignment-action-surface {
+    min-height: 20rem;
+    padding: 1.7rem 1.15rem 1.35rem;
+    border-radius: 26px;
+  }
+
+  .assignment-action-spinner-shell {
+    width: 6.9rem;
+    height: 6.9rem;
+  }
 }
 
 @keyframes assignments-shimmer {
@@ -1384,6 +1421,18 @@ function stageTone(state = '') {
   }
   50% {
     transform: scale(1.04);
+    opacity: 1;
+  }
+}
+
+@keyframes assignment-action-spinner-fade {
+  0%,
+  39%,
+  100% {
+    opacity: 0.18;
+  }
+
+  40% {
     opacity: 1;
   }
 }

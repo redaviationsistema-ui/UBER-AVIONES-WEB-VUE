@@ -759,7 +759,7 @@ async function loadOperationalPanels() {
   if (dashboardResponse.status === 'fulfilled') {
     operationsDashboard.value = {
       ...operationsDashboard.value,
-      ...(dashboardResponse.value?.dashboard || {}),
+      ...dashboardResponse.value?.dashboard,
     }
   }
 }

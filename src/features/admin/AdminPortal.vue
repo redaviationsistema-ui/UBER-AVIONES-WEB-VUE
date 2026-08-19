@@ -1048,8 +1048,8 @@ function normalizeAdminAircraft(item = {}) {
       ? relatedSubscription.billing_state
       : null
   const billingState = {
-    ...(relatedBillingState || {}),
-    ...(embeddedBillingState || {}),
+    ...relatedBillingState,
+    ...embeddedBillingState,
   }
   const reviewState =
     item?.review && typeof item.review === 'object'
@@ -3314,7 +3314,7 @@ async function handleActivateAircraft(aircraftId) {
 
     const responseAircraft = response?.aircraft
     const mergedAircraft = normalizeAdminAircraft({
-      ...(aircraft.value.find((item) => Number(item.id) === normalizedAircraftId) || {}),
+      ...aircraft.value.find((item) => Number(item.id) === normalizedAircraftId),
       ...(responseAircraft && typeof responseAircraft === 'object' ? responseAircraft : {}),
       id: normalizedAircraftId,
     })

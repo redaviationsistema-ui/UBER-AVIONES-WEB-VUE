@@ -11,6 +11,7 @@ const error = ref('')
 const notifications = ref([])
 const unreadCount = ref(0)
 const panel = ref(null)
+const loadedOnce = ref(false)
 
 const hasNotifications = computed(() => notifications.value.length > 0)
 
@@ -26,6 +27,7 @@ async function loadNotifications() {
     const response = await api.get('/notifications', { query: { per_page: 20 } })
     notifications.value = normalizePage(response)
     unreadCount.value = Number(response.unread_count ?? response.data?.unread_count ?? notifications.value.filter((item) => !item.read_at).length)
+    loadedOnce.value = true
   } catch (loadError) {
     error.value = normalizeApiError(loadError).message
   } finally {
@@ -36,7 +38,9 @@ async function loadNotifications() {
 async function toggle() {
   open.value = !open.value
   if (open.value) {
-    await loadNotifications()
+    if (!loadedOnce.value) {
+      await loadNotifications()
+    }
     await nextTick()
     panel.value?.focus()
   }
@@ -71,7 +75,6 @@ function onKeydown(event) {
 
 onMounted(() => {
   window.addEventListener('keydown', onKeydown)
-  void loadNotifications()
 })
 onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 </script>

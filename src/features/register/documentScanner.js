@@ -856,10 +856,10 @@ function resolveField(candidates = [], options = {}) {
 
 function resolveName({ frontName, mrzName, barcodeName, generalOcrName } = {}) {
   const candidates = [
-    { ...(frontName || {}), priority: 4 },
-    { ...(mrzName || {}), priority: 3 },
-    { ...(barcodeName || {}), priority: 2 },
-    { ...(generalOcrName || {}), priority: 1 },
+    { ...frontName, priority: 4 },
+    { ...mrzName, priority: 3 },
+    { ...barcodeName, priority: 2 },
+    { ...generalOcrName, priority: 1 },
   ]
     .filter((candidate) => candidate?.value)
     .map((candidate) => ({
@@ -1382,7 +1382,7 @@ function mapFormFieldToStructuredKey(fieldKey = '') {
 
 function ensureExpectedFields(result = {}, normalizedDocumentType) {
   const expectedFields = DOCUMENT_FIELD_MAP[normalizedDocumentType] || DOCUMENT_FIELD_MAP.custom
-  const nextFields = { ...(result.fields || {}) }
+  const nextFields = { ...result.fields }
 
   expectedFields
     .map((fieldKey) => mapFormFieldToStructuredKey(fieldKey))
@@ -1638,7 +1638,7 @@ export async function scanDocumentFiles(input = {}, options = {}) {
         fields: resolved.fields,
         quality: {
           ...aggregatedQuality,
-          ...(response.quality || {}),
+          ...response.quality,
         },
         debug: {
           enabled: false,
@@ -1662,7 +1662,7 @@ export async function scanDocumentFiles(input = {}, options = {}) {
     timings.totalMs = Math.round(nowMs() - report.startedAt)
     merged.processingTimeMs = Number(response?.processingTimeMs || timings.totalMs)
     merged.timings = {
-      ...(response?.timings || {}),
+      ...response?.timings,
       ...timings,
     }
     merged.stages = report.entries

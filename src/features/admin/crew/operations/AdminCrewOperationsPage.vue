@@ -253,6 +253,7 @@ const selectedDraft = computed(() =>
         :selected-crew-member="controller.selectedDraftCrew(controller.selectedOperation)"
         :selected-crew-availability-state="controller.selectedCrewAvailabilityState(controller.selectedOperation)"
         :assignment-eligibility-state="controller.assignmentEligibilityState(controller.selectedOperation)"
+        :show-assignment-status-cards="false"
         :assignment-error="controller.assignmentErrors[controller.selectedOperation.id] || ''"
         :assignment-window-message="controller.assignmentWindowMessage(controller.selectedOperation)"
         :can-assign="controller.operationAllowsAssignment(controller.selectedOperation)"

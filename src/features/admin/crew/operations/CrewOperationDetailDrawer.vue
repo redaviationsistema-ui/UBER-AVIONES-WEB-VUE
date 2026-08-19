@@ -38,6 +38,7 @@ const props = defineProps({
       detail: '',
     }),
   },
+  showAssignmentStatusCards: { type: Boolean, default: true },
   canAssign: { type: Boolean, default: false },
   canSubmitAssignment: { type: Boolean, default: false },
   isClosed: { type: Boolean, default: false },
@@ -215,13 +216,17 @@ const duplicatedEligibilityMessage = computed(() => {
         </label>
       </div>
 
-      <div class="availability-card">
+      <div v-if="showAssignmentStatusCards" class="availability-card">
         <span class="eyebrow">{{ selectedCrewAvailabilityState.title }}</span>
         <strong>{{ selectedCrewAvailabilityState.message }}</strong>
         <p v-if="selectedCrewAvailabilityState.detail">{{ selectedCrewAvailabilityState.detail }}</p>
       </div>
 
-      <div class="availability-card" :class="{ 'availability-card--blocked': !assignmentEligibilityState.canAssign }">
+      <div
+        v-if="showAssignmentStatusCards"
+        class="availability-card"
+        :class="{ 'availability-card--blocked': !assignmentEligibilityState.canAssign }"
+      >
         <span class="eyebrow">{{ assignmentEligibilityState.title }}</span>
         <strong>{{ assignmentEligibilityState.message }}</strong>
         <p v-if="assignmentEligibilityState.detail">{{ assignmentEligibilityState.detail }}</p>

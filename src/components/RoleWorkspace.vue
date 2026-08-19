@@ -62,7 +62,7 @@ const isSessionReady = computed(() => auth.initialized && auth.isAuthenticated)
 const isAdminWorkspace = computed(() => props.activeRole === 'admin' && usesWorkspaceMenu.value)
 const showPortalHeader = computed(
   () => {
-    if (props.activeRole === 'crew' && props.section === 'perfil') return false
+    if (props.activeRole === 'crew') return false
     if (props.section === 'incidencias') return false
     return true
   },
@@ -327,10 +327,16 @@ function resolveActiveGroupLabel() {
   )
 }
 
-function openMenuGroup(label) {
+async function openMenuGroup(label) {
   const targetGroup = groupedMenu.value.find((group) => group.label === label)
 
   if (!targetGroup) return
+  if (targetGroup.items.length === 1) {
+    activeMenuGroup.value = label
+    desktopMenuOpen.value = false
+    await handleWorkspaceNavigation(targetGroup.items[0])
+    return
+  }
 
   const isCurrentGroup = activeMenuGroup.value === label
   activeMenuGroup.value = label
