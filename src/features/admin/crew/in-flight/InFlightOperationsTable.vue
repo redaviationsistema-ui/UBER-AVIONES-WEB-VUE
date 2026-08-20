@@ -9,6 +9,21 @@ defineProps({
 })
 
 defineEmits(['select', 'open-detail'])
+
+function normalizeChecklistState(value = '') {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (['completed', 'correcto', 'ok', 'done', 'completado'].includes(normalized)) return 'completed'
+  if (['not_applicable', 'not applicable', 'na', 'no aplica'].includes(normalized)) return 'not_applicable'
+  if (['failed', 'issue', 'falla', 'falla reportada'].includes(normalized)) return 'failed'
+  return 'pending'
+}
+
+function checklistSummary(operation = {}) {
+  const groups = Array.isArray(operation.checklists) ? operation.checklists : []
+  const items = groups.flatMap((group) => (Array.isArray(group?.items) ? group.items : []))
+  const resolved = items.filter((item) => normalizeChecklistState(item?.status) !== 'pending').length
+  return { resolved, total: items.length }
+}
 </script>
 
 <template>
@@ -45,6 +60,9 @@ defineEmits(['select', 'open-detail'])
                 <strong>{{ operation.folio || `RA-${operation.id}` }}</strong>
                 <small>{{ operation.route }}</small>
                 <small>{{ operationDisplayClient(operation) }}</small>
+                <small v-if="checklistSummary(operation).total">
+                  Bitacora {{ checklistSummary(operation).resolved }}/{{ checklistSummary(operation).total }}
+                </small>
               </div>
             </td>
             <td>{{ formatDateTime(operation.departure) }}</td>

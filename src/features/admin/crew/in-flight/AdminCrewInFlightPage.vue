@@ -1,5 +1,6 @@
 <script setup>
 import { computed, reactive } from 'vue'
+import CrewOperationLogbookView from '../operations/CrewOperationLogbookView.vue'
 import CrewOperationsAuditLog from '../operations/CrewOperationsAuditLog.vue'
 import CrewOperationsFilters from '../operations/CrewOperationsFilters.vue'
 import InFlightOperationDrawer from './InFlightOperationDrawer.vue'
@@ -34,10 +35,6 @@ function formatDateTime(value) {
 
 function operationStatusLabel(operation = {}) {
   return operation.workflowStatus || operation.status || 'Pendiente'
-}
-
-function operationCrewStateLabel(operation = {}) {
-  return controller.operationCrewStateLabel(operation, controller.linkedCrewForOperation(operation))
 }
 
 function auditEntrySummary(entry = {}) {
@@ -158,9 +155,25 @@ const selectedDraft = computed(() =>
         <span>Bitacora</span>
         <strong>{{ controller.auditQueue.length }}</strong>
       </button>
+      <button
+        type="button"
+        class="tab-button"
+        :class="{ 'tab-button--active': controller.activeTab === 'logbook' }"
+        :disabled="!controller.selectedOperation"
+        @click="controller.selectedOperation && (controller.activeTab = 'logbook')"
+      >
+        <span>Bitácora del vuelo</span>
+        <strong>{{ controller.selectedOperation ? controller.selectedOperation.folio || `RA-${controller.selectedOperation.id}` : 'Selecciona un vuelo' }}</strong>
+      </button>
     </div>
 
-    <div class="workspace-grid" :class="{ 'workspace-grid--assigned': controller.activeTab === 'operations' && controller.selectedOperation }">
+    <CrewOperationLogbookView
+      v-if="controller.activeTab === 'logbook' && controller.selectedOperation"
+      :operation="controller.selectedOperation"
+      :format-date-time="formatDateTime"
+    />
+
+    <div v-else class="workspace-grid" :class="{ 'workspace-grid--assigned': controller.activeTab === 'operations' && controller.selectedOperation }">
       <InFlightOperationsTable
         v-if="controller.activeTab === 'operations'"
         :operations="controller.filteredOperations"

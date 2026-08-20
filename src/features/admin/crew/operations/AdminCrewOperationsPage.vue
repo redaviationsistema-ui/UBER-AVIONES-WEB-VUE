@@ -4,6 +4,7 @@ import { api } from '../../../../lib/api'
 import { normalizeApiError } from '../../../../lib/apiError'
 import CrewOperationsAuditLog from './CrewOperationsAuditLog.vue'
 import CrewOperationDetailDrawer from './CrewOperationDetailDrawer.vue'
+import CrewOperationLogbookView from './CrewOperationLogbookView.vue'
 import CrewOperationsFilters from './CrewOperationsFilters.vue'
 import CrewOperationsTable from './CrewOperationsTable.vue'
 import { useCrewOperations } from '../composables/useCrewOperations'
@@ -65,10 +66,6 @@ function formatDateTime(value) {
 
 function operationStatusLabel(operation = {}) {
   return operation.workflowStatus || operation.status || 'Pendiente'
-}
-
-function operationCrewStateLabel(operation = {}) {
-  return controller.operationCrewStateLabel(operation, controller.linkedCrewForOperation(operation))
 }
 
 function auditEntrySummary(entry = {}) {
@@ -217,9 +214,25 @@ const selectedDraft = computed(() =>
         <span>Bitacora</span>
         <strong>{{ controller.auditQueue.length }}</strong>
       </button>
+      <button
+        type="button"
+        class="tab-button"
+        :class="{ 'tab-button--active': controller.activeTab === 'logbook' }"
+        :disabled="!controller.selectedOperation"
+        @click="controller.selectedOperation && (controller.activeTab = 'logbook')"
+      >
+        <span>Bitácora del vuelo</span>
+        <strong>{{ controller.selectedOperation ? controller.selectedOperation.folio || `RA-${controller.selectedOperation.id}` : 'Selecciona un vuelo' }}</strong>
+      </button>
     </div>
 
-    <div class="workspace-grid" :class="{ 'workspace-grid--assigned': controller.activeTab === 'operations' && controller.selectedOperation }">
+    <CrewOperationLogbookView
+      v-if="controller.activeTab === 'logbook' && controller.selectedOperation"
+      :operation="controller.selectedOperation"
+      :format-date-time="formatDateTime"
+    />
+
+    <div v-else class="workspace-grid" :class="{ 'workspace-grid--assigned': controller.activeTab === 'operations' && controller.selectedOperation }">
       <CrewOperationsTable
         v-if="controller.activeTab === 'operations'"
         :operations="controller.filteredOperations"
@@ -447,6 +460,10 @@ const selectedDraft = computed(() =>
   background: rgba(30, 78, 216, 0.1);
   color: var(--crew-primary);
   font-size: 0.78rem;
+  max-width: 10rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tab-button:focus-visible {

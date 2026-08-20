@@ -20,6 +20,7 @@ const AdminAircraftSubscriptionsSection = defineAsyncComponent(() => import('./A
 const AdminCrewAvailabilityPage = defineAsyncComponent(() => import('./crew/availability/AdminCrewAvailabilityPage.vue'))
 const AdminCrewDirectoryPage = defineAsyncComponent(() => import('./crew/directory/AdminCrewDirectoryPage.vue'))
 const AdminCrewInFlightPage = defineAsyncComponent(() => import('./crew/in-flight/AdminCrewInFlightPage.vue'))
+const AdminCrewLogbookPage = defineAsyncComponent(() => import('./crew/logbook/AdminCrewLogbookPage.vue'))
 const AdminCrewOperationsPage = defineAsyncComponent(() => import('./crew/operations/AdminCrewOperationsPage.vue'))
 const AdminContractsSection = defineAsyncComponent(() => import('./AdminContractsSection.vue'))
 const AdminExecutiveSection = defineAsyncComponent(() => import('./AdminExecutiveSection.vue'))
@@ -357,6 +358,15 @@ const adminSections = {
     fields: ['Vuelo', 'Fecha', 'Aeronave', 'Sobrecargo', 'Estado crew'],
     details: ['Ruta', 'Cliente', 'Presentacion', 'Incidencias', 'Trazabilidad'],
     edits: ['Sobrecargo', 'Hora de presentacion', 'Lugar de presentacion', 'Nota operativa'],
+  },
+  'sobrecargos-bitacora': {
+    eyebrow: 'Sobrecargos',
+    title: 'Bitácora en vuelo',
+    description: 'Abre una vista dedicada para revisar el checklist, seguimiento y cierre operativo del sobrecargo por vuelo.',
+    actions: ['Seleccionar vuelo', 'Abrir bitácora', 'Revisar checklist', 'Validar cierre'],
+    fields: ['Vuelo', 'Fecha', 'Aeronave', 'Sobrecargo', 'Estado'],
+    details: ['Checklist', 'Seguimiento', 'Post-vuelo', 'Incidencias', 'Trazabilidad'],
+    edits: ['Lectura operativa'],
   },
   reservas: {
     eyebrow: 'Reservas',
@@ -763,6 +773,7 @@ const normalizedSectionSources = computed(() => ({
   disponibilidad: crewMembers.value,
   'sobrecargo-operaciones': crewMembers.value,
   'sobrecargos-en-vuelo': crewMembers.value,
+  'sobrecargos-bitacora': crewMembers.value,
   reservas: operations.value,
   liberaciones: operations.value,
   vuelos: operations.value,
@@ -798,6 +809,12 @@ const dynamicSectionHighlights = computed(() => ({
   'sobrecargos-en-vuelo': [
     { label: 'En servicio', value: formatCount(crewInServiceCount.value), detail: 'Sobrecargos ya ligados a una operacion activa.' },
     { label: 'Disponibles', value: formatCount(availableCrewCount.value), detail: 'Tripulacion libre para nuevas asignaciones.' },
+    { label: 'Aprobados', value: formatCount(approvedCrewCount.value), detail: 'Perfiles que ya pueden operar.' },
+    { label: 'Con alerta', value: formatCount(crewAlertsCount.value), detail: 'Casos con seguimiento operativo o documental.' },
+  ],
+  'sobrecargos-bitacora': [
+    { label: 'En servicio', value: formatCount(crewInServiceCount.value), detail: 'Sobrecargos con vuelo activo y bitácora disponible.' },
+    { label: 'Disponibles', value: formatCount(availableCrewCount.value), detail: 'Tripulación libre para nuevas asignaciones.' },
     { label: 'Aprobados', value: formatCount(approvedCrewCount.value), detail: 'Perfiles que ya pueden operar.' },
     { label: 'Con alerta', value: formatCount(crewAlertsCount.value), detail: 'Casos con seguimiento operativo o documental.' },
   ],
@@ -1535,6 +1552,99 @@ function normalizeAdminCrewMember(item = {}) {
 }
 
 const reservationRecords = computed(() => operations.value)
+
+function normalizeCrewChecklistState(value = '') {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (['completed', 'correcto', 'ok', 'done', 'completado'].includes(normalized)) return 'completed'
+  if (['not_applicable', 'not applicable', 'na', 'no aplica'].includes(normalized)) return 'not_applicable'
+  if (['failed', 'issue', 'falla', 'falla reportada'].includes(normalized)) return 'failed'
+  return 'pending'
+}
+
+function crewChecklistStateLabel(state = 'pending') {
+  if (state === 'completed') return 'Registrado'
+  if (state === 'not_applicable') return 'No aplica'
+  if (state === 'failed') return 'Falla reportada'
+  return 'Pendiente'
+}
+
+function humanizeCrewChecklistType(value = '') {
+  const normalized = String(value || '').trim().toLowerCase()
+  const labels = {
+    preparation: 'Preparacion',
+    preflight: 'Checklist pre-vuelo',
+    postflight: 'Checklist post-vuelo',
+  }
+
+  return labels[normalized] || value || 'Checklist'
+}
+
+function humanizeCrewChecklistCategory(value = '') {
+  const normalized = String(value || '').trim().toLowerCase()
+  const labels = {
+    personal: 'Documentacion personal',
+    logistics: 'Traslado y presentacion',
+    operation: 'Informacion del vuelo',
+    passengers: 'Pasajeros',
+    service: 'Servicio',
+    cabin: 'Cabina',
+    safety: 'Seguridad',
+  }
+
+  return labels[normalized] || value || 'General'
+}
+
+function buildCrewChecklistGroups(source = []) {
+  return (Array.isArray(source) ? source : [])
+    .map((group, groupIndex) => {
+      const type = group?.type || group?.category || `group-${groupIndex + 1}`
+      const items = Array.isArray(group?.items)
+        ? group.items.map((item, itemIndex) => ({
+          id: item.id || item.code || item.label || item.name || `${type}-${itemIndex}`,
+          title: item.label || item.description || item.name || item.code || 'Checklist sin nombre',
+          category: item.category || 'general',
+          state: normalizeCrewChecklistState(item.status),
+          stateLabel: crewChecklistStateLabel(normalizeCrewChecklistState(item.status)),
+        }))
+        : []
+
+      const categoriesMap = new Map()
+      items.forEach((item) => {
+        const key = String(item.category || 'general')
+        if (!categoriesMap.has(key)) {
+          categoriesMap.set(key, {
+            id: key,
+            label: humanizeCrewChecklistCategory(key),
+            items: [],
+          })
+        }
+        categoriesMap.get(key).items.push(item)
+      })
+
+      const categories = Array.from(categoriesMap.values()).map((category) => {
+        const resolved = category.items.filter((item) => item.state !== 'pending').length
+        return {
+          ...category,
+          resolved,
+          total: category.items.length,
+        }
+      })
+
+      const resolved = items.filter((item) => item.state !== 'pending').length
+
+      return {
+        id: group?.id || type,
+        type,
+        label: humanizeCrewChecklistType(type),
+        items,
+        categories,
+        resolved,
+        total: items.length,
+      }
+    })
+    .filter((group) => group.total > 0)
+}
+
 const crewAuditEntries = computed(() => {
   return operations.value
     .filter((operation) => Number(operation?.raw?.operation?.id || operation?.operation?.id || 0) > 0)
@@ -1545,6 +1655,9 @@ const crewAuditEntries = computed(() => {
       const crewName = String(operation.crew || '').trim() || 'Sin sobrecargo'
       const operationStatus = String(rawOperation.status || operation.workflowStatus || operation.status || 'Sin estado')
       const aircraft = String(operation.aircraft || '').trim() || 'Aeronave por definir'
+      const checklistGroups = buildCrewChecklistGroups(operation.checklists || rawOperation.checklists || [])
+      const checklistResolved = checklistGroups.reduce((acc, group) => acc + group.resolved, 0)
+      const checklistTotal = checklistGroups.reduce((acc, group) => acc + group.total, 0)
 
       return {
         id: `operation-${rawOperation.id || operation.id}`,
@@ -1554,6 +1667,11 @@ const crewAuditEntries = computed(() => {
             .slice(0, 16) || 'Sin fecha',
         title: `Operacion #${rawOperation.id || operation.id}`,
         detail: `Vuelo ${operation.folio || `RA-${operation.id}`} · ${aircraft} · ${crewName} · Estado ${operationStatus}`,
+        flightLabel: operation.folio || `RA-${operation.id}`,
+        crewName,
+        checklistGroups,
+        checklistResolved,
+        checklistTotal,
       }
     })
     .sort((left, right) => String(right.date || '').localeCompare(String(left.date || '')))
@@ -2369,7 +2487,7 @@ async function loadPortalSection(section, options = {}) {
     return
   }
 
-  if (section === 'sobrecargos' || section === 'disponibilidad' || section === 'sobrecargo-operaciones' || section === 'sobrecargos-en-vuelo') {
+  if (section === 'sobrecargos' || section === 'disponibilidad' || section === 'sobrecargo-operaciones' || section === 'sobrecargos-en-vuelo' || section === 'sobrecargos-bitacora') {
     if (section === 'disponibilidad') {
       await loadOperations({
         silent: true,
@@ -2449,6 +2567,7 @@ function shouldWarmCrewSection(section = props.section) {
     'disponibilidad',
     'sobrecargo-operaciones',
     'sobrecargos-en-vuelo',
+    'sobrecargos-bitacora',
     'reservas',
     'liberaciones',
     'documentos',
@@ -3704,6 +3823,12 @@ watch(
     :operations="operations"
     :audit-entries="crewAuditEntries"
     @assign-crew="assignCrewToOperation"
+  />
+  <AdminCrewLogbookPage
+    v-else-if="section === 'sobrecargos-bitacora'"
+    :crew-members="crewMembers"
+    :operations="operations"
+    :audit-entries="crewAuditEntries"
   />
   <AdminCrewAvailabilityPage
     v-else-if="section === 'disponibilidad'"

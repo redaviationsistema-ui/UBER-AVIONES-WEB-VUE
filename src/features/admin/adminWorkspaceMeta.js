@@ -12,6 +12,7 @@ export const adminSectionDescriptions = {
   disponibilidad: 'Cobertura diaria, bloqueos y lectura de capacidad.',
   'sobrecargo-operaciones': 'Asignaciones, briefing y ejecucion operativa de cabina.',
   'sobrecargos-en-vuelo': 'Seguimiento activo de vuelos con sobrecargo asignado.',
+  'sobrecargos-bitacora': 'Vista dedicada de la bitácora operativa y checklist del sobrecargo en vuelo.',
   reservas: 'Pipeline del cliente desde solicitud hasta cierre.',
   liberaciones: 'Autorizaciones y checkpoints del release operativo.',
   suscripciones: 'Planes, renovaciones, membresias y capas de acceso.',

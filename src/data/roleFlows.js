@@ -59,6 +59,7 @@ export const roleSections = {
     { id: 'disponibilidad', label: 'Disponibilidad', icon: 'calendar', path: '/admin/sobrecargos/disponibilidad' },
     { id: 'sobrecargo-operaciones', label: 'Operaciones de sobrecargos', icon: 'link', path: '/admin/sobrecargos/operaciones' },
     { id: 'sobrecargos-en-vuelo', label: 'Sobrecargos en vuelo', icon: 'jet', path: '/admin/sobrecargos/en-vuelo' },
+    { id: 'sobrecargos-bitacora', label: 'Bitácora en vuelo', icon: 'history', path: '/admin/sobrecargos/bitacora' },
     { id: 'reservas', label: 'Flujo del cliente', icon: 'reservations' },
     { id: 'liberaciones', label: 'Liberaciones', icon: 'clipboard' },
     { id: 'suscripciones', label: 'Suscripciones', icon: 'wallet' },
@@ -99,7 +100,7 @@ export const roleSectionGroups = {
       label: 'Operacion y Proveedores',
       ids: ['proveedores', 'aeronaves', 'disponibilidad-aeronaves', 'vuelos', 'pagos-proveedor', 'liberaciones', 'documentos'],
     },
-    { label: 'Sobrecargos', ids: ['sobrecargos', 'disponibilidad', 'sobrecargo-operaciones', 'sobrecargos-en-vuelo', 'incidencias'] },
+    { label: 'Sobrecargos', ids: ['sobrecargos', 'disponibilidad', 'sobrecargo-operaciones', 'sobrecargos-en-vuelo', 'sobrecargos-bitacora', 'incidencias'] },
     { label: 'Control Interno', ids: ['ejecutivo', 'importaciones', 'usuarios', 'auditoria', 'reportes', 'configuracion'] },
   ],
 }

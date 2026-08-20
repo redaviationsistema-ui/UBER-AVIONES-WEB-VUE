@@ -1,5 +1,5 @@
 import { api } from '../../lib/api'
-import { pickCollection, requestWithCandidates } from '../../lib/backendCrud'
+import { pickCollection, pickRecord, requestWithCandidates } from '../../lib/backendCrud'
 import {
   buildWorkflowApiPayload,
   resolveMostAdvancedWorkflowValue,
@@ -33,9 +33,21 @@ const ADMIN_RELEASES_PATH_CANDIDATES = [
   '/admin/reservas',
 ]
 
+const ADMIN_OPERATION_WORKFLOW_PATH_CANDIDATES = [
+  '/admin/crew/operations/:id/workflow',
+]
+
 const ADMIN_UPDATE_PATH_CANDIDATES = [
   '/admin/requests/:id/workflow',
   normalizedConfiguredWorkflowPath,
+  '/admin/requests/:id',
+  normalizedConfiguredAdminRequestDetailPath,
+  '/admin/solicitudes/:id',
+  '/admin/reservations/:id',
+  '/admin/reservas/:id',
+].filter(Boolean)
+
+const ADMIN_DETAIL_PATH_CANDIDATES = [
   '/admin/requests/:id',
   normalizedConfiguredAdminRequestDetailPath,
   '/admin/solicitudes/:id',
@@ -110,6 +122,45 @@ function buildAdminIdentifiers(record = {}) {
       normalizeEntityIdentifier(record.request?.id) ||
       normalizeEntityIdentifier(record.id),
   }
+}
+
+function resolveAdminOperationId(record = {}) {
+  const nestedReservation =
+    record.reservation && typeof record.reservation === 'object'
+      ? record.reservation
+      : record.flight_request && typeof record.flight_request === 'object'
+        ? record.flight_request
+        : record.request && typeof record.request === 'object'
+          ? record.request
+          : {}
+  const visibilityPayload =
+    record.visibility_payload && typeof record.visibility_payload === 'object'
+      ? record.visibility_payload
+      : {}
+  const visibilityOperation =
+    visibilityPayload.operation && typeof visibilityPayload.operation === 'object'
+      ? visibilityPayload.operation
+      : {}
+  const directOperation = record.operation && typeof record.operation === 'object' ? record.operation : {}
+  const latestOperation = record.latestOperation && typeof record.latestOperation === 'object' ? record.latestOperation : {}
+  const nestedOperation =
+    nestedReservation.operation && typeof nestedReservation.operation === 'object'
+      ? nestedReservation.operation
+      : {}
+  const nestedLatestOperation =
+    nestedReservation.latestOperation && typeof nestedReservation.latestOperation === 'object'
+      ? nestedReservation.latestOperation
+      : {}
+
+  return (
+    normalizeEntityIdentifier(record.operationId) ||
+    normalizeEntityIdentifier(record.operation_id) ||
+    normalizeEntityIdentifier(directOperation.id) ||
+    normalizeEntityIdentifier(latestOperation.id) ||
+    normalizeEntityIdentifier(nestedOperation.id) ||
+    normalizeEntityIdentifier(nestedLatestOperation.id) ||
+    normalizeEntityIdentifier(visibilityOperation.id)
+  )
 }
 
 function collectCrewSources(record = {}, nestedReservation = {}) {
@@ -202,6 +253,7 @@ function buildAdminReservationRecord(record = {}) {
       '',
   }
   const identifiers = buildAdminIdentifiers(record)
+  const operationId = resolveAdminOperationId(record)
   const adminFlow = record.visibility_payload?.admin_flow && typeof record.visibility_payload.admin_flow === 'object'
     ? record.visibility_payload.admin_flow
     : {}
@@ -210,6 +262,32 @@ function buildAdminReservationRecord(record = {}) {
     record.visibility_payload && typeof record.visibility_payload === 'object'
       ? record.visibility_payload
       : {}
+  const directOperation = record.operation && typeof record.operation === 'object' ? record.operation : {}
+  const latestOperation = record.latestOperation && typeof record.latestOperation === 'object' ? record.latestOperation : {}
+  const nestedOperation =
+    nestedReservation.operation && typeof nestedReservation.operation === 'object'
+      ? nestedReservation.operation
+      : {}
+  const nestedLatestOperation =
+    nestedReservation.latestOperation && typeof nestedReservation.latestOperation === 'object'
+      ? nestedReservation.latestOperation
+      : {}
+  const visibilityOperation =
+    visibilityPayload.operation && typeof visibilityPayload.operation === 'object'
+      ? visibilityPayload.operation
+      : {}
+  const resolvedChecklists =
+    [
+      record.checklists,
+      directOperation.checklists,
+      latestOperation.checklists,
+      nestedReservation.checklists,
+      nestedOperation.checklists,
+      nestedLatestOperation.checklists,
+      visibilityPayload.checklists,
+      visibilityOperation.checklists,
+    ]
+      .find(Array.isArray) || []
   const departureValue =
     normalizedTrip.departure_datetime ||
     record.departure_datetime ||
@@ -327,6 +405,8 @@ function buildAdminReservationRecord(record = {}) {
     id: identifiers.reservationId || identifiers.requestId || normalizedTrip.id,
     requestId: identifiers.requestId || identifiers.reservationId || normalizedTrip.flight_request_id || normalizedTrip.id,
     reservationId: identifiers.reservationId || identifiers.requestId || normalizedTrip.id,
+    operationId,
+    flightRequestId: identifiers.requestId || identifiers.reservationId || normalizedTrip.flight_request_id || normalizedTrip.id,
     folio:
       record.folio ||
       record.code ||
@@ -476,6 +556,7 @@ function buildAdminReservationRecord(record = {}) {
       visibilityPayload.vip_requirements ||
       '',
     crewAssignment,
+    assignment: crewAssignment,
     internalContact:
       record.internal_contact ||
       record.admin_contact ||
@@ -502,6 +583,7 @@ function buildAdminReservationRecord(record = {}) {
       record.operation?.crew_notes ||
       visibilityPayload.crew_notes ||
       '',
+    checklists: resolvedChecklists,
     raw: record,
   }
 }
@@ -684,6 +766,149 @@ function extractUpdatedRecord(payload = {}, fallback = {}) {
   )
 }
 
+function normalizeWorkflowRecord(payload = {}) {
+  const workflow = pickRecord(payload, ['workflow', 'operation', 'data'])
+  return workflow && typeof workflow === 'object' ? workflow : {}
+}
+
+function extractWorkflowChecklists(workflow = {}) {
+  return (
+    workflow?.checklists ||
+    workflow?.assignment?.checklists ||
+    workflow?.operation?.checklists ||
+    []
+  )
+}
+
+function hasMeaningfulAdminDetailPayload(payload = {}) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false
+
+  return Object.keys(payload).length > 0
+}
+
+function mergeAdminOperationDetail(operation = {}, detailedOperation = {}) {
+  const mergedRaw = {
+    ...(operation.raw && typeof operation.raw === 'object' ? operation.raw : {}),
+    ...(detailedOperation.raw && typeof detailedOperation.raw === 'object' ? detailedOperation.raw : {}),
+  }
+
+  return {
+    ...operation,
+    ...detailedOperation,
+    raw: mergedRaw,
+    id: operation.id || detailedOperation.id,
+    requestId: operation.requestId || detailedOperation.requestId,
+    reservationId: operation.reservationId || detailedOperation.reservationId,
+    operationId: operation.operationId || detailedOperation.operationId,
+    flightRequestId: operation.flightRequestId || detailedOperation.flightRequestId || operation.requestId,
+  }
+}
+
+function applyWorkflowSnapshotToAdminOperation(operation = {}, workflowPayload = {}) {
+  const crewWorkflowStatus = String(
+    workflowPayload.crew_status ||
+    workflowPayload.status ||
+    workflowPayload.workflow_status ||
+    '',
+  ).trim()
+  const preservedWorkflowStatus = String(operation.workflowStatus || '').trim()
+  const preservedStatus = String(operation.status || '').trim()
+  const timeline = Array.isArray(workflowPayload.timeline) ? workflowPayload.timeline : operation.timeline || []
+  const checklists = Array.isArray(workflowPayload.checklists) ? workflowPayload.checklists : operation.checklists || []
+  const finalReport =
+    workflowPayload.final_report ??
+    workflowPayload.report ??
+    operation.finalReport ??
+    null
+
+  const mergedOperation = {
+    ...operation,
+    operationId: operation.operationId || resolveAdminOperationId(operation.raw || {}) || '',
+    flightRequestId: operation.flightRequestId || operation.requestId || '',
+    timeline,
+    checklists,
+    finalReport,
+    workflowStatus: preservedWorkflowStatus || crewWorkflowStatus,
+    status: preservedStatus || crewWorkflowStatus,
+    crewStatus: crewWorkflowStatus || operation.crewStatus || '',
+    crewOperationalState: crewWorkflowStatus || operation.crewOperationalState || '',
+    canonicalWorkflow: workflowPayload,
+  }
+
+  return mergedOperation
+}
+
+async function fetchAdminOperationWorkflow(record = {}, options = {}) {
+  const operationId = resolveAdminOperationId(record)
+  if (!operationId) {
+    console.warn('ADMIN WORKFLOW UNAVAILABLE', {
+      operationId: null,
+      message: 'No se puede cargar workflow: falta operationId',
+    })
+    return null
+  }
+
+  const candidates = ADMIN_OPERATION_WORKFLOW_PATH_CANDIDATES.map((path) => ({
+    method: 'get',
+    path: replaceRouteId(path, operationId),
+    timeoutMs: options.timeoutMs,
+  }))
+
+  let lastError = null
+
+  for (const candidate of candidates) {
+    try {
+      const response = await requestWithCandidates([candidate], { signal: options.signal })
+      const workflowRecord = normalizeWorkflowRecord(response)
+
+      if (!hasMeaningfulAdminDetailPayload(workflowRecord)) {
+        continue
+      }
+      return workflowRecord
+    } catch (error) {
+      lastError = error
+      console.error('ADMIN WORKFLOW ERROR', {
+        operationId: operationId || null,
+        url: candidate.path,
+        status: error?.status || error?.response?.status || null,
+        response: error?.payload || error?.response?.data || null,
+        message: error?.message || 'Unknown admin workflow error',
+      })
+
+      const status = Number(error?.status || 0)
+      const shouldTryNext =
+        status === 404 ||
+        status === 405 ||
+        status === 0
+
+      if (!shouldTryNext) {
+        throw error
+      }
+    }
+  }
+
+  if (lastError) {
+    console.warn('ADMIN WORKFLOW UNAVAILABLE', {
+      operationId: operationId || null,
+      message: lastError?.message || 'No workflow/detail payload available for admin operation.',
+    })
+  }
+
+  return null
+}
+
+async function hydrateAdminReservationsWithWorkflow(records = [], options = {}) {
+  const hydrated = await Promise.all(
+    records.map(async (operation) => {
+      const workflowPayload = await fetchAdminOperationWorkflow(operation, options)
+      if (!workflowPayload || !Object.keys(workflowPayload).length) return operation
+      return applyWorkflowSnapshotToAdminOperation(operation, workflowPayload)
+    }),
+  )
+
+  return hydrated
+}
+
 export async function getAdminReservations(options = {}) {
   const response = await requestWithCandidates(
     ADMIN_REQUESTS_PATH_CANDIDATES.map((path) => ({
@@ -694,10 +919,10 @@ export async function getAdminReservations(options = {}) {
     })),
     { signal: options.signal },
   )
-
-  return pickCollection(response, ['operations', 'operaciones', 'requests', 'solicitudes', 'flight_requests', 'data']).map(
+  const records = pickCollection(response, ['operations', 'operaciones', 'requests', 'solicitudes', 'flight_requests', 'data']).map(
     buildAdminReservationRecord,
   )
+  return hydrateAdminReservationsWithWorkflow(records, options)
 }
 
 export async function getAdminReleases(options = {}) {

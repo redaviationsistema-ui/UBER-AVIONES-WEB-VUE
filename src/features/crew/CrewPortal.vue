@@ -13,6 +13,7 @@ import { subscribeWorkflowSync } from '../../lib/workflowSync'
 import {
   saveAvailabilityDate as persistAvailabilityDate,
 } from '../../services/disponibilidadService'
+import { buildCrewOperationWorkflowSnapshot } from '../operations/utils/crewOperationWorkflow'
 import { useAuthStore } from '../../stores/auth'
 import { useUiStore } from '../../stores/ui'
 import { normalizeApiError } from '../../lib/apiError'
@@ -98,6 +99,19 @@ const providerContext = reactive({
 })
 
 const assignments = ref([])
+const assignmentWorkflowCache = reactive({})
+
+function clearAssignmentWorkflowCache(operationId = '') {
+  const normalizedOperationId = String(operationId || '').trim()
+  if (normalizedOperationId) {
+    delete assignmentWorkflowCache[normalizedOperationId]
+    return
+  }
+
+  Object.keys(assignmentWorkflowCache).forEach((key) => {
+    delete assignmentWorkflowCache[key]
+  })
+}
 
 const availabilityBlocks = ref([])
 const availabilityStatusCatalog = ref([])
@@ -114,6 +128,9 @@ const selectedTrackingMilestoneId = ref('')
 const checklistFailureSubmitting = ref(false)
 const checklistFailureFormOpen = ref(false)
 const checklistCollapsedGroups = reactive({})
+const checklistEvidenceDrafts = reactive({})
+const checklistEvidenceInputRefs = reactive({})
+const checklistEvidenceUploading = reactive({})
 const checklistFailureDraft = reactive({
   description: '',
   files: [],
@@ -198,6 +215,8 @@ const incidentForm = reactive({
 const maxCrewIncidentFileBytes = 10 * 1024 * 1024
 const maxCrewIncidentTotalBytes = 25 * 1024 * 1024
 const maxCrewIncidentFiles = 5
+const maxChecklistEvidenceFileBytes = 10 * 1024 * 1024
+const allowedChecklistEvidenceMimeTypes = ['image/jpeg', 'image/png', 'image/webp']
 
 const documentForm = reactive({
   name: '',
@@ -255,36 +274,40 @@ const providerName = computed(
 
 const crewMemberName = computed(() => auth.user?.name || profileForm.name || '')
 const sortedAssignments = computed(() =>
-  [...assignments.value].sort((left, right) => {
-    const priority = {
-      'En servicio': 0,
-      Incidencia: 1,
-      Preparacion: 2,
-      'En aeropuerto/base': 3,
-      'Cabina revisada': 4,
-      'Pasajeros recibidos': 5,
-      'En escala / siguiente tramo': 6,
-      'Reporte enviado': 7,
-      Confirmado: 3,
-      Pendiente: 4,
-      Finalizado: 5,
-      Cancelado: 6,
-    }
+  [...assignments.value]
+    .map((assignment) => ({
+      ...assignment,
+      __workflowSnapshot: buildCrewOperationWorkflowSnapshot(assignment),
+    }))
+    .sort((left, right) => {
+      const priority = {
+        tracking: 0,
+        closure: 1,
+        checklist: 2,
+        preparation: 3,
+        validation: 4,
+      }
 
-    const leftPriority = priority[left.missionStatus] ?? 99
-    const rightPriority = priority[right.missionStatus] ?? 99
+      const leftPriority = priority[left.__workflowSnapshot?.workflow?.currentId] ?? 99
+      const rightPriority = priority[right.__workflowSnapshot?.workflow?.currentId] ?? 99
 
-    if (leftPriority !== rightPriority) {
-      return leftPriority - rightPriority
-    }
+      if (leftPriority !== rightPriority) return leftPriority - rightPriority
 
-    const leftDate = new Date(`${left.date || '2100-01-01'}T${left.time || '23:59'}`)
-    const rightDate = new Date(`${right.date || '2100-01-01'}T${right.time || '23:59'}`)
+      const leftActivity = Date.parse(left.__workflowSnapshot?.latestActivityAt || '')
+      const rightActivity = Date.parse(right.__workflowSnapshot?.latestActivityAt || '')
+      if (Number.isFinite(leftActivity) || Number.isFinite(rightActivity)) {
+        return (Number.isFinite(rightActivity) ? rightActivity : 0) - (Number.isFinite(leftActivity) ? leftActivity : 0)
+      }
 
-    return leftDate.getTime() - rightDate.getTime()
-  }),
+      const leftDate = new Date(`${left.date || '2100-01-01'}T${left.time || '23:59'}`)
+      const rightDate = new Date(`${right.date || '2100-01-01'}T${right.time || '23:59'}`)
+      return leftDate.getTime() - rightDate.getTime()
+    }),
 )
 const currentAssignment = computed(() => sortedAssignments.value[0] || null)
+const currentAssignmentSnapshot = computed(() =>
+  currentAssignment.value?.__workflowSnapshot || (currentAssignment.value ? buildCrewOperationWorkflowSnapshot(currentAssignment.value) : null),
+)
 const pendingDocuments = computed(() => documentItems.value.filter((item) => item.state !== 'Aprobado'))
 const approvedDocuments = computed(() => documentItems.value.filter((item) => item.state === 'Aprobado'))
 
@@ -503,70 +526,54 @@ function normalizeChecklistItem(item = {}) {
     critical: Boolean(item.is_critical),
     notes: item.notes || '',
     completedAt: item.completed_at || null,
+    evidenceFiles: Array.isArray(item.evidence_files || item.evidenceFiles)
+      ? (item.evidence_files || item.evidenceFiles).map((file, index) => ({
+        id: file.id || `${item.id || 'checklist'}-evidence-${index}`,
+        storageDisk: file.storage_disk || file.storageDisk || 's3',
+        filePath: file.file_path || file.filePath || '',
+        fileUrl: file.file_url || file.fileUrl || '',
+        fileType: file.file_type || file.fileType || '',
+        originalName: file.original_name || file.originalName || '',
+        size: Number(file.size || 0),
+        uploadedAt: file.uploaded_at || file.uploadedAt || null,
+        uploadedBy: file.uploaded_by || file.uploadedBy || null,
+      }))
+      : [],
   }
+}
+
+function checklistItemIndicator(status = '', isSelected = false) {
+  if (status === 'Correcto') return '✓'
+  if (status === 'No aplica') return '—'
+  if (status === 'Falla reportada') return '⚠'
+  return isSelected ? '●' : '○'
+}
+
+function checklistItemStatusLabel(status = '') {
+  if (status === 'Correcto') return 'Registrado'
+  if (status === 'No aplica') return 'No aplica'
+  if (status === 'Falla reportada') return 'Falla reportada'
+  return 'Pendiente'
 }
 
 function normalizeChecklistType(value = '') {
   return String(value || '').trim().toLowerCase()
 }
 
-function humanizeChecklistType(value = '') {
-  const normalized = normalizeChecklistType(value)
-  const labels = {
-    preparation: 'Preparacion',
-    preflight: 'Checklist pre-vuelo',
-    postflight: 'Checklist post-vuelo',
-  }
-
-  return labels[normalized] || value || 'Checklist'
-}
-
-const CREW_WORKFLOW_SEQUENCE = [
-  'pending_confirmation',
-  'pending_crew_response',
-  'confirmed',
-  'preparation_pending',
-  'ready_for_operation',
-  'checked_in',
-  'preflight_in_progress',
-  'cabin_ready',
-  'boarding',
-  'boarding_completed',
-  'in_flight',
-  'landed',
-  'postflight_pending',
-  'report_pending',
-  'crew_completed',
-  'administratively_closed',
-]
-
-function resolveWorkflowIndex(value = '') {
-  return CREW_WORKFLOW_SEQUENCE.indexOf(normalizeStatusToken(value))
-}
-
-function hasReachedWorkflowStatus(currentStatus = '', targetStatuses = []) {
-  const currentIndex = resolveWorkflowIndex(currentStatus)
-  if (currentIndex === -1) return false
-
-  return targetStatuses.some((status) => {
-    const targetIndex = resolveWorkflowIndex(status)
-    return targetIndex !== -1 && currentIndex >= targetIndex
-  })
-}
-
 const currentFlightSummary = computed(() => {
   const assignment = currentAssignment.value
+  const snapshot = currentAssignmentSnapshot.value
   if (!assignment) return null
 
   return {
-    operationId: assignment.flight || `Vuelo ${assignment.operationId || assignment.id}`,
-    route: assignment.route || 'Ruta pendiente',
+    operationId: snapshot?.folio ? `Operación ${snapshot.folio}` : `Operación #${snapshot?.ids?.operationId || assignment.operationId || assignment.id}`,
+    route: snapshot?.route || assignment.route || 'Ruta pendiente',
     date: formatCrewDate(assignment.date),
     reportTime: assignment.briefingTime || assignment.time || 'Por definir',
     aircraft: assignment.aircraft || 'Pendiente por asignar',
     fbo: assignment.presentationPlace || assignment.originName || assignment.origin || 'Pendiente por confirmar',
     passengers: assignment.passengers ? `${assignment.passengers} pasajero${assignment.passengers === 1 ? '' : 's'}` : 'Sin dato',
-    status: assignment.crewStatusLabel || assignment.missionStatus || assignment.responseStatus || 'Pendiente',
+    status: snapshot?.operationStatusLabel || assignment.crewStatusLabel || assignment.missionStatus || assignment.responseStatus || 'Pendiente',
     observations:
       assignment.specialRequirements ||
       assignment.vipRequirements ||
@@ -611,40 +618,8 @@ const checklistGroupsByType = computed(() => {
   return groups
 })
 
-function isChecklistGroupResolved(group = null) {
-  if (!group || !Array.isArray(group.items) || !group.items.length) return false
-
-  return group.items.every((item) => ['Correcto', 'No aplica'].includes(item.status))
-}
-
-const checklistProgressPercent = computed(() => (
-  flightChecklistSummary.value.total
-    ? Math.round((flightChecklistSummary.value.resolved / flightChecklistSummary.value.total) * 100)
-    : 0
-))
-
-const checklistFlatItems = computed(() =>
-  flightChecklistGroups.value.flatMap((group) =>
-    group.items.map((item) => ({
-      ...item,
-      groupId: group.id,
-      groupLabel: group.type,
-    }))),
-)
-
-const selectedChecklistItem = computed(() => {
-  if (!checklistFlatItems.value.length) return null
-
-  return (
-    checklistFlatItems.value.find((item) => item.id === selectedChecklistItemId.value)
-    || checklistFlatItems.value.find((item) => item.status === 'Pendiente')
-    || checklistFlatItems.value.find((item) => item.status === 'Falla reportada')
-    || checklistFlatItems.value[0]
-  )
-})
-
-const flightChecklistSummary = computed(() => {
-  const items = flightChecklistGroups.value.flatMap((group) => group.items)
+function buildChecklistSummary(group = null) {
+  const items = Array.isArray(group?.items) ? group.items : []
   const completed = items.filter((item) => item.status === 'Correcto').length
   const notApplicable = items.filter((item) => item.status === 'No aplica').length
   const failed = items.filter((item) => item.status === 'Falla reportada').length
@@ -658,26 +633,98 @@ const flightChecklistSummary = computed(() => {
     pending,
     resolved: completed + notApplicable + failed,
   }
-})
+}
+
+function humanizeChecklistCategory(value = '') {
+  const normalized = String(value || '').trim().toLowerCase()
+  const labels = {
+    personal: 'Documentación personal',
+    logistics: 'Traslado y presentación',
+    operation: 'Información del vuelo',
+    passengers: 'Pasajeros',
+    service: 'Servicio',
+    cabin: 'Cabina',
+    safety: 'Seguridad',
+  }
+
+  return labels[normalized] || value || 'General'
+}
+
+function groupChecklistItemsByCategory(group = null) {
+  const items = Array.isArray(group?.items) ? group.items : []
+  const buckets = new Map()
+
+  items.forEach((item) => {
+    const key = String(item.category || 'general')
+    if (!buckets.has(key)) {
+      buckets.set(key, {
+        id: key,
+        label: humanizeChecklistCategory(key),
+        items: [],
+      })
+    }
+
+    buckets.get(key)?.items.push({
+      ...item,
+      groupId: group?.id || '',
+      groupLabel: group?.type || '',
+    })
+  })
+
+  return Array.from(buckets.values())
+}
 
 const linkedIncidents = computed(() =>
   incidents.value.filter((item) => String(item.operationId || '') === String(currentAssignment.value?.operationId || '')),
 )
 
-const flightEvidenceItems = computed(() => {
-  const templates = ['Catering', 'Equipaje', 'Cabina lista']
-  const evidenceIncidents = linkedIncidents.value.filter((item) => item.evidence || item.files?.length)
+function buildChecklistEvidenceCard({
+  id,
+  label,
+  detail,
+  item,
+}) {
+  const evidenceFile = item?.evidenceFiles?.[0] || null
+  const uploadedAt = evidenceFile?.uploadedAt || ''
 
-  return templates.map((label, index) => {
-    const evidence = evidenceIncidents[index] || null
-    return {
-      id: label.toLowerCase().replace(/\s+/g, '-'),
-      label,
-      status: evidence ? 'Evidencia cargada' : 'Pendiente',
-      meta: evidence ? formatCrewDateTime(String(evidence.createdAt || evidence.time || '').slice(0, 10), String(evidence.createdAt || evidence.time || '').slice(11, 16)) : '',
-      detail: evidence?.description || 'Tomar o subir foto',
-    }
-  })
+  return {
+    id,
+    label,
+    detail: evidenceFile?.originalName || detail || 'Tomar o subir foto',
+    status: evidenceFile ? 'Evidencia cargada' : 'Pendiente',
+    meta: uploadedAt ? formatCrewDateTime(String(uploadedAt).slice(0, 10), String(uploadedAt).slice(11, 16)) : '',
+    checklistItemId: item?.id || null,
+    checklistType: item?.checklistType || '',
+    code: item?.code || '',
+    evidenceFile,
+    canUpload: Boolean(item?.id),
+  }
+}
+
+const flightEvidenceItems = computed(() => {
+  const preflightItems = checklistGroupsByType.value.get('preflight')?.items || []
+  const postflightItems = checklistGroupsByType.value.get('postflight')?.items || []
+
+  return [
+    buildChecklistEvidenceCard({
+      id: 'catering',
+      label: 'Catering',
+      detail: 'Tomar o subir foto del catering recibido.',
+      item: preflightItems.find((entry) => entry.code === 'catering_received') || null,
+    }),
+    buildChecklistEvidenceCard({
+      id: 'equipaje',
+      label: 'Equipaje',
+      detail: 'Tomar o subir foto del equipaje asegurado.',
+      item: preflightItems.find((entry) => entry.code === 'baggage_secured') || null,
+    }),
+    buildChecklistEvidenceCard({
+      id: 'cabina-final',
+      label: 'Cabina final',
+      detail: 'Tomar o subir foto del estado final de cabina.',
+      item: postflightItems.find((entry) => entry.code === 'cabin_condition') || null,
+    }),
+  ]
 })
 
 const flightEvidenceSummary = computed(() => ({
@@ -694,34 +741,6 @@ function formatTrackingTime(value = '') {
     hour: '2-digit',
     minute: '2-digit',
   }).format(parsed)
-}
-
-function buildTimelineMatchKey(value = '') {
-  return String(value || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[_-]+/g, ' ')
-}
-
-function findLatestTimelineEntry(timeline = [], { statuses = [], titleIncludes = [] } = {}) {
-  const normalizedStatuses = statuses.map((status) => buildTimelineMatchKey(status)).filter(Boolean)
-  const normalizedTitles = titleIncludes.map((title) => buildTimelineMatchKey(title)).filter(Boolean)
-
-  const matches = timeline.filter((entry) => {
-    const status = buildTimelineMatchKey(entry?.status || '')
-    const title = buildTimelineMatchKey(entry?.title || '')
-
-    return normalizedStatuses.includes(status)
-      || normalizedTitles.some((value) => title.includes(value))
-  })
-
-  return matches
-    .slice()
-    .sort((left, right) => {
-      const leftTime = Date.parse(left?.created_at || '')
-      const rightTime = Date.parse(right?.created_at || '')
-      return (Number.isFinite(rightTime) ? rightTime : 0) - (Number.isFinite(leftTime) ? leftTime : 0)
-    })[0] || null
 }
 
 function milestoneHasLinkedIncident(keywords = []) {
@@ -754,88 +773,27 @@ const canStartBoarding = computed(() => {
 
 const flightTrackingMilestones = computed(() => {
   const assignment = currentAssignment.value
+  const snapshot = currentAssignmentSnapshot.value
   if (!assignment) return []
-
-  const timeline = Array.isArray(assignment.timeline) ? assignment.timeline : []
-  const workflowStatus = String(assignment.workflowStatus || '')
-  const reachedCheckin = Boolean(assignment.crewCheckinAt) || hasReachedWorkflowStatus(workflowStatus, ['checked_in'])
-  const reachedCabinReady = hasReachedWorkflowStatus(workflowStatus, ['cabin_ready'])
-  const reachedBoarding = hasReachedWorkflowStatus(workflowStatus, ['boarding'])
-  const reachedBoardingCompleted = hasReachedWorkflowStatus(workflowStatus, ['boarding_completed'])
-  const reachedInFlight = hasReachedWorkflowStatus(workflowStatus, ['in_flight'])
-  const reachedLanded = hasReachedWorkflowStatus(workflowStatus, ['landed'])
-  const reachedDeboarding = hasReachedWorkflowStatus(workflowStatus, ['postflight_pending', 'report_pending', 'crew_completed', 'administratively_closed'])
-
-  const airportEntry =
-    findLatestTimelineEntry(timeline, {
-      statuses: ['crew_checkin', 'checked_in'],
-      titleIncludes: ['check in operativo', 'check-in operativo'],
-    })
-    || (assignment.crewCheckinAt ? { created_at: assignment.crewCheckinAt } : null)
-  const cabinEntry = findLatestTimelineEntry(timeline, {
-    statuses: ['cabina_lista', 'cabin_ready'],
-    titleIncludes: ['cabina', 'catering e insumos'],
-  })
-  const boardingEntry = findLatestTimelineEntry(timeline, {
-    statuses: ['boarding'],
-    titleIncludes: ['avance operativo: boarding', 'abordaje'],
-  })
-  const passengersEntry = findLatestTimelineEntry(timeline, {
-    statuses: ['pasajeros_recibidos', 'boarding_completed'],
-    titleIncludes: ['recibe pasajeros'],
-  })
-  const takeoffEntry = findLatestTimelineEntry(timeline, {
-    statuses: ['in_flight'],
-    titleIncludes: ['despegue', 'servicio iniciado'],
-  }) || (assignment.crewServiceStartedAt ? { created_at: assignment.crewServiceStartedAt } : null)
-  const landingEntry = findLatestTimelineEntry(timeline, {
-    statuses: ['landed'],
-    titleIncludes: ['aterriz'],
-  })
-  const deboardingEntry = findLatestTimelineEntry(timeline, {
-    statuses: ['postflight_pending', 'report_pending', 'crew_completed'],
-    titleIncludes: ['desembar', 'postvuelo'],
-  })
-
-  const milestones = [
-    {
-      id: 'airport-arrival',
-      label: 'Llegué al aeropuerto',
+  const detailsByCode = {
+    airport_arrival: {
       detail: 'Cuando llegues a aeropuerto o FBO, registra este momento.',
-      completed: reachedCheckin,
-      timestamp: airportEntry?.created_at || assignment.crewCheckinAt || '',
-      actor: 'Sobrecargo',
       actionLabel: assignment.canCheckin ? 'Registrar llegada' : '',
       action: assignment.canCheckin ? () => confirmBriefing(assignment.id) : null,
       incident: milestoneHasLinkedIncident(['aeropuerto', 'fbo', 'check in', 'check-in', 'llegada']),
     },
-    {
-      id: 'aircraft-ready',
-      label: 'Aeronave lista',
+    aircraft_ready: {
       detail: 'Registra cuando la cabina, aeronave e insumos estén listos.',
-      completed: reachedCabinReady,
-      timestamp: cabinEntry?.created_at || '',
-      actor: 'Sobrecargo',
       actionLabel: assignment.canMarkCabinReady ? 'Registrar aeronave lista' : '',
       action: assignment.canMarkCabinReady ? () => markCabinReady(assignment.id) : null,
       incident: milestoneHasLinkedIncident(['cabina', 'aeronave', 'insumos']),
     },
-    {
-      id: 'catering',
-      label: 'Catering recibido',
+    catering_received: {
       detail: 'Este momento se registra junto con la aeronave lista.',
-      completed: reachedCabinReady,
-      timestamp: cabinEntry?.created_at || '',
-      actor: 'Sobrecargo',
       incident: milestoneHasLinkedIncident(['catering']),
     },
-    {
-      id: 'passengers-arrived',
-      label: 'Pasajeros llegaron',
+    passengers_arrived: {
       detail: 'Cuando inicie el abordaje, registra la llegada de pasajeros.',
-      completed: reachedBoarding,
-      timestamp: boardingEntry?.created_at || passengersEntry?.created_at || '',
-      actor: boardingEntry?.created_at ? 'Sobrecargo' : 'Operaciones',
       actionLabel: canStartBoarding.value ? 'Registrar pasajeros llegaron' : '',
       action: canStartBoarding.value
         ? () => transitionCrewOperation(assignment.id, 'boarding', {
@@ -850,65 +808,88 @@ const flightTrackingMilestones = computed(() => {
         : null,
       incident: milestoneHasLinkedIncident(['pasajeros', 'abordaje']),
     },
-    {
-      id: 'passengers-boarded',
-      label: 'Pasajeros a bordo',
+    passengers_on_board: {
       detail: 'Cuando todos los pasajeros estén a bordo, registra este momento.',
-      completed: reachedBoardingCompleted,
-      timestamp: passengersEntry?.created_at || '',
-      actor: 'Sobrecargo',
       actionLabel: assignment.canReceivePassengers ? 'Registrar pasajeros a bordo' : '',
       action: assignment.canReceivePassengers ? () => markPassengersReceived(assignment.id) : null,
       incident: milestoneHasLinkedIncident(['pasajeros', 'abordaje']),
     },
-    {
-      id: 'takeoff',
-      label: 'Despegue',
-      detail: 'Se actualiza cuando Operaciones o el sistema confirma el inicio de vuelo.',
-      completed: reachedInFlight,
-      timestamp: takeoffEntry?.created_at || assignment.crewServiceStartedAt || '',
-      actor: takeoffEntry?.created_at ? 'Operaciones' : 'Sistema',
+    departure: {
+      detail: 'Cuando la aeronave despegue, registra este momento.',
+      actionLabel: assignment.workflowStatus === 'boarding_completed' ? 'Registrar despegue' : '',
+      action: assignment.workflowStatus === 'boarding_completed'
+        ? () => transitionCrewOperation(assignment.id, 'in_flight', {
+          loadingTitle: 'Registrando despegue',
+          loadingDetail: 'Estamos guardando el despegue en el seguimiento operativo.',
+          successTitle: 'Despegue registrado',
+          successDetail: 'El seguimiento avanzó a aterrizaje.',
+          errorTitle: 'No se pudo registrar despegue',
+          errorMessage: 'El despegue no pudo registrarse.',
+          note: 'Despegue registrado por sobrecargo.',
+        })
+        : null,
       incident: milestoneHasLinkedIncident(['despegue', 'vuelo', 'salida']),
     },
-    {
-      id: 'landing',
-      label: 'Aterrizaje',
-      detail: 'Se actualiza cuando el aterrizaje queda registrado en el flujo operativo.',
-      completed: reachedLanded,
-      timestamp: landingEntry?.created_at || assignment.crewLandedAt || '',
-      actor: landingEntry?.created_at ? 'Operaciones' : 'Sistema',
+    landing: {
+      detail: 'Cuando la aeronave aterrice, registra este momento.',
+      actionLabel: assignment.workflowStatus === 'in_flight' ? 'Registrar aterrizaje' : '',
+      action: assignment.workflowStatus === 'in_flight'
+        ? () => transitionCrewOperation(assignment.id, 'landed', {
+          loadingTitle: 'Registrando aterrizaje',
+          loadingDetail: 'Estamos guardando el aterrizaje en el seguimiento operativo.',
+          successTitle: 'Aterrizaje registrado',
+          successDetail: 'El seguimiento avanzó a desembarque.',
+          errorTitle: 'No se pudo registrar aterrizaje',
+          errorMessage: 'El aterrizaje no pudo registrarse.',
+          note: 'Aterrizaje registrado por sobrecargo.',
+        })
+        : null,
       incident: milestoneHasLinkedIncident(['aterrizaje', 'landing']),
     },
-    {
-      id: 'deboarding',
-      label: 'Pasajeros desembarcaron',
-      detail: 'Se completa al iniciar el post-vuelo y desembarque.',
-      completed: reachedDeboarding,
-      timestamp: deboardingEntry?.created_at || '',
-      actor: deboardingEntry?.created_at ? 'Operaciones' : 'Sistema',
+    passengers_disembarked: {
+      detail: 'Cuando todos los pasajeros hayan bajado de la aeronave, registra este momento.',
+      actionLabel: assignment.workflowStatus === 'landed' ? 'Registrar desembarque' : '',
+      action: assignment.workflowStatus === 'landed'
+        ? () => transitionCrewOperation(assignment.id, 'postflight_pending', {
+          loadingTitle: 'Registrando desembarque',
+          loadingDetail: 'Estamos guardando el desembarque y preparando el post-vuelo.',
+          successTitle: 'Desembarque registrado',
+          successDetail: 'Seguimiento completado y checklist post-vuelo habilitado.',
+          errorTitle: 'No se pudo registrar desembarque',
+          errorMessage: 'El desembarque no pudo registrarse.',
+          note: 'Desembarque registrado por sobrecargo.',
+        })
+        : null,
       incident: milestoneHasLinkedIncident(['desembarque', 'desembarcaron', 'postvuelo']),
     },
-  ]
+  }
 
-  const currentIndex = milestones.findIndex((item) => !item.completed)
-
-  return milestones.map((item, index) => ({
-    ...item,
-    meta: item.timestamp ? formatTrackingTime(item.timestamp) : '',
-    state: item.incident
-      ? 'incident'
-      : item.completed
-        ? 'completed'
-        : index === currentIndex
-          ? 'current'
-          : 'pending',
-    isCurrent: index === currentIndex,
-  }))
+  return (snapshot?.tracking?.items || []).map((item) => {
+    const extra = detailsByCode[item.code] || {}
+    const completed = item.status === 'completed'
+    const isCurrent = item.status === 'current'
+    return {
+      id: item.id,
+      code: item.code,
+      label: item.title,
+      detail: extra.detail || item.detail,
+      completed,
+      timestamp: item.timestamp || '',
+      actor: item.actorName || 'Sobrecargo',
+      actionLabel: extra.actionLabel || '',
+      action: extra.action || null,
+      incident: Boolean(extra.incident),
+      meta: item.timestamp ? formatTrackingTime(item.timestamp) : '',
+      state: extra.incident ? 'incident' : completed ? 'completed' : isCurrent ? 'current' : 'pending',
+      isCurrent,
+    }
+  })
 })
 
 const flightTrackingSummary = computed(() => {
-  const total = flightTrackingMilestones.value.length
-  const completed = flightTrackingMilestones.value.filter((item) => item.completed).length
+  const summary = currentAssignmentSnapshot.value?.tracking?.summary
+  const total = summary?.total ?? flightTrackingMilestones.value.length
+  const completed = summary?.resolved ?? flightTrackingMilestones.value.filter((item) => item.completed).length
 
   return {
     total,
@@ -960,8 +941,6 @@ const currentTrackingAction = computed(() => {
   }
 })
 
-const hasFlightAssigned = computed(() => Boolean(currentAssignment.value))
-const activeWorkflowStatus = computed(() => normalizeStatusToken(currentAssignment.value?.workflowStatus || ''))
 const preparationChecklistGroup = computed(
   () => checklistGroupsByType.value.get('preparation') || null,
 )
@@ -971,127 +950,15 @@ const preflightChecklistGroup = computed(
 const postflightChecklistGroup = computed(
   () => checklistGroupsByType.value.get('postflight') || null,
 )
-const preparationCompleted = computed(() =>
-  isChecklistGroupResolved(preparationChecklistGroup.value)
-  || hasReachedWorkflowStatus(activeWorkflowStatus.value, [
-    'ready_for_operation',
-    'checked_in',
-    'preflight_in_progress',
-    'cabin_ready',
-    'boarding',
-    'boarding_completed',
-    'in_flight',
-    'landed',
-    'postflight_pending',
-    'report_pending',
-    'crew_completed',
-    'administratively_closed',
-  ]),
+const workflowStepsById = computed(() => new Map((currentAssignmentSnapshot.value?.workflow?.steps || []).map((step) => [step.id, step])))
+const preparationCompleted = computed(() => workflowStepsById.value.get('preparation')?.status === 'completed')
+const checklistCompleted = computed(() => workflowStepsById.value.get('checklist')?.status === 'completed')
+const postflightChecklistCompleted = computed(() => workflowStepsById.value.get('closure')?.status === 'completed')
+const trackingCompleted = computed(() => workflowStepsById.value.get('tracking')?.status === 'completed')
+
+const flightFlowState = computed(() =>
+  currentAssignmentSnapshot.value?.workflow || { currentId: '', steps: [] },
 )
-const checklistCompleted = computed(() =>
-  (
-    flightChecklistSummary.value.total > 0 &&
-    flightChecklistSummary.value.pending === 0
-  )
-  || isChecklistGroupResolved(preflightChecklistGroup.value)
-  || hasReachedWorkflowStatus(activeWorkflowStatus.value, [
-    'cabin_ready',
-    'boarding',
-    'boarding_completed',
-    'in_flight',
-    'landed',
-    'postflight_pending',
-    'report_pending',
-    'crew_completed',
-    'administratively_closed',
-  ]),
-)
-const trackingCompleted = computed(() =>
-  hasReachedWorkflowStatus(activeWorkflowStatus.value, [
-    'postflight_pending',
-    'report_pending',
-    'crew_completed',
-    'administratively_closed',
-  ])
-  || (
-    flightTrackingSummary.value.total > 0 &&
-    flightTrackingSummary.value.completed >= flightTrackingSummary.value.total
-  ),
-)
-
-const flightFlowState = computed(() => {
-  const hasAssignment = hasFlightAssigned.value
-  const workflowStatus = activeWorkflowStatus.value
-  const validationDone = Boolean(
-    currentAssignment.value?.assignmentConfirmed
-    || currentAssignment.value?.crewConfirmedAt
-    || hasReachedWorkflowStatus(workflowStatus, ['confirmed']),
-  )
-  const checklistDone = checklistCompleted.value
-  const evidenceDone =
-    (
-      flightEvidenceSummary.value.total > 0 &&
-      flightEvidenceSummary.value.completed >= flightEvidenceSummary.value.total
-    )
-    || hasReachedWorkflowStatus(workflowStatus, ['report_pending', 'crew_completed', 'administratively_closed'])
-  const closingDone = hasReachedWorkflowStatus(workflowStatus, [
-    'report_pending',
-    'crew_completed',
-    'administratively_closed',
-  ])
-
-  const steps = [
-    {
-      id: 'validation',
-      label: validationDone ? 'Vuelo validado' : 'Validar vuelo',
-      complete: validationDone,
-      available: hasAssignment,
-    },
-    {
-      id: 'preparation',
-      label: humanizeChecklistType(preparationChecklistGroup.value?.type || 'preparation'),
-      complete: preparationCompleted.value,
-      available: validationDone,
-    },
-    {
-      id: 'checklist',
-      label: humanizeChecklistType(preflightChecklistGroup.value?.type || 'preflight'),
-      complete: checklistDone,
-      available: validationDone,
-    },
-    {
-      id: 'evidences',
-      label: 'Evidencias',
-      complete: evidenceDone,
-      available: checklistDone || flightChecklistSummary.value.total === 0,
-    },
-    {
-      id: 'tracking',
-      label: 'Seguimiento',
-      complete: trackingCompleted.value,
-      available: validationDone,
-    },
-    {
-      id: 'closure',
-      label: humanizeChecklistType(postflightChecklistGroup.value?.type || 'postflight'),
-      complete: closingDone,
-      available: validationDone,
-    },
-  ]
-
-  let currentId = hasAssignment ? 'validation' : ''
-  const currentStep = steps.find((step) => !step.complete && step.available)
-  if (currentStep) currentId = currentStep.id
-  else if (closingDone) currentId = 'closure'
-
-  return {
-    currentId,
-    steps: steps.map((step) => ({
-      ...step,
-      state: !step.available ? 'Bloqueado' : step.complete ? 'Completado' : step.id === currentId ? 'Actual' : 'Pendiente',
-    })),
-  }
-})
 
 const currentFlightStep = computed(() => {
   const manualStep = flightFlowState.value.steps.find(
@@ -1106,15 +973,100 @@ const currentFlightStep = computed(() => {
 const checklistStepState = computed(
   () => flightFlowState.value.steps.find((step) => step.id === 'checklist') || null,
 )
+const isFlightStepPreview = computed(() =>
+  Boolean(selectedFlightStepId.value) && selectedFlightStepId.value !== flightFlowState.value.currentId,
+)
+const isChecklistReadOnly = computed(() =>
+  isFlightStepPreview.value && ['preparation', 'checklist', 'closure'].includes(currentFlightStep.value?.id || ''),
+)
 
-function openFlightStep(stepId = '') {
+const preparationChecklistSummary = computed(() => buildChecklistSummary(preparationChecklistGroup.value))
+const preflightChecklistSummary = computed(() => buildChecklistSummary(preflightChecklistGroup.value))
+const postflightChecklistSummary = computed(() => buildChecklistSummary(postflightChecklistGroup.value))
+
+watch(
+  [currentAssignment, preparationChecklistGroup],
+  ([assignment, preparationChecklist]) => {
+    if (!assignment || !preparationChecklist) return
+
+    console.log('CREW PREPARATION FINAL', {
+      operationId:
+        currentAssignmentSnapshot.value?.ids?.operationId ??
+        assignment?.operationId ??
+        assignment?.id ??
+        null,
+      assignmentId:
+        currentAssignmentSnapshot.value?.ids?.assignmentId ??
+        assignment?.assignmentId ??
+        assignment?.assignment?.id ??
+        null,
+      flightRequestId:
+        currentAssignmentSnapshot.value?.ids?.flightRequestId ??
+        assignment?.flightRequestId ??
+        null,
+      checklistId: preparationChecklist?.id ?? null,
+      totalItems: preparationChecklist?.items?.length ?? 0,
+      completedItems:
+        preparationChecklist?.items?.filter((item) => item.status === 'completed')?.length ?? 0,
+      preparationChecklist,
+    })
+  },
+  { immediate: true },
+)
+
+const currentChecklistType = computed(() => {
+  if (currentFlightStep.value?.id === 'preparation') return 'preparation'
+  if (currentFlightStep.value?.id === 'checklist') return 'preflight'
+  if (currentFlightStep.value?.id === 'closure') return 'postflight'
+  return ''
+})
+
+const currentChecklistGroup = computed(() => {
+  if (currentChecklistType.value === 'preparation') return preparationChecklistGroup.value
+  if (currentChecklistType.value === 'preflight') return preflightChecklistGroup.value
+  if (currentChecklistType.value === 'postflight') return postflightChecklistGroup.value
+  return null
+})
+
+const currentChecklistSummary = computed(() => buildChecklistSummary(currentChecklistGroup.value))
+
+const checklistProgressPercent = computed(() => (
+  currentChecklistSummary.value.total
+    ? Math.round((currentChecklistSummary.value.resolved / currentChecklistSummary.value.total) * 100)
+    : 0
+))
+
+const checklistFlatItems = computed(() =>
+  (Array.isArray(currentChecklistGroup.value?.items) ? currentChecklistGroup.value.items : []).map((item) => ({
+    ...item,
+    groupId: currentChecklistGroup.value?.id || '',
+    groupLabel: currentChecklistGroup.value?.type || '',
+  })),
+)
+
+const currentChecklistCategories = computed(() => groupChecklistItemsByCategory(currentChecklistGroup.value))
+
+const selectedChecklistItem = computed(() => {
+  if (!checklistFlatItems.value.length) return null
+
+  return (
+    checklistFlatItems.value.find((item) => item.id === selectedChecklistItemId.value)
+    || checklistFlatItems.value.find((item) => item.status === 'Pendiente')
+    || checklistFlatItems.value.find((item) => item.status === 'Falla reportada')
+    || checklistFlatItems.value[0]
+  )
+})
+
+function openFlightStep(stepId = '', { allowCompleted = false } = {}) {
   const targetStep = flightFlowState.value.steps.find((step) => step.id === stepId)
   if (!targetStep?.available) return
+  if (targetStep.complete && !allowCompleted) return
   selectedFlightStepId.value = targetStep.id
 }
 
 const currentPrimaryAction = computed(() => {
   const assignment = currentAssignment.value
+  const snapshot = currentAssignmentSnapshot.value
   if (!assignment) {
     return {
       title: 'Sin vuelo asignado',
@@ -1124,7 +1076,7 @@ const currentPrimaryAction = computed(() => {
     }
   }
 
-  if (!assignment.assignmentConfirmed && assignment.canRespondToAssignment) {
+  if (snapshot?.assignmentStatus !== 'confirmed' && assignment.canRespondToAssignment) {
     return {
       title: 'Accion requerida: Confirmar vuelo',
       detail: 'Primero confirma que recibiste la asignacion y que puedes operar este vuelo.',
@@ -1146,21 +1098,12 @@ const currentPrimaryAction = computed(() => {
     }
   }
 
-  if (flightChecklistSummary.value.total && flightChecklistSummary.value.pending > 0) {
+  if (preflightChecklistSummary.value.total && preflightChecklistSummary.value.pending > 0) {
     return {
-      title: 'Siguiente paso: Completar checklist',
-      detail: `Checklist ${flightChecklistSummary.value.resolved} de ${flightChecklistSummary.value.total} completados.`,
-      cta: '',
-      action: null,
-    }
-  }
-
-  if (flightEvidenceSummary.value.completed < flightEvidenceSummary.value.total) {
-    return {
-      title: 'Siguiente paso: Subir evidencias',
-      detail: 'Carga o confirma las evidencias visuales requeridas del vuelo.',
-      cta: 'Reportar incidencia',
-      action: null,
+      title: 'Siguiente paso: Checklist pre-vuelo',
+      detail: `Checklist ${preflightChecklistSummary.value.resolved} de ${preflightChecklistSummary.value.total} completados.`,
+      cta: 'Continuar al checklist pre-vuelo',
+      action: () => openFlightStep('checklist'),
     }
   }
 
@@ -1173,12 +1116,160 @@ const currentPrimaryAction = computed(() => {
     }
   }
 
+  if (!postflightChecklistCompleted.value) {
+    return {
+      title: 'Siguiente paso: Checklist post-vuelo',
+      detail: `Checklist ${postflightChecklistSummary.value.resolved} de ${postflightChecklistSummary.value.total} completados.`,
+      cta: 'Continuar al checklist post-vuelo',
+      action: () => openFlightStep('closure'),
+    }
+  }
+
   return {
-    title: 'Siguiente paso: Finalizar operacion',
+    title: 'Siguiente paso: Finalizar operación',
     detail: 'Cuando todo este completo podras cerrar tu participacion operativa.',
     cta: currentAssignment.value?.workflowStatus === 'report_pending' ? 'Enviar cierre' : '',
-    action: null,
+    action: currentAssignment.value?.workflowStatus === 'report_pending'
+      ? () => submitCrewReport({
+        assignmentId: currentAssignment.value.id,
+        report: { general_notes: assignmentResponseForm.comment || 'Cierre operativo desde Mi vuelo.' },
+      })
+      : null,
   }
+})
+
+const completedFlightStepSummaries = computed(() =>
+  flightFlowState.value.steps
+    .filter((step) => step.status === 'completed' && step.id !== flightFlowState.value.currentId)
+    .map((step) => {
+      if (step.id === 'validation') {
+        return {
+          id: step.id,
+          label: 'Vuelo confirmado',
+          detail: currentAssignment.value?.crewConfirmedAt
+            ? formatCrewDateTime(
+              String(currentAssignment.value.crewConfirmedAt).slice(0, 10),
+              String(currentAssignment.value.crewConfirmedAt).slice(11, 16),
+            )
+            : 'Asignación confirmada',
+        }
+      }
+
+      if (step.id === 'preparation') {
+        return {
+          id: step.id,
+          label: 'Preparación',
+          detail: `${preparationChecklistSummary.value.resolved} de ${preparationChecklistSummary.value.total} completados`,
+        }
+      }
+
+      if (step.id === 'checklist') {
+        return {
+          id: step.id,
+          label: 'Checklist pre-vuelo',
+          detail: `${preflightChecklistSummary.value.resolved} de ${preflightChecklistSummary.value.total} completados`,
+        }
+      }
+
+      if (step.id === 'tracking') {
+        return {
+          id: step.id,
+          label: 'Seguimiento',
+          detail: `${flightTrackingSummary.value.completed} de ${flightTrackingSummary.value.total} eventos registrados`,
+        }
+      }
+
+      if (step.id === 'closure') {
+        return {
+          id: step.id,
+          label: 'Checklist post-vuelo',
+          detail: `${postflightChecklistSummary.value.resolved} de ${postflightChecklistSummary.value.total} completados`,
+        }
+      }
+
+      return {
+        id: step.id,
+        label: step.label,
+        detail: 'Completado',
+      }
+    }),
+)
+
+function getWorkflowStepClass(status = '') {
+  return {
+    'crew-step-card--completed': status === 'completed',
+    'crew-step-card--current': status === 'current',
+    'crew-step-card--available': status === 'available' || status === 'pending',
+    'crew-step-card--blocked': status === 'blocked',
+  }
+}
+
+function getWorkflowStepStatusLabel(status = '') {
+  const labels = {
+    completed: 'Completado',
+    current: 'Actual',
+    available: 'Disponible',
+    blocked: 'Bloqueado',
+    pending: 'Pendiente',
+  }
+
+  return labels[status] || 'Pendiente'
+}
+
+const currentChecklistStepMeta = computed(() => {
+  if (currentFlightStep.value?.id === 'preparation') {
+    return {
+      eyebrow: 'Paso 2 · Preparación',
+      title: 'Preparación del vuelo',
+      footer: currentChecklistSummary.value.pending
+        ? `Faltan ${currentChecklistSummary.value.pending} elementos`
+        : 'Preparación completada ✓',
+      cta: isChecklistReadOnly.value ? 'Volver a seguimiento' : 'Continuar al checklist pre-vuelo',
+      nextStepId: 'checklist',
+    }
+  }
+
+  if (currentFlightStep.value?.id === 'checklist') {
+    return {
+      eyebrow: 'Paso 3 · Checklist pre-vuelo',
+      title: 'Checklist pre-vuelo',
+      footer: currentChecklistSummary.value.pending
+        ? `Faltan ${currentChecklistSummary.value.pending} elementos`
+        : 'Checklist pre-vuelo completado ✓',
+      cta: isChecklistReadOnly.value ? 'Volver a seguimiento' : 'Iniciar seguimiento de operación',
+      nextStepId: 'tracking',
+    }
+  }
+
+  if (currentFlightStep.value?.id === 'closure') {
+    return {
+      eyebrow: 'Paso 5 · Checklist post-vuelo',
+      title: 'Checklist post-vuelo',
+      footer: currentChecklistSummary.value.pending
+        ? `Faltan ${currentChecklistSummary.value.pending} elementos`
+        : 'Checklist post-vuelo completado ✓',
+      cta: isChecklistReadOnly.value
+        ? 'Volver a seguimiento'
+        : currentAssignment.value?.workflowStatus === 'report_pending'
+          ? 'Finalizar operación'
+          : 'Checklist completado',
+      nextStepId: '',
+    }
+  }
+
+  return null
+})
+
+const currentChecklistEvidenceItems = computed(() => {
+  if (currentFlightStep.value?.id === 'checklist') {
+    return flightEvidenceItems.value.filter((item) => ['catering', 'equipaje'].includes(item.id))
+  }
+
+  if (currentFlightStep.value?.id === 'closure') {
+    return flightEvidenceItems.value.filter((item) => item.id === 'cabina-final')
+  }
+
+  return []
 })
 
 function getCrewPortalResourceKeys(section = resolvedSection.value) {
@@ -1525,7 +1616,7 @@ function normalizeAssignment(raw = {}, detail = {}, index = 0) {
     Boolean(raw.crew_checkin_at || detail.crew_checkin_at) ||
     timelineStatuses.has('crew checkin') ||
     ['checked_in', 'preflight_in_progress', 'cabin_ready', 'boarding', 'boarding_completed', 'in_flight', 'landed', 'postflight_pending', 'report_pending', 'crew_completed', 'administratively_closed'].includes(normalizedCrewLifecycleStatus)
-  const hasCabinReady = timelineStatuses.has('cabina lista') || ['cabin_ready', 'boarding', 'boarding_completed', 'in_flight', 'landed', 'postflight_pending', 'report_pending', 'crew_completed', 'administratively_closed'].includes(normalizedCrewLifecycleStatus)
+  const hasCabinReady = timelineStatuses.has('cabina lista')
   const hasPassengersReady = timelineStatuses.has('pasajeros recibidos') || ['boarding_completed', 'in_flight', 'landed', 'postflight_pending', 'report_pending', 'crew_completed', 'administratively_closed'].includes(normalizedCrewLifecycleStatus)
   const hasServiceStarted =
     Boolean(raw.crew_service_started_at || detail.crew_service_started_at) ||
@@ -1574,7 +1665,7 @@ function normalizeAssignment(raw = {}, detail = {}, index = 0) {
     detail.destination_name ||
     detail.destination_label ||
     ''
-  const route = origin && destination ? `${origin} -> ${destination}` : origin || destination || ''
+  const route = raw.route || detail.route || (origin && destination ? `${origin} -> ${destination}` : origin || destination || '')
   const derivedPresentationTime = derivePresentationTimeFromDeparture(departure)
   const presentationTime =
     assignment?.presentation_time ||
@@ -1633,7 +1724,9 @@ function normalizeAssignment(raw = {}, detail = {}, index = 0) {
 
   return {
     id: raw.id || index + 1,
-    flight: raw.flight || raw.code || raw.reference || (raw.id != null ? String(raw.id) : ''),
+    assignmentId: assignment?.id || raw.assignment_id || detail.assignment_id || '',
+    flightRequestId: raw.flight_request_id || detail.flight_request_id || raw.request_id || detail.request_id || '',
+    flight: raw.folio || raw.flight || raw.code || raw.reference || (raw.id != null ? String(raw.id) : ''),
     route,
     date: departure ? String(departure).slice(0, 10) : '',
     time: departure && String(departure).includes('T') ? String(departure).slice(11, 16) : '',
@@ -1690,14 +1783,103 @@ function extractAssignmentsCollection(payload = {}) {
   return pickCollection(payload, ['assignments', 'asignaciones', 'operations', 'operaciones', 'data', 'items'])
 }
 
-async function fetchCrewAssignments() {
+function normalizeCrewWorkflowRecord(payload = {}) {
+  const workflow = pickRecord(payload, ['workflow', 'operation', 'data'])
+  return workflow && typeof workflow === 'object' ? workflow : {}
+}
+
+function applyWorkflowSnapshotToAssignment(assignment = {}, workflowPayload = {}) {
+  const workflowStatus = String(
+    workflowPayload.workflow_status ||
+    workflowPayload.crew_status ||
+    workflowPayload.status ||
+    '',
+  ).trim()
+  const timeline = Array.isArray(workflowPayload.timeline) ? workflowPayload.timeline : assignment.timeline || []
+  const checklists = Array.isArray(workflowPayload.checklists) ? workflowPayload.checklists : assignment.checklists || []
+  const finalReport =
+    workflowPayload.final_report ??
+    workflowPayload.report ??
+    assignment.finalReport ??
+    null
+
+  return {
+    ...assignment,
+    assignmentId: assignment.assignmentId || assignment.assignment?.id || '',
+    flightRequestId: assignment.flightRequestId || '',
+    workflowStatus: workflowStatus || assignment.workflowStatus,
+    crewStatus: workflowStatus || assignment.crewStatus,
+    crewStatusLabel: workflowStatus ? humanizeCrewLifecycleStatus(workflowStatus) : assignment.crewStatusLabel,
+    operationStatus: workflowStatus || assignment.operationStatus,
+    missionStatus: workflowStatus ? normalizeMissionStatus(workflowStatus) || assignment.missionStatus : assignment.missionStatus,
+    timeline,
+    checklists,
+    finalReport,
+    canonicalWorkflow: workflowPayload,
+  }
+}
+
+async function fetchCrewOperationWorkflow(operationId, { force = false } = {}) {
+  const normalizedOperationId = String(operationId || '').trim()
+  if (!normalizedOperationId) return null
+
+  if (force) {
+    clearAssignmentWorkflowCache(normalizedOperationId)
+  }
+
+  if (assignmentWorkflowCache[normalizedOperationId]) {
+    return assignmentWorkflowCache[normalizedOperationId]
+  }
+
+  const response = await requestWithCandidates([
+    {
+      method: 'get',
+      path: `/sobrecargo/operations/${normalizedOperationId}/workflow`,
+      timeoutMs: CREW_PORTAL_TIMEOUT_MS,
+    },
+  ])
+  console.log('CREW RAW OPERATION PAYLOAD', JSON.parse(JSON.stringify(response || {})))
+
+  const workflowRecord = normalizeCrewWorkflowRecord(response)
+  console.log('CREW WORKFLOW CHECKLISTS', {
+    operationId: normalizedOperationId,
+    checklists:
+      workflowRecord?.checklists ??
+      workflowRecord?.assignment?.checklists ??
+      workflowRecord?.operation?.checklists ??
+      [],
+  })
+  assignmentWorkflowCache[normalizedOperationId] = workflowRecord
+  return workflowRecord
+}
+
+async function hydrateAssignmentsWithWorkflow(records = [], { forceWorkflow = false } = {}) {
+  const hydrated = await Promise.all(
+    records.map(async (assignment) => {
+      const operationId = assignment.operationId || assignment.id
+      if (!operationId) return assignment
+
+      try {
+        const workflowRecord = await fetchCrewOperationWorkflow(operationId, { force: forceWorkflow })
+        if (!workflowRecord) return assignment
+        return applyWorkflowSnapshotToAssignment(assignment, workflowRecord)
+      } catch {
+        return assignment
+      }
+    }),
+  )
+
+  return hydrated
+}
+
+async function fetchCrewAssignments({ forceWorkflow = false } = {}) {
   const response = await requestWithCandidates([
     { method: 'get', path: '/sobrecargo/assignments', timeoutMs: CREW_PORTAL_TIMEOUT_MS },
   ])
 
   const collection = extractAssignmentsCollection(response)
-
-  return collection.map((item, index) => normalizeAssignment(item, item, index))
+  const normalizedAssignments = collection.map((item, index) => normalizeAssignment(item, item, index))
+  return hydrateAssignmentsWithWorkflow(normalizedAssignments, { forceWorkflow })
 }
 
 function normalizeCrewAvailabilityRecord(raw = {}, index = 0) {
@@ -2308,6 +2490,130 @@ function scheduleChecklistAssignmentsRefresh() {
   }, 250)
 }
 
+function getChecklistEvidenceDraft(evidenceId = '') {
+  if (!checklistEvidenceDrafts[evidenceId]) {
+    checklistEvidenceDrafts[evidenceId] = {
+      file: null,
+      previewUrl: '',
+      error: '',
+    }
+  }
+
+  return checklistEvidenceDrafts[evidenceId]
+}
+
+function resetChecklistEvidenceDraft(evidenceId = '') {
+  const draft = getChecklistEvidenceDraft(evidenceId)
+  if (draft.previewUrl) {
+    URL.revokeObjectURL(draft.previewUrl)
+  }
+  draft.file = null
+  draft.previewUrl = ''
+  draft.error = ''
+}
+
+function setChecklistEvidenceInputRef(evidenceId = '', element = null) {
+  if (!evidenceId) return
+  if (element) {
+    checklistEvidenceInputRefs[evidenceId] = element
+    return
+  }
+
+  delete checklistEvidenceInputRefs[evidenceId]
+}
+
+function openChecklistEvidencePicker(item) {
+  if (!item?.id || isChecklistReadOnly.value) return
+  const input = checklistEvidenceInputRefs[item.id]
+  if (!input) return
+  input.value = ''
+  input.click()
+}
+
+function validateChecklistEvidenceFile(file = null) {
+  if (!file) return 'Selecciona una imagen para continuar.'
+  if (!String(file.type || '').startsWith('image/')) return 'El archivo seleccionado no es una imagen.'
+  if (!allowedChecklistEvidenceMimeTypes.includes(String(file.type || '').toLowerCase())) {
+    return 'Solo se permiten imágenes JPG, JPEG, PNG o WEBP.'
+  }
+  if (Number(file.size || 0) > maxChecklistEvidenceFileBytes) {
+    return `La imagen supera el tamaño permitido de ${formatFileSize(maxChecklistEvidenceFileBytes)}.`
+  }
+  return ''
+}
+
+function handleChecklistEvidenceSelected(item, fileList) {
+  if (!item?.id) return
+
+  const draft = getChecklistEvidenceDraft(item.id)
+  const file = Array.from(fileList || [])[0] || null
+  const error = validateChecklistEvidenceFile(file)
+
+  resetChecklistEvidenceDraft(item.id)
+
+  if (error) {
+    draft.error = error
+    return
+  }
+
+  draft.file = file
+  draft.previewUrl = URL.createObjectURL(file)
+}
+
+async function uploadCrewChecklistEvidence(item) {
+  const assignment = currentAssignment.value
+  if (!assignment || !item?.id || !item?.checklistItemId || !item?.checklistType) return
+
+  const draft = getChecklistEvidenceDraft(item.id)
+  const error = validateChecklistEvidenceFile(draft.file)
+  if (error) {
+    draft.error = error
+    return
+  }
+
+  openAssignmentActionState({
+    title: 'Subiendo evidencia',
+    detail: `Estamos cargando la evidencia de ${item.label.toLowerCase()} a AWS.`,
+  })
+
+  const formData = new FormData()
+  formData.append('file', draft.file)
+
+  try {
+    checklistEvidenceUploading[item.id] = true
+    const response = await api.postForm(
+      `/sobrecargo/operations/${assignment.operationId || assignment.id}/checklists/${item.checklistType}/items/${item.checklistItemId}/evidence`,
+      formData,
+    )
+
+    patchCrewAssignmentChecklist({
+      assignmentId: assignment.id,
+      operationId: assignment.operationId || assignment.id,
+      checklist: response?.checklist || null,
+      operation: null,
+    })
+
+    resetChecklistEvidenceDraft(item.id)
+    closeAssignmentActionState()
+    void showAssignmentActionSuccess({
+      title: 'Evidencia cargada',
+      detail: `${item.label} ya quedó guardada en AWS.`,
+      duration: 1000,
+    })
+    scheduleChecklistAssignmentsRefresh()
+  } catch (errorUpload) {
+    closeAssignmentActionState()
+    draft.error = normalizeApiError(errorUpload, 'La evidencia no pudo subirse.')
+    ui.pushToast({
+      tone: 'error',
+      title: 'No se pudo subir la evidencia',
+      message: draft.error,
+    })
+  } finally {
+    checklistEvidenceUploading[item.id] = false
+  }
+}
+
 function toggleChecklistGroup(groupId) {
   checklistCollapsedGroups[groupId] = !checklistCollapsedGroups[groupId]
 }
@@ -2568,36 +2874,6 @@ async function saveAvailabilityDay({ date, state, reason }) {
   })
 }
 
-async function startAssignedService(id) {
-  await runAssignmentWorkflowAction(id, {
-    loadingTitle: 'Iniciando servicio',
-    loadingDetail: 'Estamos marcando el inicio del servicio a bordo y sincronizando el seguimiento.',
-    successTitle: 'Servicio iniciado',
-    successDetail: 'El inicio del servicio ya quedo registrado con Admin / Red Sky.',
-    errorTitle: 'No se pudo iniciar',
-    errorMessage: 'El servicio no pudo iniciarse .',
-    request: (assignment) =>
-      requestWithCandidates([
-        { method: 'post', path: `/sobrecargo/operations/${assignment.operationId}/start-service`, body: {} },
-      ]),
-  })
-}
-
-async function finalizeAssignedService(id) {
-  await runAssignmentWorkflowAction(id, {
-    loadingTitle: 'Cerrando servicio',
-    loadingDetail: 'Estamos registrando el cierre del servicio y enviando la trazabilidad final.',
-    successTitle: 'Servicio finalizado',
-    successDetail: 'El cierre del servicio ya quedo registrado en la operacion.',
-    errorTitle: 'No se pudo finalizar',
-    errorMessage: 'El cierre del servicio no pudo registrarse .',
-    request: (assignment) =>
-      requestWithCandidates([
-        { method: 'post', path: `/sobrecargo/operations/${assignment.operationId}/complete-service`, body: {} },
-      ]),
-  })
-}
-
 async function createIncident() {
   if (incidentSubmissionInFlight.value) return
   incidentApiErrors.value = {}
@@ -2822,7 +3098,7 @@ async function loadPortal(options = {}) {
     }
 
     if (requestedKeys.has('assignments') && (force || !portalDataLoaded.assignments)) {
-      requestEntries.push(['assignments', () => fetchCrewAssignments()])
+      requestEntries.push(['assignments', () => fetchCrewAssignments({ forceWorkflow: force })])
     }
 
     if (requestedKeys.has('profile') && (force || !portalDataLoaded.profile)) {
@@ -3074,6 +3350,9 @@ onBeforeUnmount(() => {
     removeCrewSyncSubscription = null
   }
   checklistFailureDraft.previews.forEach((url) => URL.revokeObjectURL(url))
+  Object.keys(checklistEvidenceDrafts).forEach((evidenceId) => {
+    resetChecklistEvidenceDraft(evidenceId)
+  })
 })
 </script>
 
@@ -3172,11 +3451,11 @@ onBeforeUnmount(() => {
           </div>
         </div>
         <div class="crew-progress-list">
-          <article v-for="step in flightFlowState.steps" :key="step.id" class="crew-progress-step" :data-state="step.state.toLowerCase()">
+          <article v-for="step in flightFlowState.steps" :key="step.id" class="crew-progress-step" :data-state="step.status">
             <span class="crew-progress-dot"></span>
             <div>
               <strong>{{ step.label }}</strong>
-              <small>{{ step.state }}</small>
+              <small>{{ getWorkflowStepStatusLabel(step.status) }}</small>
             </div>
           </article>
         </div>
@@ -3207,7 +3486,7 @@ onBeforeUnmount(() => {
           <div>
             <span class="eyebrow">Mi vuelo</span>
             <h3>{{ currentFlightSummary?.operationId || 'Sin vuelo activo' }}</h3>
-            <p class="muted">Validacion, preparacion, checklist, evidencias, seguimiento y cierre en una sola seccion.</p>
+            <p class="muted">Validación, preparación, checklist pre-vuelo, seguimiento y checklist post-vuelo en un solo flujo operativo.</p>
           </div>
         </div>
         <div class="crew-flight-hero__actions">
@@ -3244,13 +3523,14 @@ onBeforeUnmount(() => {
             :key="step.id"
             type="button"
             class="crew-stepper-item"
-            :data-state="step.state.toLowerCase()"
+            :class="getWorkflowStepClass(step.status)"
+            :data-state="step.status"
             :data-selected="currentFlightStep?.id === step.id"
-            :disabled="!step.available"
+            :disabled="!step.available || step.complete"
             @click="openFlightStep(step.id)"
           >
             <span>{{ index + 1 }}. {{ step.label }}</span>
-            <strong>{{ step.state }}</strong>
+            <strong>{{ getWorkflowStepStatusLabel(step.status) }}</strong>
           </button>
         </div>
       </article>
@@ -3280,10 +3560,21 @@ onBeforeUnmount(() => {
             class="ghost-button action-button"
             type="button"
             :disabled="!checklistStepState?.available"
-            @click="openFlightStep('checklist')"
+            @click="openFlightStep('checklist', { allowCompleted: true })"
           >
-            {{ checklistStepState?.available ? 'Ir al checklist' : 'Completa preparacion para habilitar checklist' }}
+            {{ checklistStepState?.available ? 'Ver checklist pre-vuelo' : 'Completa preparación para habilitar checklist' }}
           </button>
+        </div>
+      </article>
+
+      <article v-for="step in completedFlightStepSummaries" :key="`summary-${step.id}`" class="surface inner-card crew-step-summary-card">
+        <span class="eyebrow">Completado</span>
+        <div class="crew-step-summary-card__content">
+          <div>
+            <h4>{{ step.label }}</h4>
+            <p class="muted">{{ step.detail }}</p>
+          </div>
+          <strong>✓</strong>
         </div>
       </article>
 
@@ -3305,31 +3596,14 @@ onBeforeUnmount(() => {
         </div>
       </article>
 
-      <article v-else-if="currentFlightStep?.id === 'preparation' && currentAssignment" class="surface inner-card crew-step-card">
-        <span class="eyebrow">Paso 2</span>
-        <h3>Preparacion del vuelo</h3>
-        <div class="crew-check-grid">
-          <article class="crew-check-item" :data-done="Boolean(currentAssignment.assignmentConfirmed)"><strong>Briefing recibido</strong><small>{{ currentAssignment.assignmentConfirmed ? 'Completado' : 'Pendiente' }}</small></article>
-          <article class="crew-check-item" :data-done="Boolean(currentFlightSummary.reportTime && currentFlightSummary.reportTime !== 'Por definir')"><strong>Hora de reporte confirmada</strong><small>{{ currentFlightSummary.reportTime }}</small></article>
-          <article class="crew-check-item" :data-done="Boolean(currentFlightSummary.fbo && currentFlightSummary.fbo !== 'Pendiente por confirmar')"><strong>FBO confirmado</strong><small>{{ currentFlightSummary.fbo }}</small></article>
-          <article class="crew-check-item" :data-done="flightTrackingMilestones.find((item) => item.id === 'cabin')?.done"><strong>Catering revisado</strong><small>{{ flightTrackingMilestones.find((item) => item.id === 'cabin')?.done ? 'Completado' : 'Pendiente' }}</small></article>
-          <article class="crew-check-item" :data-done="Boolean(currentAssignment.internalContact)"><strong>Transporte confirmado</strong><small>{{ currentAssignment.internalContact || 'Pendiente por confirmar' }}</small></article>
-          <article class="crew-check-item" :data-done="Boolean(currentAssignment.passengers)"><strong>Informacion de pasajeros revisada</strong><small>{{ currentFlightSummary.passengers }}</small></article>
-        </div>
-        <div class="action-row">
-          <button v-if="currentAssignment.canCheckin" class="primary-action action-button" type="button" :disabled="assignmentActionState.active" @click="confirmBriefing(currentAssignment.id)">Registrar llegada</button>
-          <button v-else-if="currentAssignment.canMarkCabinReady" class="primary-action action-button" type="button" :disabled="assignmentActionState.active" @click="markCabinReady(currentAssignment.id)">Continuar al checklist</button>
-        </div>
-      </article>
-
-      <article v-else-if="currentFlightStep?.id === 'checklist' && currentAssignment" class="surface inner-card crew-step-card">
-        <span class="eyebrow">Paso 3 · Checklist</span>
-        <h3>Checklist operativo</h3>
-        <div v-if="flightChecklistGroups.length" class="crew-checklist-layout">
+      <article v-else-if="['preparation', 'checklist'].includes(currentFlightStep?.id || '') && currentAssignment" class="surface inner-card crew-step-card">
+        <span class="eyebrow">{{ currentChecklistStepMeta?.eyebrow }}</span>
+        <h3>{{ currentChecklistStepMeta?.title }}</h3>
+        <div v-if="currentChecklistGroup" class="crew-checklist-layout">
           <section class="crew-checklist-master">
             <div class="crew-checklist-progress">
               <div>
-                <strong>{{ flightChecklistSummary.resolved }} de {{ flightChecklistSummary.total }} completados</strong>
+                <strong>{{ currentChecklistSummary.resolved }} de {{ currentChecklistSummary.total }} completados</strong>
                 <small>{{ checklistProgressPercent }}%</small>
               </div>
               <div class="crew-checklist-progress__bar" aria-hidden="true">
@@ -3338,14 +3612,14 @@ onBeforeUnmount(() => {
             </div>
 
             <div class="crew-checklist-groups">
-              <article v-for="group in flightChecklistGroups" :key="group.id" class="crew-checklist-group">
+              <article v-for="group in currentChecklistCategories" :key="group.id" class="crew-checklist-group">
                 <button type="button" class="crew-checklist-group__header" @click="toggleChecklistGroup(group.id)">
                   <div>
-                    <strong>{{ group.type }}</strong>
-                    <small>{{ group.resolvedCount }}/{{ group.items.length }}</small>
+                    <strong>{{ group.label }}</strong>
+                    <small>{{ group.items.filter((item) => item.status !== 'Pendiente').length }}/{{ group.items.length }}</small>
                   </div>
                   <span class="crew-checklist-group__status">
-                    <span v-if="group.resolvedCount === group.items.length">✓</span>
+                    <span v-if="group.items.every((item) => item.status !== 'Pendiente')">✓</span>
                     <span>{{ checklistCollapsedGroups[group.id] ? '˅' : '˄' }}</span>
                   </span>
                 </button>
@@ -3362,11 +3636,11 @@ onBeforeUnmount(() => {
                   >
                     <div class="crew-checklist-item__main">
                       <span class="crew-checklist-item__indicator" aria-hidden="true">
-                        {{ item.status === 'Correcto' ? '✓' : item.status === 'Falla reportada' ? '⚠' : selectedChecklistItem?.id === item.id ? '●' : '○' }}
+                        {{ checklistItemIndicator(item.status, selectedChecklistItem?.id === item.id) }}
                       </span>
                       <div>
                         <strong>{{ item.title }}</strong>
-                        <small>{{ item.status }}</small>
+                        <small>{{ checklistItemStatusLabel(item.status) }}</small>
                       </div>
                     </div>
                     <span class="crew-checklist-item__arrow" aria-hidden="true">›</span>
@@ -3375,16 +3649,73 @@ onBeforeUnmount(() => {
               </article>
             </div>
 
+            <div v-if="currentChecklistEvidenceItems.length" class="crew-checklist-progress">
+              <div>
+                <strong>Evidencias integradas</strong>
+                <small>{{ currentChecklistEvidenceItems.filter((item) => item.status === 'Evidencia cargada').length }}/{{ currentChecklistEvidenceItems.length }}</small>
+              </div>
+              <div class="crew-evidence-grid crew-evidence-grid--embedded">
+                <article v-for="item in currentChecklistEvidenceItems" :key="item.id" class="crew-evidence-card">
+                  <div>
+                    <strong>{{ item.label }}</strong>
+                    <p class="muted">{{ item.detail }}</p>
+                  </div>
+                  <div class="crew-evidence-card__side">
+                    <span class="badge">{{ item.status }}</span>
+                    <small v-if="item.meta">{{ item.meta }}</small>
+                    <input
+                      :ref="(element) => setChecklistEvidenceInputRef(item.id, element)"
+                      type="file"
+                      accept="image/*,.jpg,.jpeg,.png,.webp"
+                      class="crew-evidence-input"
+                      @change="handleChecklistEvidenceSelected(item, $event.target.files)"
+                    />
+                    <button
+                      v-if="!isChecklistReadOnly"
+                      class="ghost-button action-button"
+                      type="button"
+                      @click="openChecklistEvidencePicker(item)"
+                    >
+                      {{ item.status === 'Evidencia cargada' ? 'Actualizar evidencia' : 'Agregar evidencia' }}
+                    </button>
+                  </div>
+                  <div v-if="getChecklistEvidenceDraft(item.id).error" class="crew-evidence-feedback crew-evidence-feedback--error">
+                    {{ getChecklistEvidenceDraft(item.id).error }}
+                  </div>
+                  <div v-if="getChecklistEvidenceDraft(item.id).file" class="crew-evidence-preview">
+                    <img :src="getChecklistEvidenceDraft(item.id).previewUrl" :alt="`Vista previa de ${item.label}`" />
+                    <div class="crew-evidence-preview__meta">
+                      <strong>{{ getChecklistEvidenceDraft(item.id).file?.name }}</strong>
+                      <small>{{ formatFileSize(getChecklistEvidenceDraft(item.id).file?.size || 0) }}</small>
+                    </div>
+                    <div v-if="!isChecklistReadOnly" class="crew-evidence-preview__actions">
+                      <button class="ghost-button action-button" type="button" @click="openChecklistEvidencePicker(item)">Cambiar foto</button>
+                      <button class="ghost-button action-button" type="button" @click="resetChecklistEvidenceDraft(item.id)">Eliminar</button>
+                      <button class="primary-action action-button" type="button" :disabled="assignmentActionState.active || checklistEvidenceUploading[item.id]" @click="uploadCrewChecklistEvidence(item)">
+                        {{ checklistEvidenceUploading[item.id] ? 'Subiendo...' : 'Subir evidencia' }}
+                      </button>
+                    </div>
+                  </div>
+                  <div v-else-if="item.evidenceFile?.fileUrl" class="crew-evidence-preview crew-evidence-preview--stored">
+                    <img :src="item.evidenceFile.fileUrl" :alt="`Evidencia cargada de ${item.label}`" />
+                    <div class="crew-evidence-preview__meta">
+                      <strong>{{ item.evidenceFile.originalName || item.label }}</strong>
+                      <small>{{ formatFileSize(item.evidenceFile.size || 0) }}</small>
+                    </div>
+                  </div>
+                </article>
+              </div>
+            </div>
+
             <div class="crew-checklist-footer">
-              <strong v-if="flightChecklistSummary.pending">Faltan {{ flightChecklistSummary.pending }} elementos</strong>
-              <strong v-else>Checklist completado ✓</strong>
+              <strong>{{ currentChecklistStepMeta?.footer }}</strong>
               <button
                 class="primary-action action-button"
                 type="button"
-                :disabled="flightChecklistSummary.pending > 0"
-                @click="openFlightStep('evidences')"
+                :disabled="!isChecklistReadOnly && currentChecklistSummary.pending > 0"
+                @click="isChecklistReadOnly ? (selectedFlightStepId = '') : openFlightStep(currentChecklistStepMeta?.nextStepId || '')"
               >
-                {{ flightChecklistSummary.pending > 0 ? 'Continuar checklist' : 'Continuar a evidencias' }}
+                {{ currentChecklistSummary.pending > 0 ? 'Continuar checklist' : currentChecklistStepMeta?.cta }}
               </button>
             </div>
           </section>
@@ -3397,12 +3728,12 @@ onBeforeUnmount(() => {
             </div>
 
             <div class="crew-checklist-detail__actions">
-              <button class="primary-action action-button" type="button" :disabled="assignmentActionState.active || checklistFailureSubmitting" @click="markChecklistItem('completed')">✓ Correcto</button>
-              <button class="ghost-button action-button" type="button" :disabled="assignmentActionState.active || checklistFailureSubmitting" @click="markChecklistItem('not_applicable')">— No aplica</button>
-              <button class="secondary-action action-button" type="button" :disabled="assignmentActionState.active || checklistFailureSubmitting" @click="checklistFailureFormOpen = true">⚠ Reportar falla</button>
+              <button class="primary-action action-button" type="button" :disabled="isChecklistReadOnly || assignmentActionState.active || checklistFailureSubmitting" @click="markChecklistItem('completed')">✓ Correcto</button>
+              <button class="ghost-button action-button" type="button" :disabled="isChecklistReadOnly || assignmentActionState.active || checklistFailureSubmitting" @click="markChecklistItem('not_applicable')">— No aplica</button>
+              <button class="secondary-action action-button" type="button" :disabled="isChecklistReadOnly || assignmentActionState.active || checklistFailureSubmitting" @click="checklistFailureFormOpen = true">⚠ Reportar falla</button>
             </div>
 
-            <div class="crew-checklist-failure" :data-open="checklistFailureFormOpen || selectedChecklistItem.status === 'Falla reportada'">
+            <div class="crew-checklist-failure" :data-open="!isChecklistReadOnly && (checklistFailureFormOpen || selectedChecklistItem.status === 'Falla reportada')">
               <label>
                 <span>Describe el problema</span>
                 <textarea v-model="checklistFailureDraft.description" rows="4" maxlength="500" placeholder="Describe el problema"></textarea>
@@ -3421,7 +3752,7 @@ onBeforeUnmount(() => {
               <button
                 class="secondary-action action-button"
                 type="button"
-                :disabled="assignmentActionState.active || checklistFailureSubmitting || !checklistFailureDraft.description.trim()"
+                :disabled="isChecklistReadOnly || assignmentActionState.active || checklistFailureSubmitting || !checklistFailureDraft.description.trim()"
                 @click="submitChecklistFailureReport"
               >
                 {{ checklistFailureSubmitting ? 'Guardando...' : 'Guardar reporte' }}
@@ -3429,29 +3760,11 @@ onBeforeUnmount(() => {
             </div>
           </aside>
         </div>
-        <p v-else class="muted">No hay checklist detallado cargado para esta operacion.</p>
-      </article>
-
-      <article v-else-if="currentFlightStep?.id === 'evidences' && currentFlightSummary" class="surface inner-card crew-step-card">
-        <span class="eyebrow">Paso 4</span>
-        <h3>Evidencias del vuelo</h3>
-        <div class="crew-evidence-grid">
-          <article v-for="item in flightEvidenceItems" :key="item.id" class="crew-evidence-card">
-            <div>
-              <strong>{{ item.label }}</strong>
-              <p class="muted">{{ item.detail }}</p>
-            </div>
-            <div class="crew-evidence-card__side">
-              <span class="badge">{{ item.status }}</span>
-              <small v-if="item.meta">{{ item.meta }}</small>
-              <button class="ghost-button action-button" type="button" @click="flightIncidentOpen = true">{{ item.status === 'Evidencia cargada' ? 'Reemplazar foto' : 'Tomar o subir foto' }}</button>
-            </div>
-          </article>
-        </div>
+        <p v-else class="muted">No hay checklist detallado cargado para esta fase de la operación.</p>
       </article>
 
       <article v-else-if="currentFlightStep?.id === 'tracking' && currentFlightSummary" class="surface inner-card crew-step-card">
-        <span class="eyebrow">Paso 5 · Seguimiento</span>
+        <span class="eyebrow">Paso 4 · Seguimiento</span>
         <h3>Progreso de la operación</h3>
         <div class="crew-tracking-progress">
           <div>
@@ -3470,14 +3783,22 @@ onBeforeUnmount(() => {
             <p class="muted">{{ currentTrackingMilestone.detail }}</p>
           </div>
           <div class="crew-tracking-next__actions">
-            <button
-              v-if="currentTrackingMilestone.action && currentTrackingMilestone.actionLabel"
-              class="primary-action action-button"
-              type="button"
-              :disabled="assignmentActionState.active"
+              <button
+                v-if="currentTrackingMilestone.action && currentTrackingMilestone.actionLabel"
+                class="primary-action action-button"
+                type="button"
+                :disabled="assignmentActionState.active"
               @click="currentTrackingMilestone.action?.()"
             >
               {{ currentTrackingMilestone.actionLabel }}
+            </button>
+            <button
+              v-if="checklistStepState?.complete"
+              class="ghost-button action-button"
+              type="button"
+              @click="openFlightStep('checklist', { allowCompleted: true })"
+            >
+              Ver checklist pre-vuelo
             </button>
             <button class="ghost-button action-button" type="button" @click="flightIncidentOpen = true">
               Reportar incidencia
@@ -3545,22 +3866,192 @@ onBeforeUnmount(() => {
       </article>
 
       <article v-else-if="currentFlightStep?.id === 'closure' && currentAssignment" class="surface inner-card crew-step-card">
-        <span class="eyebrow">Paso 6</span>
-        <h3>Cierre de operacion</h3>
-        <div class="crew-close-summary">
-          <article class="crew-close-item" :data-done="Boolean(currentAssignment.assignmentConfirmed)">Vuelo confirmado</article>
-          <article class="crew-close-item" :data-done="preparationCompleted">Preparacion completa</article>
-          <article class="crew-close-item" :data-done="flightChecklistSummary.total ? flightChecklistSummary.pending === 0 : false">Checklist {{ flightChecklistSummary.resolved }}/{{ flightChecklistSummary.total || 0 }}</article>
-          <article class="crew-close-item" :data-done="flightEvidenceSummary.completed >= flightEvidenceSummary.total">Evidencias {{ flightEvidenceSummary.completed }}/{{ flightEvidenceSummary.total }}</article>
-          <article class="crew-close-item" :data-done="trackingCompleted">Seguimiento completo</article>
+        <span class="eyebrow">{{ currentChecklistStepMeta?.eyebrow }}</span>
+        <h3>{{ currentChecklistStepMeta?.title }}</h3>
+        <div v-if="currentChecklistGroup" class="crew-checklist-layout">
+          <section class="crew-checklist-master">
+            <div class="crew-checklist-progress">
+              <div>
+                <strong>{{ currentChecklistSummary.resolved }} de {{ currentChecklistSummary.total }} completados</strong>
+                <small>{{ checklistProgressPercent }}%</small>
+              </div>
+              <div class="crew-checklist-progress__bar" aria-hidden="true">
+                <span :style="{ width: `${checklistProgressPercent}%` }"></span>
+              </div>
+            </div>
+
+            <div class="crew-checklist-groups">
+              <article v-for="group in currentChecklistCategories" :key="group.id" class="crew-checklist-group">
+                <button type="button" class="crew-checklist-group__header" @click="toggleChecklistGroup(group.id)">
+                  <div>
+                    <strong>{{ group.label }}</strong>
+                    <small>{{ group.items.filter((item) => item.status !== 'Pendiente').length }}/{{ group.items.length }}</small>
+                  </div>
+                  <span class="crew-checklist-group__status">
+                    <span v-if="group.items.every((item) => item.status !== 'Pendiente')">✓</span>
+                    <span>{{ checklistCollapsedGroups[group.id] ? '˅' : '˄' }}</span>
+                  </span>
+                </button>
+
+                <div v-if="!checklistCollapsedGroups[group.id]" class="crew-checklist-items">
+                  <button
+                    v-for="item in group.items"
+                    :key="item.id"
+                    type="button"
+                    class="crew-checklist-item"
+                    :data-state="item.status.toLowerCase().replace(/\s+/g, '-')"
+                    :data-selected="selectedChecklistItem?.id === item.id"
+                    @click="selectChecklistItem(item)"
+                  >
+                    <div class="crew-checklist-item__main">
+                      <span class="crew-checklist-item__indicator" aria-hidden="true">
+                        {{ checklistItemIndicator(item.status, selectedChecklistItem?.id === item.id) }}
+                      </span>
+                      <div>
+                        <strong>{{ item.title }}</strong>
+                        <small>{{ checklistItemStatusLabel(item.status) }}</small>
+                      </div>
+                    </div>
+                    <span class="crew-checklist-item__arrow" aria-hidden="true">›</span>
+                  </button>
+                </div>
+              </article>
+            </div>
+
+            <div v-if="currentChecklistEvidenceItems.length" class="crew-checklist-progress">
+              <div>
+                <strong>Evidencia final</strong>
+                <small>{{ currentChecklistEvidenceItems.filter((item) => item.status === 'Evidencia cargada').length }}/{{ currentChecklistEvidenceItems.length }}</small>
+              </div>
+              <div class="crew-evidence-grid crew-evidence-grid--embedded">
+                <article v-for="item in currentChecklistEvidenceItems" :key="item.id" class="crew-evidence-card">
+                  <div>
+                    <strong>{{ item.label }}</strong>
+                    <p class="muted">{{ item.detail }}</p>
+                  </div>
+                  <div class="crew-evidence-card__side">
+                    <span class="badge">{{ item.status }}</span>
+                    <small v-if="item.meta">{{ item.meta }}</small>
+                    <input
+                      :ref="(element) => setChecklistEvidenceInputRef(item.id, element)"
+                      type="file"
+                      accept="image/*,.jpg,.jpeg,.png,.webp"
+                      class="crew-evidence-input"
+                      @change="handleChecklistEvidenceSelected(item, $event.target.files)"
+                    />
+                    <button
+                      class="ghost-button action-button"
+                      type="button"
+                      @click="openChecklistEvidencePicker(item)"
+                    >
+                      {{ item.status === 'Evidencia cargada' ? 'Actualizar evidencia' : 'Agregar evidencia' }}
+                    </button>
+                  </div>
+                  <div v-if="getChecklistEvidenceDraft(item.id).error" class="crew-evidence-feedback crew-evidence-feedback--error">
+                    {{ getChecklistEvidenceDraft(item.id).error }}
+                  </div>
+                  <div v-if="getChecklistEvidenceDraft(item.id).file" class="crew-evidence-preview">
+                    <img :src="getChecklistEvidenceDraft(item.id).previewUrl" :alt="`Vista previa de ${item.label}`" />
+                    <div class="crew-evidence-preview__meta">
+                      <strong>{{ getChecklistEvidenceDraft(item.id).file?.name }}</strong>
+                      <small>{{ formatFileSize(getChecklistEvidenceDraft(item.id).file?.size || 0) }}</small>
+                    </div>
+                    <div class="crew-evidence-preview__actions">
+                      <button class="ghost-button action-button" type="button" @click="openChecklistEvidencePicker(item)">Cambiar foto</button>
+                      <button class="ghost-button action-button" type="button" @click="resetChecklistEvidenceDraft(item.id)">Eliminar</button>
+                      <button class="primary-action action-button" type="button" :disabled="assignmentActionState.active || checklistEvidenceUploading[item.id]" @click="uploadCrewChecklistEvidence(item)">
+                        {{ checklistEvidenceUploading[item.id] ? 'Subiendo...' : 'Subir evidencia' }}
+                      </button>
+                    </div>
+                  </div>
+                  <div v-else-if="item.evidenceFile?.fileUrl" class="crew-evidence-preview crew-evidence-preview--stored">
+                    <img :src="item.evidenceFile.fileUrl" :alt="`Evidencia cargada de ${item.label}`" />
+                    <div class="crew-evidence-preview__meta">
+                      <strong>{{ item.evidenceFile.originalName || item.label }}</strong>
+                      <small>{{ formatFileSize(item.evidenceFile.size || 0) }}</small>
+                    </div>
+                  </div>
+                </article>
+              </div>
+            </div>
+
+            <div class="crew-checklist-progress">
+              <div>
+                <strong>Resumen de operación</strong>
+                <small>{{ postflightChecklistCompleted ? 'Lista para cierre' : 'Pendiente por completar' }}</small>
+              </div>
+              <div class="crew-close-summary">
+                <article class="crew-close-item" :data-done="Boolean(currentAssignment.assignmentConfirmed)">Vuelo confirmado</article>
+                <article class="crew-close-item" :data-done="preparationCompleted">Preparación completa</article>
+                <article class="crew-close-item" :data-done="checklistCompleted">Checklist pre-vuelo completo</article>
+                <article class="crew-close-item" :data-done="trackingCompleted">Seguimiento completo</article>
+                <article class="crew-close-item" :data-done="postflightChecklistCompleted">Checklist post-vuelo completo</article>
+                <article class="crew-close-item" :data-done="flightEvidenceSummary.completed >= flightEvidenceSummary.total">Evidencias {{ flightEvidenceSummary.completed }}/{{ flightEvidenceSummary.total }}</article>
+              </div>
+            </div>
+
+            <div class="crew-checklist-footer">
+              <strong>{{ currentChecklistStepMeta?.footer }}</strong>
+              <button
+                v-if="currentChecklistSummary.pending === 0 && currentAssignment.workflowStatus === 'report_pending'"
+                class="primary-action action-button"
+                type="button"
+                :disabled="assignmentActionState.active"
+                @click="submitCrewReport({ assignmentId: currentAssignment.id, report: { general_notes: assignmentResponseForm.comment || 'Cierre operativo desde Mi vuelo.' } })"
+              >
+                Finalizar operación
+              </button>
+            </div>
+
+            <div v-if="currentChecklistSummary.pending === 0 && currentAssignment.workflowStatus === 'report_pending'" class="crew-close-form">
+              <label>
+                <span>Comentario final</span>
+                <textarea v-model="assignmentResponseForm.comment" rows="3" placeholder="Comentario final opcional"></textarea>
+              </label>
+            </div>
+          </section>
+
+          <aside v-if="selectedChecklistItem" class="crew-checklist-detail">
+            <div class="crew-checklist-detail__head">
+              <span class="eyebrow">{{ selectedChecklistItem.groupLabel }}</span>
+              <h4>{{ selectedChecklistItem.title }}</h4>
+              <p class="muted">¿Todo está correcto?</p>
+            </div>
+
+            <div class="crew-checklist-detail__actions">
+              <button class="primary-action action-button" type="button" :disabled="assignmentActionState.active || checklistFailureSubmitting" @click="markChecklistItem('completed')">✓ Correcto</button>
+              <button class="ghost-button action-button" type="button" :disabled="assignmentActionState.active || checklistFailureSubmitting" @click="markChecklistItem('not_applicable')">— No aplica</button>
+              <button class="secondary-action action-button" type="button" :disabled="assignmentActionState.active || checklistFailureSubmitting" @click="checklistFailureFormOpen = true">⚠ Reportar falla</button>
+            </div>
+
+            <div class="crew-checklist-failure" :data-open="checklistFailureFormOpen || selectedChecklistItem.status === 'Falla reportada'">
+              <label>
+                <span>Describe el problema</span>
+                <textarea v-model="checklistFailureDraft.description" rows="4" maxlength="500" placeholder="Describe el problema"></textarea>
+              </label>
+              <small>{{ checklistFailureDraft.description.length }}/500</small>
+              <label class="crew-checklist-failure__upload">
+                <span>Agregar foto</span>
+                <input type="file" accept="image/*" multiple @change="updateChecklistFailureFiles($event.target.files)" />
+              </label>
+              <div v-if="checklistFailureDraft.previews.length" class="crew-checklist-failure__previews">
+                <article v-for="(preview, index) in checklistFailureDraft.previews" :key="preview" class="crew-checklist-failure__preview">
+                  <img :src="preview" alt="Vista previa de evidencia del checklist" />
+                  <button type="button" class="ghost-button action-button" @click="removeChecklistFailureFile(index)">Eliminar</button>
+                </article>
+              </div>
+              <button
+                class="secondary-action action-button"
+                type="button"
+                :disabled="assignmentActionState.active || checklistFailureSubmitting || !checklistFailureDraft.description.trim()"
+                @click="submitChecklistFailureReport"
+              >
+                {{ checklistFailureSubmitting ? 'Guardando...' : 'Guardar reporte' }}
+              </button>
+            </div>
+          </aside>
         </div>
-        <div v-if="currentAssignment.workflowStatus === 'report_pending'" class="crew-close-form">
-          <label>
-            <span>Comentario final</span>
-            <textarea v-model="assignmentResponseForm.comment" rows="3" placeholder="Comentario final opcional"></textarea>
-          </label>
-          <button class="primary-action action-button" type="button" :disabled="assignmentActionState.active" @click="submitCrewReport({ assignmentId: currentAssignment.id, report: { general_notes: assignmentResponseForm.comment || 'Cierre operativo desde Mi vuelo.' } })">Finalizar operacion</button>
-        </div>
+        <p v-else class="muted">No hay checklist detallado cargado para esta fase de la operación.</p>
       </article>
 
       <article v-if="flightIncidentOpen" class="surface inner-card crew-step-card">
@@ -3873,16 +4364,16 @@ onBeforeUnmount(() => {
   flex: 0 0 auto;
 }
 
-.crew-progress-step[data-state='completado'] .crew-progress-dot,
-.crew-stepper-item[data-state='completado'] {
+.crew-progress-step[data-state='completed'] .crew-progress-dot,
+.crew-stepper-item.crew-step-card--completed {
   background: rgba(16, 163, 127, 0.12);
 }
 
-.crew-progress-step[data-state='actual'] .crew-progress-dot {
+.crew-progress-step[data-state='current'] .crew-progress-dot {
   background: #d6a84b;
 }
 
-.crew-progress-step[data-state='bloqueado'] .crew-progress-dot {
+.crew-progress-step[data-state='blocked'] .crew-progress-dot {
   background: #cbd5e1;
 }
 
@@ -3900,13 +4391,19 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 
-.crew-stepper-item[data-state='completado'] {
+.crew-stepper-item.crew-step-card--completed {
   border-color: rgba(16, 163, 127, 0.18);
 }
 
-.crew-stepper-item[data-state='actual'] {
+.crew-stepper-item.crew-step-card--current {
   border-color: rgba(214, 168, 75, 0.3);
   background: linear-gradient(180deg, #fff8eb, #fcf5e2);
+}
+
+.crew-stepper-item.crew-step-card--blocked,
+.crew-stepper-item.crew-step-card--available {
+  border-color: var(--crew-line);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 251, 252, 0.95));
 }
 
 .crew-stepper-item[data-selected='true'] {
@@ -3939,6 +4436,27 @@ onBeforeUnmount(() => {
   background: linear-gradient(180deg, #f3fbf8, #edf8f4);
 }
 
+.crew-step-summary-card {
+  padding: 1rem 1.2rem;
+}
+
+.crew-step-summary-card__content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.crew-step-summary-card__content h4 {
+  margin: 0;
+  color: var(--crew-ink);
+}
+
+.crew-step-summary-card__content strong:last-child {
+  color: #15966f;
+  font-size: 1.4rem;
+}
+
 .action-row {
   display: flex;
   flex-wrap: wrap;
@@ -3964,6 +4482,49 @@ onBeforeUnmount(() => {
 .crew-checklist-item__side,
 .crew-evidence-card__side {
   min-width: min(18rem, 100%);
+}
+
+.crew-evidence-input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  width: 0;
+  height: 0;
+}
+
+.crew-evidence-feedback {
+  font-size: 0.9rem;
+}
+
+.crew-evidence-feedback--error {
+  color: #b42318;
+}
+
+.crew-evidence-preview {
+  display: grid;
+  gap: 0.75rem;
+  width: 100%;
+  padding-top: 0.25rem;
+}
+
+.crew-evidence-preview img {
+  width: 100%;
+  max-width: 220px;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 16px;
+  border: 1px solid var(--crew-line);
+}
+
+.crew-evidence-preview__meta {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.crew-evidence-preview__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 
 .crew-checklist-item textarea,
@@ -4064,13 +4625,32 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 
-.crew-checklist-item[data-selected='true'] {
+.crew-checklist-item[data-selected='true'][data-state='pendiente'] {
   border-color: rgba(214, 168, 75, 0.32);
   background: linear-gradient(180deg, rgba(255, 248, 235, 0.95), rgba(252, 245, 226, 0.95));
 }
 
+.crew-checklist-item[data-state='correcto'] {
+  border-color: rgba(16, 163, 127, 0.28);
+  background: linear-gradient(180deg, rgba(243, 251, 248, 0.98), rgba(237, 248, 244, 0.95));
+}
+
+.crew-checklist-item[data-state='no-aplica'] {
+  border-color: rgba(203, 213, 225, 0.85);
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.98), rgba(241, 245, 249, 0.96));
+}
+
+.crew-checklist-item[data-state='falla-reportada'] {
+  border-color: rgba(209, 67, 67, 0.26);
+  background: linear-gradient(180deg, rgba(254, 242, 242, 0.98), rgba(254, 226, 226, 0.95));
+}
+
 .crew-checklist-item[data-state='correcto'] .crew-checklist-item__indicator {
   color: #15966f;
+}
+
+.crew-checklist-item[data-state='no-aplica'] .crew-checklist-item__indicator {
+  color: #64748b;
 }
 
 .crew-checklist-item[data-state='falla-reportada'] .crew-checklist-item__indicator {
@@ -4079,6 +4659,18 @@ onBeforeUnmount(() => {
 
 .crew-checklist-item[data-state='pendiente'] .crew-checklist-item__indicator {
   color: #94a3b8;
+}
+
+.crew-checklist-item[data-state='correcto'] small {
+  color: #15966f;
+}
+
+.crew-checklist-item[data-state='no-aplica'] small {
+  color: #64748b;
+}
+
+.crew-checklist-item[data-state='falla-reportada'] small {
+  color: #d14343;
 }
 
 .crew-checklist-item__main {
@@ -4334,6 +4926,11 @@ onBeforeUnmount(() => {
 
 .crew-evidence-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.crew-evidence-grid--embedded {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
 }
 
 .crew-close-item[data-done='true'] {
@@ -5496,3 +6093,14 @@ onBeforeUnmount(() => {
   }
 }
 </style>
+function clearAssignmentWorkflowCache(operationId = '') {
+  const normalizedOperationId = String(operationId || '').trim()
+  if (normalizedOperationId) {
+    delete assignmentWorkflowCache[normalizedOperationId]
+    return
+  }
+
+  Object.keys(assignmentWorkflowCache).forEach((key) => {
+    delete assignmentWorkflowCache[key]
+  })
+}

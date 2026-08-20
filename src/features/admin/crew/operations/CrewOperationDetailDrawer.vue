@@ -69,6 +69,233 @@ const duplicatedEligibilityMessage = computed(() => {
       (!error || error === eligibilityMessage),
   )
 })
+
+function normalizeChecklistItemState(value = '') {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (['completed', 'correcto', 'ok', 'done', 'completado'].includes(normalized)) return 'Correcto'
+  if (['not_applicable', 'not applicable', 'na', 'no aplica'].includes(normalized)) return 'No aplica'
+  if (['failed', 'issue', 'falla', 'falla reportada'].includes(normalized)) return 'Falla reportada'
+  return 'Pendiente'
+}
+
+function normalizeChecklistType(value = '') {
+  return String(value || '').trim().toLowerCase()
+}
+
+function normalizeStatusToken(value = '') {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+}
+
+function humanizeChecklistType(value = '') {
+  const normalized = normalizeChecklistType(value)
+  const labels = {
+    preparation: 'Preparacion',
+    preflight: 'Checklist pre-vuelo',
+    postflight: 'Checklist post-vuelo',
+  }
+
+  return labels[normalized] || value || 'Checklist'
+}
+
+function humanizeChecklistCategory(value = '') {
+  const normalized = String(value || '').trim().toLowerCase()
+  const labels = {
+    personal: 'Documentacion personal',
+    logistics: 'Traslado y presentacion',
+    operation: 'Informacion del vuelo',
+    passengers: 'Pasajeros',
+    service: 'Servicio',
+    cabin: 'Cabina',
+    safety: 'Seguridad',
+  }
+
+  return labels[normalized] || value || 'General'
+}
+
+function checklistItemIndicator(status = '') {
+  if (status === 'Correcto') return '✓'
+  if (status === 'No aplica') return '—'
+  if (status === 'Falla reportada') return '⚠'
+  return '○'
+}
+
+function checklistItemStatusLabel(status = '') {
+  if (status === 'Correcto') return 'Registrado'
+  if (status === 'No aplica') return 'No aplica'
+  if (status === 'Falla reportada') return 'Falla reportada'
+  return 'Pendiente'
+}
+
+function checklistItemStateKey(status = '') {
+  if (status === 'Correcto') return 'completed'
+  if (status === 'No aplica') return 'not-applicable'
+  if (status === 'Falla reportada') return 'failed'
+  return 'pending'
+}
+
+function normalizeChecklistItem(item = {}, checklistType = 'general', index = 0) {
+  return {
+    id: item.id || item.code || item.label || item.name || `${checklistType}-${index}`,
+    title: item.label || item.description || item.name || item.code || 'Checklist sin nombre',
+    category: item.category || 'general',
+    status: normalizeChecklistItemState(item.status),
+    checklistType,
+  }
+}
+
+function buildChecklistSummary(items = []) {
+  const completed = items.filter((item) => item.status === 'Correcto').length
+  const notApplicable = items.filter((item) => item.status === 'No aplica').length
+  const failed = items.filter((item) => item.status === 'Falla reportada').length
+  const pending = items.filter((item) => item.status === 'Pendiente').length
+
+  return {
+    total: items.length,
+    completed,
+    notApplicable,
+    failed,
+    pending,
+    resolved: completed + notApplicable + failed,
+  }
+}
+
+function groupChecklistItemsByCategory(items = []) {
+  const buckets = new Map()
+
+  items.forEach((item) => {
+    const key = String(item.category || 'general')
+    if (!buckets.has(key)) {
+      buckets.set(key, {
+        id: key,
+        label: humanizeChecklistCategory(key),
+        items: [],
+      })
+    }
+    buckets.get(key).items.push(item)
+  })
+
+  return Array.from(buckets.values()).map((group) => ({
+    ...group,
+    summary: buildChecklistSummary(group.items),
+  }))
+}
+
+function findLatestTimelineEntry(timeline = [], { statuses = [], titleIncludes = [] } = {}) {
+  const normalizedStatuses = statuses.map((status) => normalizeStatusToken(status)).filter(Boolean)
+  const normalizedTitles = titleIncludes.map((title) => normalizeStatusToken(title)).filter(Boolean)
+
+  const matches = (Array.isArray(timeline) ? timeline : []).filter((entry) => {
+    const status = normalizeStatusToken(entry?.status || '')
+    const title = normalizeStatusToken(entry?.title || '')
+    return normalizedStatuses.includes(status) || normalizedTitles.some((value) => title.includes(value))
+  })
+
+  return matches
+    .slice()
+    .sort((left, right) => {
+      const leftTime = Date.parse(left?.created_at || left?.updated_at || '')
+      const rightTime = Date.parse(right?.created_at || right?.updated_at || '')
+      return (Number.isFinite(rightTime) ? rightTime : 0) - (Number.isFinite(leftTime) ? leftTime : 0)
+    })[0] || null
+}
+
+function buildDerivedLogbookGroup(operation = {}) {
+  const raw = operation?.raw && typeof operation.raw === 'object' ? operation.raw : {}
+  const nestedOperation = raw.operation && typeof raw.operation === 'object' ? raw.operation : {}
+  const latestOperation = raw.latestOperation && typeof raw.latestOperation === 'object' ? raw.latestOperation : {}
+  const timeline = [
+    ...(Array.isArray(raw.timeline) ? raw.timeline : []),
+    ...(Array.isArray(nestedOperation.timeline) ? nestedOperation.timeline : []),
+    ...(Array.isArray(latestOperation.timeline) ? latestOperation.timeline : []),
+  ]
+  const workflowStatus = String(operation?.workflowStatus || operation?.status || raw.workflow_status || raw.status || '').toLowerCase()
+  const hasIncident = Number(operation?.incidentsCount || raw.incidents_count || 0) > 0
+
+  const airportEntry = findLatestTimelineEntry(timeline, {
+    statuses: ['crew_checkin', 'checked_in'],
+    titleIncludes: ['check in operativo', 'check-in operativo', 'llegue al aeropuerto'],
+  })
+  const cabinEntry = findLatestTimelineEntry(timeline, {
+    statuses: ['cabina_lista', 'cabin_ready'],
+    titleIncludes: ['cabina lista', 'aeronave lista'],
+  })
+  const passengersEntry = findLatestTimelineEntry(timeline, {
+    statuses: ['pasajeros_recibidos', 'boarding_completed'],
+    titleIncludes: ['pasajeros recibidos'],
+  })
+  const takeoffEntry = findLatestTimelineEntry(timeline, {
+    statuses: ['in_flight'],
+    titleIncludes: ['despegue'],
+  })
+  const landingEntry = findLatestTimelineEntry(timeline, {
+    statuses: ['landed'],
+    titleIncludes: ['aterriz'],
+  })
+  const postflightEntry = findLatestTimelineEntry(timeline, {
+    statuses: ['postflight_pending', 'report_pending', 'crew_completed', 'administratively_closed'],
+    titleIncludes: ['postvuelo', 'desembar', 'reporte enviado'],
+  })
+
+  const items = [
+    { id: 'airport-arrival', title: 'Llegué al aeropuerto', category: 'seguimiento', status: airportEntry || ['checked_in', 'preflight_in_progress', 'cabin_ready', 'boarding', 'boarding_completed', 'in_flight', 'landed', 'postflight_pending', 'report_pending', 'crew_completed', 'administratively_closed'].includes(workflowStatus) ? 'Correcto' : 'Pendiente' },
+    { id: 'aircraft-ready', title: 'Aeronave lista', category: 'seguimiento', status: cabinEntry || ['cabin_ready', 'boarding', 'boarding_completed', 'in_flight', 'landed', 'postflight_pending', 'report_pending', 'crew_completed', 'administratively_closed'].includes(workflowStatus) ? 'Correcto' : 'Pendiente' },
+    { id: 'passengers-ready', title: 'Pasajeros recibidos', category: 'seguimiento', status: passengersEntry || ['boarding_completed', 'in_flight', 'landed', 'postflight_pending', 'report_pending', 'crew_completed', 'administratively_closed'].includes(workflowStatus) ? 'Correcto' : 'Pendiente' },
+    { id: 'takeoff', title: 'Despegue', category: 'seguimiento', status: takeoffEntry || ['in_flight', 'landed', 'postflight_pending', 'report_pending', 'crew_completed', 'administratively_closed'].includes(workflowStatus) ? 'Correcto' : 'Pendiente' },
+    { id: 'landing', title: 'Aterrizaje', category: 'seguimiento', status: landingEntry || ['landed', 'postflight_pending', 'report_pending', 'crew_completed', 'administratively_closed'].includes(workflowStatus) ? 'Correcto' : 'Pendiente' },
+    { id: 'postflight', title: 'Checklist post-vuelo', category: 'seguimiento', status: postflightEntry || ['postflight_pending', 'report_pending', 'crew_completed', 'administratively_closed'].includes(workflowStatus) ? (hasIncident ? 'Falla reportada' : 'Correcto') : 'Pendiente' },
+  ].map((item) => ({ ...item, status: normalizeChecklistItemState(item.status) }))
+
+  return {
+    id: 'derived-flight-logbook',
+    type: 'tracking',
+    label: 'Bitácora del vuelo',
+    items,
+    summary: buildChecklistSummary(items),
+    categories: groupChecklistItemsByCategory(items),
+  }
+}
+
+const operationChecklistGroups = computed(() => {
+  const raw = props.operation?.raw && typeof props.operation.raw === 'object' ? props.operation.raw : {}
+  const nestedOperation = raw.operation && typeof raw.operation === 'object' ? raw.operation : {}
+  const latestOperation = raw.latestOperation && typeof raw.latestOperation === 'object' ? raw.latestOperation : {}
+  const source = [
+    props.operation?.checklists,
+    raw.checklists,
+    nestedOperation.checklists,
+    latestOperation.checklists,
+    raw.visibility_payload?.checklists,
+    nestedOperation.visibility_payload?.checklists,
+  ].find(Array.isArray) || []
+
+  const normalizedGroups = source
+    .map((group, groupIndex) => {
+      const checklistType = group.type || group.category || `group-${groupIndex + 1}`
+      const items = Array.isArray(group.items)
+        ? group.items.map((item, itemIndex) => normalizeChecklistItem(item, checklistType, itemIndex))
+        : []
+      if (!items.length) return null
+
+      return {
+        id: group.id || checklistType || `checklist-group-${groupIndex + 1}`,
+        type: checklistType,
+        label: humanizeChecklistType(checklistType),
+        items,
+        summary: buildChecklistSummary(items),
+        categories: groupChecklistItemsByCategory(items),
+      }
+    })
+    .filter(Boolean)
+
+  if (normalizedGroups.length) return normalizedGroups
+
+  return [buildDerivedLogbookGroup(props.operation)].filter((group) => group.summary.total > 0)
+})
+
+const hasOperationChecklistGroups = computed(() => operationChecklistGroups.value.length > 0)
 </script>
 
 <template>
@@ -457,6 +684,118 @@ const duplicatedEligibilityMessage = computed(() => {
   color: #152942;
 }
 
+.admin-crew-logbook,
+.admin-crew-logbook__groups,
+.admin-crew-logbook__categories,
+.admin-crew-logbook__items {
+  display: grid;
+}
+
+.admin-crew-logbook__groups,
+.admin-crew-logbook__categories {
+  gap: 0.8rem;
+}
+
+.admin-crew-logbook__group,
+.admin-crew-logbook__category {
+  display: grid;
+  gap: 0.7rem;
+  padding: 0.9rem;
+  border-radius: 18px;
+  border: 1px solid rgba(155, 176, 212, 0.18);
+  background: linear-gradient(180deg, rgba(248, 251, 255, 0.96), rgba(255, 255, 255, 0.98));
+}
+
+.admin-crew-logbook__group-head,
+.admin-crew-logbook__category-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.admin-crew-logbook__group-head strong,
+.admin-crew-logbook__category-head strong {
+  color: #10233d;
+}
+
+.admin-crew-logbook__group-head small,
+.admin-crew-logbook__category-head small {
+  color: #5f7496;
+  font-weight: 700;
+}
+
+.admin-crew-logbook__items {
+  gap: 0.6rem;
+}
+
+.admin-crew-logbook__item {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 0.72rem;
+  padding: 0.78rem 0.88rem;
+  border-radius: 16px;
+  border: 1px solid rgba(155, 176, 212, 0.22);
+  background: rgba(255, 255, 255, 0.98);
+}
+
+.admin-crew-logbook__item-icon {
+  display: grid;
+  place-items: center;
+  font-size: 1rem;
+  font-weight: 900;
+  color: #8a98ae;
+}
+
+.admin-crew-logbook__item-copy {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.admin-crew-logbook__item-copy strong {
+  color: #10233d;
+}
+
+.admin-crew-logbook__item-copy small {
+  color: #6f7f96;
+}
+
+.admin-crew-logbook__item[data-state='completed'] {
+  border-color: rgba(16, 185, 129, 0.24);
+  background: rgba(236, 253, 245, 0.88);
+}
+
+.admin-crew-logbook__item[data-state='completed'] .admin-crew-logbook__item-icon,
+.admin-crew-logbook__item[data-state='completed'] .admin-crew-logbook__item-copy small {
+  color: #0f8e65;
+}
+
+.admin-crew-logbook__item[data-state='not-applicable'] {
+  border-color: rgba(148, 163, 184, 0.32);
+  background: rgba(248, 250, 252, 0.98);
+}
+
+.admin-crew-logbook__item[data-state='not-applicable'] .admin-crew-logbook__item-icon,
+.admin-crew-logbook__item[data-state='not-applicable'] .admin-crew-logbook__item-copy small {
+  color: #64748b;
+}
+
+.admin-crew-logbook__item[data-state='failed'] {
+  border-color: rgba(239, 68, 68, 0.24);
+  background: rgba(254, 242, 242, 0.94);
+}
+
+.admin-crew-logbook__item[data-state='failed'] .admin-crew-logbook__item-icon,
+.admin-crew-logbook__item[data-state='failed'] .admin-crew-logbook__item-copy small {
+  color: #dc2626;
+}
+
+.admin-crew-logbook__item[data-state='pending'] .admin-crew-logbook__item-icon,
+.admin-crew-logbook__item[data-state='pending'] .admin-crew-logbook__item-copy small {
+  color: #8a98ae;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -648,6 +987,11 @@ const duplicatedEligibilityMessage = computed(() => {
   .form-grid,
   .detail-actions {
     grid-template-columns: 1fr;
+  }
+
+  .admin-crew-logbook__group-head,
+  .admin-crew-logbook__category-head {
+    display: grid;
   }
 
   .status-stack {
