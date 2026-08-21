@@ -111,14 +111,6 @@ function resolveActorName(source = {}, fallback = '') {
   return actor
 }
 
-function buildItemMeta(item = {}) {
-  const parts = []
-  if (item.timestamp) parts.push(props.formatDateTime(item.timestamp))
-  if (item.actorName) parts.push(item.actorName)
-  if (!parts.length) return item.detail || ''
-  return parts.join(' · ')
-}
-
 function itemRecordMeta(item = {}) {
   const parts = []
   if (item.timestamp) parts.push(props.formatDateTime(item.timestamp))
@@ -375,15 +367,6 @@ function stageTone(stage = {}) {
   return 'pending'
 }
 
-function stageRecordedItems(stage = {}, limit = 3) {
-  const items = Array.isArray(stage.items) ? stage.items : []
-  const resolved = items.filter((item) => ['completed', 'not_applicable', 'failed'].includes(item.status))
-  return {
-    items: resolved.slice(0, limit),
-    remaining: Math.max(0, resolved.length - limit),
-  }
-}
-
 function stageSummaryDetail(stage = {}) {
   const summary = stage.summary || { resolved: 0, total: 0 }
   const status = String(stage.workflowStep?.status || '').trim()
@@ -523,10 +506,6 @@ const normalizedStages = computed(() => {
   }))
 })
 
-const primaryStages = computed(() =>
-  normalizedStages.value.filter((stage) => ['preparation', 'preflight', 'tracking', 'postflight'].includes(stage.type)),
-)
-
 const evidenceCards = computed(() => extractEvidenceCards(props.operation || {}))
 const incidents = computed(() => extractIncidents(props.operation || {}))
 
@@ -571,39 +550,6 @@ const operationHeader = computed(() => {
         <small v-if="operationHeader.updatedAt">Última actualización: {{ formatDateTime(operationHeader.updatedAt) }}</small>
       </div>
     </header>
-
-    <section class="stage-summary-grid">
-      <article v-for="stage in primaryStages" :key="stage.id" class="stage-summary-card" :data-tone="stage.tone">
-        <span class="stage-summary-card__icon">{{ checklistItemIndicator(stage.tone === 'current' ? 'pending' : stage.tone) }}</span>
-        <div class="stage-summary-card__copy">
-          <div class="stage-summary-card__head">
-            <div class="stage-summary-card__title">
-              <strong>{{ stage.title }}</strong>
-              <small>{{ stageSummaryDetail(stage) }}</small>
-            </div>
-              <small>{{ stageScoreLabel(stage) }}</small>
-          </div>
-          <div v-if="stageRecordedItems(stage).items.length" class="stage-summary-card__list">
-            <span
-              v-for="item in stageRecordedItems(stage).items"
-              :key="`${stage.id}-${item.id}`"
-              class="stage-summary-card__list-item"
-            >
-              <span class="stage-summary-card__list-line">{{ checklistItemIndicator(item.status) }} {{ item.title }}</span>
-              <small class="stage-summary-card__state">{{ checklistItemLabel(item.status) }}</small>
-              <small v-if="item.timestamp || item.actorName" class="stage-summary-card__meta">
-                {{ buildItemMeta(item) }}
-                <span v-if="item.actorRole" class="actor-tag" :data-role="normalizeToken(item.actorRole)">{{ item.actorRole }}</span>
-              </small>
-            </span>
-            <span v-if="stageRecordedItems(stage).remaining" class="stage-summary-card__more">
-              +{{ stageRecordedItems(stage).remaining }} más
-            </span>
-          </div>
-          <span v-else class="stage-summary-card__empty">Sin registros completados aún</span>
-        </div>
-      </article>
-    </section>
 
     <section class="stages-accordion">
       <details
@@ -741,7 +687,6 @@ const operationHeader = computed(() => {
 
 <style scoped>
 .logbook-view,
-.stage-summary-grid,
 .stages-accordion,
 .support-grid,
 .evidence-grid,
@@ -767,7 +712,6 @@ const operationHeader = computed(() => {
 }
 
 .operation-head,
-.stage-summary-card,
 .stage-block,
 .support-card,
 .evidence-modal {
@@ -794,7 +738,6 @@ const operationHeader = computed(() => {
 }
 
 .operation-head h3,
-.stage-summary-card strong,
 .stage-block__title strong,
 .timeline-item__copy strong,
 .checklist-item__copy strong,
@@ -852,71 +795,11 @@ const operationHeader = computed(() => {
   color: #64748b;
 }
 
-.stage-summary-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.75rem;
-}
-
-.stage-summary-card {
-  grid-template-columns: 28px minmax(0, 1fr);
-  align-items: start;
-  gap: 0.7rem;
-  padding: 0.9rem 0.95rem;
-}
-
-.stage-summary-card__copy,
-.stage-summary-card__list {
-  display: grid;
-}
-
-.stage-summary-card__copy {
-  gap: 0.35rem;
-}
-
-.stage-summary-card__head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.75rem;
-}
-
-.stage-summary-card__title,
 .stage-block__title-copy,
 .timeline-item__copy,
 .checklist-item__copy {
   display: grid;
   gap: 0.18rem;
-}
-
-.stage-summary-card__list {
-  gap: 0.18rem;
-}
-
-.stage-summary-card__list-item,
-.stage-summary-card__more,
-.stage-summary-card__empty {
-  font-size: 0.82rem;
-  line-height: 1.35;
-  color: #6f84a6;
-}
-
-.stage-summary-card__list-item {
-  display: grid;
-  gap: 0.08rem;
-}
-
-.stage-summary-card__list-line {
-  color: #10233d;
-  font-weight: 700;
-}
-
-.stage-summary-card__state {
-  color: #6f84a6;
-}
-
-.stage-summary-card__meta {
-  font-size: 0.76rem;
-  color: #8ba0c0;
 }
 
 .actor-tag {
@@ -953,7 +836,6 @@ const operationHeader = computed(() => {
   color: #475569;
 }
 
-.stage-summary-card__icon,
 .timeline-item__icon,
 .checklist-item__icon {
   display: grid;
@@ -961,7 +843,6 @@ const operationHeader = computed(() => {
   font-weight: 900;
 }
 
-.stage-summary-card small,
 .timeline-item__copy small,
 .checklist-item__copy small,
 .status-stack small,
@@ -1154,7 +1035,6 @@ const operationHeader = computed(() => {
 }
 
 @media (max-width: 960px) {
-  .stage-summary-grid,
   .support-grid {
     grid-template-columns: 1fr 1fr;
   }
@@ -1167,7 +1047,6 @@ const operationHeader = computed(() => {
     display: grid;
   }
 
-  .stage-summary-grid,
   .support-grid {
     grid-template-columns: 1fr;
   }

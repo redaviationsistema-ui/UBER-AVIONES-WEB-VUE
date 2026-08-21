@@ -1173,63 +1173,6 @@ const currentPrimaryAction = computed(() => {
   }
 })
 
-const completedFlightStepSummaries = computed(() =>
-  flightFlowState.value.steps
-    .filter((step) => step.status === 'completed' && step.id !== flightFlowState.value.currentId)
-    .map((step) => {
-      if (step.id === 'validation') {
-        return {
-          id: step.id,
-          label: 'Vuelo confirmado',
-          detail: currentAssignment.value?.crewConfirmedAt
-            ? formatCrewDateTime(
-              String(currentAssignment.value.crewConfirmedAt).slice(0, 10),
-              String(currentAssignment.value.crewConfirmedAt).slice(11, 16),
-            )
-            : 'Asignación confirmada',
-        }
-      }
-
-      if (step.id === 'preparation') {
-        return {
-          id: step.id,
-          label: 'Preparación',
-          detail: `${preparationChecklistSummary.value.resolved} de ${preparationChecklistSummary.value.total} completados`,
-        }
-      }
-
-      if (step.id === 'checklist') {
-        return {
-          id: step.id,
-          label: 'Checklist pre-vuelo',
-          detail: `${preflightChecklistSummary.value.resolved} de ${preflightChecklistSummary.value.total} completados`,
-        }
-      }
-
-      if (step.id === 'tracking') {
-        return {
-          id: step.id,
-          label: 'Seguimiento',
-          detail: `${flightTrackingSummary.value.completed} de ${flightTrackingSummary.value.total} eventos registrados`,
-        }
-      }
-
-      if (step.id === 'closure') {
-        return {
-          id: step.id,
-          label: 'Checklist post-vuelo',
-          detail: `${postflightChecklistSummary.value.resolved} de ${postflightChecklistSummary.value.total} completados`,
-        }
-      }
-
-      return {
-        id: step.id,
-        label: step.label,
-        detail: 'Completado',
-      }
-    }),
-)
-
 function getWorkflowStepClass(status = '') {
   return {
     'crew-step-card--completed': status === 'completed',
@@ -1894,17 +1837,9 @@ async function fetchCrewOperationWorkflow(operationId, { force = false } = {}) {
       timeoutMs: CREW_PORTAL_TIMEOUT_MS,
     },
   ])
-  console.log('CREW RAW OPERATION PAYLOAD', JSON.parse(JSON.stringify(response || {})))
 
   const workflowRecord = normalizeCrewWorkflowRecord(response)
-  console.log('CREW WORKFLOW CHECKLISTS', {
-    operationId: normalizedOperationId,
-    checklists:
-      workflowRecord?.checklists ??
-      workflowRecord?.assignment?.checklists ??
-      workflowRecord?.operation?.checklists ??
-      [],
-  })
+
   console.table(
     (workflowRecord?.checklists || []).map((checklist) => ({
       id: checklist?.id,
@@ -1914,10 +1849,13 @@ async function fetchCrewOperationWorkflow(operationId, { force = false } = {}) {
       items: checklist?.items?.length,
     })),
   )
+
   assignmentWorkflowCache[normalizedOperationId] = workflowRecord
+
   return workflowRecord
 }
 
+//---------------------------------------------------------------------------
 async function hydrateAssignmentsWithWorkflow(records = [], { forceWorkflow = false } = {}) {
   const hydrated = await Promise.all(
     records.map(async (assignment) => {
@@ -3632,17 +3570,6 @@ onBeforeUnmount(() => {
         </div>
       </article>
 
-      <article v-for="step in completedFlightStepSummaries" :key="`summary-${step.id}`" class="surface inner-card crew-step-summary-card">
-        <span class="eyebrow">Completado</span>
-        <div class="crew-step-summary-card__content">
-          <div>
-            <h4>{{ step.label }}</h4>
-            <p class="muted">{{ step.detail }}</p>
-          </div>
-          <strong>✓</strong>
-        </div>
-      </article>
-
       <article v-if="currentFlightStep?.id === 'validation' && currentAssignment" class="surface inner-card crew-step-card">
         <span class="eyebrow">Paso 1</span>
         <h3>Validar vuelo</h3>
@@ -4502,27 +4429,6 @@ onBeforeUnmount(() => {
 .crew-check-item[data-done='true'] {
   border-color: rgba(16, 163, 127, 0.18);
   background: linear-gradient(180deg, #f3fbf8, #edf8f4);
-}
-
-.crew-step-summary-card {
-  padding: 1rem 1.2rem;
-}
-
-.crew-step-summary-card__content {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.crew-step-summary-card__content h4 {
-  margin: 0;
-  color: var(--crew-ink);
-}
-
-.crew-step-summary-card__content strong:last-child {
-  color: #15966f;
-  font-size: 1.4rem;
 }
 
 .action-row {
