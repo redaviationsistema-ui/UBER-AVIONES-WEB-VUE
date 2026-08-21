@@ -8,6 +8,33 @@ function normalizeToken(value = '') {
     .replace(/\s+/g, ' ')
 }
 
+export function normalizeChecklistType(value = '') {
+  const raw = String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+  const compact = raw.replace(/[\s_-]+/g, '')
+
+  if (['preparation', 'preparacion', 'preparationchecklist', 'checklistpreparation', 'checklistpreparacion'].includes(compact)) {
+    return 'preparation'
+  }
+
+  if (['preflight', 'prevuelo', 'preflightchecklist', 'checklistpreflight', 'checklistprevuelo'].includes(compact)) {
+    return 'preflight'
+  }
+
+  if (['postflight', 'postvuelo', 'postflightchecklist', 'checklistpostflight', 'checklistpostvuelo'].includes(compact)) {
+    return 'postflight'
+  }
+
+  if (compact === 'tracking' || compact === 'seguimiento') {
+    return 'tracking'
+  }
+
+  return ''
+}
+
 const CHECKLIST_TYPE_LABELS = {
   preparation: 'Preparación',
   preflight: 'Checklist pre-vuelo',
@@ -102,7 +129,7 @@ export function checklistStateLabel(status = '') {
 }
 
 export function humanizeChecklistType(value = '') {
-  const normalized = normalizeToken(value)
+  const normalized = normalizeChecklistType(value) || normalizeToken(value)
   return CHECKLIST_TYPE_LABELS[normalized] || value || 'Checklist'
 }
 
@@ -482,8 +509,12 @@ function extractChecklists(entity = {}) {
   return source.filter((checklist) => {
     const operationId = checklist?.operation_id || checklist?.operationId
     const assignmentId = checklist?.assignment_id || checklist?.assignmentId
-    if (operationId && identifiers.operationId && !sameIdentifier(operationId, identifiers.operationId)) return false
-    if (assignmentId && identifiers.assignmentId && !sameIdentifier(assignmentId, identifiers.assignmentId)) return false
+    const operationMatches = !operationId || !identifiers.operationId || sameIdentifier(operationId, identifiers.operationId)
+    const assignmentMatches = !assignmentId || !identifiers.assignmentId || sameIdentifier(assignmentId, identifiers.assignmentId)
+
+    if (operationId && identifiers.operationId && !operationMatches) return false
+    if (!operationMatches) return false
+    if (!assignmentMatches && !operationMatches) return false
     return true
   })
 }
@@ -555,11 +586,13 @@ function buildChecklistGroups(entity = {}) {
   const crewName = pickFirstValue([entity.crew, entity.raw?.crew_name, entity.raw?.sobrecargo_name])
   return extractChecklists(entity)
     .map((group, groupIndex) => {
-      const type = normalizeToken(group?.type || group?.category || `group-${groupIndex + 1}`).replace(/\s+/g, '_')
+      const sourceType = group?.type || group?.category || ''
+      const type =
+        normalizeChecklistType(sourceType)
+        || normalizeToken(sourceType || `group-${groupIndex + 1}`).replace(/\s+/g, '_')
       const items = asArray(group?.items).map((item, itemIndex) =>
         normalizeChecklistItem(item, type, itemIndex, crewName),
       )
-      if (!items.length) return null
 
       const categoriesMap = new Map()
       items.forEach((item) => {
@@ -578,6 +611,7 @@ function buildChecklistGroups(entity = {}) {
         ...category,
         summary: buildChecklistSummary(category.items),
       }))
+      const summary = buildChecklistSummary(items)
 
       return {
         id: group?.id || type,
@@ -585,13 +619,13 @@ function buildChecklistGroups(entity = {}) {
         title: humanizeChecklistType(type),
         items,
         categories,
-        summary: buildChecklistSummary(items),
+        summary,
         status:
           items.length === 0
             ? 'not_loaded'
-            : buildChecklistSummary(items).failed > 0
+            : summary.failed > 0
               ? 'failed'
-              : buildChecklistSummary(items).isComplete
+              : summary.isComplete
                 ? 'completed'
                 : 'pending',
       }
