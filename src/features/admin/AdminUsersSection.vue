@@ -84,6 +84,9 @@ const detailOpen = ref(false)
 const detailLoading = ref(false)
 const detailError = ref('')
 const selectedUserDetail = ref(null)
+const biometricImageLoading = ref(false)
+const biometricImageError = ref(false)
+const biometricLightboxOpen = ref(false)
 const paymentDetailOpen = ref(false)
 const selectedPaymentDetail = ref(null)
 const currentPage = ref(1)
@@ -189,6 +192,15 @@ watch(
     }, 0)
   },
   { immediate: true, deep: true },
+)
+
+watch(
+  () => resolveBiometricSelfieUrl(selectedUserDetail.value || {}),
+  (url) => {
+    biometricImageError.value = false
+    biometricImageLoading.value = Boolean(url)
+  },
+  { immediate: true },
 )
 
 const roleSummaries = computed(() =>
@@ -726,6 +738,9 @@ function resolveBiometricSelfieUrl(detail = {}) {
       'user.biometric_selfie_url',
       'user.raw.biometric_selfie_url',
       'user.raw.biometricSelfieUrl',
+      'user.biometric_selfie_path',
+      'user.raw.biometric_selfie_path',
+      'user.raw.biometricSelfiePath',
     ]) ||
     ''
 
@@ -734,6 +749,99 @@ function resolveBiometricSelfieUrl(detail = {}) {
   }
 
   return ''
+}
+
+function hasBiometricSelfie(record = {}) {
+  return Boolean(
+    getNestedValue(record, [
+      'biometric_selfie_url',
+      'raw.biometric_selfie_url',
+      'raw.biometricSelfieUrl',
+      'biometric_selfie_path',
+      'raw.biometric_selfie_path',
+      'raw.biometricSelfiePath',
+      'raw.biometric_image_saved',
+      'raw.biometricImageSaved',
+    ]),
+  )
+}
+
+function formatBiometricBoolean(value) {
+  if (value === undefined || value === null || value === '') return 'Sin dato'
+  return value === true || value === '1' || value === 1 ? 'Si' : 'No'
+}
+
+function formatBiometricPercent(value) {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return 'Sin dato'
+  return `${numeric.toFixed(1)}%`
+}
+
+function formatBiometricDate(value) {
+  if (!value) return 'Sin dato'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return String(value)
+
+  return new Intl.DateTimeFormat('es-MX', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
+}
+
+function resolveBiometricCardRows(detail = {}) {
+  const verification = resolveLatestVerification(detail)
+
+  return [
+    {
+      label: 'Rostro detectado',
+      value: formatBiometricBoolean(
+        getNestedValue(detail, ['user.raw.face_detected', 'user.raw.faceDetected']) || verification?.face_detected,
+      ),
+    },
+    {
+      label: 'Confianza',
+      value: formatBiometricPercent(
+        verification?.face_confidence ||
+          getNestedValue(detail, ['user.raw.face_confidence', 'user.raw.faceConfidence']),
+      ),
+    },
+    {
+      label: 'Numero de rostros',
+      value: formatDetailValue(
+        getNestedValue(detail, ['user.raw.faces_count', 'user.raw.facesCount']) || verification?.faces_count,
+      ),
+    },
+    {
+      label: 'Estado de validacion',
+      value: formatDetailValue(
+        getNestedValue(detail, ['user.raw.identity_verification_status', 'user.raw.identityVerificationStatus']) ||
+          verification?.status,
+      ),
+    },
+    {
+      label: 'Brightness',
+      value: formatDetailValue(verification?.brightness),
+    },
+    {
+      label: 'Sharpness',
+      value: formatDetailValue(verification?.sharpness),
+    },
+    {
+      label: 'Oclusion',
+      value: formatBiometricBoolean(verification?.face_occluded),
+    },
+    {
+      label: 'Fecha',
+      value: formatBiometricDate(
+        getNestedValue(detail, ['user.raw.biometric_selfie_uploaded_at', 'user.raw.biometricSelfieUploadedAt']) ||
+          getNestedValue(detail, ['user.raw.biometric_captured_at', 'user.raw.biometricCapturedAt']) ||
+          verification?.created_at,
+      ),
+    },
+  ]
 }
 
 function resolveOfficialIdentificationAccess(detail = {}) {
@@ -1357,6 +1465,17 @@ function closeDetailModal() {
   detailLoading.value = false
   detailError.value = ''
   selectedUserDetail.value = null
+  biometricImageLoading.value = false
+  biometricImageError.value = false
+  biometricLightboxOpen.value = false
+}
+
+async function fetchUserDetail(userId) {
+  const response = await requestWithCandidates([
+    { method: 'get', path: `/admin/usuarios/${userId}` },
+    { method: 'get', path: `/admin/users/${userId}` },
+  ])
+  return normalizeUserRecord(pickRecord(response, ['user']), 0)
 }
 
 async function openUserDetail(user) {
@@ -1370,11 +1489,7 @@ async function openUserDetail(user) {
   }
 
   try {
-    const response = await requestWithCandidates([
-      { method: 'get', path: `/admin/usuarios/${user.id}` },
-      { method: 'get', path: `/admin/users/${user.id}` },
-    ])
-    const detailedUser = normalizeUserRecord(pickRecord(response, ['user']), 0)
+    const detailedUser = await fetchUserDetail(user.id)
 
     selectedUserDetail.value = {
       user: detailedUser,
@@ -1385,6 +1500,45 @@ async function openUserDetail(user) {
   } finally {
     detailLoading.value = false
   }
+}
+
+async function retryBiometricImageLoad() {
+  const userId = selectedUserDetail.value?.user?.id
+  if (!userId) return
+
+  biometricImageLoading.value = true
+  biometricImageError.value = false
+
+  try {
+    const detailedUser = await fetchUserDetail(userId)
+    selectedUserDetail.value = {
+      user: detailedUser,
+      provider: detailedUser.provider,
+    }
+  } catch (error) {
+    biometricImageLoading.value = false
+    biometricImageError.value = true
+    detailError.value = error.message || 'No fue posible refrescar la selfie biometrica.'
+  }
+}
+
+function handleBiometricImageLoad() {
+  biometricImageLoading.value = false
+  biometricImageError.value = false
+}
+
+function handleBiometricImageError() {
+  biometricImageLoading.value = false
+  biometricImageError.value = true
+}
+
+function openBiometricLightbox() {
+  if (!resolveBiometricSelfieUrl(selectedUserDetail.value || {})) return
+  biometricLightboxOpen.value = true
+}
+
+function closeBiometricLightbox() {
+  biometricLightboxOpen.value = false
 }
 
 async function loadUsersFromBackend() {
@@ -2087,6 +2241,7 @@ function auditUser(user) {
                   <th>Usuario</th>
                   <th>Correo</th>
                   <th>Telefono</th>
+                  <th>Selfie</th>
                   <th>Estado comercial</th>
                   <th>Estado</th>
                   <th>Prueba</th>
@@ -2109,6 +2264,14 @@ function auditUser(user) {
                   </td>
                   <td class="email-cell">{{ user.email }}</td>
                   <td>{{ user.phone || 'Sin telefono' }}</td>
+                  <td>
+                    <span
+                      class="status-pill status-pill-compact"
+                      :class="hasBiometricSelfie(user) ? 'status-pill-success' : 'status-pill-neutral'"
+                    >
+                      {{ hasBiometricSelfie(user) ? 'Disponible' : 'Sin selfie' }}
+                    </span>
+                  </td>
                   <td>
                     <span
                       class="status-pill status-pill-commercial status-pill-compact"
@@ -2205,7 +2368,7 @@ function auditUser(user) {
                   </td>
                 </tr>
                 <tr v-if="!paginatedUsers.length">
-                  <td colspan="8" class="empty-table-cell">No hay usuarios para mostrar con los filtros actuales.</td>
+                  <td colspan="9" class="empty-table-cell">No hay usuarios para mostrar con los filtros actuales.</td>
                 </tr>
               </tbody>
             </table>
@@ -2232,6 +2395,9 @@ function auditUser(user) {
               </button>
             </div>
             <div class="client-mobile-card__meta">
+              <span class="status-pill status-pill-compact" :class="hasBiometricSelfie(user) ? 'status-pill-success' : 'status-pill-neutral'">
+                {{ hasBiometricSelfie(user) ? 'Selfie disponible' : 'Sin selfie' }}
+              </span>
               <span class="status-pill status-pill-commercial status-pill-compact" :class="{
                 'status-pill-success': commercialAccessTone(user) === 'success',
                 'status-pill-info': commercialAccessTone(user) === 'info',
@@ -2650,21 +2816,52 @@ function auditUser(user) {
 
             <section class="detail-section">
               <div class="detail-section-head">
-                <h4>Biometria</h4>
+                <h4>Verificacion biometrica</h4>
                 <span class="status-pill">Validacion</span>
               </div>
-              <div v-if="resolveBiometricSelfieUrl(selectedUserDetail)" class="detail-media-preview">
-                <img
-                  :src="resolveBiometricSelfieUrl(selectedUserDetail)"
-                  alt="Selfie biometrica del usuario"
-                  class="detail-media-image"
-                />
-              </div>
-              <div class="detail-grid">
-                <article v-for="row in biometricDetailRows(selectedUserDetail)" :key="row.label" class="detail-card">
-                  <span>{{ row.label }}</span>
-                  <strong>{{ row.value }}</strong>
-                </article>
+              <div class="biometric-layout">
+                <div class="biometric-preview-card">
+                  <button
+                    v-if="resolveBiometricSelfieUrl(selectedUserDetail)"
+                    type="button"
+                    class="biometric-preview-button"
+                    @click="openBiometricLightbox"
+                  >
+                    <img
+                      :src="resolveBiometricSelfieUrl(selectedUserDetail)"
+                      alt="Selfie biometrica del cliente"
+                      class="biometric-preview-image"
+                      @load="handleBiometricImageLoad"
+                      @error="handleBiometricImageError"
+                    />
+                  </button>
+                  <div v-if="biometricImageLoading" class="biometric-preview-state biometric-preview-state--loading">
+                    <div class="biometric-skeleton"></div>
+                    <span>Cargando selfie biometrica...</span>
+                  </div>
+                  <div v-else-if="biometricImageError" class="biometric-preview-state biometric-preview-state--error">
+                    <strong>No fue posible cargar la selfie</strong>
+                    <button type="button" class="admin-btn admin-btn-secondary" @click="retryBiometricImageLoad">
+                      Reintentar
+                    </button>
+                  </div>
+                  <div v-else-if="!resolveBiometricSelfieUrl(selectedUserDetail)" class="biometric-preview-state biometric-preview-state--empty">
+                    <strong>Sin selfie registrada</strong>
+                    <span>Este cliente aun no tiene evidencia biometrica disponible.</span>
+                  </div>
+                </div>
+
+                <div class="biometric-info">
+                  <div class="detail-grid biometric-detail-grid">
+                    <article v-for="row in resolveBiometricCardRows(selectedUserDetail)" :key="row.label" class="detail-card">
+                      <span>{{ row.label }}</span>
+                      <strong>{{ row.value }}</strong>
+                    </article>
+                  </div>
+                  <p class="detail-note">
+                    Este bloque refleja la evidencia biometrica reportada por backend y la deteccion facial disponible para auditoria.
+                  </p>
+                </div>
               </div>
             </section>
 
@@ -2721,6 +2918,28 @@ function auditUser(user) {
               </div>
               <p v-else class="detail-empty">No hay documentos visibles para este proveedor.</p>
             </section>
+          </div>
+        </div>
+      </div>
+    </transition>
+
+    <transition name="fade">
+      <div v-if="biometricLightboxOpen" class="overlay overlay-center" @click.self="closeBiometricLightbox">
+        <div class="modal-panel biometric-lightbox">
+          <div class="overlay-head">
+            <div>
+              <span class="mini-badge">Selfie biometrica</span>
+              <h3>{{ selectedUserDetail?.user?.name || 'Cliente' }}</h3>
+              <p>Vista ampliada de la evidencia biometrica disponible.</p>
+            </div>
+            <button type="button" class="admin-btn admin-btn-ghost" @click="closeBiometricLightbox">Cerrar</button>
+          </div>
+          <div class="biometric-lightbox__body">
+            <img
+              :src="resolveBiometricSelfieUrl(selectedUserDetail)"
+              alt="Selfie biometrica ampliada del cliente"
+              class="biometric-lightbox__image"
+            />
           </div>
         </div>
       </div>
@@ -3771,6 +3990,107 @@ function auditUser(user) {
   justify-content: flex-start;
 }
 
+.biometric-layout {
+  display: grid;
+  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.biometric-preview-card {
+  position: relative;
+  min-height: 220px;
+  border: 1px solid #ece7da;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #ffffff 0%, #f7f4ed 100%);
+  overflow: hidden;
+}
+
+.biometric-preview-button {
+  width: 100%;
+  height: 100%;
+  min-height: 220px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+}
+
+.biometric-preview-image {
+  display: block;
+  width: 100%;
+  height: 220px;
+  object-fit: cover;
+}
+
+.biometric-preview-state {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.biometric-preview-state--empty {
+  position: static;
+  min-height: 220px;
+  background: transparent;
+}
+
+.biometric-preview-state--error {
+  background: rgba(255, 248, 248, 0.96);
+}
+
+.biometric-skeleton {
+  width: 100%;
+  height: 220px;
+  border-radius: 14px;
+  background: linear-gradient(90deg, #efe8da 20%, #f8f4ea 50%, #efe8da 80%);
+  background-size: 200% 100%;
+  animation: biometric-shimmer 1.4s linear infinite;
+}
+
+.biometric-info {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.biometric-detail-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.biometric-lightbox {
+  width: min(100%, 720px);
+}
+
+.biometric-lightbox__body {
+  display: flex;
+  justify-content: center;
+}
+
+.biometric-lightbox__image {
+  width: min(100%, 520px);
+  max-height: 70vh;
+  object-fit: contain;
+  border-radius: 22px;
+  border: 1px solid #ece7da;
+  background: #fff;
+}
+
+@keyframes biometric-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+
+  100% {
+    background-position: -200% 0;
+  }
+}
+
 .detail-media-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -3965,6 +4285,7 @@ function auditUser(user) {
   .roles-layout,
   .workstreams-grid,
   .form-grid,
+  .biometric-layout,
   .detail-grid,
   .table-row {
     grid-template-columns: 1fr;

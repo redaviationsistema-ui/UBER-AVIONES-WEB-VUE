@@ -64,7 +64,9 @@ describe('documentAccess helpers', () => {
     const images = resolveUserLegacyIdentityImages({
       profile: {
         ine_front_path: 'identity/ine/front/front.jpg',
+        ine_front_url: '/api/v1/public/identity/ine/7/front?signature=front',
         ine_back_path: 'identity/ine/back/back.jpg',
+        ine_back_url: '/api/v1/public/identity/ine/7/back?signature=back',
       },
     })
 
@@ -73,11 +75,13 @@ describe('documentAccess helpers', () => {
       key: 'front',
       label: 'INE frente',
       path: 'identity/ine/front/front.jpg',
+      url: `${getBackendOrigin()}/api/v1/public/identity/ine/7/front?signature=front`,
     })
     expect(images[1]).toMatchObject({
       key: 'back',
       label: 'INE reverso',
       path: 'identity/ine/back/back.jpg',
+      url: `${getBackendOrigin()}/api/v1/public/identity/ine/7/back?signature=back`,
     })
   })
 })

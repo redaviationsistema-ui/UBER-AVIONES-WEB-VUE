@@ -91,11 +91,23 @@ export function resolveUserOfficialIdentificationAccess(raw = {}) {
 }
 
 export function resolveUserLegacyIdentityImages(raw = {}) {
+  const frontUrl = normalizeCandidate(
+    raw?.ine_front_url ||
+      raw?.ineFrontUrl ||
+      raw?.profile?.ine_front_url ||
+      raw?.profile?.ineFrontUrl,
+  )
   const frontPath = normalizeCandidate(
     raw?.ine_front_path ||
       raw?.ineFrontPath ||
       raw?.profile?.ine_front_path ||
       raw?.profile?.ineFrontPath,
+  )
+  const backUrl = normalizeCandidate(
+    raw?.ine_back_url ||
+      raw?.ineBackUrl ||
+      raw?.profile?.ine_back_url ||
+      raw?.profile?.ineBackUrl,
   )
   const backPath = normalizeCandidate(
     raw?.ine_back_path ||
@@ -105,19 +117,19 @@ export function resolveUserLegacyIdentityImages(raw = {}) {
   )
 
   return [
-    frontPath
+    frontUrl || frontPath
       ? {
           key: 'front',
           label: 'INE frente',
-          url: resolveMediaUrl(frontPath),
+          url: resolveMediaUrl(frontUrl || frontPath),
           path: frontPath,
         }
       : null,
-    backPath
+    backUrl || backPath
       ? {
           key: 'back',
           label: 'INE reverso',
-          url: resolveMediaUrl(backPath),
+          url: resolveMediaUrl(backUrl || backPath),
           path: backPath,
         }
       : null,

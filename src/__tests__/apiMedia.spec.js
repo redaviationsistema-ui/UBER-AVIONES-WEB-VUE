@@ -22,4 +22,10 @@ describe('resolveMediaUrl', () => {
       `${getBackendOrigin()}/storage/aircraft/learjet31a.png`,
     )
   })
+
+  it('rewrites insecure local absolute media urls through the current https origin', () => {
+    expect(resolveMediaUrl('http://127.0.0.1:8000/api/v1/public/biometric/selfies/15?signature=test')).toBe(
+      `${window.location.origin}/api/v1/public/biometric/selfies/15?signature=test`,
+    )
+  })
 })

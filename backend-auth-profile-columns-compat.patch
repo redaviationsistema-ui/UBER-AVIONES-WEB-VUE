@@ -1,0 +1,190 @@
+--- app/Http/Controladores/AutenticacionControlador.php
++++ app/Http/Controladores/AutenticacionControlador.php
+@@ -15,6 +15,7 @@
+ use Illuminate\Support\Facades\Cache;
+ use Illuminate\Support\Facades\Hash;
+ use Illuminate\Support\Facades\Password;
++use Illuminate\Support\Facades\Schema;
+ use Illuminate\Support\Facades\Storage;
+ use Illuminate\Support\Str;
+ use Illuminate\Validation\Rule;
+@@ -222,7 +223,7 @@
+ 
+         $user->profile()->updateOrCreate(
+             ['user_id' => $user->id],
+-            [
++            $this->filterPersistableProfileAttributes([
+                 'client_type' => $data['client_type'] ?? null,
+                 'company_name' => $role === Usuario::ROLE_CLIENT ? ($data['company_name'] ?? null) : null,
+                 'tax_id' => $data['tax_id'] ?? null,
+@@ -243,7 +244,7 @@
+                 'city' => $baseCity,
+                 'base_airport' => $baseAirport,
+                 'base_airport_id' => $resolvedBaseAirport?->id,
+-            ]
++            ])
+         );
+ 
+         if (
+@@ -687,7 +688,9 @@
+         $request->user()->update(collect($userData)->only(['name', 'phone'])->all());
+         $request->user()->profile()->updateOrCreate(
+             ['user_id' => $request->user()->id],
+-            collect($userData)->except(['name', 'phone'])->all()
++            $this->filterPersistableProfileAttributes(
++                collect($userData)->except(['name', 'phone'])->all()
++            )
+         );
+ 
+         return $this->ok(['user' => $request->user()->fresh(['profile', 'provider', 'ownedProvider'])]);
+@@ -765,9 +768,10 @@
+ 
+     private function loadAuthUser(Usuario $user): Usuario
+     {
++        $profileRelation = $this->buildAuthProfileRelation();
+         $relations = $this->usesSlimClientAuthPayload($user)
+             ? [
+-                'profile:id,user_id,client_type,company_name,business_type,tax_id,country,city,base_airport,base_airport_id,address,avatar,avatar_url,tax_data,birth_date,nationality,document_type,document_number,document_issuing_country,identity_validation_required,ine_curp,ine_cic,ine_ocr,ine_scan_raw,ine_scan_status,ine_front_path,ine_back_path',
++                $profileRelation,
+                 'profile.baseAirport:id,icao,iata,name',
+                 'roles:id,code,name',
+                 'demo:id,user_id,status,started_at,expires_at',
+@@ -784,7 +788,7 @@
+             : [
+                 'provider:id,user_id,company_name,commercial_name,legal_name,rfc,company_phone,company_email,base_airport,status,representative_name,representative_phone,birth_date,curp,nationality,document_type,document_number,document_expiration,approval_status,admin_validation_status,operator_status,access_enabled,admin_review_submitted_at,changes_notes,rejection_reason,jet_a_price,margin_percent,fixed_fee,notes',
+                 'ownedProvider:id,user_id,company_name,commercial_name,legal_name,rfc,company_phone,company_email,base_airport,status,representative_name,representative_phone,birth_date,curp,nationality,document_type,document_number,document_expiration,approval_status,admin_validation_status,operator_status,access_enabled,admin_review_submitted_at,changes_notes,rejection_reason,jet_a_price,margin_percent,fixed_fee,notes',
+-                'profile:id,user_id,client_type,company_name,business_type,tax_id,country,city,base_airport,base_airport_id,address,avatar,avatar_url,tax_data,birth_date,nationality,document_type,document_number,document_issuing_country,identity_validation_required,ine_curp,ine_cic,ine_ocr,ine_scan_raw,ine_scan_status,ine_front_path,ine_back_path',
++                $profileRelation,
+                 'profile.baseAirport:id,icao,iata,name',
+                 'roles:id,code,name',
+                 'demo:id,user_id,status,started_at,expires_at',
+@@ -812,6 +816,25 @@
+     {
+         $providerId = $user->resolvedProviderId();
+         $profile = $user->profile;
++        $profileColumns = array_flip($this->availableProfileColumns([
++            'client_type',
++            'company_name',
++            'business_type',
++            'tax_id',
++            'country',
++            'city',
++            'base_airport',
++            'base_airport_id',
++            'birth_date',
++            'nationality',
++            'document_type',
++            'document_number',
++            'document_issuing_country',
++            'address',
++            'avatar',
++            'avatar_url',
++            'tax_data',
++        ]));
+         $basePayload = [
+             'id' => $user->id,
+             'name' => $user->name,
+@@ -840,23 +863,23 @@
+             'biometric_selfie_uploaded_at' => $user->biometric_selfie_uploaded_at,
+             'biometric_selfie_url' => $user->biometric_selfie_url,
+             'profile' => $profile ? [
+-                'client_type' => $profile->client_type,
+-                'company_name' => $profile->company_name,
+-                'business_type' => $profile->business_type,
+-                'tax_id' => $profile->tax_id,
+-                'country' => $profile->country,
+-                'city' => $profile->city,
+-                'base_airport' => $profile->base_airport,
+-                'base_airport_id' => $profile->base_airport_id,
+-                'birth_date' => $profile->birth_date,
+-                'nationality' => $profile->nationality,
+-                'document_type' => $profile->document_type,
+-                'document_number' => $profile->document_number,
+-                'document_issuing_country' => $profile->document_issuing_country,
+-                'address' => $profile->address,
+-                'avatar' => $profile->avatar,
+-                'avatar_url' => $profile->avatar_url,
+-                'tax_data' => $profile->tax_data,
++                'client_type' => array_key_exists('client_type', $profileColumns) ? $profile->client_type : null,
++                'company_name' => array_key_exists('company_name', $profileColumns) ? $profile->company_name : null,
++                'business_type' => array_key_exists('business_type', $profileColumns) ? $profile->business_type : null,
++                'tax_id' => array_key_exists('tax_id', $profileColumns) ? $profile->tax_id : null,
++                'country' => array_key_exists('country', $profileColumns) ? $profile->country : null,
++                'city' => array_key_exists('city', $profileColumns) ? $profile->city : null,
++                'base_airport' => array_key_exists('base_airport', $profileColumns) ? $profile->base_airport : null,
++                'base_airport_id' => array_key_exists('base_airport_id', $profileColumns) ? $profile->base_airport_id : null,
++                'birth_date' => array_key_exists('birth_date', $profileColumns) ? $profile->birth_date : null,
++                'nationality' => array_key_exists('nationality', $profileColumns) ? $profile->nationality : null,
++                'document_type' => array_key_exists('document_type', $profileColumns) ? $profile->document_type : null,
++                'document_number' => array_key_exists('document_number', $profileColumns) ? $profile->document_number : null,
++                'document_issuing_country' => array_key_exists('document_issuing_country', $profileColumns) ? $profile->document_issuing_country : null,
++                'address' => array_key_exists('address', $profileColumns) ? $profile->address : null,
++                'avatar' => array_key_exists('avatar', $profileColumns) ? $profile->avatar : null,
++                'avatar_url' => array_key_exists('avatar_url', $profileColumns) ? $profile->avatar_url : null,
++                'tax_data' => array_key_exists('tax_data', $profileColumns) ? $profile->tax_data : null,
+                 'base_airport_record' => $profile->baseAirport ? [
+                     'id' => $profile->baseAirport->id,
+                     'icao' => $profile->baseAirport->icao,
+@@ -907,6 +930,62 @@
+         return $basePayload;
+     }
+ 
++    private function buildAuthProfileRelation(): string
++    {
++        $columns = $this->availableProfileColumns([
++            'id',
++            'user_id',
++            'client_type',
++            'company_name',
++            'business_type',
++            'tax_id',
++            'country',
++            'city',
++            'base_airport',
++            'base_airport_id',
++            'address',
++            'avatar',
++            'avatar_url',
++            'tax_data',
++            'birth_date',
++            'nationality',
++            'document_type',
++            'document_number',
++            'document_issuing_country',
++            'identity_validation_required',
++            'ine_curp',
++            'ine_cic',
++            'ine_ocr',
++            'ine_scan_raw',
++            'ine_scan_status',
++            'ine_front_path',
++            'ine_back_path',
++        ]);
++
++        return 'profile:' . implode(',', $columns);
++    }
++
++    private function filterPersistableProfileAttributes(array $attributes): array
++    {
++        $persistableColumns = $this->availableProfileColumns(array_keys($attributes));
++
++        return array_intersect_key($attributes, array_flip($persistableColumns));
++    }
++
++    private function availableProfileColumns(array $columns): array
++    {
++        static $profileColumnMap = null;
++
++        if ($profileColumnMap === null) {
++            $profileColumnMap = array_flip(Schema::getColumnListing('profiles'));
++        }
++
++        return array_values(array_filter(
++            $columns,
++            static fn (string $column): bool => array_key_exists($column, $profileColumnMap)
++        ));
++    }
++
+     private function normalizeClientType(mixed $value): ?string
+     {
+         $normalized = Str::of((string) ($value ?? ''))->trim()->lower()->value();

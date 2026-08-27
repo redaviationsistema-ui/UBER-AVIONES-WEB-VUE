@@ -178,7 +178,29 @@ export function resolveMediaUrl(url = '') {
   const rawUrl = String(url || '').trim()
   if (!rawUrl) return ''
 
-  if (/^(blob:|data:|https?:\/\/|\/\/)/i.test(rawUrl)) {
+  if (/^(blob:|data:|\/\/)/i.test(rawUrl)) {
+    return rawUrl
+  }
+
+  if (/^https?:\/\//i.test(rawUrl)) {
+    try {
+      const parsed = new URL(rawUrl)
+      const isHttpsPage = typeof window !== 'undefined' && window.location.protocol === 'https:'
+      const isApiPath = parsed.pathname.startsWith('/api/')
+      const isInsecureLocalAsset =
+        parsed.protocol === 'http:' &&
+        isLocalOrigin(parsed.origin) &&
+        typeof window !== 'undefined' &&
+        isLocalOrigin(window.location.origin) &&
+        (isHttpsPage || isApiPath || shouldUseRelativeLocalApiBase(RAW_API_BASE_URL))
+
+      if (isInsecureLocalAsset && typeof window !== 'undefined') {
+        return `${window.location.origin}${parsed.pathname}${parsed.search}${parsed.hash}`
+      }
+    } catch {
+      return rawUrl
+    }
+
     return rawUrl
   }
 
