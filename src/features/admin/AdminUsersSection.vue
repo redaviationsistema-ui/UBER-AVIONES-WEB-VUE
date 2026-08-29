@@ -754,12 +754,16 @@ function resolveBiometricSelfieUrl(detail = {}) {
 function hasBiometricSelfie(record = {}) {
   return Boolean(
     getNestedValue(record, [
+      'has_biometric_selfie',
+      'raw.has_biometric_selfie',
+      'raw.hasBiometricSelfie',
       'biometric_selfie_url',
       'raw.biometric_selfie_url',
       'raw.biometricSelfieUrl',
       'biometric_selfie_path',
       'raw.biometric_selfie_path',
       'raw.biometricSelfiePath',
+      'biometric_image_saved',
       'raw.biometric_image_saved',
       'raw.biometricImageSaved',
     ]),
@@ -858,100 +862,6 @@ function resolveLegacyIdentityImages(detail = {}) {
     profile: detail?.user?.profile,
     ...detail?.user?.raw,
   })
-}
-
-function biometricDetailRows(detail = {}) {
-  const verification = resolveLatestVerification(detail)
-
-  return [
-    {
-      label: 'Estado biometrico',
-      value: formatDetailValue(
-        getNestedValue(detail, ['user.raw.identity_verification_status', 'user.raw.identityVerificationStatus']),
-      ),
-    },
-    {
-      label: 'Mensaje biometrico',
-      value: formatDetailValue(
-        getNestedValue(detail, ['user.raw.identity_verification_message', 'user.raw.identityVerificationMessage']),
-      ),
-    },
-    {
-      label: 'Identidad verificada',
-      value: formatDetailValue(
-        getNestedValue(detail, ['user.raw.identity_verified', 'user.raw.identityVerified']),
-      ),
-    },
-    {
-      label: 'Rostro detectado',
-      value: formatDetailValue(
-        getNestedValue(detail, ['user.raw.face_detected', 'user.raw.faceDetected']),
-      ),
-    },
-    {
-      label: 'Face confidence',
-      value: formatDetailValue(verification?.face_confidence),
-    },
-    {
-      label: 'Face match score',
-      value: formatDetailValue(
-        getNestedValue(detail, ['user.raw.face_match_score', 'user.raw.faceMatchScore']) ||
-          verification?.face_match_score ||
-          verification?.face_confidence,
-      ),
-    },
-    {
-      label: 'Liveness score',
-      value: formatDetailValue(
-        getNestedValue(detail, ['user.raw.liveness_score', 'user.raw.livenessScore']) || verification?.liveness_score,
-      ),
-    },
-    {
-      label: 'Brightness',
-      value: formatDetailValue(verification?.brightness),
-    },
-    {
-      label: 'Sharpness',
-      value: formatDetailValue(verification?.sharpness),
-    },
-    {
-      label: 'Pose yaw / pitch / roll',
-      value: formatDetailValue(
-        verification
-          ? `${verification.yaw ?? 'Sin dato'} / ${verification.pitch ?? 'Sin dato'} / ${verification.roll ?? 'Sin dato'}`
-          : '',
-      ),
-    },
-    {
-      label: 'Face occluded',
-      value: formatDetailValue(verification?.face_occluded),
-    },
-    {
-      label: 'Proveedor biometrico',
-      value: formatDetailValue(
-        getNestedValue(detail, ['user.raw.biometric_provider', 'user.raw.biometricProvider']) || verification?.provider,
-      ),
-    },
-    {
-      label: 'Tipo de plantilla',
-      value: formatDetailValue(
-        getNestedValue(detail, ['user.raw.biometric_template_type', 'user.raw.biometricTemplateType']) ||
-          verification?.template_type,
-      ),
-    },
-    {
-      label: 'Selfie biometrica',
-      value: formatDetailValue(
-        getNestedValue(detail, ['user.raw.biometric_selfie_path', 'user.raw.biometricSelfiePath']) || verification?.image_path,
-      ),
-    },
-    {
-      label: 'Capturada en',
-      value: formatDetailValue(
-        getNestedValue(detail, ['user.raw.biometric_captured_at', 'user.raw.biometricCapturedAt']),
-      ),
-    },
-  ]
 }
 
 function resolveCommercialAccessState(detail = {}) {

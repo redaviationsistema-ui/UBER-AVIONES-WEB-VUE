@@ -984,8 +984,6 @@ const isChecklistReadOnly = computed(() =>
   isFlightStepPreview.value && ['preparation', 'checklist', 'closure'].includes(currentFlightStep.value?.id || ''),
 )
 
-const preparationChecklistSummary = computed(() => buildChecklistSummary(preparationChecklistGroup.value))
-const preflightChecklistSummary = computed(() => buildChecklistSummary(preflightChecklistGroup.value))
 const postflightChecklistSummary = computed(() => buildChecklistSummary(postflightChecklistGroup.value))
 
 watch(
