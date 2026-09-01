@@ -752,22 +752,67 @@ function resolveBiometricSelfieUrl(detail = {}) {
 }
 
 function hasBiometricSelfie(record = {}) {
-  return Boolean(
+  const officialValue = getNestedValue(record, [
+    'has_biometric_selfie',
+    'raw.has_biometric_selfie',
+    'raw.hasBiometricSelfie',
+  ])
+  const officialBoolean = parseApiBoolean(officialValue)
+
+  if (officialBoolean !== null) return officialBoolean
+
+  const evidencePath = getNestedValue(record, [
+    'biometric_selfie_url',
+    'raw.biometric_selfie_url',
+    'raw.biometricSelfieUrl',
+    'biometric_selfie_path',
+    'raw.biometric_selfie_path',
+    'raw.biometricSelfiePath',
+  ])
+  if (evidencePath !== '') return true
+
+  return (
+    parseApiBoolean(
+      getNestedValue(record, [
+        'biometric_image_saved',
+        'raw.biometric_image_saved',
+        'raw.biometricImageSaved',
+      ]),
+    ) === true
+  )
+}
+
+function parseApiBoolean(value) {
+  if (value === true || value === 1) return true
+  if (value === false || value === 0) return false
+
+  const normalized = String(value ?? '').trim().toLowerCase()
+  if (normalized === 'true' || normalized === '1') return true
+  if (normalized === 'false' || normalized === '0') return false
+
+  return null
+}
+
+function biometricSelfieState(record = {}) {
+  if (!hasBiometricSelfie(record)) {
+    return { label: 'Sin selfie', tone: 'neutral' }
+  }
+
+  const status = String(
     getNestedValue(record, [
-      'has_biometric_selfie',
-      'raw.has_biometric_selfie',
-      'raw.hasBiometricSelfie',
-      'biometric_selfie_url',
-      'raw.biometric_selfie_url',
-      'raw.biometricSelfieUrl',
-      'biometric_selfie_path',
-      'raw.biometric_selfie_path',
-      'raw.biometricSelfiePath',
-      'biometric_image_saved',
-      'raw.biometric_image_saved',
-      'raw.biometricImageSaved',
+      'identity_verification_status',
+      'raw.identity_verification_status',
+      'raw.identityVerificationStatus',
     ]),
   )
+    .trim()
+    .toLowerCase()
+
+  if (status === 'approved') return { label: 'Validada', tone: 'success' }
+  if (status === 'pending') return { label: 'Pendiente de validacion', tone: 'warn' }
+  if (status === 'rejected') return { label: 'Rechazada', tone: 'danger' }
+
+  return { label: 'Selfie disponible', tone: 'info' }
 }
 
 function formatBiometricBoolean(value) {
@@ -2177,9 +2222,9 @@ function auditUser(user) {
                   <td>
                     <span
                       class="status-pill status-pill-compact"
-                      :class="hasBiometricSelfie(user) ? 'status-pill-success' : 'status-pill-neutral'"
+                      :class="`status-pill-${biometricSelfieState(user).tone}`"
                     >
-                      {{ hasBiometricSelfie(user) ? 'Disponible' : 'Sin selfie' }}
+                      {{ biometricSelfieState(user).label }}
                     </span>
                   </td>
                   <td>
@@ -2305,8 +2350,8 @@ function auditUser(user) {
               </button>
             </div>
             <div class="client-mobile-card__meta">
-              <span class="status-pill status-pill-compact" :class="hasBiometricSelfie(user) ? 'status-pill-success' : 'status-pill-neutral'">
-                {{ hasBiometricSelfie(user) ? 'Selfie disponible' : 'Sin selfie' }}
+              <span class="status-pill status-pill-compact" :class="`status-pill-${biometricSelfieState(user).tone}`">
+                {{ biometricSelfieState(user).label }}
               </span>
               <span class="status-pill status-pill-commercial status-pill-compact" :class="{
                 'status-pill-success': commercialAccessTone(user) === 'success',
