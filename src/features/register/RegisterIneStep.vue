@@ -860,8 +860,9 @@ function applyBiometricValidationResult(result = {}, file, previewUrl) {
     faceDetected: Boolean(result.faceDetected),
     faceMatchScore: null,
     livenessScore: null,
-    imageStorageScore: result.biometricImageSaved ? 100 : 0,
-    biometricImageSaved: Boolean(result.biometricImageSaved),
+    // The final upload happens atomically in /auth/register; this file is ready to send.
+    imageStorageScore: file ? 100 : 0,
+    biometricImageSaved: Boolean(file),
     biometricCapturedAt: new Date().toISOString(),
     biometricProvider: result.biometricProvider || 'aws_rekognition',
     biometricTemplateType: result.biometricTemplateType || 'selfie-photo',

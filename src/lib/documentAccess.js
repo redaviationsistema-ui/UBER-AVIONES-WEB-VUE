@@ -103,6 +103,12 @@ export function resolveUserLegacyIdentityImages(raw = {}) {
       raw?.profile?.ine_front_path ||
       raw?.profile?.ineFrontPath,
   )
+  const frontDownloadUrl = normalizeCandidate(
+    raw?.ine_front_download_url ||
+      raw?.ineFrontDownloadUrl ||
+      raw?.profile?.ine_front_download_url ||
+      raw?.profile?.ineFrontDownloadUrl,
+  )
   const backUrl = normalizeCandidate(
     raw?.ine_back_url ||
       raw?.ineBackUrl ||
@@ -115,13 +121,21 @@ export function resolveUserLegacyIdentityImages(raw = {}) {
       raw?.profile?.ine_back_path ||
       raw?.profile?.ineBackPath,
   )
+  const backDownloadUrl = normalizeCandidate(
+    raw?.ine_back_download_url ||
+      raw?.ineBackDownloadUrl ||
+      raw?.profile?.ine_back_download_url ||
+      raw?.profile?.ineBackDownloadUrl,
+  )
 
   return [
     frontUrl || frontPath
       ? {
           key: 'front',
           label: 'INE frente',
-          url: resolveMediaUrl(frontUrl || frontPath),
+          // Paths are metadata only; only a backend-generated URL may be requested by the browser.
+          url: frontUrl ? resolveMediaUrl(frontUrl) : '',
+          downloadUrl: frontDownloadUrl ? resolveMediaUrl(frontDownloadUrl) : '',
           path: frontPath,
         }
       : null,
@@ -129,7 +143,8 @@ export function resolveUserLegacyIdentityImages(raw = {}) {
       ? {
           key: 'back',
           label: 'INE reverso',
-          url: resolveMediaUrl(backUrl || backPath),
+          url: backUrl ? resolveMediaUrl(backUrl) : '',
+          downloadUrl: backDownloadUrl ? resolveMediaUrl(backDownloadUrl) : '',
           path: backPath,
         }
       : null,

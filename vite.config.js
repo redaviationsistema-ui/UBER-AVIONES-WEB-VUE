@@ -2,7 +2,6 @@ import { fileURLToPath, URL } from 'node:url'
 
 import { createLogger, defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
-import basicSsl from '@vitejs/plugin-basic-ssl'
 import vueDevTools from 'vite-plugin-vue-devtools'
 
 const viteLogger = createLogger()
@@ -51,12 +50,10 @@ export default defineConfig(({ mode }) => {
     customLogger,
     plugins: [
       vue(),
-      basicSsl(),
       vueDevTools(),
     ],
     server: {
       host: 'localhost',
-      https: true,
       proxy: {
         '/api': {
           target: proxyTarget,

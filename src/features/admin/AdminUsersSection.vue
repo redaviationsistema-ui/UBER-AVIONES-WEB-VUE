@@ -86,6 +86,7 @@ const detailError = ref('')
 const selectedUserDetail = ref(null)
 const biometricImageLoading = ref(false)
 const biometricImageError = ref(false)
+const identityImageErrors = ref({})
 const biometricLightboxOpen = ref(false)
 const paymentDetailOpen = ref(false)
 const selectedPaymentDetail = ref(null)
@@ -738,9 +739,6 @@ function resolveBiometricSelfieUrl(detail = {}) {
       'user.biometric_selfie_url',
       'user.raw.biometric_selfie_url',
       'user.raw.biometricSelfieUrl',
-      'user.biometric_selfie_path',
-      'user.raw.biometric_selfie_path',
-      'user.raw.biometricSelfiePath',
     ]) ||
     ''
 
@@ -780,6 +778,12 @@ function hasBiometricSelfie(record = {}) {
       ]),
     ) === true
   )
+}
+
+function isBiometricSelfieUnavailable(detail = {}) {
+  const user = detail?.user || {}
+
+  return biometricImageError.value || (hasBiometricSelfie(user) && !resolveBiometricSelfieUrl(detail))
 }
 
 function parseApiBoolean(value) {
@@ -1422,6 +1426,7 @@ function closeDetailModal() {
   selectedUserDetail.value = null
   biometricImageLoading.value = false
   biometricImageError.value = false
+  identityImageErrors.value = {}
   biometricLightboxOpen.value = false
 }
 
@@ -1438,6 +1443,7 @@ async function openUserDetail(user) {
   detailOpen.value = true
   detailLoading.value = true
   detailError.value = ''
+  identityImageErrors.value = {}
   selectedUserDetail.value = {
     user,
     provider: user.provider,
@@ -1470,10 +1476,34 @@ async function retryBiometricImageLoad() {
       user: detailedUser,
       provider: detailedUser.provider,
     }
+    biometricImageLoading.value = Boolean(resolveBiometricSelfieUrl(selectedUserDetail.value))
   } catch (error) {
     biometricImageLoading.value = false
     biometricImageError.value = true
     detailError.value = error.message || 'No fue posible refrescar la selfie biometrica.'
+  }
+}
+
+function isIdentityImageUnavailable(item) {
+  return !item?.url || Boolean(identityImageErrors.value[item.key])
+}
+
+function handleIdentityImageError(item) {
+  identityImageErrors.value = { ...identityImageErrors.value, [item.key]: true }
+}
+
+async function retryIdentityImageLoad(item) {
+  const userId = selectedUserDetail.value?.user?.id
+  if (!userId) return
+
+  identityImageErrors.value = { ...identityImageErrors.value, [item.key]: false }
+
+  try {
+    const detailedUser = await fetchUserDetail(userId)
+    selectedUserDetail.value = { user: detailedUser, provider: detailedUser.provider }
+  } catch (error) {
+    identityImageErrors.value = { ...identityImageErrors.value, [item.key]: true }
+    detailError.value = error.message || 'No fue posible refrescar el documento.'
   }
 }
 
@@ -2746,8 +2776,20 @@ function auditUser(user) {
                   class="detail-media-card"
                 >
                   <span>{{ item.label }}</span>
-                  <img :src="item.url" :alt="item.label" class="detail-media-image" />
-                  <div class="inline-actions">
+                  <img
+                    v-if="!isIdentityImageUnavailable(item)"
+                    :src="item.url"
+                    :alt="item.label"
+                    class="detail-media-image"
+                    @error="handleIdentityImageError(item)"
+                  />
+                  <div v-else class="document-unavailable">
+                    <strong>Archivo no disponible</strong>
+                    <button type="button" class="admin-btn admin-btn-secondary" @click="retryIdentityImageLoad(item)">
+                      Reintentar
+                    </button>
+                  </div>
+                  <div v-if="!isIdentityImageUnavailable(item)" class="inline-actions">
                     <a
                       class="admin-btn admin-btn-secondary"
                       :href="item.url"
@@ -2758,9 +2800,10 @@ function auditUser(user) {
                     </a>
                     <a
                       class="admin-btn admin-btn-ghost"
-                      :href="item.url"
+                      :href="item.downloadUrl || item.url"
                       target="_blank"
                       rel="noreferrer"
+                      download
                     >
                       Descargar
                     </a>
@@ -2794,8 +2837,10 @@ function auditUser(user) {
                     <div class="biometric-skeleton"></div>
                     <span>Cargando selfie biometrica...</span>
                   </div>
-                  <div v-else-if="biometricImageError" class="biometric-preview-state biometric-preview-state--error">
-                    <strong>No fue posible cargar la selfie</strong>
+                  <div v-else-if="isBiometricSelfieUnavailable(selectedUserDetail)" class="biometric-preview-state biometric-preview-state--error">
+                    <span class="biometric-preview-state__label">Selfie biometrica del cliente</span>
+                    <strong>Archivo no disponible</strong>
+                    <span>La evidencia biometrica historica se conserva, pero la imagen no esta disponible.</span>
                     <button type="button" class="admin-btn admin-btn-secondary" @click="retryBiometricImageLoad">
                       Reintentar
                     </button>
@@ -4000,6 +4045,12 @@ function auditUser(user) {
   background: rgba(255, 248, 248, 0.96);
 }
 
+.biometric-preview-state__label {
+  color: #6b7280;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
 .biometric-skeleton {
   width: 100%;
   height: 220px;
@@ -4078,6 +4129,19 @@ function auditUser(user) {
 .detail-media-card .detail-media-image {
   width: 100%;
   max-height: 220px;
+}
+
+.document-unavailable {
+  display: grid;
+  min-height: 220px;
+  place-items: center;
+  align-content: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid #f0d5d5;
+  border-radius: 18px;
+  background: rgba(255, 248, 248, 0.96);
+  text-align: center;
 }
 
 .detail-card,
