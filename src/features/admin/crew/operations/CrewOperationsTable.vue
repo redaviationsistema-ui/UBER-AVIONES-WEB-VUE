@@ -49,6 +49,16 @@ function checklistSummary(operation = {}) {
 
     <div class="table-wrap">
       <table class="queue-table queue-table--ops">
+        <colgroup>
+          <col class="queue-table__client-column" />
+          <col class="queue-table__route-column" />
+          <col class="queue-table__date-column" />
+          <col class="queue-table__aircraft-column" />
+          <col class="queue-table__crew-column" />
+          <col class="queue-table__state-column" />
+          <col class="queue-table__assignment-column" />
+          <col class="queue-table__action-column" />
+        </colgroup>
         <thead>
           <tr>
             <th>Cliente</th>
@@ -160,9 +170,42 @@ function checklistSummary(operation = {}) {
 
 .queue-table {
   width: 100%;
-  min-width: 980px;
+  min-width: 1430px;
   border-collapse: separate;
   border-spacing: 0;
+  table-layout: fixed;
+}
+
+.queue-table__client-column {
+  width: 245px;
+}
+
+.queue-table__route-column {
+  width: 165px;
+}
+
+.queue-table__date-column {
+  width: 165px;
+}
+
+.queue-table__aircraft-column {
+  width: 170px;
+}
+
+.queue-table__crew-column {
+  width: 175px;
+}
+
+.queue-table__state-column {
+  width: 235px;
+}
+
+.queue-table__assignment-column {
+  width: 155px;
+}
+
+.queue-table__action-column {
+  width: 120px;
 }
 
 .queue-table th {
@@ -237,6 +280,7 @@ function checklistSummary(operation = {}) {
 .table-primary span {
   font-size: 0.85rem;
   color: #233b5d;
+  overflow-wrap: anywhere;
 }
 
 .inline-badge {
