@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { buildCrewOperationWorkflowSnapshot } from '../../../operations/utils/crewOperationWorkflow'
 
 const props = defineProps({
@@ -413,9 +413,6 @@ const operationSnapshot = computed(() =>
   props.operation ? buildCrewOperationWorkflowSnapshot(props.operation) : null,
 )
 
-const preparationChecklist = computed(
-  () => operationSnapshot.value?.checklistGroupsByType?.get('preparation') || null,
-)
 const normalizedStages = computed(() => {
   if (operationSnapshot.value) {
     const workflowSteps = operationSnapshot.value.workflow?.stepsById || new Map()

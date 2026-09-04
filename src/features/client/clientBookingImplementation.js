@@ -54,6 +54,7 @@ const CLIENT_TRIPS_PATHS = [
 ].sort((current, next) => rankClientTripsPath(current) - rankClientTripsPath(next))
 let preferredClientTripsPath = ''
 const CLIENT_TRIP_SHOW_PATHS = CLIENT_TRIPS_PATHS.filter((path) => path.includes('/flight-requests'))
+const CLIENT_FLIGHT_BRIEF_PATHS = ['/client/flight-requests/:id/flight-brief']
 const CLIENT_RESERVATION_SHOW_PATHS = [
   ...new Set(['/cliente/reservas/:id', '/client/reservations/:id', '/cliente/historial/:id'].filter(Boolean)),
 ]
@@ -2845,6 +2846,29 @@ export async function getClientTrip(flightRequestId, options = {}) {
   }
 
   throw new Error('No se pudo cargar el detalle del viaje.')
+}
+
+export async function getClientFlightBrief(flightRequestId, options = {}) {
+  const normalizedId = normalizeEntityIdentifier(flightRequestId)
+
+  if (!normalizedId) {
+    throw new Error('No encontramos la solicitud del cliente.')
+  }
+
+  const payload = await requestWithCandidates(
+    CLIENT_FLIGHT_BRIEF_PATHS.map((path) => ({
+      method: 'get',
+      path: replaceRouteId(path, normalizedId),
+      timeoutMs: options.timeoutMs,
+    })),
+  )
+  const flightBrief = payload?.flight_brief || payload?.data?.flight_brief || payload?.data || payload
+
+  if (flightBrief && typeof flightBrief === 'object') {
+    return flightBrief
+  }
+
+  throw new Error('No se pudo cargar la información del vuelo.')
 }
 
 export async function getClientReservation(reservationId, options = {}) {

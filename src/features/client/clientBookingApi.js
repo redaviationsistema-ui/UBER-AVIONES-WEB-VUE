@@ -14,6 +14,7 @@ export {
   normalizeTrip,
   getClientTrips,
   getClientTrip,
+  getClientFlightBrief,
   getClientReservation,
 } from './clientBookingTripsApi'
 

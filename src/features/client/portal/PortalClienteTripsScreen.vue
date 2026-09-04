@@ -7,6 +7,8 @@ import PaymentActionButton from './components/PaymentActionButton.vue'
 import PaymentCountdown from './components/PaymentCountdown.vue'
 import PaymentSummaryCard from './components/PaymentSummaryCard.vue'
 import SecureStripeCard from './components/SecureStripeCard.vue'
+import ClientFlightBrief from './components/ClientFlightBrief.vue'
+import { getCustomerFlightPresentation } from './components/clientFlightBriefStage'
 
 const props = defineProps({
   activeAircraftHoldSummary: { type: Object, default: null },
@@ -25,6 +27,10 @@ const props = defineProps({
   commercialAccessCtaLabel: { type: String, required: true },
   customerDisplayName: { type: String, required: true },
   formatDetailedCurrencyByCode: { type: Function, required: true },
+  flightBrief: { type: Object, default: null },
+  flightBriefError: { type: String, default: '' },
+  flightBriefRefreshError: { type: Boolean, default: false },
+  flightBriefLoading: { type: Boolean, required: true },
   hasReservationsLoaded: { type: Boolean, required: true },
   paymentBreakdownAmountMap: { type: Object, required: true },
   paymentBreakdownCurrency: { type: String, required: true },
@@ -71,6 +77,7 @@ defineEmits([
   'open-payment',
   'payment-submit',
   'resolve-availability-conflict',
+  'retry-flight-brief',
   'select-assisted-payment-proof',
   'send-assisted-payment-email',
   'trigger-assisted-payment-proof-upload',
@@ -99,45 +106,6 @@ const paymentHeroSupportingCopy = computed(() =>
     ? 'Confirma el total de tu Acceso comercial y continúa en Stripe.'
     : 'Confirma el total y continúa en Stripe.',
 )
-
-const paymentRouteSummary = computed(
-  () => props.paymentRouteHeadline || props.selectedReservation?.route || 'Ruta por confirmar',
-)
-
-const paymentDateSummary = computed(() => {
-  const raw = String(props.paymentDateLabel || '').trim()
-  if (!raw) return { date: 'Fecha por confirmar', time: 'Hora por confirmar' }
-
-  const match = raw.match(/^(.*?)(?:\s+a\s+las\s+|\s+[·|-]\s+)(.+)$/i)
-  if (match) {
-    return {
-      date: match[1]?.trim() || 'Fecha por confirmar',
-      time: match[2]?.trim() || 'Hora por confirmar',
-    }
-  }
-
-  return { date: raw, time: 'Hora por confirmar' }
-})
-
-const paymentFlightTypeLabel = computed(() => {
-  const bookingStatus = String(
-    props.selectedReservation?.booking_status || props.selectedReservation?.status || '',
-  )
-    .trim()
-    .toLowerCase()
-  const hasSchedule =
-    paymentDateSummary.value.date !== 'Fecha por confirmar' &&
-    paymentDateSummary.value.time !== 'Hora por confirmar'
-
-  return bookingStatus === 'confirmed' && hasSchedule ? 'Vuelo confirmado' : 'Vuelo privado'
-})
-
-const paymentDurationLabel = computed(() => {
-  const legCount = Number(
-    props.selectedReservation?.legs?.length || props.selectedReservation?.requirements?.length || 1,
-  )
-  return `${legCount} ${legCount === 1 ? 'tramo' : 'tramos'}`
-})
 
 const paymentSummaryItems = computed(() => {
   if (props.paymentBreakdownRows.length) return props.paymentBreakdownRows
@@ -269,6 +237,7 @@ const reservationDetailContent = computed(() => {
 const isTrackingDetailView = computed(
   () => props.propsSection === 'reserva-confirmada' && props.routeSubsection === 'tracking',
 )
+const customerFlightPresentation = computed(() => getCustomerFlightPresentation(props.flightBrief || {}))
 
 function formatTrackingDateTime(value = '') {
   const normalized = String(value || '').trim()
@@ -285,106 +254,6 @@ function formatTrackingDateTime(value = '') {
     minute: '2-digit',
   }).format(parsed)
 }
-
-const trackingStatusLabel = computed(() => {
-  const workflowId = reservationDetailWorkflow.value.id
-  const status =
-    props.selectedReservation?.tracking_status ||
-    props.selectedReservation?.operation?.tracking_status ||
-    props.selectedReservation?.operation?.trackingStatus ||
-    ''
-
-  const normalizedStatus = String(status || '').trim()
-
-  if (normalizedStatus) return normalizedStatus
-  if (isTrackingDetailView.value && ['flight_confirmed', 'tracking_live'].includes(workflowId)) {
-    return 'En curso'
-  }
-
-  return reservationDetailWorkflow.value.label || 'En seguimiento'
-})
-
-const trackingPrimaryFacts = computed(() => [
-  {
-    label: 'Ruta',
-    value: props.selectedReservation?.route || 'Ruta por confirmar',
-  },
-  {
-    label: 'Salida programada',
-    value: formatTrackingDateTime(
-      props.selectedReservation?.date || props.selectedReservation?.departure_datetime || '',
-    ),
-  },
-  {
-    label: 'Aeronave',
-    value:
-      props.selectedReservation?.aircraft ||
-      props.selectedReservation?.aircraft_model ||
-      props.selectedReservation?.assigned_aircraft_model ||
-      'Aeronave confirmada',
-  },
-  {
-    label: 'Tracking',
-    value: isTrackingDetailView.value ? 'Tracking en curso' : trackingStatusLabel.value,
-  },
-])
-
-const trackingOperationalFacts = computed(() => [
-  {
-    label: 'Tripulacion',
-    value:
-      props.selectedReservation?.crew_name ||
-      props.selectedReservation?.operation?.crew_name ||
-      props.selectedReservation?.crew ||
-      'Asignacion en seguimiento',
-  },
-  {
-    label: 'Terminal',
-    value:
-      props.selectedReservation?.terminal ||
-      props.selectedReservation?.operation?.terminal ||
-      'Por confirmar',
-  },
-  {
-    label: 'Presentacion',
-    value:
-      props.selectedReservation?.briefing_time ||
-      props.selectedReservation?.operation?.briefing_time ||
-      props.selectedReservation?.briefing?.hora_presentacion ||
-      'Pendiente de actualizacion',
-  },
-  {
-    label: 'Concierge',
-    value: 'Disponible 24/7',
-  },
-])
-
-const trackingSteps = computed(() => {
-  const workflowId = reservationDetailWorkflow.value.id
-
-  return [
-    {
-      title: 'Reserva y pago',
-      detail: 'Tu reserva ya fue confirmada y el pago quedo aplicado.',
-      state: 'done',
-    },
-    {
-      title: 'Preparacion operativa',
-      detail: 'Estamos coordinando aeronave, tripulacion y briefing.',
-      state: ['flight_confirmed', 'tracking_live', 'completed'].includes(workflowId) ? 'done' : 'active',
-    },
-    {
-      title: 'Tracking en curso',
-      detail: 'Seguimiento premium del servicio y novedades del viaje.',
-      state: workflowId === 'tracking_live' ? 'active' : workflowId === 'completed' ? 'done' : 'todo',
-    },
-    {
-      title: 'Cierre del servicio',
-      detail: 'Se habilitara el resumen final cuando termine la operacion.',
-      state: workflowId === 'completed' ? 'done' : 'todo',
-    },
-  ]
-})
 
 const completedReservationFacts = computed(() => [
   {
@@ -479,9 +348,15 @@ const completedReservationStatusItems = computed(() => [
           <p>Estamos preparando tu redirección segura a Stripe.</p>
         </div>
 
-        <button class="payment-back" type="button" @click="$emit('go', backSection, backReservationId)">
+        <button
+          class="payment-back"
+          type="button"
+          @click="$emit('go', backSection, backReservationId)"
+        >
           <span aria-hidden="true">←</span>
-          <span>{{ commercialAccessCheckoutScreenMode ? 'Volver a reservar' : 'Volver al contrato' }}</span>
+          <span>{{
+            commercialAccessCheckoutScreenMode ? 'Volver a reservar' : 'Volver al contrato'
+          }}</span>
         </button>
 
         <div class="payment-checkout__hero">
@@ -491,7 +366,10 @@ const completedReservationStatusItems = computed(() => [
           </div>
           <div class="payment-progress payment-progress--compact">
             <div class="payment-progress__track" aria-hidden="true">
-              <span class="payment-progress__bar" :style="{ width: `${paymentProgressPercent}%` }"></span>
+              <span
+                class="payment-progress__bar"
+                :style="{ width: `${paymentProgressPercent}%` }"
+              ></span>
             </div>
           </div>
           <p v-if="paymentHeroSupportingCopy">{{ paymentHeroSupportingCopy }}</p>
@@ -520,10 +398,7 @@ const completedReservationStatusItems = computed(() => [
         </section>
 
         <section class="payment-stripe-layout">
-          <PaymentSummaryCard
-            :rows="paymentSummaryItems"
-            :title="paymentSummaryTitle"
-          />
+          <PaymentSummaryCard :rows="paymentSummaryItems" :title="paymentSummaryTitle" />
 
           <SecureStripeCard
             :contact-email="paymentForm.contactEmail"
@@ -540,7 +415,11 @@ const completedReservationStatusItems = computed(() => [
                 :disabled="isStripeBusy || !paymentCanSubmit || hasAvailabilityError"
                 :loading="paymentSubmitting"
                 :status-label="paymentStatusCopy"
-                :title="commercialAccessCheckoutScreenMode ? 'Completar pago con Stripe' : 'Completar pago con Stripe'"
+                :title="
+                  commercialAccessCheckoutScreenMode
+                    ? 'Completar pago con Stripe'
+                    : 'Completar pago con Stripe'
+                "
                 @click="$emit('payment-submit')"
               />
             </div>
@@ -553,7 +432,10 @@ const completedReservationStatusItems = computed(() => [
             :has-error="hasAvailabilityError"
             :is-warning="Boolean(activeAircraftHoldSummary?.isWarning)"
             :is-loading="paymentAvailabilityLoading"
-            :show-timer="!commercialAccessCheckoutScreenMode && Boolean(activeAircraftHoldSummary?.countdownLabel)"
+            :show-timer="
+              !commercialAccessCheckoutScreenMode &&
+              Boolean(activeAircraftHoldSummary?.countdownLabel)
+            "
           />
 
           <div v-if="hasAvailabilityError" class="payment-error-card">
@@ -575,10 +457,10 @@ const completedReservationStatusItems = computed(() => [
           hasAvailabilityConflict
             ? 'Aeronave no disponible'
             : hasReservationsLoaded
-            ? selectedReservation?.is_reservation
-              ? 'Pago disponible despues de la firma'
+              ? selectedReservation?.is_reservation
+                ? 'Pago disponible despues de la firma'
+                : 'Preparando checkout'
               : 'Preparando checkout'
-            : 'Preparando checkout'
         }}
       </h2>
       <p v-if="hasReservationsLoaded && hasAvailabilityConflict">
@@ -596,7 +478,17 @@ const completedReservationStatusItems = computed(() => [
       <div class="confirmation-actions">
         <button
           type="button"
-          @click="$emit('go', hasAvailabilityConflict ? 'reservar' : selectedReservation?.is_reservation ? 'contrato' : 'viajes', reservationContextId)"
+          @click="
+            $emit(
+              'go',
+              hasAvailabilityConflict
+                ? 'reservar'
+                : selectedReservation?.is_reservation
+                  ? 'contrato'
+                  : 'viajes',
+              reservationContextId,
+            )
+          "
         >
           {{
             hasAvailabilityConflict
@@ -613,64 +505,56 @@ const completedReservationStatusItems = computed(() => [
     </article>
 
     <article
-      v-else-if="propsSection === 'reserva-confirmada' && canRenderReservationWorkflow && isTrackingDetailView"
+      v-else-if="
+        propsSection === 'reserva-confirmada' &&
+        canRenderReservationWorkflow &&
+        isTrackingDetailView
+      "
       class="document-panel tracking-detail-panel"
     >
       <div class="tracking-detail-hero">
-        <span class="eyebrow">Tracking premium</span>
-        <h2>Seguimiento del vuelo en curso</h2>
-        <p>
-          Esta vista concentra el estado operativo del servicio para que puedas revisar el avance
-          sin regresar a la lista de reservas.
-        </p>
+        <span class="eyebrow">Información de tu vuelo</span>
+        <h2>{{ customerFlightPresentation.title }}</h2>
+        <p>{{ customerFlightPresentation.description }}</p>
       </div>
 
-      <section class="tracking-facts-grid">
-        <article v-for="item in trackingPrimaryFacts" :key="item.label" class="tracking-fact-card">
-          <span>{{ item.label }}</span>
-          <strong>{{ item.value }}</strong>
-        </article>
-      </section>
+      <section class="flight-brief-slot" aria-live="polite">
+        <div v-if="flightBriefLoading" class="flight-brief-loading" aria-label="Cargando Flight Brief">
+          <span class="flight-brief-loading__eyebrow">Flight Brief</span>
+          <span class="flight-brief-loading__line flight-brief-loading__line--wide"></span>
+          <span class="flight-brief-loading__line"></span>
+          <span class="flight-brief-loading__line flight-brief-loading__line--short"></span>
+        </div>
 
-      <section class="tracking-layout">
-        <article class="tracking-status-card">
-          <span class="tracking-status-card__eyebrow">Estado actual</span>
-          <strong>{{ trackingStatusLabel }}</strong>
-          <p>{{ reservationDetailContent.statusLabel }}</p>
+        <div v-else-if="flightBriefError" class="flight-brief-message flight-brief-message--error">
+          <p>{{ flightBriefError }}</p>
+          <button type="button" @click="$emit('retry-flight-brief')">Reintentar</button>
+        </div>
 
-          <div class="tracking-status-list">
-            <article
-              v-for="item in trackingOperationalFacts"
-              :key="item.label"
-              class="tracking-status-list__item"
-            >
-              <span>{{ item.label }}</span>
-              <strong>{{ item.value }}</strong>
-            </article>
-          </div>
-        </article>
+        <div v-else-if="flightBrief?.visible !== true" class="flight-brief-message">
+          <span class="eyebrow">Flight Brief</span>
+          <p>Flight Brief disponible después de confirmar el pago.</p>
+        </div>
 
-        <article class="tracking-workflow-card">
-          <span class="tracking-status-card__eyebrow">Hitos del servicio</span>
-          <div class="tracking-workflow">
-            <article
-              v-for="step in trackingSteps"
-              :key="step.title"
-              class="tracking-workflow__step"
-              :data-state="step.state"
-            >
-              <strong>{{ step.title }}</strong>
-              <p>{{ step.detail }}</p>
-            </article>
-          </div>
-        </article>
+        <ClientFlightBrief
+          v-else
+          :flight-brief="flightBrief"
+          @view-tracking="$emit('open-detail', reservationContextId)"
+        />
+        <p v-if="flightBriefRefreshError && flightBrief?.visible === true" class="flight-brief-refresh-notice">
+          Mostrando la última información disponible.
+        </p>
       </section>
 
       <div class="confirmation-actions">
         <button type="button" @click="$emit('go', 'viajes', reservationContextId)">
           Volver a mis vuelos
         </button>
-        <button class="secondary-button" type="button" @click="$emit('go', 'soporte', reservationContextId)">
+        <button
+          class="secondary-button"
+          type="button"
+          @click="$emit('go', 'soporte', reservationContextId)"
+        >
           Asesor privado 24/7
         </button>
       </div>
@@ -739,7 +623,10 @@ const completedReservationStatusItems = computed(() => [
           :class="{ 'hold-banner--warning': activeAircraftHoldSummary.isWarning }"
         >
           <strong>Aeronave apartada temporalmente</strong>
-          <p>Tiempo restante para completar el flujo: <strong>{{ activeAircraftHoldSummary.countdownLabel }}</strong></p>
+          <p>
+            Tiempo restante para completar el flujo:
+            <strong>{{ activeAircraftHoldSummary.countdownLabel }}</strong>
+          </p>
         </div>
         <div class="signature-box confirmation-box">
           <strong>Estado actual</strong>
@@ -747,10 +634,17 @@ const completedReservationStatusItems = computed(() => [
         </div>
       </template>
       <div class="confirmation-actions">
-        <button type="button" @click="$emit('go', reservationDetailContent.primaryAction, reservationContextId)">
+        <button
+          type="button"
+          @click="$emit('go', reservationDetailContent.primaryAction, reservationContextId)"
+        >
           {{ reservationDetailContent.primaryLabel }}
         </button>
-        <button class="secondary-button" type="button" @click="$emit('go', reservationDetailContent.secondaryAction)">
+        <button
+          class="secondary-button"
+          type="button"
+          @click="$emit('go', reservationDetailContent.secondaryAction)"
+        >
           {{ reservationDetailContent.secondaryLabel }}
         </button>
       </div>
@@ -761,7 +655,9 @@ const completedReservationStatusItems = computed(() => [
       class="document-panel confirmation-panel"
     >
       <span class="eyebrow">Reserva registrada</span>
-      <h2>{{ hasReservationsLoaded ? 'No encontramos esa reserva' : 'Cargando estado de reserva' }}</h2>
+      <h2>
+        {{ hasReservationsLoaded ? 'No encontramos esa reserva' : 'Cargando estado de reserva' }}
+      </h2>
       <p v-if="hasReservationsLoaded">
         La reserva que intentas abrir ya no esta disponible o todavia no se sincroniza.
       </p>
@@ -830,6 +726,66 @@ const completedReservationStatusItems = computed(() => [
 .tracking-detail-panel {
   display: grid;
   gap: 1.25rem;
+}
+
+.flight-brief-slot {
+  min-width: 0;
+}
+
+.flight-brief-loading,
+.flight-brief-message {
+  display: grid;
+  gap: 0.8rem;
+  padding: 1.2rem;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.flight-brief-loading__eyebrow {
+  color: #9a762d;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.flight-brief-loading__line {
+  display: block;
+  width: 64%;
+  height: 0.72rem;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #ede5d8 25%, #f9f6f0 48%, #ede5d8 72%);
+  background-size: 220% 100%;
+  animation: flight-brief-shimmer 1.35s ease-in-out infinite;
+}
+
+.flight-brief-loading__line--wide {
+  width: 92%;
+  height: 1.15rem;
+}
+
+.flight-brief-loading__line--short {
+  width: 38%;
+}
+
+.flight-brief-message p {
+  margin: 0;
+  color: #445064;
+  font-weight: 700;
+}
+
+.flight-brief-message--error {
+  border-color: rgba(185, 28, 28, 0.2);
+  background: rgba(254, 242, 242, 0.7);
+}
+
+.flight-brief-message--error p {
+  color: #991b1b;
+}
+
+.flight-brief-message button {
+  justify-self: start;
 }
 
 .confirmation-actions {
@@ -935,7 +891,12 @@ const completedReservationStatusItems = computed(() => [
   aspect-ratio: 1;
   border-radius: 50%;
   background:
-    radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.28) 34%, transparent 36%),
+    radial-gradient(
+      circle at 35% 30%,
+      rgba(255, 255, 255, 0.95),
+      rgba(255, 255, 255, 0.28) 34%,
+      transparent 36%
+    ),
     linear-gradient(135deg, #163a63, #294f7b);
   box-shadow:
     0 28px 60px rgba(22, 58, 99, 0.18),
@@ -1401,6 +1362,18 @@ const completedReservationStatusItems = computed(() => [
   to {
     transform: rotate(360deg);
   }
+}
+
+@keyframes flight-brief-shimmer {
+  to {
+    background-position: -220% 0;
+  }
+}
+
+.flight-brief-refresh-notice {
+  margin: 0.75rem 0 0;
+  color: #6b5a32;
+  font-size: 0.82rem;
 }
 
 @media (max-width: 1180px) {

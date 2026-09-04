@@ -8,12 +8,14 @@ const {
   routerMock,
   pushToastMock,
   subscribeWorkflowSyncMock,
+  workflowSyncHandler,
   authStoreMock,
   sendToDocuSignMock,
   generateAndSendContractMock,
   persistPendingContractContextMock,
   getClientTripsMock,
   getClientTripMock,
+  getClientFlightBriefMock,
   getClientReservationMock,
   getClientReservationPaymentAvailabilityMock,
   getClientDestinationsMock,
@@ -48,7 +50,11 @@ const {
     }),
   },
   pushToastMock: vi.fn(),
-  subscribeWorkflowSyncMock: vi.fn(() => vi.fn()),
+  workflowSyncHandler: { current: null },
+  subscribeWorkflowSyncMock: vi.fn((callback) => {
+    workflowSyncHandler.current = callback
+    return vi.fn()
+  }),
   sendToDocuSignMock: vi.fn(),
   generateAndSendContractMock: vi.fn(),
   persistPendingContractContextMock: vi.fn(),
@@ -74,6 +80,7 @@ const {
   },
   getClientTripsMock: vi.fn(),
   getClientTripMock: vi.fn(),
+  getClientFlightBriefMock: vi.fn(),
   getClientReservationMock: vi.fn(),
   getClientReservationPaymentAvailabilityMock: vi.fn(),
   getClientDestinationsMock: vi.fn(),
@@ -150,6 +157,7 @@ vi.mock('../features/client/clientBookingApi', () => ({
   getClientReservationPaymentAvailability: getClientReservationPaymentAvailabilityMock,
   getClientReservationCheckoutSuccess: getClientReservationCheckoutSuccessMock,
   getClientTrip: getClientTripMock,
+  getClientFlightBrief: getClientFlightBriefMock,
   getClientTrips: getClientTripsMock,
   markClientTripPaymentConfirmed: vi.fn(),
   markClientTripReadyForPayment: vi.fn(),
@@ -212,6 +220,7 @@ function readPersistedAircraftHold() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  workflowSyncHandler.current = null
 
   routeMock.params.id = 'res-1'
   routeMock.params.subsection = undefined
@@ -234,6 +243,7 @@ beforeEach(() => {
 
   getClientTripsMock.mockResolvedValue([buildReservation()])
   getClientTripMock.mockResolvedValue(buildReservation())
+  getClientFlightBriefMock.mockResolvedValue({ visible: false })
   getClientReservationMock.mockResolvedValue(buildReservation())
   getClientReservationPaymentAvailabilityMock.mockResolvedValue({
     success: true,
@@ -2023,6 +2033,113 @@ describe('PortalClienteVista tracking navigation', () => {
     expect(routerMock.replace).not.toHaveBeenCalledWith('/cliente/viajes/res-1')
 
     vi.useRealTimers()
+  })
+})
+
+describe('PortalClienteVista Flight Brief', () => {
+  it('loads the brief with the selected flight request id while tracking a trip', async () => {
+    routeMock.params = { id: 'res-1', subsection: 'tracking' }
+    getClientFlightBriefMock.mockResolvedValue({ visible: false })
+
+    await mountView({ section: 'reserva-confirmada' })
+
+    expect(getClientFlightBriefMock).toHaveBeenCalledWith(
+      'fr-1',
+      expect.objectContaining({ timeoutMs: expect.any(Number) }),
+    )
+  })
+
+  it('clears the previous brief before retrying and exposes the request error', async () => {
+    routeMock.params = { id: 'res-1', subsection: 'tracking' }
+    getClientFlightBriefMock
+      .mockResolvedValueOnce({ visible: true, flight_request_id: 'fr-1' })
+      .mockRejectedValueOnce(new Error('network'))
+
+    const wrapper = await mountView({ section: 'reserva-confirmada' })
+    expect(wrapper.vm.flightBrief).toEqual({ visible: true, flight_request_id: 'fr-1' })
+
+    await wrapper.vm.retryFlightBrief()
+
+    expect(wrapper.vm.flightBrief).toBeNull()
+    expect(wrapper.vm.flightBriefError).toBe('No fue posible actualizar la información del vuelo.')
+  })
+
+  it('refetches the brief when workflow sync confirms the assigned crew', async () => {
+    routeMock.params = { id: 'res-1', subsection: 'tracking' }
+    getClientFlightBriefMock
+      .mockResolvedValueOnce({ visible: true, crew: { status: 'pending_confirmation' } })
+      .mockResolvedValueOnce({ visible: true, crew: { status: 'confirmed' } })
+
+    const wrapper = await mountView({ section: 'reserva-confirmada' })
+    expect(wrapper.vm.flightBrief.crew.status).toBe('pending_confirmation')
+
+    workflowSyncHandler.current({
+      scope: 'reservation-workflow',
+      requestId: 'fr-1',
+      nextStage: 'tracking_live',
+    })
+    await flushPromises()
+
+    expect(getClientFlightBriefMock).toHaveBeenCalledTimes(2)
+    expect(wrapper.vm.flightBrief.crew.status).toBe('confirmed')
+  })
+
+  it('polls checklist progress only while Flight Brief tracking is active and cleans up on unmount', async () => {
+    routeMock.params = { id: 'res-1', subsection: 'tracking' }
+    let pollCallback = null
+    const setIntervalMock = vi.spyOn(window, 'setInterval').mockImplementation((callback) => {
+      pollCallback = callback
+      return 42
+    })
+    const clearIntervalMock = vi.spyOn(window, 'clearInterval')
+    getClientFlightBriefMock
+      .mockResolvedValueOnce({ visible: true, checklist: { completed: 3, total: 10 } })
+      .mockResolvedValueOnce({ visible: true, checklist: { completed: 7, total: 10 } })
+      .mockResolvedValueOnce({ visible: true, checklist: { completed: 10, total: 10 } })
+
+    const wrapper = await mountView({ section: 'reserva-confirmada' })
+    expect(wrapper.vm.flightBrief.checklist.completed).toBe(3)
+    expect(setIntervalMock).toHaveBeenCalledWith(expect.any(Function), 20000)
+
+    pollCallback()
+    await flushPromises()
+    expect(wrapper.vm.flightBrief.checklist.completed).toBe(7)
+
+    pollCallback()
+    await flushPromises()
+    expect(wrapper.vm.flightBrief.checklist.completed).toBe(10)
+
+    wrapper.unmount()
+    expect(clearIntervalMock).toHaveBeenCalledWith(42)
+    setIntervalMock.mockRestore()
+    clearIntervalMock.mockRestore()
+  })
+
+  it('keeps the last valid brief through a polling failure and recovers on the next response', async () => {
+    routeMock.params = { id: 'res-1', subsection: 'tracking' }
+    let pollCallback = null
+    const setIntervalMock = vi.spyOn(window, 'setInterval').mockImplementation((callback) => {
+      pollCallback = callback
+      return 43
+    })
+    getClientFlightBriefMock
+      .mockResolvedValueOnce({ visible: true, checklist: { completed: 3, total: 10 } })
+      .mockRejectedValueOnce(new Error('temporary'))
+      .mockResolvedValueOnce({ visible: true, checklist: { completed: 7, total: 10 } })
+
+    const wrapper = await mountView({ section: 'reserva-confirmada' })
+    pollCallback()
+    await flushPromises()
+    expect(wrapper.vm.flightBrief.checklist.completed).toBe(3)
+    expect(wrapper.vm.flightBriefRefreshError).toBe(true)
+
+    pollCallback()
+    await flushPromises()
+    expect(wrapper.vm.flightBrief.checklist.completed).toBe(7)
+    expect(wrapper.vm.flightBriefRefreshError).toBe(false)
+
+    wrapper.unmount()
+    setIntervalMock.mockRestore()
   })
 })
 

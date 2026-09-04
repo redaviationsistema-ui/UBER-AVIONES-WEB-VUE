@@ -37,6 +37,7 @@ import {
   getClientFlightPackages,
   getClientReservation,
   getClientTrip,
+  getClientFlightBrief,
   markClientTripReadyForPayment,
   releaseClientAircraftHold,
   saveClientAssistedPayment,
@@ -92,6 +93,10 @@ export function usePortalClienteVista(props) {
   const flightPackages = ref([])
   const aircraftOptions = ref([])
   const reservations = ref([])
+  const flightBrief = ref(null)
+  const flightBriefError = ref('')
+  const flightBriefRefreshError = ref(false)
+  const flightBriefLoading = ref(false)
   const hasBootstrappedReservations = ref(false)
   const refreshingReservations = ref(false)
   const signingContract = ref(false)
@@ -129,6 +134,10 @@ export function usePortalClienteVista(props) {
   let removeWorkflowSyncSubscription = null
   let workflowSyncRefreshTimer = null
   let reservationsRequestPromise = null
+  let flightBriefRequestSequence = 0
+  let flightBriefPollTimer = null
+  let flightBriefRequestPromise = null
+  let flightBriefRequestPromiseFlightRequestId = ''
   let catalogRequestPromise = null
   let reservationPaymentAvailabilityRequestPromise = null
   const reservationDetailRequestIds = new Set()
@@ -144,6 +153,18 @@ export function usePortalClienteVista(props) {
   let conciergeAutoReplyTimer = null
   const CLIENT_TRIPS_TIMEOUT_MS = Number(import.meta.env.VITE_CLIENT_TRIPS_TIMEOUT_MS || 45000)
   const CLIENT_QUOTES_TIMEOUT_MS = Number(import.meta.env.VITE_CLIENT_QUOTES_TIMEOUT_MS || 45000)
+  const configuredFlightBriefPollIntervalMs = Number(
+    import.meta.env.VITE_CLIENT_FLIGHT_BRIEF_POLL_INTERVAL_MS || 20000,
+  )
+  const FLIGHT_BRIEF_POLL_INTERVAL_MS = Math.min(
+    Math.max(
+      Number.isFinite(configuredFlightBriefPollIntervalMs)
+        ? configuredFlightBriefPollIntervalMs
+        : 20000,
+      15000,
+    ),
+    30000,
+  )
   const externalContractFlowEnabled =
     String(import.meta.env.VITE_CLIENT_CONTRACT_EXTERNAL_ENABLED || 'true')
       .trim()
@@ -804,6 +825,15 @@ export function usePortalClienteVista(props) {
       resolveEntityIdentifier(selectedReservation.value?.flight_request_id) ||
       resolveEntityIdentifier(selectedReservation.value?.id) ||
       String(routeId.value || '').trim(),
+  )
+  const flightBriefFlightRequestId = computed(() =>
+    resolveEntityIdentifier(selectedReservation.value?.flight_request_id),
+  )
+  const isFlightBriefTrackingView = computed(
+    () =>
+      props.section === 'reserva-confirmada' &&
+      routeSubsection.value === 'tracking' &&
+      Boolean(flightBriefFlightRequestId.value),
   )
   const contractRouteContextId = computed(
     () =>
@@ -4890,6 +4920,123 @@ export function usePortalClienteVista(props) {
     )
   }
 
+  function resetFlightBriefState() {
+    flightBrief.value = null
+    flightBriefError.value = ''
+    flightBriefRefreshError.value = false
+    flightBriefLoading.value = false
+  }
+
+  async function loadFlightBrief({ reset = true, surfaceError = true } = {}) {
+    const flightRequestId = flightBriefFlightRequestId.value
+
+    if (
+      flightBriefRequestPromise &&
+      flightBriefRequestPromiseFlightRequestId === flightRequestId
+    ) {
+      return flightBriefRequestPromise
+    }
+
+    const requestSequence = ++flightBriefRequestSequence
+
+    if (reset) {
+      resetFlightBriefState()
+    }
+
+    if (!flightRequestId) return null
+
+    if (reset) {
+      flightBriefLoading.value = true
+    }
+
+    const request = (async () => {
+      try {
+        const response = await getClientFlightBrief(flightRequestId, {
+          timeoutMs: CLIENT_TRIPS_TIMEOUT_MS,
+        })
+
+        if (
+          requestSequence !== flightBriefRequestSequence ||
+          flightRequestId !== flightBriefFlightRequestId.value
+        ) {
+          return null
+        }
+
+        flightBrief.value = response
+        flightBriefRefreshError.value = false
+        return response
+      } catch {
+        if (
+          requestSequence !== flightBriefRequestSequence ||
+          flightRequestId !== flightBriefFlightRequestId.value
+        ) {
+          return null
+        }
+
+        if (surfaceError) {
+          flightBriefError.value = 'No fue posible actualizar la información del vuelo.'
+        } else if (flightBrief.value) {
+          flightBriefRefreshError.value = true
+        }
+        return null
+      } finally {
+        if (requestSequence === flightBriefRequestSequence && reset) {
+          flightBriefLoading.value = false
+        }
+      }
+    })()
+
+    flightBriefRequestPromise = request
+    flightBriefRequestPromiseFlightRequestId = flightRequestId
+
+    try {
+      return await request
+    } finally {
+      if (flightBriefRequestPromise === request) {
+        flightBriefRequestPromise = null
+        flightBriefRequestPromiseFlightRequestId = ''
+      }
+    }
+  }
+
+  function retryFlightBrief() {
+    return loadFlightBrief()
+  }
+
+  function clearFlightBriefPolling() {
+    if (!flightBriefPollTimer) return
+    window.clearInterval(flightBriefPollTimer)
+    flightBriefPollTimer = null
+  }
+
+  function startFlightBriefPolling() {
+    clearFlightBriefPolling()
+
+    if (!isFlightBriefTrackingView.value) return
+
+    flightBriefPollTimer = window.setInterval(() => {
+      void loadFlightBrief({ reset: false, surfaceError: false })
+    }, FLIGHT_BRIEF_POLL_INTERVAL_MS)
+  }
+
+  function refreshFlightBriefFromWorkflowSync(payload = {}) {
+    if (!isFlightBriefTrackingView.value) return
+
+    const synchronizedId = String(payload.reservationId || payload.requestId || '').trim()
+    const selectedReservationId = String(reservationContextId.value || '').trim()
+    const selectedFlightRequestId = String(flightBriefFlightRequestId.value || '').trim()
+
+    if (
+      synchronizedId &&
+      synchronizedId !== selectedReservationId &&
+      synchronizedId !== selectedFlightRequestId
+    ) {
+      return
+    }
+
+    void loadFlightBrief({ reset: false, surfaceError: false })
+  }
+
   async function startCommercialAccessCheckout({
     accessSource = auth.access?.commercial_access || auth.access,
     onErrorTitle = 'No se pudo activar el acceso comercial',
@@ -7360,6 +7507,23 @@ export function usePortalClienteVista(props) {
   )
 
   watch(
+    () => [props.section, routeSubsection.value, flightBriefFlightRequestId.value],
+    ([section, subsection, flightRequestId]) => {
+      flightBriefRequestSequence += 1
+      flightBriefRequestPromise = null
+      flightBriefRequestPromiseFlightRequestId = ''
+      resetFlightBriefState()
+      clearFlightBriefPolling()
+
+      if (section !== 'reserva-confirmada' || subsection !== 'tracking' || !flightRequestId) return
+
+      void loadFlightBrief()
+      startFlightBriefPolling()
+    },
+    { immediate: true },
+  )
+
+  watch(
     () => [props.section, selectedReservation.value?.id, selectedReservation.value?.payment_method],
     () => {
       if (props.section !== 'pago' || commercialAccessCheckoutScreenMode.value) return
@@ -7490,6 +7654,10 @@ export function usePortalClienteVista(props) {
     closeConciergeScheduleModal,
     customerDisplayName,
     featuredAircraft,
+    flightBrief,
+    flightBriefError,
+    flightBriefRefreshError,
+    flightBriefLoading,
     formatDetailedCurrencyByCode,
     go,
     handleConciergeCommunicationSelection,
@@ -7553,6 +7721,7 @@ export function usePortalClienteVista(props) {
     refreshingReservations,
     removeLeg,
     requestReservation,
+    retryFlightBrief,
     reservationActionLabel,
     reservationLoadingState,
     reservationCheckoutReturnPending,
@@ -8787,6 +8956,7 @@ export function usePortalClienteVista(props) {
     removeWorkflowSyncSubscription = subscribeWorkflowSync((payload = {}) => {
       if (payload.scope !== 'reservation-workflow') return
       scheduleWorkflowSyncRefresh(payload)
+      refreshFlightBriefFromWorkflowSync(payload)
     })
   })
 
@@ -8916,6 +9086,7 @@ export function usePortalClienteVista(props) {
 
   onBeforeUnmount(() => {
     clearReservationsPolling()
+    clearFlightBriefPolling()
     clearWorkflowSyncRefreshTimer()
     clearSignedContractSyncTimer()
     clearReservationConfirmedRedirectTimer()

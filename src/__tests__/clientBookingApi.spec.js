@@ -22,6 +22,7 @@ import {
   buildFlightRequestPayload,
   createClientCheckout,
   deriveClientWorkflowStatus,
+  getClientFlightBrief,
   getClientTrips,
   inferDistanceUnit,
   inferEngineType,
@@ -1250,6 +1251,25 @@ describe('normalizeTrip', () => {
     expect(trip.legs[0].time).toBe('11:00')
     expect(trip.requirements[0].date).toBe('2026-07-22')
     expect(trip.requirements[0].time).toBe('11:00')
+  })
+})
+
+describe('getClientFlightBrief', () => {
+  it('uses the flight request endpoint and unwraps the brief payload', async () => {
+    api.get.mockResolvedValue({
+      flight_brief: {
+        visible: true,
+        flight_request_id: 'fr-1',
+      },
+    })
+
+    await expect(getClientFlightBrief('fr-1')).resolves.toEqual({
+      visible: true,
+      flight_request_id: 'fr-1',
+    })
+    expect(api.get).toHaveBeenCalledWith('/client/flight-requests/fr-1/flight-brief', {
+      timeoutMs: undefined,
+    })
   })
 })
 
