@@ -8,7 +8,6 @@ import PaymentCountdown from './components/PaymentCountdown.vue'
 import PaymentSummaryCard from './components/PaymentSummaryCard.vue'
 import SecureStripeCard from './components/SecureStripeCard.vue'
 import ClientFlightBrief from './components/ClientFlightBrief.vue'
-import { getCustomerFlightPresentation } from './components/clientFlightBriefStage'
 
 const props = defineProps({
   activeAircraftHoldSummary: { type: Object, default: null },
@@ -237,7 +236,6 @@ const reservationDetailContent = computed(() => {
 const isTrackingDetailView = computed(
   () => props.propsSection === 'reserva-confirmada' && props.routeSubsection === 'tracking',
 )
-const customerFlightPresentation = computed(() => getCustomerFlightPresentation(props.flightBrief || {}))
 
 function formatTrackingDateTime(value = '') {
   const normalized = String(value || '').trim()
@@ -514,16 +512,28 @@ const completedReservationStatusItems = computed(() => [
     >
       <div class="tracking-detail-hero">
         <span class="eyebrow">Información de tu vuelo</span>
-        <h2>{{ customerFlightPresentation.title }}</h2>
-        <p>{{ customerFlightPresentation.description }}</p>
+        <h2>Flight Brief</h2>
+        <p>Consulta el estado actual de tu vuelo y la coordinación en curso.</p>
       </div>
 
       <section class="flight-brief-slot" aria-live="polite">
-        <div v-if="flightBriefLoading" class="flight-brief-loading" aria-label="Cargando Flight Brief">
-          <span class="flight-brief-loading__eyebrow">Flight Brief</span>
-          <span class="flight-brief-loading__line flight-brief-loading__line--wide"></span>
-          <span class="flight-brief-loading__line"></span>
-          <span class="flight-brief-loading__line flight-brief-loading__line--short"></span>
+        <div v-if="flightBriefLoading" class="flight-brief-skeleton" aria-label="Preparando información de tu vuelo">
+          <div class="flight-brief-skeleton__intro">
+            <span class="flight-brief-skeleton__eyebrow">Flight Brief</span>
+            <h3>Preparando información de tu vuelo…</h3>
+            <p>Estamos sincronizando los datos más recientes de tu reserva.</p>
+          </div>
+          <div class="flight-brief-skeleton__hero" aria-hidden="true">
+            <div class="flight-brief-skeleton__hero-copy"><span class="skeleton-line skeleton-line--eyebrow"></span><span class="skeleton-line skeleton-line--title"></span><span class="skeleton-line skeleton-line--copy"></span><span class="skeleton-pill"></span></div>
+            <span class="flight-brief-skeleton__aircraft"></span>
+          </div>
+          <section class="flight-brief-skeleton__route flight-brief-skeleton__card" aria-hidden="true"><span class="skeleton-label">Ruta</span><div class="flight-brief-skeleton__route-line"><div><span class="skeleton-line skeleton-line--airport"></span><span class="skeleton-line skeleton-line--small"></span><span class="skeleton-line skeleton-line--small"></span></div><span class="flight-brief-skeleton__route-connector">✈</span><div><span class="skeleton-line skeleton-line--airport"></span><span class="skeleton-line skeleton-line--small"></span><span class="skeleton-line skeleton-line--small"></span></div></div><div class="flight-brief-skeleton__schedule"><span class="skeleton-line"></span><span class="skeleton-line"></span><span class="skeleton-line"></span><span class="skeleton-line"></span></div></section>
+          <section class="flight-brief-skeleton__status flight-brief-skeleton__card" aria-hidden="true"><span class="skeleton-label">Estado del vuelo</span><div class="flight-brief-skeleton__status-list"><span v-for="item in 5" :key="item" :class="{ 'flight-brief-skeleton__status-row--active': item === 4 }"><i></i><b class="skeleton-line"></b></span></div></section>
+          <section class="flight-brief-skeleton__location flight-brief-skeleton__card" aria-hidden="true"><span class="skeleton-label">Dónde presentarte</span><div class="flight-brief-skeleton__location-head"><i></i><span><b class="skeleton-line skeleton-line--medium"></b><b class="skeleton-line skeleton-line--small"></b></span></div><div class="flight-brief-skeleton__location-facts"><span class="skeleton-line"></span><span class="skeleton-line"></span></div></section>
+          <section class="flight-brief-skeleton__next flight-brief-skeleton__card" aria-hidden="true"><span class="skeleton-label">Próximo paso</span><span class="skeleton-line skeleton-line--contrast"></span><span class="skeleton-line skeleton-line--contrast skeleton-line--medium"></span><span class="skeleton-line skeleton-line--contrast skeleton-line--short"></span></section>
+          <section class="flight-brief-skeleton__preparation flight-brief-skeleton__card" aria-hidden="true"><span class="skeleton-label">Preparación de tu vuelo</span><span class="skeleton-line skeleton-line--copy"></span><span class="skeleton-line skeleton-line--medium"></span></section>
+          <section class="flight-brief-skeleton__crew flight-brief-skeleton__card" aria-hidden="true"><span class="skeleton-label">Tripulación</span><div><i></i><span><b class="skeleton-line skeleton-line--medium"></b><b class="skeleton-line skeleton-line--short"></b></span></div></section>
+          <section class="flight-brief-skeleton__action flight-brief-skeleton__card" aria-hidden="true"><span class="skeleton-label">¿Necesitas hacer algo?</span><div><i></i><span><b class="skeleton-line skeleton-line--copy"></b><b class="skeleton-line skeleton-line--medium"></b></span></div></section>
         </div>
 
         <div v-else-if="flightBriefError" class="flight-brief-message flight-brief-message--error">
@@ -546,7 +556,7 @@ const completedReservationStatusItems = computed(() => [
         </p>
       </section>
 
-      <div class="confirmation-actions">
+      <div v-if="!flightBriefLoading" class="confirmation-actions">
         <button type="button" @click="$emit('go', 'viajes', reservationContextId)">
           Volver a mis vuelos
         </button>
@@ -652,22 +662,34 @@ const completedReservationStatusItems = computed(() => [
 
     <article
       v-else-if="propsSection === 'reserva-confirmada' && !canRenderReservationWorkflow"
-      class="document-panel confirmation-panel"
+      class="reservation-sync-panel"
+      :class="{ 'reservation-sync-panel--not-found': hasReservationsLoaded }"
+      aria-live="polite"
     >
-      <span class="eyebrow">Reserva registrada</span>
-      <h2>
-        {{ hasReservationsLoaded ? 'No encontramos esa reserva' : 'Cargando estado de reserva' }}
-      </h2>
-      <p v-if="hasReservationsLoaded">
-        La reserva que intentas abrir ya no esta disponible o todavia no se sincroniza.
-      </p>
-      <p v-else>Estamos consultando el estado mas reciente de tu reserva.</p>
-      <div class="confirmation-actions">
+      <template v-if="hasReservationsLoaded">
+        <span class="eyebrow">Reserva no disponible</span>
+        <div class="reservation-sync-panel__not-found-icon" aria-hidden="true">i</div>
+        <h2>No encontramos esta reserva</h2>
+        <p>La reserva que intentas consultar ya no está disponible o todavía no se ha sincronizado.</p>
+      </template>
+      <template v-else>
+        <span class="eyebrow">Reserva registrada</span>
+        <h2>Estamos preparando tu reserva</h2>
+        <p>Estamos consultando la información más reciente de tu viaje. Esto puede tomar unos momentos.</p>
+        <div class="reservation-sync-panel__loader" aria-label="Consultando estado de tu reserva" role="status"></div>
+        <span class="reservation-sync-panel__loading-label">Consultando estado de tu reserva…</span>
+        <aside class="reservation-sync-panel__notice">
+          <span aria-hidden="true">i</span>
+          <p><strong>No necesitas realizar ninguna acción.</strong> Te notificaremos cuando tu reserva esté confirmada y la información de tu vuelo esté disponible.</p>
+        </aside>
+      </template>
+      <div class="reservation-sync-panel__actions">
         <button type="button" @click="$emit('go', 'viajes')">Ver mis vuelos</button>
         <button class="secondary-button" type="button" @click="$emit('go', 'reservar')">
-          Reservar vuelo
+          Reservar otro vuelo
         </button>
       </div>
+      <p v-if="!hasReservationsLoaded" class="reservation-sync-panel__closing">Viaja con tranquilidad<br /><span>Nosotros nos encargamos del resto.</span></p>
     </article>
 
     <ActiveTrips
@@ -714,6 +736,46 @@ const completedReservationStatusItems = computed(() => [
   gap: 1rem;
 }
 
+.reservation-sync-panel {
+  display: grid;
+  justify-items: start;
+  width: min(calc(100% - 2rem), 880px);
+  gap: 0;
+  min-height: 0;
+  margin: clamp(1rem, 5vh, 4rem) auto 3rem;
+  padding: clamp(2.5rem, 5vw, 3rem);
+  padding-bottom: clamp(2.75rem, 5vw, 3.25rem);
+  overflow: visible;
+  border: 1px solid rgba(13, 41, 66, 0.1);
+  border-radius: 24px;
+  background:
+    radial-gradient(ellipse 44% 35% at 100% 0%, rgba(21, 93, 140, 0.045), transparent 100%),
+    #fffdf9;
+  box-shadow: 0 16px 36px rgba(13, 41, 66, 0.055);
+}
+
+.reservation-sync-panel .eyebrow { margin-bottom: 0.7rem; }
+.reservation-sync-panel h2, .reservation-sync-panel > p { margin: 0; }
+.reservation-sync-panel h2 { max-width: 24ch; color: #0d2942; font-size: clamp(2.25rem, 3.1vw, 2.625rem); line-height: 1.12; letter-spacing: -0.035em; }
+.reservation-sync-panel > p:not(.reservation-sync-panel__closing) { max-width: 58ch; margin-top: 1rem; color: #5f6974; font-size: 1rem; line-height: 1.55; }
+.reservation-sync-panel__loader { width: 2rem; height: 2rem; margin-top: 2rem; border: 3px solid rgba(13, 41, 66, 0.13); border-top-color: #155d8c; border-radius: 50%; animation: portal-spin 0.9s linear infinite; }
+.reservation-sync-panel__loading-label { margin-top: 0.7rem; color: #44576a; font-size: 0.88rem; font-weight: 700; }
+.reservation-sync-panel__notice { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0.7rem; width: min(100%, 620px); margin-top: 1.75rem; padding: 0.9rem 1rem; border: 1px solid rgba(21, 93, 140, 0.1); border-radius: 14px; background: #f4f8fa; }
+.reservation-sync-panel__notice > span, .reservation-sync-panel__not-found-icon { display: grid; width: 1.35rem; height: 1.35rem; place-items: center; border-radius: 50%; background: #155d8c; color: #fff; font-family: Georgia, serif; font-size: 0.85rem; font-weight: 800; }
+.reservation-sync-panel__notice p { margin: 0; color: #536a7b; font-size: 0.84rem; line-height: 1.5; }
+.reservation-sync-panel__notice strong { color: #173951; }
+.reservation-sync-panel__actions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 1.5rem; }
+.reservation-sync-panel__closing { margin-top: 1.875rem !important; color: #8090a0; font-size: 0.68rem; font-weight: 800; letter-spacing: 0.13em; line-height: 1.55; text-transform: uppercase; }
+.reservation-sync-panel__closing span { color: #9aa7b1; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.02em; text-transform: none; }
+.reservation-sync-panel--not-found { align-content: center; min-height: min(500px, 58vh); }
+.reservation-sync-panel__not-found-icon { width: 2.2rem; height: 2.2rem; margin: 0.5rem 0 1rem; background: #dbe8ef; color: #155d8c; font-size: 1.1rem; }
+
+.reservation-sync-panel:not(.reservation-sync-panel--not-found) {
+  justify-items: center;
+  text-align: center;
+}
+
+
 .confirmation-panel--completed {
   gap: 1.35rem;
   padding: 1.8rem;
@@ -725,14 +787,13 @@ const completedReservationStatusItems = computed(() => [
 
 .tracking-detail-panel {
   display: grid;
-  gap: 1.25rem;
+  gap: 1rem;
 }
 
 .flight-brief-slot {
   min-width: 0;
 }
 
-.flight-brief-loading,
 .flight-brief-message {
   display: grid;
   gap: 0.8rem;
@@ -742,32 +803,139 @@ const completedReservationStatusItems = computed(() => [
   background: rgba(255, 255, 255, 0.62);
 }
 
-.flight-brief-loading__eyebrow {
-  color: #9a762d;
-  font-size: 0.68rem;
-  font-weight: 800;
-  letter-spacing: 0.12em;
+.flight-brief-skeleton {
+  display: grid;
+  grid-template-columns: minmax(0, 1.9fr) minmax(250px, 1fr);
+  gap: 10px;
+  animation: flight-brief-reveal 180ms ease-out;
+}
+
+.flight-brief-skeleton__intro,
+.flight-brief-skeleton__hero {
+  grid-column: 1 / -1;
+}
+
+.flight-brief-skeleton__intro {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.3rem 0.2rem 0.75rem;
+}
+
+.flight-brief-skeleton__eyebrow,
+.skeleton-label {
+  color: #8b6f3d;
+  font-size: 0.7rem;
+  font-weight: 850;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
 }
 
-.flight-brief-loading__line {
+.flight-brief-skeleton__intro h3,
+.flight-brief-skeleton__intro p {
+  margin: 0;
+}
+
+.flight-brief-skeleton__intro h3 {
+  color: #10293f;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: clamp(1.45rem, 2.4vw, 2rem);
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+
+.flight-brief-skeleton__intro p {
+  color: #607489;
+  font-size: 0.92rem;
+}
+
+.flight-brief-skeleton__hero,
+.flight-brief-skeleton__card {
+  border: 1px solid rgba(13, 41, 66, 0.09);
+  border-radius: 16px;
+  background: #fffdf9;
+  box-shadow: 0 4px 18px rgba(15, 35, 55, 0.04);
+}
+
+.flight-brief-skeleton__hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 48%);
+  gap: 1.2rem;
+  align-items: center;
+  min-height: 244px;
+  padding: 1.15rem;
+  background: linear-gradient(115deg, #fffdf9 0%, #f2f7f7 100%);
+}
+
+.flight-brief-skeleton__hero-copy,
+.flight-brief-skeleton__location-head,
+.flight-brief-skeleton__crew > div,
+.flight-brief-skeleton__action > div {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.flight-brief-skeleton__aircraft {
   display: block;
-  width: 64%;
-  height: 0.72rem;
-  border-radius: 999px;
-  background: linear-gradient(90deg, #ede5d8 25%, #f9f6f0 48%, #ede5d8 72%);
+  min-height: 200px;
+  border-radius: 12px;
+  background: linear-gradient(90deg, #eee8dc 25%, #f8f5ef 48%, #eee8dc 72%);
   background-size: 220% 100%;
-  animation: flight-brief-shimmer 1.35s ease-in-out infinite;
+  animation: flight-brief-shimmer 1.45s ease-in-out infinite;
 }
 
-.flight-brief-loading__line--wide {
-  width: 92%;
-  height: 1.15rem;
+.flight-brief-skeleton__card { padding: 1.15rem; }
+.flight-brief-skeleton__route { grid-column: 1; }
+.flight-brief-skeleton__status { grid-column: 2; }
+.flight-brief-skeleton__location { grid-column: 1; }
+.flight-brief-skeleton__next { grid-column: 2; display: grid; gap: 0.75rem; background: #173951; }
+.flight-brief-skeleton__next .skeleton-label { color: rgba(255, 255, 255, 0.7); }
+.flight-brief-skeleton__preparation { grid-column: 1; display: grid; gap: 0.75rem; }
+.flight-brief-skeleton__crew { grid-column: 2; }
+.flight-brief-skeleton__action { grid-column: 1; }
+
+.skeleton-line,
+.skeleton-pill {
+  display: block;
+  height: 0.68rem;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #eee8dc 25%, #f8f5ef 48%, #eee8dc 72%);
+  background-size: 220% 100%;
+  animation: flight-brief-shimmer 1.45s ease-in-out infinite;
 }
 
-.flight-brief-loading__line--short {
-  width: 38%;
-}
+.skeleton-line--eyebrow { width: 18%; height: 0.5rem; }
+.skeleton-line--title { width: 72%; height: 1.45rem; }
+.skeleton-line--copy { width: 86%; }
+.skeleton-line--medium { width: 58%; }
+.skeleton-line--short { width: 36%; }
+.skeleton-line--small { width: 46%; height: 0.5rem; }
+.skeleton-line--airport { width: 70%; height: 1.1rem; }
+.skeleton-pill { width: 26%; height: 1.6rem; }
+.skeleton-line--contrast { background: linear-gradient(90deg, rgba(255, 255, 255, 0.16) 25%, rgba(255, 255, 255, 0.3) 48%, rgba(255, 255, 255, 0.16) 72%); background-size: 220% 100%; }
+
+.flight-brief-skeleton__route-line { display: grid; grid-template-columns: 1fr 84px 1fr; gap: 0.5rem; align-items: center; margin-top: 1rem; }
+.flight-brief-skeleton__route-line > div { display: grid; gap: 0.35rem; }
+.flight-brief-skeleton__route-line > div:last-child { justify-items: end; }
+.flight-brief-skeleton__route-connector { display: grid; place-items: center; color: #b8c9d1; font-size: 1rem; }
+.flight-brief-skeleton__schedule { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.65rem; margin-top: 1rem; padding-top: 0.85rem; border-top: 1px solid #e3e8ec; }
+.flight-brief-skeleton__schedule .skeleton-line { height: 0.78rem; }
+.flight-brief-skeleton__status-list { display: grid; gap: 0.5rem; margin-top: 0.9rem; }
+.flight-brief-skeleton__status-list > span { display: flex; align-items: center; gap: 0.65rem; padding: 0.3rem 0; }
+.flight-brief-skeleton__status-list i,
+.flight-brief-skeleton__location-head > i,
+.flight-brief-skeleton__crew i,
+.flight-brief-skeleton__action i { display: block; width: 1.1rem; height: 1.1rem; flex: 0 0 1.1rem; border: 1px solid #cbd5dc; border-radius: 50%; background: #f8fafb; }
+.flight-brief-skeleton__status-list b { width: 68%; }
+.flight-brief-skeleton__status-row--active { padding: 0.55rem 0.6rem !important; border-radius: 10px; background: rgba(21, 93, 140, 0.07); }
+.flight-brief-skeleton__location-head { grid-template-columns: auto minmax(0, 1fr); align-items: center; margin-top: 0.9rem; }
+.flight-brief-skeleton__location-head > span,
+.flight-brief-skeleton__crew > div > span,
+.flight-brief-skeleton__action > div > span { display: grid; gap: 0.35rem; }
+.flight-brief-skeleton__location-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; margin-top: 1rem; padding-top: 0.85rem; border-top: 1px solid #e3e8ec; }
+.flight-brief-skeleton__crew > div,
+.flight-brief-skeleton__action > div { grid-template-columns: auto minmax(0, 1fr); align-items: center; margin-top: 0.9rem; }
+.flight-brief-skeleton__crew i { width: 2.5rem; height: 2.5rem; flex-basis: 2.5rem; background: #e5eff0; }
+.flight-brief-skeleton__action i { background: #eef4f5; }
 
 .flight-brief-message p {
   margin: 0;
@@ -792,6 +960,10 @@ const completedReservationStatusItems = computed(() => [
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
+}
+
+.tracking-detail-panel > .confirmation-actions {
+  margin-top: -0.1rem;
 }
 
 .completion-hero,
@@ -1001,6 +1173,15 @@ const completedReservationStatusItems = computed(() => [
   box-shadow: 0 18px 44px rgba(17, 17, 17, 0.05);
 }
 
+.tracking-detail-panel > .tracking-detail-hero {
+  gap: 0.25rem;
+  padding: 0.1rem 0.2rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
 .tracking-detail-hero,
 .tracking-status-card,
 .tracking-workflow-card {
@@ -1025,9 +1206,9 @@ const completedReservationStatusItems = computed(() => [
 }
 
 .tracking-detail-hero h2 {
-  font-size: clamp(2rem, 3.6vw, 3rem);
-  line-height: 1.03;
-  color: #111827;
+  font-size: clamp(1.45rem, 2.4vw, 2rem);
+  line-height: 1.1;
+  color: #10293f;
 }
 
 .tracking-detail-hero p,
@@ -1370,6 +1551,11 @@ const completedReservationStatusItems = computed(() => [
   }
 }
 
+@keyframes flight-brief-reveal {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 .flight-brief-refresh-notice {
   margin: 0.75rem 0 0;
   color: #6b5a32;
@@ -1404,6 +1590,48 @@ const completedReservationStatusItems = computed(() => [
 }
 
 @media (max-width: 640px) {
+  .flight-brief-skeleton {
+    grid-template-columns: 1fr;
+  }
+
+  .flight-brief-skeleton__hero {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
+  .flight-brief-skeleton__aircraft {
+    min-height: 0;
+    aspect-ratio: 16 / 9;
+  }
+
+  .flight-brief-skeleton__route,
+  .flight-brief-skeleton__status,
+  .flight-brief-skeleton__location,
+  .flight-brief-skeleton__next,
+  .flight-brief-skeleton__preparation,
+  .flight-brief-skeleton__crew,
+  .flight-brief-skeleton__action {
+    grid-column: 1;
+  }
+
+  .flight-brief-skeleton__route-line {
+    grid-template-columns: 1fr 64px 1fr;
+  }
+
+  .flight-brief-skeleton__schedule,
+  .flight-brief-skeleton__location-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .reservation-sync-panel { width: calc(100% - 2rem); margin: 1rem auto; padding: 1.5rem; border-radius: 20px; }
+  .reservation-sync-panel h2 { font-size: clamp(1.75rem, 8vw, 2rem); }
+  .reservation-sync-panel > p:not(.reservation-sync-panel__closing) { font-size: 0.94rem; }
+  .reservation-sync-panel__loader, .reservation-sync-panel__loading-label { justify-self: center; }
+  .reservation-sync-panel__loading-label { text-align: center; }
+  .reservation-sync-panel__notice { width: 100%; }
+  .reservation-sync-panel__actions { display: grid; width: 100%; }
+  .reservation-sync-panel__actions button { width: 100%; }
+
   .document-panel {
     border-radius: 24px;
   }

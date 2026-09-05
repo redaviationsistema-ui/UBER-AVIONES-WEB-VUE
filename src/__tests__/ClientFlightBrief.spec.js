@@ -72,11 +72,12 @@ describe('ClientFlightBrief', () => {
     expect(wrapper.text()).not.toContain('undefined')
   })
 
-  it('renders a partial checklist using the backend percentage and waits to enable tracking', async () => {
+  it('renders a partial checklist using the backend percentage and explains when tracking is unavailable', async () => {
     const wrapper = mount(ClientFlightBrief, { props: { flightBrief: buildFlightBrief() } })
 
     expect(wrapper.get('[role="progressbar"]').attributes('aria-valuenow')).toBe('70')
-    expect(wrapper.get('button').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('button').exists()).toBe(false)
+    expect(wrapper.text()).toContain('El seguimiento estará disponible cuando inicie la preparación operacional.')
   })
 
   it('handles a completed checklist and no assigned crew', () => {
@@ -109,7 +110,7 @@ describe('ClientFlightBrief', () => {
     const wrapper = mount(ClientFlightBrief, { props: { flightBrief: null } })
 
     expect(wrapper.text()).toContain('Por confirmar')
-    expect(wrapper.text()).toContain('Estamos organizando los preparativos del vuelo.')
+    expect(wrapper.text()).toContain('Estamos coordinando los preparativos necesarios antes de tu salida.')
     expect(wrapper.text()).not.toContain('NaN')
     expect(wrapper.text()).not.toContain('0 / 0')
     expect(wrapper.find('[role="progressbar"]').exists()).toBe(false)
@@ -224,7 +225,7 @@ describe('ClientFlightBrief', () => {
     expect(wrapper.findAll('.flight-brief__timeline li').every((item) => item.attributes('data-state') === 'completed')).toBe(true)
   })
 
-  it('shows cancellation without presenting readiness and disables tracking without an operation', () => {
+  it('shows cancellation without presenting readiness or an unavailable tracking action', () => {
     const wrapper = mount(ClientFlightBrief, {
       props: {
         flightBrief: buildFlightBrief({
@@ -237,7 +238,8 @@ describe('ClientFlightBrief', () => {
 
     expect(wrapper.text()).toContain('Tu vuelo fue cancelado')
     expect(wrapper.text()).not.toContain('Listo para salida')
-    expect(wrapper.get('button').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('button').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('No necesitas realizar ninguna acción.')
   })
 
   it('renders only requested services and never labels them as confirmed', () => {
@@ -280,8 +282,9 @@ describe('ClientFlightBrief', () => {
     expect(wrapper.text()).toContain('Acceso norte 100')
     expect(wrapper.get('a[href="https://maps.example.test/fbo"]').attributes('target')).toBe('_blank')
     expect(wrapper.get('a[href="https://maps.example.test/fbo"]').attributes('rel')).toBe('noopener noreferrer')
-    expect(wrapper.text()).toContain('Antes de tu vuelo')
-    expect(wrapper.text()).toContain('¿Necesitas ayuda?')
+    expect(wrapper.text()).toContain('Indicaciones para pasajeros')
+    expect(wrapper.text()).toContain('Gracias por elegir')
+    expect(wrapper.text()).toContain('Asistencia operativa')
     expect(wrapper.text()).toContain('Llamar')
     expect(wrapper.text()).toContain('WhatsApp')
     expect(wrapper.text()).toContain('Correo')
@@ -297,8 +300,8 @@ describe('ClientFlightBrief', () => {
     expect(wrapper.text()).not.toContain('FBO Norte')
     expect(wrapper.text()).not.toContain('Acceso norte 100')
     expect(wrapper.text()).not.toContain('Cómo llegar')
-    expect(wrapper.text()).not.toContain('Antes de tu vuelo')
-    expect(wrapper.text()).not.toContain('¿Necesitas ayuda?')
+    expect(wrapper.text()).not.toContain('Indicaciones para pasajeros')
+    expect(wrapper.text()).not.toContain('Asistencia operativa')
 
     await wrapper.setProps({
       flightBrief: buildFlightBrief({
@@ -325,7 +328,7 @@ describe('ClientFlightBrief', () => {
     })
 
     expect(wrapper.text()).toContain('Confirmación de tu tripulación')
-    expect(wrapper.text()).toContain('Estamos terminando de confirmar al equipo que atenderá tu vuelo.')
+    expect(wrapper.text()).toContain('Estamos finalizando la coordinación del equipo que atenderá tu vuelo.')
     expect(wrapper.text()).not.toContain('Todo listo para tu vuelo')
 
     await wrapper.setProps({

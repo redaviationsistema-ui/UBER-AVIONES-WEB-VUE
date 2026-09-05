@@ -190,7 +190,12 @@ describe('PortalClienteTripsScreen tracking detail', () => {
     const loadingWrapper = mount(PortalClienteTripsScreen, {
       props: buildProps({ flightBriefLoading: true }),
     })
-    expect(loadingWrapper.find('.flight-brief-loading').exists()).toBe(true)
+    expect(loadingWrapper.find('.flight-brief-skeleton').exists()).toBe(true)
+    expect(loadingWrapper.get('.flight-brief-skeleton').attributes('aria-label')).toBe('Preparando información de tu vuelo')
+    expect(loadingWrapper.text()).toContain('Preparando información de tu vuelo…')
+    expect(loadingWrapper.text()).toContain('Estamos sincronizando los datos más recientes de tu reserva.')
+    expect(loadingWrapper.findAll('.flight-brief-skeleton__status-list > span')).toHaveLength(5)
+    expect(loadingWrapper.find('.confirmation-actions').exists()).toBe(false)
 
     const errorWrapper = mount(PortalClienteTripsScreen, {
       props: buildProps({ flightBriefError: 'No fue posible actualizar la información del vuelo.' }),
@@ -261,6 +266,29 @@ describe('PortalClienteTripsScreen tracking detail', () => {
     })
 
     expect(wrapper.findComponent(ClientFlightBrief).exists()).toBe(false)
-    expect(wrapper.find('.flight-brief-loading').exists()).toBe(true)
+    expect(wrapper.find('.flight-brief-skeleton').exists()).toBe(true)
+  })
+
+  it('renders the reservation synchronization state without inventing progress', () => {
+    const wrapper = mount(PortalClienteTripsScreen, {
+      props: buildProps({ canRenderReservationWorkflow: false, hasReservationsLoaded: false }),
+    })
+
+    expect(wrapper.text()).toContain('Estamos preparando tu reserva')
+    expect(wrapper.get('.reservation-sync-panel__loader').attributes('aria-label')).toBe('Consultando estado de tu reserva')
+    expect(wrapper.text()).not.toContain('Sincronizando información')
+    expect(wrapper.text()).toContain('No necesitas realizar ninguna acción.')
+  })
+
+  it('renders the unavailable reservation state without a loader and preserves navigation events', async () => {
+    const wrapper = mount(PortalClienteTripsScreen, {
+      props: buildProps({ canRenderReservationWorkflow: false, hasReservationsLoaded: true }),
+    })
+
+    expect(wrapper.text()).toContain('No encontramos esta reserva')
+    expect(wrapper.find('.reservation-sync-panel__loader').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Reservar otro vuelo')
+    await wrapper.get('.reservation-sync-panel__actions button').trigger('click')
+    expect(wrapper.emitted('go')).toEqual([['viajes']])
   })
 })

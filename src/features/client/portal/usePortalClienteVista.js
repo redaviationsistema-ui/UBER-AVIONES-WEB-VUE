@@ -2895,6 +2895,12 @@ export function usePortalClienteVista(props) {
     reservations,
     selectedReservation,
   })
+  const isReservationSyncPanel = computed(
+    () =>
+      props.section === 'reserva-confirmada' &&
+      routeSubsection.value === 'tracking' &&
+      !canRenderReservationWorkflow.value,
+  )
   const {
     otherSectionCardCopy,
     profileDisplayName,
@@ -7681,6 +7687,7 @@ export function usePortalClienteVista(props) {
     itineraryDateLine,
     itineraryHeadline,
     itinerarySummary,
+    isReservationSyncPanel,
     isConciergeChatOpen,
     isConciergeOpen,
     isConciergeScheduleOpen,

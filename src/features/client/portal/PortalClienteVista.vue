@@ -46,7 +46,7 @@ export default defineComponent({
     />
 
     <main class="client-page">
-      <div v-if="loadingServerData" class="loading-band">Cargando informacion del servidor...</div>
+      <div v-if="loadingServerData && !isReservationSyncPanel" class="loading-band">Cargando informacion del servidor...</div>
 
       <PortalClienteReservationScreen
         v-if="activeSection === 'reservar'"

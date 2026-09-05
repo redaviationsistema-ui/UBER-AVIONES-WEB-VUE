@@ -24,7 +24,7 @@ export function getCustomerFlightPresentation(brief = {}) {
   const content = {
     payment_pending: ['Información de tu vuelo', 'Completa el pago para acceder a los detalles de tu vuelo.', 'Pago pendiente'],
     confirmed: ['Información de tu vuelo', 'Ya tenemos tu reserva y estamos preparando los detalles.', 'Confirmado'],
-    crew_confirmation: ['Confirmación de tu tripulación', 'Estamos terminando de confirmar al equipo que atenderá tu vuelo.', 'Tripulación en confirmación'],
+    crew_confirmation: ['Confirmación de tu tripulación', 'Estamos finalizando la coordinación del equipo que atenderá tu vuelo.', 'Tripulación en confirmación'],
     preparation_pending: ['Preparación de tu vuelo', 'Nuestro equipo realizará las verificaciones previas a tu salida.', 'Preparación pendiente'],
     preparation_active: ['Preparación en curso', 'Estamos realizando las verificaciones necesarias antes de tu salida.', 'Preparación en curso'],
     ready: ['Todo listo para tu vuelo', 'Tu vuelo está preparado para la salida.', 'Listo para salida'],
