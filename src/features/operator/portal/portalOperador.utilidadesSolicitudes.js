@@ -289,71 +289,71 @@ export function syncRealtimeRequestsWithRequestsCollection(realtimeRequests = []
   })
 }
 
+export const SUPPORTED_PROVIDER_NOTIFICATION_TYPES = ['flight.request.created', 'flight.confirmed']
+
+export function providerNotificationEventKey(raw = {}, providerId = '') {
+  const payload = raw.payload || raw.data || raw
+  const type = raw.type || payload.type || 'flight.request.created'
+  const requestId = raw.requestId || payload.flight_request_id || payload.request_id || payload.id
+  return raw.eventKey || raw.event_key || payload.event_key || raw.idempotency_key || payload.idempotency_key ||
+    `provider:${payload.provider_id || providerId}:flight:${requestId}:${type === 'flight.confirmed' ? 'flight-confirmed' : 'request-created'}`
+}
+
 export function normalizeRealtimeNotificationRecord(raw = {}, options = {}) {
   const providerId = options.providerId || ''
-  const payloadBuilder =
-    typeof options.buildRealtimePayload === 'function'
-      ? options.buildRealtimePayload
-      : (payload) => buildRealtimeRequestPayload(payload, providerId)
-
-  const payload =
-    raw.payload && typeof raw.payload === 'object'
-      ? raw.payload
-      : raw.data && typeof raw.data === 'object'
-        ? raw.data
-        : {}
-  const requestId = payload.request_id || payload.flight_request_id || payload.id || raw.request_id || raw.id
-  const title = raw.title || payload.title || 'Nueva solicitud de vuelo'
-  const route = buildRequestFullRoute(payload)
-  const message =
-    raw.message ||
-    `${route || 'Ruta por confirmar'} · ${
-      payload.aircraft_name || payload.aircraft || 'Aeronave por confirmar'
-    }`
-
+  const payload = raw.payload || raw.data || {}
+  const type = raw.type || payload.type || 'flight.request.created'
+  const requestId = payload.flight_request_id || payload.request_id || raw.requestId || payload.id
+  const eventKey = providerNotificationEventKey(raw, providerId)
+  const confirmed = type === 'flight.confirmed'
   return {
-    id: raw.id ? `backend-notification-${raw.id}` : `flight-request-${requestId || Date.now()}`,
-    backendNotificationId: raw.id || null,
+    id: eventKey,
+    eventKey,
+    type,
+    backendNotificationId: raw.backendNotificationId || raw.notification_id || payload.notification_id || raw.id || null,
     requestId,
-    title,
-    message,
-    createdAt: raw.created_at || payload.created_at || new Date().toISOString(),
+    title: raw.title || payload.title || (confirmed ? 'Vuelo confirmado' : 'Nueva solicitud de vuelo'),
+    message: raw.message || payload.message || (confirmed
+      ? 'El pago fue confirmado y el vuelo está listo para continuar con la preparación operacional.'
+      : `${buildRequestFullRoute(payload)} · ${payload.aircraft_name || payload.aircraft || 'Aeronave por confirmar'}`),
+    createdAt: raw.created_at || raw.createdAt || payload.occurred_at || payload.created_at || new Date().toISOString(),
     readAt: raw.read_at || raw.readAt || null,
-    payload: payloadBuilder(payload),
+    source: options.source || raw.source || 'http',
+    payload: {
+      ...(options.buildRealtimePayload || ((value) => buildRealtimeRequestPayload(value, providerId)))(payload),
+      route: payload.route || buildRequestFullRoute(payload),
+    },
   }
 }
 
 export function mergeRealtimeNotificationCollection(collection = [], existingNotifications = [], options = {}) {
-  const normalizedCollection = collection.map((item) => normalizeRealtimeNotificationRecord(item, options))
-  const merged = [...normalizedCollection, ...existingNotifications]
-  const uniqueById = new Map()
-
-  merged.forEach((notification) => {
-    if (!notification?.id) return
-    const existing = uniqueById.get(notification.id)
-    if (!existing) {
-      uniqueById.set(notification.id, notification)
-      return
-    }
-
-    const existingTime = Date.parse(existing.createdAt || '') || 0
-    const nextTime = Date.parse(notification.createdAt || '') || 0
-    if (nextTime >= existingTime) {
-      uniqueById.set(notification.id, {
-        ...existing,
-        ...notification,
-        readAt: notification.readAt || existing.readAt,
-      })
-    }
+  const byKey = new Map()
+  existingNotifications.forEach((item) => {
+    const key = providerNotificationEventKey(item, options.providerId)
+    byKey.set(key, { ...item, id: key, eventKey: key })
   })
+  collection.forEach((raw) => {
+    const next = normalizeRealtimeNotificationRecord(raw, options)
+    const previous = byKey.get(next.eventKey)
+    byKey.set(next.eventKey, {
+      ...previous, ...next,
+      backendNotificationId: next.backendNotificationId || previous?.backendNotificationId || null,
+      readAt: next.readAt || previous?.readAt || null,
+    })
+  })
+  return [...byKey.values()].sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0))
+}
 
-  return [...uniqueById.values()]
-    .sort((left, right) => (Date.parse(right.createdAt || '') || 0) - (Date.parse(left.createdAt || '') || 0))
-    .slice(0, 12)
+export function isProviderNotificationVisible(notification, requests = []) {
+  if (notification.type === 'flight.confirmed') return true
+  const request = findOperatorRequestByIdentifier(requests, notification.requestId)
+  // A paginated request list is not evidence that the notification is stale.
+  return !request || resolveOperatorRequestQueue(request) === 'pending'
 }
 
 export function buildRealtimeRequestsFromNotifications(realtimeNotifications = []) {
   const nextRealtimeRequests = realtimeNotifications
+    .filter((notification) => (notification.type || 'flight.request.created') === 'flight.request.created')
     .map((notification) => notification.payload)
     .filter((payload) => payload && payload.request_id)
 

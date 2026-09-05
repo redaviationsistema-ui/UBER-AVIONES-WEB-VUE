@@ -35,6 +35,8 @@ import {
 } from '../../../utils/aircraftDocuments'
 import { emitWorkflowSync, subscribeWorkflowSync } from '../../../lib/workflowSync'
 import { echo, isEchoConfigured, syncEchoAuthToken } from '../../../plugins/echo'
+import { claimProviderNotificationEffect, showProviderBrowserNotification } from './providerNotificationEffects'
+import { SUPPORTED_PROVIDER_NOTIFICATION_TYPES, normalizeRealtimeNotificationRecord, isProviderNotificationVisible } from './portalOperador.utilidadesSolicitudes'
 import { getAdminReservations } from '../../admin/adminReservationsApi'
 import { deriveClientWorkflowStatus } from '../../client/clientBookingApi'
 import { useAuthStore } from '../../../stores/auth'
@@ -312,7 +314,6 @@ let providerFlightRequestsChannel = null
 let providerFlightRequestsChannelName = ''
 let portalBootstrapPromise = null
 let requestsRefreshPromise = null
-let notificationsRouteResolutionPromise = null
 
 const OPERATOR_REQUESTS_POLL_INTERVAL_MS = 10000
 
@@ -476,6 +477,10 @@ const unreadRealtimeCount = computed(() => {
   return unreadRequestIds.size
 })
 const realtimeNotifications = ref([])
+const confirmedFlightNotifications = computed(() => realtimeNotifications.value.filter((item) => item.type === 'flight.confirmed' && !item.readAt))
+let notificationsLoadPromise = null
+let notificationRevision = 0
+let portalNotificationsDisposed = false
 const realtimeNotificationsOpen = ref(false)
 const notificationAudioUnlocked = ref(false)
 const realtimeNotificationsInitialized = ref(false)
@@ -507,7 +512,7 @@ const activeRealtimeNotifications = computed(() =>
 )
 
 const unreadRealtimeNotifications = computed(
-  () => activeRealtimeNotifications.value.filter((notification) => !notification.readAt).length,
+  () => realtimeNotifications.value.filter((notification) => !notification.readAt).length,
 )
 
 const visibleUnreadRealtimeCount = computed(() => {
@@ -4913,6 +4918,17 @@ async function fetchRequestsPayload(timeoutMs = OPERATOR_SECTION_TIMEOUT_MS) {
         redirectOnForbidden: false,
       })
       const collection = pickRequestsCollection(payload)
+      const requestedId = String(route.query.request || '').trim()
+      if (requestedId && !collection.some((item) => String(item.id) === requestedId)) {
+        try {
+          const detail = await api.get(`/proveedor/solicitudes/${encodeURIComponent(requestedId)}`, { timeoutMs })
+          const record = pickRecord(detail, ['flight_request', 'request', 'data'])
+          if (record?.id) {
+            activeRequestsRouteFamily.value = 'proveedor'
+            return { requests: [record, ...collection] }
+          }
+        } catch { /* A removed or inaccessible request must not block the inbox. */ }
+      }
 
       if (!firstSuccessfulPayload) {
         firstSuccessfulPayload = payload
@@ -6466,22 +6482,7 @@ function syncRealtimeRequestsWithRequests() {
 }
 
 function shouldKeepOperatorRealtimeNotificationVisible(notification = {}, collection = requests.value) {
-  const payload =
-    notification?.payload && typeof notification.payload === 'object'
-      ? notification.payload
-      : {}
-
-  return shouldKeepOperatorRealtimeRequestVisible(
-    {
-      ...payload,
-      id: notification.requestId || payload.request_id || payload.id,
-      requestId: notification.requestId || payload.request_id || payload.id,
-      request_id: payload.request_id || payload.id || notification.requestId,
-      status: payload.status || notification.status || 'pending',
-      raw: payload,
-    },
-    collection,
-  )
+  return isProviderNotificationVisible(notification, collection)
 }
 
 function pruneStaleRealtimeSignals() {
@@ -6489,9 +6490,7 @@ function pruneStaleRealtimeSignals() {
     shouldKeepOperatorRealtimeRequestVisible(request, requests.value),
   )
 
-  realtimeNotifications.value = realtimeNotifications.value.filter((notification) =>
-    shouldKeepOperatorRealtimeNotificationVisible(notification, requests.value),
-  )
+
 }
 
 function mergeRealtimeNotifications(collection = []) {
@@ -6512,120 +6511,62 @@ function syncRealtimeRequestsFromNotifications() {
   syncRealtimeRequestsWithRequests()
 }
 
-async function resolveNotificationsRoute(timeoutMs = OPERATOR_BACKGROUND_TIMEOUT_MS) {
-  if (validNotificationsRoute.value) {
-    return validNotificationsRoute.value
-  }
-
-  if (notificationsRouteUnavailable.value) {
-    return ''
-  }
-
-  if (notificationsRouteResolutionPromise) {
-    return notificationsRouteResolutionPromise
-  }
-
-  notificationsRouteResolutionPromise = (async () => {
-    let lastError = null
-
-    for (const path of NOTIFICATIONS_ROUTE_CANDIDATES) {
-      try {
-        await api.get(path, {
-          timeoutMs,
-          redirectOnForbidden: false,
-        })
-        validNotificationsRoute.value = path
-        notificationsRouteUnavailable.value = false
-        return path
-      } catch (error) {
-        lastError = error
-        if (!isSkippableNotificationLoadError(error)) {
-          throw error
-        }
-      }
-    }
-
-    notificationsRouteUnavailable.value = true
-
-    if (lastError && !isSkippableNotificationLoadError(lastError)) {
-      throw lastError
-    }
-
-    return ''
-  })()
-
-  try {
-    return await notificationsRouteResolutionPromise
-  } finally {
-    notificationsRouteResolutionPromise = null
-  }
-}
-
-async function loadRealtimeNotifications(
-  timeoutMs = OPERATOR_BACKGROUND_TIMEOUT_MS,
-  options = {},
-) {
-  if (isBootstrapping.value) return
-
-  const allowRouteDetection = options.allowRouteDetection === true
-
-  if (!validNotificationsRoute.value && !allowRouteDetection) {
-    return
-  }
-
-  try {
-    let response = null
-
-    if (validNotificationsRoute.value) {
-      response = await api.get(validNotificationsRoute.value, { timeoutMs })
-    } else {
-      const routePath = await resolveNotificationsRoute(timeoutMs)
-      if (!routePath) return
-      response = await api.get(routePath, { timeoutMs })
-    }
-
-    const collection = pickCollection(response, ['notifications', 'data', 'items'])
-      .filter((item) => String(item.type || '').trim() === 'flight.request.created')
-
-    mergeRealtimeNotifications(collection)
+async function loadRealtimeNotifications(timeoutMs = OPERATOR_BACKGROUND_TIMEOUT_MS, options = {}) {
+  if (isBootstrapping.value || portalNotificationsDisposed) return
+  if (!validNotificationsRoute.value && !options.allowRouteDetection) return
+  if (notificationsLoadPromise) return notificationsLoadPromise
+  const revision = notificationRevision
+  notificationsLoadPromise = (async () => {
+    const collection = []
+    let page = 1
+    let lastPage
+    do {
+      const response = await api.get(NOTIFICATIONS_ROUTE_CANDIDATES[0], {
+        timeoutMs, redirectOnForbidden: false,
+        query: { page, per_page: 100, ...Object.fromEntries(SUPPORTED_PROVIDER_NOTIFICATION_TYPES.map((type, index) => [`types[${index}]`, type])) },
+      })
+      collection.push(...pickCollection(response, ['notifications', 'data', 'items']))
+      lastPage = Number(response?.notifications?.last_page || 1)
+      page += 1
+    } while (page <= lastPage && !portalNotificationsDisposed)
+    if (portalNotificationsDisposed || revision !== notificationRevision) return
+    validNotificationsRoute.value = NOTIFICATIONS_ROUTE_CANDIDATES[0]
+    notificationsRouteUnavailable.value = false
+    mergeRealtimeNotifications(collection.filter((item) => SUPPORTED_PROVIDER_NOTIFICATION_TYPES.includes(item.type)))
     syncRealtimeRequestsFromNotifications()
-    pruneStaleRealtimeSignals()
     realtimeNotificationsInitialized.value = true
-  } catch (error) {
-    if (isSkippableNotificationLoadError(error)) {
-      realtimeNotifications.value = []
-      realtimeRequests.value = []
-      notificationsRouteUnavailable.value = true
-      return
-    }
-
-    if (isTransientNotificationLoadError(error)) {
-      notificationsRouteUnavailable.value = false
-      return
-    }
-  }
+  })().catch(() => {
+    // Preserve already displayed alerts; retry on the next polling cycle.
+    notificationsRouteUnavailable.value = false
+  }).finally(() => { notificationsLoadPromise = null })
+  return notificationsLoadPromise
 }
 
-function pushRealtimeNotification(payload = {}) {
-  const requestId = payload.request_id || payload.id
-  const notification = {
-    id: `flight-request-${requestId || Date.now()}`,
-    backendNotificationId: null,
-    requestId,
-    title: 'Nueva solicitud de vuelo',
-    message: `${payload.route || 'Ruta por confirmar'} · ${
-      payload.aircraft_name || payload.aircraft || 'Aeronave por confirmar'
-    }`,
-    createdAt: payload.created_at || new Date().toISOString(),
-    readAt: null,
-    payload,
+async function handleProviderNotification(payload = {}, type = 'flight.request.created') {
+  if (portalNotificationsDisposed || !SUPPORTED_PROVIDER_NOTIFICATION_TYPES.includes(type)) return
+  if (payload.provider_id && Number(payload.provider_id) !== Number(providerId.value)) return
+  notificationRevision += 1
+  const notification = normalizeRealtimeNotificationRecord({
+    notification_id: payload.notification_id, type, payload,
+  }, { providerId: providerId.value, source: 'echo' })
+  realtimeNotifications.value = mergeRealtimeNotificationCollection([
+    { notification_id: payload.notification_id, type, payload },
+  ], realtimeNotifications.value, { providerId: providerId.value, source: 'echo' })
+  if (type === 'flight.request.created') {
+    const nextRaw = buildRealtimeRequestPayload(payload, providerId.value)
+    const existing = findOperatorRequestByIdentifier(requests.value, notification.requestId)
+    if (!existing) requests.value.unshift(normalizeRequest(nextRaw))
+    syncRealtimeRequestsFromNotifications()
+  } else {
+    void refreshRequestsList({ silent: true, force: true, cooldownMs: 0 })
   }
-
-  realtimeNotifications.value = [
-    notification,
-    ...realtimeNotifications.value.filter((item) => item.id !== notification.id),
-  ].slice(0, 12)
-  pruneStaleRealtimeSignals()
+  if (await claimProviderNotificationEffect(notification.eventKey, auth.user?.id)) {
+    if (portalNotificationsDisposed) return
+    ui.pushToast({ tone: 'success', title: notification.title,
+      message: type === 'flight.confirmed' ? `El pago de la solicitud #${notification.requestId} fue confirmado.` : notification.message })
+    playNotificationSound()
+    showProviderBrowserNotification(notification, openRealtimeNotification)
+  }
 }
 
 function playNotificationSound() {
@@ -6673,67 +6614,11 @@ async function enableBrowserNotifications() {
   return permission
 }
 
-function showBrowserFlightRequestNotification(payload = {}) {
-  if (typeof window === 'undefined' || !('Notification' in window)) return
-  if (Notification.permission !== 'granted') return
-
-  new Notification('Nueva solicitud de vuelo', {
-    body: `${payload.route || 'Ruta por confirmar'} · ${
-      payload.aircraft_name || payload.aircraft || 'Aeronave por confirmar'
-    }`,
-  })
-}
-
-function handleRealtimeFlightRequestCreated(payload = {}) {
-  const nextRaw = buildRealtimeRequestPayload(payload, providerId.value)
-  const normalized = normalizeRequest(nextRaw)
-  const requestKey = String(normalized.id || normalized.requestId || '').trim()
-  const existingIndex = requests.value.findIndex((request) => {
-    const currentKey = String(request.id || request.requestId || '').trim()
-    return currentKey && currentKey === requestKey
-  })
-
-  if (existingIndex >= 0) {
-    requests.value.splice(existingIndex, 1, normalized)
-  } else {
-    requests.value.unshift(normalized)
-  }
-
-  selectedRequestId.value = normalized.id
-  realtimeRequests.value = [
-    nextRaw,
-    ...realtimeRequests.value.filter((request) => {
-      const currentKey = String(request.id || request.requestId || request.request_id || '').trim()
-      return !currentKey || currentKey !== requestKey
-    }),
-  ].slice(0, 8)
-  pushRealtimeNotification(nextRaw)
-  ui.pushToast({
-    tone: 'success',
-    title: 'Nueva solicitud de vuelo',
-    message: `${nextRaw.route || normalized.route} · ${nextRaw.aircraft_name || normalized.aircraft}`,
-  })
-  playNotificationSound()
-  showBrowserFlightRequestNotification(nextRaw)
-}
-
 async function persistRealtimeNotificationRead(notification = {}) {
   const notificationId = Number(notification.backendNotificationId || 0)
-  if (!notificationId) return
-
-  try {
-    await requestWithCandidates([
-      {
-        method: 'put',
-        path: `/proveedor/notificaciones/${notificationId}/leer`,
-        timeoutMs: OPERATOR_BACKGROUND_TIMEOUT_MS,
-      },
-    ])
-  } catch (error) {
-    if (isSkippableNotificationLoadError(error)) {
-      return
-    }
-  }
+  if (!notificationId) throw new Error('La notificación todavía no tiene un identificador persistido.')
+  const response = await api.patch(`/notifications/${notificationId}/read`)
+  return response?.notification?.read_at || new Date().toISOString()
 }
 
 async function openRealtimeRequest(request = {}) {
@@ -6791,7 +6676,10 @@ function subscribeProviderFlightRequests() {
     .private(nextChannelName)
     .subscribed(() => {})
     .listen('.flight.request.created', (payload) => {
-      handleRealtimeFlightRequestCreated(payload)
+      void handleProviderNotification(payload, 'flight.request.created')
+    })
+    .listen('.flight.confirmed', (payload) => {
+      void handleProviderNotification(payload, 'flight.confirmed')
     })
     .error(() => {})
 }
@@ -6807,56 +6695,25 @@ function toggleRealtimeNotifications() {
   realtimeNotificationsOpen.value = !realtimeNotificationsOpen.value
 }
 
-function markRealtimeNotificationRead(notificationId) {
-  const targetNotification =
-    realtimeNotifications.value.find((notification) => notification.id === notificationId) || null
-  const readAt = new Date().toISOString()
-  realtimeNotifications.value = realtimeNotifications.value.map((notification) =>
-    notification.id === notificationId ? { ...notification, readAt } : notification,
-  )
-  if (targetNotification) {
-    void persistRealtimeNotificationRead({ ...targetNotification, readAt })
+async function markRealtimeNotificationRead(notificationId) {
+  let notification = realtimeNotifications.value.find((item) => item.id === notificationId)
+  if (!notification || notification.readAt) return
+  try {
+    if (!notification.backendNotificationId) {
+      await loadRealtimeNotifications(OPERATOR_BACKGROUND_TIMEOUT_MS, { allowRouteDetection: true })
+      notification = realtimeNotifications.value.find((item) => item.id === notificationId) || notification
+    }
+    const readAt = await persistRealtimeNotificationRead(notification)
+    notificationRevision += 1
+    realtimeNotifications.value = realtimeNotifications.value.map((item) => item.id === notificationId ? { ...item, readAt } : item)
+  } catch (error) {
+    ui.pushToast({ tone: 'warning', title: 'No se pudo marcar como leída', message: error.message || 'Intenta nuevamente.' })
   }
 }
 
-function markRealtimeNotificationsByRequestRead(requestId) {
-  const normalizedRequestId = String(requestId || '').trim()
-  if (!normalizedRequestId) return
-
-  const readAt = new Date().toISOString()
-  const unreadNotifications = realtimeNotifications.value.filter((notification) => {
-    if (notification?.readAt) return false
-
-    const notificationRequestId = String(
-      notification.requestId ||
-        notification.payload?.request_id ||
-        notification.payload?.id ||
-        '',
-    ).trim()
-
-    return notificationRequestId === normalizedRequestId
-  })
-
-  if (!unreadNotifications.length) return
-
-  realtimeNotifications.value = realtimeNotifications.value.map((notification) => {
-    const notificationRequestId = String(
-      notification.requestId ||
-        notification.payload?.request_id ||
-        notification.payload?.id ||
-        '',
-    ).trim()
-
-    if (notificationRequestId !== normalizedRequestId) return notification
-    return {
-      ...notification,
-      readAt: notification.readAt || readAt,
-    }
-  })
-
-  unreadNotifications.forEach((notification) => {
-    void persistRealtimeNotificationRead({ ...notification, readAt })
-  })
+async function markRealtimeNotificationsByRequestRead(requestId) {
+  await Promise.all(realtimeNotifications.value.filter((item) => !item.readAt && String(item.requestId) === String(requestId))
+    .map((item) => markRealtimeNotificationRead(item.id)))
 }
 
 function dismissRealtimeRequestById(requestId) {
@@ -6880,36 +6737,42 @@ function dismissRealtimeRequestById(requestId) {
   )
 }
 
-function markAllRealtimeNotificationsRead() {
-  const readAt = new Date().toISOString()
-  const unreadNotifications = realtimeNotifications.value.filter((notification) => !notification.readAt)
-  realtimeNotifications.value = realtimeNotifications.value.map((notification) => ({
-    ...notification,
-    readAt: notification.readAt || readAt,
-  }))
-  unreadNotifications.forEach((notification) => {
-    void persistRealtimeNotificationRead({ ...notification, readAt })
-  })
+async function markAllRealtimeNotificationsRead() {
+  const keys = new Set(realtimeNotifications.value.map((item) => item.id))
+  try {
+    await api.patch('/notifications/read-all', { types: SUPPORTED_PROVIDER_NOTIFICATION_TYPES })
+    notificationRevision += 1
+    const readAt = new Date().toISOString()
+    realtimeNotifications.value = realtimeNotifications.value.map((item) => keys.has(item.id) ? { ...item, readAt: item.readAt || readAt } : item)
+    void loadRealtimeNotifications(OPERATOR_BACKGROUND_TIMEOUT_MS, { allowRouteDetection: true })
+  } catch (error) {
+    ui.pushToast({ tone: 'warning', title: 'No se pudieron marcar las alertas', message: error.message || 'Intenta nuevamente.' })
+  }
 }
 
 async function openRealtimeNotification(notification = {}) {
-  if (notification.id) {
-    markRealtimeNotificationRead(notification.id)
-  }
-
-  const requestId = notification.requestId || notification.payload?.request_id || notification.payload?.id
+  const requestId = String(notification.requestId || notification.payload?.flight_request_id || notification.payload?.request_id || '')
+  if (!requestId) return
   realtimeNotificationsOpen.value = false
-
-  if (!requestId) {
+  if (notification.type !== 'flight.confirmed') {
+    await markRealtimeNotificationRead(notification.id)
+    await openRealtimeRequest({ requestId })
     return
   }
-
-  await openRealtimeRequest({
-    id: requestId,
-    requestId,
-    request_id: requestId,
-    raw: notification.payload,
-  })
+  try {
+    // Detail lookup avoids losing the target when it is outside the first request page.
+    const response = await api.get(`/proveedor/solicitudes/${encodeURIComponent(requestId)}`)
+    const raw = pickRecord(response, ['flight_request', 'request', 'data'])
+    const normalized = normalizeRequest(raw)
+    requests.value = [normalized, ...requests.value.filter((item) => String(item.id) !== requestId)]
+    selectedRequestId.value = normalized.id
+    requestStatusFilter.value = resolveRequestStatusFilterTarget(normalized, 'all')
+    archivedTrayOpen.value = false
+    await markRealtimeNotificationRead(notification.id)
+    goToSection('solicitudes', { request: requestId })
+  } catch (error) {
+    ui.pushToast({ tone: 'warning', title: 'No se pudo abrir el vuelo', message: error.message || 'Intenta nuevamente.' })
+  }
 }
 
 function normalizeOperation(raw = {}, index = 0) {
@@ -7189,31 +7052,6 @@ function isSkippableIncidentLoadError(error) {
     [401, 403, 404, 405].includes(status) ||
     (status >= 500 && status <= 599) ||
     (message.includes('route') && message.includes('could not be found'))
-  )
-}
-
-function isSkippableNotificationLoadError(error) {
-  const status = Number(error?.status || 0)
-  const message = String(error?.message || '').toLowerCase()
-
-  return (
-    [401, 403, 404, 405].includes(status) ||
-    (status >= 500 && status <= 599) ||
-    (message.includes('route') && message.includes('could not be found')) ||
-    (status > 0 && (message.includes('notifications') || message.includes('notificaciones')))
-  )
-}
-
-function isTransientNotificationLoadError(error) {
-  const status = Number(error?.status || 0)
-  const message = String(error?.message || '').toLowerCase()
-
-  return (
-    status === 0 ||
-    error?.name === 'AbortError' ||
-    message.includes('timeout after') ||
-    message.includes('network error') ||
-    message.includes('failed to fetch')
   )
 }
 
@@ -11324,13 +11162,9 @@ async function refreshRequestsList({ silent = true, force = false, cooldownMs = 
   requestsRefreshPromise = (async () => {
     try {
       await reloadRequestsList(OPERATOR_SECTION_TIMEOUT_MS)
-      if (validNotificationsRoute.value) {
-        await loadRealtimeNotifications(OPERATOR_BACKGROUND_TIMEOUT_MS)
-      }
       requestsConnectionWarningShown.value = false
     } catch (error) {
       if (isBackendConnectionError(error)) {
-        clearRequestsPolling()
         if (!requestsConnectionWarningShown.value) {
           requestsConnectionWarningShown.value = true
           showError('Backend no disponible', getBackendConnectionMessage())
@@ -11345,6 +11179,8 @@ async function refreshRequestsList({ silent = true, force = false, cooldownMs = 
         )
       }
     } finally {
+      // A temporary request/proxy failure must not stop notification recovery.
+      await loadRealtimeNotifications(OPERATOR_BACKGROUND_TIMEOUT_MS, { allowRouteDetection: true })
       refreshingRequests.value = false
       if (!silent) {
         loading.value = false
@@ -12595,6 +12431,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  portalNotificationsDisposed = true
   clearCompanyBaseAirportTimer()
   companyDocumentReminderTimers.forEach((timerId) => {
     if (typeof window !== 'undefined') {
@@ -12763,6 +12600,7 @@ watch(
       unreadRealtimeCount,
       visibleUnreadRealtimeCount,
       realtimeNotifications,
+      confirmedFlightNotifications,
       activeRealtimeNotifications,
       realtimeNotificationsOpen,
       unreadRealtimeNotifications,

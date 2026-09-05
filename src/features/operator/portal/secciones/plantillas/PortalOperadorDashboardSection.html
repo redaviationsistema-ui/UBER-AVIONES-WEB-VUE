@@ -16,36 +16,6 @@
         </div>
       </div>
 
-      <article
-        v-if="visibleRealtimeRequests.length"
-        class="surface realtime-flight-request-banner"
-      >
-        <div class="realtime-flight-request-banner__signal" aria-hidden="true">
-          <span></span>
-        </div>
-        <div class="realtime-flight-request-banner__content">
-          <p class="eyebrow">Live Flight Request</p>
-          <h2>Nueva solicitud de vuelo</h2>
-          <div class="realtime-flight-request-banner__meta">
-            <span>{{ visibleRealtimeRequests[0].aircraft_name}}</span>
-          <strong>{{ visibleRealtimeRequests[0].route }}</strong>
-            <span>{{ formatDateTimeRange(visibleRealtimeRequests[0].created_at).slice(0, 10) }}</span>
-          </div>
-        </div>
-        <div class="realtime-flight-request-banner__actions">
-          <span v-if="visibleUnreadRealtimeCount" class="realtime-flight-request-banner__count">
-            {{ visibleUnreadRealtimeCount }} nueva{{ visibleUnreadRealtimeCount === 1 ? '' : 's' }}
-          </span>
-          <button
-            type="button"
-            class="primary-action"
-            @click="openRealtimeRequest(visibleRealtimeRequests[0])"
-          >
-            Ver solicitud
-          </button>
-        </div>
-      </article>
-
       <article class="surface dashboard-hero-premium">
         <div class="section-head dashboard-hero-head">
           <div>

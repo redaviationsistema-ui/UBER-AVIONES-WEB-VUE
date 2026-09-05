@@ -3,6 +3,7 @@
 /*----------------------------------------------------------------------------------------------*/    
 
 import { defineComponent, provide } from 'vue'
+import PortalOperadorAlertas from './secciones/PortalOperadorAlertas.vue'
 import PortalOperadorAeronavesSection from './secciones/PortalOperadorAeronavesSection.vue'
 import PortalOperadorConfiguracionSection from './secciones/PortalOperadorConfiguracionSection.vue'
 import PortalOperadorBloqueoOperativoSection from './secciones/PortalOperadorBloqueoOperativoSection.vue'
@@ -43,6 +44,7 @@ export {
 export default defineComponent({
   name: 'PortalOperador',
   components: {
+    PortalOperadorAlertas,
     PortalOperadorAeronavesSection,
     PortalOperadorBloqueoOperativoSection,
     PortalOperadorConfiguracionSection,

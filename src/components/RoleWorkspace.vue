@@ -482,6 +482,7 @@ onBeforeUnmount(() => {
             </button>
           </nav>
 
+          <div v-if="activeRole === 'operator'" id="operator-notification-anchor" class="operator-notification-anchor"></div>
           <div class="workspace-menu-actions">
             <span v-if="workspaceBrandHint" class="workspace-menu-hint">
               {{ workspaceBrandHint }}
@@ -2755,5 +2756,25 @@ onBeforeUnmount(() => {
     background:
       linear-gradient(180deg, rgba(11, 22, 39, 0.98), rgba(24, 38, 63, 0.97) 58%, rgba(14, 24, 39, 0.98) 100%);
   }
+}
+</style>
+
+<style scoped>
+.operator-notification-anchor { display: flex; align-items: center; flex: 0 0 40px; }
+.workspace-operator .workspace-menu-bar { grid-template-columns: minmax(230px, auto) minmax(0, 1fr) 40px auto; }
+@media (max-width: 1080px) {
+  .workspace-operator .workspace-menu-bar { grid-template-columns: minmax(0, 1fr) 44px 44px; gap: 10px; }
+  .operator-notification-anchor { grid-column: 2; grid-row: 1; width: 44px; }
+  .workspace-operator .workspace-menu-toggle { grid-column: 3; width: 44px; min-width: 44px; height: 44px; min-height: 44px; }
+  .workspace-operator .workspace-menu-brand { min-width: 0; gap: 10px; }
+  .workspace-operator .workspace-menu-brand-copy { min-width: 0; }
+  .workspace-operator .workspace-menu-brand-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+@media (max-width: 600px) {
+  .workspace-operator .workspace-menu-bar { padding-inline: 12px; }
+  .workspace-operator .workspace-menu-brand-copy { display: none; }
+  .workspace-operator .workspace-menu-logo { min-width: 0; max-width: 118px; }
+  .workspace-operator .workspace-menu-logo :deep(.brand-logo) { max-width: 100%; flex-shrink: 1; }
+  .workspace-operator .workspace-menu-logo :deep(.brand-logo__image) { width: 100%; height: auto; max-height: 34px; }
 }
 </style>
