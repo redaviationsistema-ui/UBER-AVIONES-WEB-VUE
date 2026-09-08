@@ -23,6 +23,10 @@ import { normalizeApiError } from '../../lib/apiError'
 import CrewAvailabilitySection from './CrewAvailabilitySection.vue'
 import CrewUiIcon from './CrewUiIcon.vue'
 import CrewNotificationCenter from './CrewNotificationCenter.vue'
+import CrewWorkflowAction from './CrewWorkflowAction.vue'
+import CrewIncidentModal from './CrewIncidentModal.vue'
+import { createCrewWorkflowRequests } from './crewWorkflowRequests'
+import { applyCanonicalCrewWorkflow, crewMilestoneAction } from './crewCanonicalWorkflow'
 
 const props = defineProps({
   section: { type: String, required: true },
@@ -34,7 +38,6 @@ const ui = useUiStore()
 let removeCrewSyncSubscription = null
 let loadPortalPromise = null
 let backgroundCrewWarmupTimer = null
-let checklistAssignmentsRefreshTimer = null
 const CREW_PORTAL_TIMEOUT_MS = 15000
 const IS_LOCAL_CREW_DEV =
   import.meta.env.DEV &&
@@ -102,18 +105,12 @@ const providerContext = reactive({
 })
 
 const assignments = ref([])
-const assignmentWorkflowCache = reactive({})
-
-function clearAssignmentWorkflowCache(operationId = '') {
-  const normalizedOperationId = String(operationId || '').trim()
-  if (normalizedOperationId) {
-    delete assignmentWorkflowCache[normalizedOperationId]
-    return
-  }
-
-  Object.keys(assignmentWorkflowCache).forEach((key) => {
-    delete assignmentWorkflowCache[key]
-  })
+const workflowRequests = createCrewWorkflowRequests((operationId, signal) => requestWithCandidates([
+  { method: 'get', path: `/sobrecargo/operations/${operationId}/workflow`, debugTag: 'CREW_WORKFLOW' },
+], { signal }))
+const workflowUnavailable = computed(() => Boolean(currentAssignment.value && !currentAssignment.value.canonicalWorkflowLoaded))
+async function retryWorkflow() {
+  await loadPortal({ force: true, resources: ['assignments'] })
 }
 
 const availabilityBlocks = ref([])
@@ -125,6 +122,23 @@ const incidents = ref([])
 const incidentApiErrors = ref({})
 const incidentSubmissionInFlight = ref(false)
 const flightIncidentOpen = ref(false)
+const incidentModalError = ref('')
+const incidentPhaseLabel = ref('Pre-vuelo')
+function openIncidentModal() {
+  const step = currentFlightStep.value?.id
+  incidentPhaseLabel.value = { validation: 'Preparación', preparation: 'Preparación', arrival: 'Llegada al aeropuerto', checklist: 'Pre-vuelo', tracking: 'Seguimiento', closure: 'Post-vuelo' }[step] || 'Pre-vuelo'
+  incidentForm.phase = step === 'closure' ? 'Post-vuelo' : step === 'tracking' && ['in_flight', 'landed'].includes(currentAssignment.value?.workflowStatus) ? 'En vuelo' : 'Pre-vuelo'
+  incidentForm.flight = currentAssignment.value?.flight || String(currentAssignment.value?.operationId || '')
+  incidentModalError.value = ''
+  flightIncidentOpen.value = true
+}
+function closeIncidentModal() {
+  if (incidentSubmissionInFlight.value) return
+  flightIncidentOpen.value = false
+  incidentForm.files = []
+  incidentModalError.value = ''
+}
+
 const selectedFlightStepId = ref('')
 const selectedChecklistItemId = ref('')
 const selectedTrackingMilestoneId = ref('')
@@ -141,6 +155,11 @@ const checklistFailureDraft = reactive({
 })
 
 const historyEntries = ref([])
+
+const finalReportForm = reactive({ service_rating: '', cabin_condition: '', catering_condition: '', cleaning_required: '', restocking_required: '' })
+const finalReportValid = computed(() => Number(finalReportForm.service_rating) >= 1 && Number(finalReportForm.service_rating) <= 5
+  && finalReportForm.cabin_condition.trim() && finalReportForm.catering_condition.trim()
+  && typeof finalReportForm.cleaning_required === 'boolean' && typeof finalReportForm.restocking_required === 'boolean')
 
 const assignmentResponseForm = reactive({
   response: '',
@@ -287,8 +306,9 @@ const sortedAssignments = computed(() =>
         tracking: 0,
         closure: 1,
         checklist: 2,
-        preparation: 3,
-        validation: 4,
+        arrival: 3,
+        preparation: 4,
+        validation: 5,
       }
 
       const leftPriority = priority[left.__workflowSnapshot?.workflow?.currentId] ?? 99
@@ -684,10 +704,6 @@ function groupChecklistItemsByCategory(group = null) {
   return Array.from(buckets.values())
 }
 
-const linkedIncidents = computed(() =>
-  incidents.value.filter((item) => String(item.operationId || '') === String(currentAssignment.value?.operationId || '')),
-)
-
 function buildChecklistEvidenceCard({
   id,
   label,
@@ -753,160 +769,62 @@ function formatTrackingTime(value = '') {
   }).format(parsed)
 }
 
-function milestoneHasLinkedIncident(keywords = []) {
-  const normalizedKeywords = keywords.map((keyword) => String(keyword || '').trim().toLowerCase()).filter(Boolean)
-  if (!normalizedKeywords.length) return false
-
-  return linkedIncidents.value.some((incident) => {
-    const haystack = [
-      incident.type,
-      incident.description,
-      incident.phase,
-      incident.actionTaken,
-    ]
-      .filter(Boolean)
-      .join(' ')
-      .toLowerCase()
-
-    return normalizedKeywords.some((keyword) => haystack.includes(keyword))
-  })
-}
-
-const canStartBoarding = computed(() => {
-  const assignment = currentAssignment.value
-  if (!assignment) return false
-
-  return assignment.workflowStatus === 'cabin_ready'
-    && !assignment.canReceivePassengers
-    && !assignment.crewServiceStartedAt
+const workflowBlockingReason = computed(() => {
+  const workflow = currentAssignment.value?.canonicalWorkflow || {}
+  const hasAllowedAction = currentAssignment.value?.allowedActions?.length > 0
+  return hasAllowedAction ? '' : workflow.blocking_reason || ''
 })
+const nextAction = computed(() => currentAssignment.value?.nextAction || null)
+const canonicalAction = computed(() => nextAction.value)
+
+async function executeCanonicalAction(action, assignment = currentAssignment.value) {
+  if (!action || !assignment || assignmentActionState.active) return
+  const allowed = assignment.allowedActions?.some((item) => item.type === action.type && item.status === action.status)
+  if (!allowed) return
+  if (action.type === 'crew_checkin') return confirmBriefing(assignment.id)
+  if (action.type === 'cabin_ready') return markCabinReady(assignment.id)
+  if (action.type === 'passengers_ready') return markPassengersReceived(assignment.id)
+  if (['transition', 'start_preflight', 'departure', 'landing', 'disembark'].includes(action.type)) {
+    return transitionCrewOperation(assignment.id, action.status, {
+      loadingTitle: action.label, loadingDetail: 'Registrando el avance operativo.',
+      successTitle: 'Avance registrado', successDetail: 'El flujo está actualizado.',
+      errorTitle: 'No se pudo registrar', errorMessage: 'Actualiza el flujo e intenta nuevamente.',
+      note: action.label,
+    })
+  }
+  if (action.type === 'submit_report') openFlightStep('closure', { allowCompleted: true })
+}
 
 const flightTrackingMilestones = computed(() => {
   const assignment = currentAssignment.value
-  const snapshot = currentAssignmentSnapshot.value
-  if (!assignment) return []
-  const detailsByCode = {
-    airport_arrival: {
-      detail: 'Cuando llegues a aeropuerto o FBO, registra este momento.',
-      actionLabel: assignment.canCheckin ? 'Registrar llegada' : '',
-      action: assignment.canCheckin ? () => confirmBriefing(assignment.id) : null,
-      incident: milestoneHasLinkedIncident(['aeropuerto', 'fbo', 'check in', 'check-in', 'llegada']),
-    },
-    aircraft_ready: {
-      detail: 'Registra cuando la cabina, aeronave e insumos estén listos.',
-      actionLabel: assignment.canMarkCabinReady ? 'Registrar aeronave lista' : '',
-      action: assignment.canMarkCabinReady ? () => markCabinReady(assignment.id) : null,
-      incident: milestoneHasLinkedIncident(['cabina', 'aeronave', 'insumos']),
-    },
-    catering_received: {
-      detail: 'Este momento se registra junto con la aeronave lista.',
-      incident: milestoneHasLinkedIncident(['catering']),
-    },
-    passengers_arrived: {
-      detail: 'Cuando inicie el abordaje, registra la llegada de pasajeros.',
-      actionLabel: canStartBoarding.value ? 'Registrar pasajeros llegaron' : '',
-      action: canStartBoarding.value
-        ? () => transitionCrewOperation(assignment.id, 'boarding', {
-          loadingTitle: 'Registrando llegada de pasajeros',
-          loadingDetail: 'Estamos iniciando el abordaje en la linea de tiempo operativa.',
-          successTitle: 'Llegada de pasajeros registrada',
-          successDetail: 'El abordaje ya aparece en el seguimiento del vuelo.',
-          errorTitle: 'No se pudo registrar',
-          errorMessage: 'La llegada de pasajeros no pudo guardarse.',
-          note: 'Inicio de abordaje registrado por sobrecargo.',
-        })
-        : null,
-      incident: milestoneHasLinkedIncident(['pasajeros', 'abordaje']),
-    },
-    passengers_on_board: {
-      detail: 'Cuando todos los pasajeros estén a bordo, registra este momento.',
-      actionLabel: assignment.canReceivePassengers ? 'Registrar pasajeros a bordo' : '',
-      action: assignment.canReceivePassengers ? () => markPassengersReceived(assignment.id) : null,
-      incident: milestoneHasLinkedIncident(['pasajeros', 'abordaje']),
-    },
-    departure: {
-      detail: 'Cuando la aeronave despegue, registra este momento.',
-      actionLabel: assignment.workflowStatus === 'boarding_completed' ? 'Registrar despegue' : '',
-      action: assignment.workflowStatus === 'boarding_completed'
-        ? () => transitionCrewOperation(assignment.id, 'in_flight', {
-          loadingTitle: 'Registrando despegue',
-          loadingDetail: 'Estamos guardando el despegue en el seguimiento operativo.',
-          successTitle: 'Despegue registrado',
-          successDetail: 'El seguimiento avanzó a aterrizaje.',
-          errorTitle: 'No se pudo registrar despegue',
-          errorMessage: 'El despegue no pudo registrarse.',
-          note: 'Despegue registrado por sobrecargo.',
-        })
-        : null,
-      incident: milestoneHasLinkedIncident(['despegue', 'vuelo', 'salida']),
-    },
-    landing: {
-      detail: 'Cuando la aeronave aterrice, registra este momento.',
-      actionLabel: assignment.workflowStatus === 'in_flight' ? 'Registrar aterrizaje' : '',
-      action: assignment.workflowStatus === 'in_flight'
-        ? () => transitionCrewOperation(assignment.id, 'landed', {
-          loadingTitle: 'Registrando aterrizaje',
-          loadingDetail: 'Estamos guardando el aterrizaje en el seguimiento operativo.',
-          successTitle: 'Aterrizaje registrado',
-          successDetail: 'El seguimiento avanzó a desembarque.',
-          errorTitle: 'No se pudo registrar aterrizaje',
-          errorMessage: 'El aterrizaje no pudo registrarse.',
-          note: 'Aterrizaje registrado por sobrecargo.',
-        })
-        : null,
-      incident: milestoneHasLinkedIncident(['aterrizaje', 'landing']),
-    },
-    passengers_disembarked: {
-      detail: 'Cuando todos los pasajeros hayan bajado de la aeronave, registra este momento.',
-      actionLabel: assignment.workflowStatus === 'landed' ? 'Registrar desembarque' : '',
-      action: assignment.workflowStatus === 'landed'
-        ? () => transitionCrewOperation(assignment.id, 'postflight_pending', {
-          loadingTitle: 'Registrando desembarque',
-          loadingDetail: 'Estamos guardando el desembarque y preparando el post-vuelo.',
-          successTitle: 'Desembarque registrado',
-          successDetail: 'Seguimiento completado y checklist post-vuelo habilitado.',
-          errorTitle: 'No se pudo registrar desembarque',
-          errorMessage: 'El desembarque no pudo registrarse.',
-          note: 'Desembarque registrado por sobrecargo.',
-        })
-        : null,
-      incident: milestoneHasLinkedIncident(['desembarque', 'desembarcaron', 'postvuelo']),
-    },
-  }
-
-  return (snapshot?.tracking?.items || []).map((item) => {
-    const extra = detailsByCode[item.code] || {}
+  return (currentAssignmentSnapshot.value?.tracking?.items || []).map((item) => {
+    const allowedAction = crewMilestoneAction(assignment?.allowedActions, item.code)
     const completed = item.status === 'completed'
-    const isCurrent = item.status === 'current'
     return {
-      id: item.id,
-      code: item.code,
-      label: item.title,
-      detail: extra.detail || item.detail,
-      completed,
-      timestamp: item.timestamp || '',
-      actor: item.actorName || 'Sobrecargo',
-      actionLabel: extra.actionLabel || '',
-      action: extra.action || null,
-      incident: Boolean(extra.incident),
+      id: item.id, code: item.code, label: item.title,
+      detail: item.code === 'airport_arrival'
+        ? 'Cuando llegues al aeropuerto o FBO, registra este momento.'
+        : item.code === 'aircraft_ready'
+          ? 'Confirma en una sola acción que la aeronave, el catering y los insumos están listos.'
+          : item.detail,
+      completed, timestamp: item.timestamp || '', actor: item.actorName || 'Sin responsable registrado',
+      allowedAction,
+      actionLabel: allowedAction?.label || '',
+      action: allowedAction ? () => executeCanonicalAction(allowedAction, assignment) : null,
       meta: item.timestamp ? formatTrackingTime(item.timestamp) : '',
-      state: extra.incident ? 'incident' : completed ? 'completed' : isCurrent ? 'current' : 'pending',
-      isCurrent,
+      state: completed ? 'completed' : item.status === 'current' ? 'current' : 'pending',
+      isCurrent: item.status === 'current',
     }
   })
 })
+const arrivalMilestone = computed(() => flightTrackingMilestones.value.find((item) => item.code === 'airport_arrival'))
+const trackingMilestones = computed(() => flightTrackingMilestones.value.filter((item) => item.code !== 'airport_arrival'))
 
-const flightTrackingSummary = computed(() => {
-  const summary = currentAssignmentSnapshot.value?.tracking?.summary
-  const total = summary?.total ?? flightTrackingMilestones.value.length
-  const completed = summary?.resolved ?? flightTrackingMilestones.value.filter((item) => item.completed).length
-
-  return {
-    total,
-    completed,
-    pending: Math.max(total - completed, 0),
-  }
-})
+const flightTrackingSummary = computed(() => ({
+  total: trackingMilestones.value.length,
+  completed: trackingMilestones.value.filter((item) => item.completed).length,
+  pending: trackingMilestones.value.filter((item) => !item.completed).length,
+}))
 
 const trackingProgressPercent = computed(() => (
   flightTrackingSummary.value.total
@@ -915,7 +833,7 @@ const trackingProgressPercent = computed(() => (
 ))
 
 const currentTrackingMilestone = computed(() =>
-  flightTrackingMilestones.value.find((item) => item.isCurrent) || flightTrackingMilestones.value.at(-1) || null,
+  trackingMilestones.value.find((item) => item.allowedAction) || trackingMilestones.value.find((item) => item.isCurrent) || trackingMilestones.value.at(-1) || null,
 )
 
 const selectedTrackingMilestone = computed(() => {
@@ -945,12 +863,12 @@ const currentTrackingAction = computed(() => {
     label: milestone.label,
     detail: milestone.completed
       ? 'Todos los hitos visibles ya quedaron registrados.'
-      : `${milestone.label} depende de la actualizacion del flujo operativo o de Operaciones.`,
+      : workflowBlockingReason.value || 'No hay una acción disponible. Actualiza el flujo para consultar su estado.',
     cta: '',
     action: null,
   }
 })
-
+ 
 const preparationChecklistGroup = computed(() => getChecklistGroupByType('preparation'))
 const preflightChecklistGroup = computed(() => getChecklistGroupByType('preflight'))
 const postflightChecklistGroup = computed(() => getChecklistGroupByType('postflight'))
@@ -977,12 +895,10 @@ const currentFlightStep = computed(() => {
 const checklistStepState = computed(
   () => flightFlowState.value.steps.find((step) => step.id === 'checklist') || null,
 )
-const isFlightStepPreview = computed(() =>
-  Boolean(selectedFlightStepId.value) && selectedFlightStepId.value !== flightFlowState.value.currentId,
-)
-const isChecklistReadOnly = computed(() =>
-  isFlightStepPreview.value && ['preparation', 'checklist', 'closure'].includes(currentFlightStep.value?.id || ''),
-)
+const isChecklistReadOnly = computed(() => {
+  const type = { preparation: 'preparation', checklist: 'preflight', closure: 'postflight' }[currentFlightStep.value?.id]
+  return !currentAssignment.value?.canonicalWorkflow?.editable_checklists?.includes(type)
+})
 
 const postflightChecklistSummary = computed(() => buildChecklistSummary(postflightChecklistGroup.value))
 
@@ -1105,6 +1021,21 @@ const currentPrimaryAction = computed(() => {
     }
   }
 
+  if (assignment.currentStep === 'completed') {
+    return {
+      title: 'Operación completada',
+      detail: 'El flujo operativo y el reporte final ya quedaron registrados.',
+      cta: '',
+      action: null,
+    }
+  }
+
+  if (workflowBlockingReason.value) return { title: 'Flujo bloqueado', detail: workflowBlockingReason.value, cta: '', action: null }
+  if (nextAction.value && nextAction.value.type !== 'submit_report') return {
+    title: nextAction.value.label, detail: 'Registra el siguiente avance de tu operación.',
+    cta: nextAction.value.label, action: () => executeCanonicalAction(nextAction.value),
+  }
+
   if (snapshot?.assignmentStatus !== 'confirmed' && assignment.canRespondToAssignment) {
     return {
       title: 'Accion requerida: Confirmar vuelo',
@@ -1126,13 +1057,11 @@ const currentPrimaryAction = computed(() => {
       return {
         title: 'Siguiente paso: Completar preparacion',
         detail: 'Valida briefing, llegada, FBO y cabina antes de avanzar al resto de la operacion.',
-        cta: assignment.canCheckin ? 'Registrar llegada' : assignment.canMarkCabinReady ? 'Registrar preparacion' : 'Abrir preparación',
-        action: assignment.canCheckin
-          ? () => confirmBriefing(assignment.id)
-          : assignment.canMarkCabinReady
-            ? () => markCabinReady(assignment.id)
-            : () => openFlightStep('preparation', { allowCompleted: true }),
+        cta: 'Abrir preparación',
+        action: () => openFlightStep('preparation', { allowCompleted: true }),
       }
+    case 'arrival':
+      return { title: 'Llegada al aeropuerto', detail: workflowBlockingReason.value || 'Consulta el flujo actualizado para registrar tu llegada.', cta: '', action: null }
     case 'checklist':
       return {
         title: 'Siguiente paso: Completar checklist pre-vuelo',
@@ -1150,6 +1079,17 @@ const currentPrimaryAction = computed(() => {
         action: currentTrackingAction.value?.action || (workflowStepsById.value.get('tracking')?.available ? () => openFlightStep('tracking', { allowCompleted: true }) : null),
       }
     case 'closure':
+      if (nextAction.value?.type === 'submit_report') {
+        return {
+          title: 'Reporte final pendiente',
+          detail: 'El checklist post-vuelo está completo y la operación puede cerrarse.',
+          cta: 'Enviar reporte final',
+          action: () => submitCrewReport({
+            assignmentId: currentAssignment.value.id,
+            report: { general_notes: assignmentResponseForm.comment || 'Cierre operativo desde Mi vuelo.' },
+          }),
+        }
+      }
       return {
         title: 'Siguiente paso: Checklist post-vuelo',
         detail: `Checklist ${postflightChecklistSummary.value.resolved} de ${postflightChecklistSummary.value.total} completados.`,
@@ -1161,8 +1101,8 @@ const currentPrimaryAction = computed(() => {
   return {
     title: 'Siguiente paso: Finalizar operación',
     detail: 'Cuando todo este completo podras cerrar tu participacion operativa.',
-    cta: currentAssignment.value?.workflowStatus === 'report_pending' ? 'Enviar cierre' : '',
-    action: currentAssignment.value?.workflowStatus === 'report_pending'
+    cta: currentAssignment.value?.allowedActions?.some((action) => action.type === 'submit_report') ? 'Enviar cierre' : '',
+    action: currentAssignment.value?.allowedActions?.some((action) => action.type === 'submit_report')
       ? () => submitCrewReport({
         assignmentId: currentAssignment.value.id,
         report: { general_notes: assignmentResponseForm.comment || 'Cierre operativo desde Mi vuelo.' },
@@ -1207,7 +1147,7 @@ const currentChecklistStepMeta = computed(() => {
 
   if (currentFlightStep.value?.id === 'checklist') {
     return {
-      eyebrow: 'Paso 3 · Checklist pre-vuelo',
+      eyebrow: 'Paso 4 · Checklist pre-vuelo',
       title: 'Checklist pre-vuelo',
       footer: currentChecklistSummary.value.total === 0
         ? 'Checklist sin elementos cargados'
@@ -1221,14 +1161,14 @@ const currentChecklistStepMeta = computed(() => {
 
   if (currentFlightStep.value?.id === 'closure') {
     return {
-      eyebrow: 'Paso 5 · Checklist post-vuelo',
+      eyebrow: 'Paso 6 · Checklist post-vuelo',
       title: 'Checklist post-vuelo',
       footer: currentChecklistSummary.value.pending
         ? `Faltan ${currentChecklistSummary.value.pending} elementos`
         : 'Checklist post-vuelo completado ✓',
       cta: isChecklistReadOnly.value
         ? 'Volver a seguimiento'
-        : currentAssignment.value?.workflowStatus === 'report_pending'
+        : currentAssignment.value?.allowedActions?.some((action) => action.type === 'submit_report')
           ? 'Finalizar operación'
           : 'Checklist completado',
       nextStepId: '',
@@ -1611,8 +1551,7 @@ function normalizeAssignment(raw = {}, detail = {}, index = 0) {
   const timelineStatuses = buildTimelineStatusSet(detail)
   const hasCheckin =
     Boolean(raw.crew_checkin_at || detail.crew_checkin_at) ||
-    timelineStatuses.has('crew checkin') ||
-    ['checked_in', 'preflight_in_progress', 'cabin_ready', 'boarding', 'boarding_completed', 'in_flight', 'landed', 'postflight_pending', 'report_pending', 'crew_completed', 'administratively_closed'].includes(normalizedCrewLifecycleStatus)
+    timelineStatuses.has('crew checkin') || timelineStatuses.has('checked in')
   const hasCabinReady = timelineStatuses.has('cabina lista')
   const hasPassengersReady = timelineStatuses.has('pasajeros recibidos') || ['boarding_completed', 'in_flight', 'landed', 'postflight_pending', 'report_pending', 'crew_completed', 'administratively_closed'].includes(normalizedCrewLifecycleStatus)
   const hasServiceStarted =
@@ -1627,8 +1566,7 @@ function normalizeAssignment(raw = {}, detail = {}, index = 0) {
     normalizedOperationStatus === 'completed'
   const hasIncidentReported =
     normalizedCrewLifecycleStatus === 'crew_incident_reported' ||
-    normalizedOperationStatus === 'incidencia' ||
-    timelineStatuses.has('incidencia')
+    normalizedOperationStatus === 'incidencia'
   const missionStatus =
     hasIncidentReported
       ? 'Incidencia'
@@ -1699,23 +1637,10 @@ function normalizeAssignment(raw = {}, detail = {}, index = 0) {
     responseDeadlineTime < Date.now() &&
     ['pending_confirmation', 'pending_crew_response'].includes(workflowStatus)
   const canRespondToAssignment = ['pending_confirmation', 'pending_crew_response'].includes(workflowStatus) || !responseLocked && missionStatus === 'Pendiente'
-  const canCheckin =
-    ['ready_for_operation'].includes(workflowStatus) &&
-    !hasCheckin &&
-    !hasIncidentReported
-  const canStartBoarding =
-    workflowStatus === 'cabin_ready' &&
-    hasCabinReady &&
-    !hasPassengersReady &&
-    !hasServiceStarted &&
-    !hasIncidentReported
-  const canMarkCabinReady = hasCheckin && !hasCabinReady && !hasServiceStarted && !hasIncidentReported
-  const canReceivePassengers =
-    workflowStatus === 'boarding' &&
-    hasCabinReady &&
-    !hasPassengersReady &&
-    !hasServiceStarted &&
-    !hasIncidentReported
+  const canCheckin = false
+  const canMarkCabinReady = false
+  const canReceivePassengers = false
+  const canStartBoarding = false
   const canStartService = false
   const canFinalizeService = false
 
@@ -1786,101 +1711,66 @@ function normalizeCrewWorkflowRecord(payload = {}) {
 }
 
 function applyWorkflowSnapshotToAssignment(assignment = {}, workflowPayload = {}) {
-  const workflowStatus = String(
-    workflowPayload.workflow_status ||
-    workflowPayload.crew_status ||
-    workflowPayload.status ||
-    '',
-  ).trim()
-  const timeline = Array.isArray(workflowPayload.timeline) ? workflowPayload.timeline : assignment.timeline || []
-  const checklists = Array.isArray(workflowPayload.checklists) ? workflowPayload.checklists : assignment.checklists || []
-  const finalReport =
-    workflowPayload.final_report ??
-    workflowPayload.report ??
-    assignment.finalReport ??
-    null
+  return applyCanonicalCrewWorkflow(assignment, workflowPayload)
+}
 
-  return {
-    ...assignment,
-    assignmentId: assignment.assignmentId || assignment.assignment?.id || '',
-    flightRequestId: assignment.flightRequestId || '',
-    workflowStatus: workflowStatus || assignment.workflowStatus,
-    crewStatus: workflowStatus || assignment.crewStatus,
-    crewStatusLabel: workflowStatus ? humanizeCrewLifecycleStatus(workflowStatus) : assignment.crewStatusLabel,
-    operationStatus: workflowStatus || assignment.operationStatus,
-    missionStatus: workflowStatus ? normalizeMissionStatus(workflowStatus) || assignment.missionStatus : assignment.missionStatus,
-    timeline,
-    checklists,
-    finalReport,
-    canonicalWorkflow: workflowPayload,
+async function refreshAssignmentWorkflow(operationId) {
+  const index = assignments.value.findIndex((item) => String(item.operationId || item.id) === String(operationId))
+  if (index < 0) return
+  // Remove stale permissions while the new canonical snapshot is in flight.
+  assignments.value[index] = applyCanonicalCrewWorkflow(assignments.value[index], {
+    ...assignments.value[index].canonicalWorkflow, allowed_actions: [], editable_checklists: [],
+  })
+  try {
+    const workflow = await fetchCrewOperationWorkflow(operationId, { force: true })
+    assignments.value[index] = applyWorkflowSnapshotToAssignment(assignments.value[index], workflow)
+    selectedFlightStepId.value = ''
+    selectedTrackingMilestoneId.value = ''
+  } catch (error) {
+    assignments.value[index] = applyCanonicalCrewWorkflow(assignments.value[index], {
+      ...assignments.value[index].canonicalWorkflow, allowed_actions: [], editable_checklists: [],
+      blocking_reason: 'No se pudo actualizar el flujo. Vuelve a cargar la operación.',
+    })
+    throw error
   }
 }
 
-async function fetchCrewOperationWorkflow(operationId, { force = false } = {}) {
-  const normalizedOperationId = String(operationId || '').trim()
-  if (!normalizedOperationId) return null
-
-  if (force) {
-    clearAssignmentWorkflowCache(normalizedOperationId)
-  }
-
-  if (assignmentWorkflowCache[normalizedOperationId]) {
-    return assignmentWorkflowCache[normalizedOperationId]
-  }
-
-  const response = await requestWithCandidates([
-    {
-      method: 'get',
-      path: `/sobrecargo/operations/${normalizedOperationId}/workflow`,
-      timeoutMs: CREW_PORTAL_TIMEOUT_MS,
-    },
-  ])
-
-  const workflowRecord = normalizeCrewWorkflowRecord(response)
-
-  console.table(
-    (workflowRecord?.checklists || []).map((checklist) => ({
-      id: checklist?.id,
-      type: checklist?.type,
-      status: checklist?.status,
-      operation_id: checklist?.operation_id,
-      items: checklist?.items?.length,
-    })),
-  )
-
-  assignmentWorkflowCache[normalizedOperationId] = workflowRecord
-
-  return workflowRecord
+async function fetchCrewOperationWorkflow(operationId) {
+  return normalizeCrewWorkflowRecord(await workflowRequests.load(operationId))
 }
 
 //---------------------------------------------------------------------------
-async function hydrateAssignmentsWithWorkflow(records = [], { forceWorkflow = false } = {}) {
+async function hydrateAssignmentsWithWorkflow(records = []) {
+  workflowRequests.retain(records.map((item) => item.operationId || item.id))
   const hydrated = await Promise.all(
     records.map(async (assignment) => {
       const operationId = assignment.operationId || assignment.id
       if (!operationId) return assignment
 
       try {
-        const workflowRecord = await fetchCrewOperationWorkflow(operationId, { force: forceWorkflow })
+        const workflowRecord = await fetchCrewOperationWorkflow(operationId)
         if (!workflowRecord) return assignment
         return applyWorkflowSnapshotToAssignment(assignment, workflowRecord)
-      } catch {
-        return assignment
+      } catch (error) {
+        if (error.name === 'AbortError') return null
+        return applyCanonicalCrewWorkflow(assignment, {
+          blocking_reason: 'No se pudo cargar el flujo operativo. Vuelve a cargar la operación.',
+        })
       }
     }),
   )
 
-  return hydrated
+  return hydrated.filter(Boolean)
 }
 
-async function fetchCrewAssignments({ forceWorkflow = false } = {}) {
+async function fetchCrewAssignments() {
   const response = await requestWithCandidates([
     { method: 'get', path: '/sobrecargo/assignments', timeoutMs: CREW_PORTAL_TIMEOUT_MS },
   ])
 
   const collection = extractAssignmentsCollection(response)
   const normalizedAssignments = collection.map((item, index) => normalizeAssignment(item, item, index))
-  return hydrateAssignmentsWithWorkflow(normalizedAssignments, { forceWorkflow })
+  return hydrateAssignmentsWithWorkflow(normalizedAssignments)
 }
 
 function normalizeCrewAvailabilityRecord(raw = {}, index = 0) {
@@ -2314,6 +2204,7 @@ async function respondAssignment(id, response) {
       },
     ])
   } catch (error) {
+    try { await refreshAssignmentWorkflow(assignment.operationId || id) } catch { /* Keep the unavailable state and Retry. */ }
     closeAssignmentActionState()
     return ui.pushToast({
       tone: 'error',
@@ -2361,6 +2252,7 @@ async function runAssignmentWorkflowAction(
 
   try {
     await request(assignment)
+    await refreshAssignmentWorkflow(assignment.operationId || id)
   } catch (error) {
     closeAssignmentActionState()
     return ui.pushToast({
@@ -2424,14 +2316,13 @@ async function updateCrewChecklistItem({ assignmentId, checklistType, itemId, st
       operation: response?.operation || null,
     })
 
+    await refreshAssignmentWorkflow(assignment.operationId || assignmentId)
     closeAssignmentActionState()
     void showAssignmentActionSuccess({
       title: 'Checklist actualizado',
       detail: 'La verificacion quedo guardada.',
       duration: 900,
     })
-
-    scheduleChecklistAssignmentsRefresh()
 
     return response
   } catch (error) {
@@ -2474,23 +2365,6 @@ function patchCrewAssignmentChecklist({ assignmentId, operationId, checklist, op
   }
 }
 
-function clearChecklistAssignmentsRefresh() {
-  if (checklistAssignmentsRefreshTimer) {
-    window.clearTimeout(checklistAssignmentsRefreshTimer)
-    checklistAssignmentsRefreshTimer = null
-  }
-}
-
-function scheduleChecklistAssignmentsRefresh() {
-  if (typeof window === 'undefined') return
-
-  clearChecklistAssignmentsRefresh()
-  checklistAssignmentsRefreshTimer = window.setTimeout(() => {
-    checklistAssignmentsRefreshTimer = null
-    void loadPortal({ force: true, resources: ['assignments'] })
-  }, 250)
-}
-
 function getChecklistEvidenceDraft(evidenceId = '') {
   if (!checklistEvidenceDrafts[evidenceId]) {
     checklistEvidenceDrafts[evidenceId] = {
@@ -2524,6 +2398,7 @@ function setChecklistEvidenceInputRef(evidenceId = '', element = null) {
 }
 
 function openChecklistEvidencePicker(item) {
+  if (isChecklistReadOnly.value) return
   if (!item?.id || isChecklistReadOnly.value) return
   const input = checklistEvidenceInputRefs[item.id]
   if (!input) return
@@ -2562,6 +2437,7 @@ function handleChecklistEvidenceSelected(item, fileList) {
 }
 
 async function uploadCrewChecklistEvidence(item) {
+  if (isChecklistReadOnly.value) return
   const assignment = currentAssignment.value
   if (!assignment || !item?.id || !item?.checklistItemId || !item?.checklistType) return
 
@@ -2601,7 +2477,7 @@ async function uploadCrewChecklistEvidence(item) {
       detail: `${item.label} ya quedó guardada en AWS.`,
       duration: 1000,
     })
-    scheduleChecklistAssignmentsRefresh()
+    await refreshAssignmentWorkflow(assignment.operationId || assignment.id)
   } catch (errorUpload) {
     closeAssignmentActionState()
     draft.error = normalizeApiError(errorUpload, 'La evidencia no pudo subirse.')
@@ -2710,7 +2586,7 @@ async function submitChecklistFailureReport() {
       status: 'failed',
       notes: description,
     })
-    await loadPortal({ force: true, resources: ['incidents'] })
+    await loadPortal({ force: true, resources: ['incidents', 'assignments'] })
     ui.pushToast({
       tone: 'success',
       title: 'Falla reportada',
@@ -2732,6 +2608,8 @@ async function submitChecklistFailureReport() {
 }
 
 async function submitCrewReport({ assignmentId, report }) {
+  if (!finalReportValid.value) return
+  report = { ...finalReportForm, service_rating: Number(finalReportForm.service_rating), ...report }
   await runAssignmentWorkflowAction(assignmentId, {
     loadingTitle: 'Enviando reporte final', loadingDetail: 'Cerrando tu participacion operativa.',
     successTitle: 'Reporte enviado', successDetail: 'Tu participacion quedo completada; el cierre final corresponde a Admin.',
@@ -2878,8 +2756,10 @@ async function saveAvailabilityDay({ date, state, reason }) {
 async function createIncident() {
   if (incidentSubmissionInFlight.value) return
   incidentApiErrors.value = {}
+  incidentModalError.value = ''
 
   if (Object.keys(incidentErrors.value).length) {
+    incidentModalError.value = firstIncidentErrorMessage(incidentErrors.value)
     return ui.pushToast({
       tone: 'error',
       title: 'Incidencia invalida',
@@ -2912,7 +2792,10 @@ async function createIncident() {
   try {
     incidentSubmissionInFlight.value = true
     await api.postForm('/crew-operation-incidents', formData)
-    await loadPortal({ force: true, resources: ['incidents'] })
+    flightIncidentOpen.value = false
+    // Refresh the canonical permissions after every incident without changing selection.
+    const resources = ['incidents', 'assignments']
+    await loadPortal({ force: true, resources })
     ui.pushToast({
       tone: 'success',
       title: 'Incidencia creada',
@@ -2927,9 +2810,10 @@ async function createIncident() {
     incidentForm.state = 'open'
     incidentForm.actionTaken = ''
     incidentForm.phase = 'Pre-vuelo'
-    goToSection('dashboard')
+
   } catch (error) {
     const message = applyIncidentBackendErrors(error, 'No acepto la incidencia.')
+    incidentModalError.value = message
     ui.pushToast({
       tone: 'error',
       title: 'No se pudo crear',
@@ -3344,8 +3228,8 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  workflowRequests.dispose()
   clearBackgroundCrewWarmup()
-  clearChecklistAssignmentsRefresh()
   if (removeCrewSyncSubscription) {
     removeCrewSyncSubscription()
     removeCrewSyncSubscription = null
@@ -3480,6 +3364,11 @@ onBeforeUnmount(() => {
       "
     />
 
+    <section v-else-if="canonicalCrewSection === 'asignaciones' && workflowUnavailable" class="surface inner-card">
+      <p role="alert">No se pudo cargar el flujo operativo.</p>
+      <button class="primary-action action-button" type="button" :disabled="portalDataLoading.assignments" @click="retryWorkflow">Reintentar</button>
+      <button class="ghost-button action-button" type="button" @click="openIncidentModal">Reportar incidencia</button>
+    </section>
     <section v-else-if="canonicalCrewSection === 'asignaciones'" class="crew-flight-workspace">
       <article class="surface crew-flight-hero">
         <div class="title-row">
@@ -3487,19 +3376,25 @@ onBeforeUnmount(() => {
           <div>
             <span class="eyebrow">Mi vuelo</span>
             <h3>{{ currentFlightSummary?.operationId || 'Sin vuelo activo' }}</h3>
-            <p class="muted">Validación, preparación, checklist pre-vuelo, seguimiento y checklist post-vuelo en un solo flujo operativo.</p>
+            <p class="muted">Validación, preparación, llegada, checklist pre-vuelo, seguimiento y checklist post-vuelo en un solo flujo operativo.</p>
           </div>
         </div>
         <div class="crew-flight-hero__actions">
           <button class="primary-action action-button" type="button" :disabled="!currentPrimaryAction.action" @click="currentPrimaryAction.action?.()">
             {{ currentPrimaryAction.cta || 'Sin accion inmediata' }}
           </button>
-          <button class="ghost-button action-button" type="button" @click="flightIncidentOpen = !flightIncidentOpen">
+          <button class="ghost-button action-button" type="button" @click="openIncidentModal">
             Reportar incidencia
           </button>
         </div>
       </article>
 
+      <p v-if="currentAssignment?.canonicalWorkflow?.recoverable" role="status" class="surface inner-card">Esta operación presenta inconsistencias históricas. La confirmación pendiente se registrará con la hora actual.</p>
+      <p v-if="workflowBlockingReason" role="alert" class="surface inner-card">{{ workflowBlockingReason }}</p>
+      <article v-if="arrivalMilestone?.completed" class="surface inner-card">
+        <strong>✓ Llegué al aeropuerto</strong>
+        <p>{{ arrivalMilestone.timestamp ? formatCrewDateTime(arrivalMilestone.timestamp.slice(0, 10), arrivalMilestone.timestamp.slice(11, 16)) : '' }} · {{ arrivalMilestone.actor }}</p>
+      </article>
       <article v-if="currentFlightSummary" class="surface crew-flight-summary">
         <div class="section-head">
           <div>
@@ -3582,13 +3477,23 @@ onBeforeUnmount(() => {
         </div>
         <div class="action-row">
           <button class="primary-action action-button" type="button" :disabled="assignmentActionState.active" @click="respondAssignment(currentAssignment.id, 'Confirmado')">Confirmar vuelo</button>
-          <button class="ghost-button action-button" type="button" @click="flightIncidentOpen = true">Reportar problema</button>
+          <button class="ghost-button action-button" type="button" @click="openIncidentModal">Reportar problema</button>
         </div>
+      </article>
+
+      <article v-else-if="currentFlightStep?.id === 'arrival' && currentAssignment" class="surface inner-card crew-step-card">
+        <span class="eyebrow">Paso 3 · Llegada al aeropuerto</span>
+        <h3>Llegué al aeropuerto</h3>
+        <p>Cuando llegues al aeropuerto o FBO, registra este momento.</p>
+        <CrewWorkflowAction :action="arrivalMilestone?.allowedAction" :blocked-reason="workflowBlockingReason" :busy="assignmentActionState.active"
+          @execute="executeCanonicalAction" @incident="openIncidentModal" />
       </article>
 
       <article v-else-if="['preparation', 'checklist'].includes(currentFlightStep?.id || '') && currentAssignment" class="surface inner-card crew-step-card">
         <span class="eyebrow">{{ currentChecklistStepMeta?.eyebrow }}</span>
         <h3>{{ currentChecklistStepMeta?.title }}</h3>
+        <CrewWorkflowAction v-if="canonicalAction?.type === 'start_preflight'" :action="canonicalAction" :blocked-reason="workflowBlockingReason" :busy="assignmentActionState.active"
+          @execute="executeCanonicalAction" @incident="openIncidentModal" />
         <div v-if="currentChecklistGroup" class="crew-checklist-layout">
           <section class="crew-checklist-master">
             <div class="crew-checklist-progress">
@@ -3679,9 +3584,9 @@ onBeforeUnmount(() => {
                       <small>{{ formatFileSize(getChecklistEvidenceDraft(item.id).file?.size || 0) }}</small>
                     </div>
                     <div v-if="!isChecklistReadOnly" class="crew-evidence-preview__actions">
-                      <button class="ghost-button action-button" type="button" @click="openChecklistEvidencePicker(item)">Cambiar foto</button>
+                      <button class="ghost-button action-button" type="button" :disabled="isChecklistReadOnly" @click="openChecklistEvidencePicker(item)">Cambiar foto</button>
                       <button class="ghost-button action-button" type="button" @click="resetChecklistEvidenceDraft(item.id)">Eliminar</button>
-                      <button class="primary-action action-button" type="button" :disabled="assignmentActionState.active || checklistEvidenceUploading[item.id]" @click="uploadCrewChecklistEvidence(item)">
+                      <button class="primary-action action-button" type="button" :disabled="isChecklistReadOnly || assignmentActionState.active || checklistEvidenceUploading[item.id]" @click="uploadCrewChecklistEvidence(item)">
                         {{ checklistEvidenceUploading[item.id] ? 'Subiendo...' : 'Subir evidencia' }}
                       </button>
                     </div>
@@ -3757,7 +3662,7 @@ onBeforeUnmount(() => {
       </article>
 
       <article v-else-if="currentFlightStep?.id === 'tracking' && currentFlightSummary" class="surface inner-card crew-step-card">
-        <span class="eyebrow">Paso 4 · Seguimiento</span>
+        <span class="eyebrow">Paso 5 · Seguimiento</span>
         <h3>Progreso de la operación</h3>
         <div class="crew-tracking-progress">
           <div>
@@ -3793,7 +3698,7 @@ onBeforeUnmount(() => {
             >
               Ver checklist pre-vuelo
             </button>
-            <button class="ghost-button action-button" type="button" @click="flightIncidentOpen = true">
+            <button class="ghost-button action-button" type="button" @click="openIncidentModal">
               Reportar incidencia
             </button>
           </div>
@@ -3802,7 +3707,7 @@ onBeforeUnmount(() => {
         <div class="crew-tracking-layout">
           <div class="crew-tracking-list">
             <button
-              v-for="item in flightTrackingMilestones"
+              v-for="item in trackingMilestones"
               :key="item.id"
               type="button"
               class="crew-tracking-item"
@@ -3839,18 +3744,6 @@ onBeforeUnmount(() => {
                 <dd>{{ selectedTrackingMilestone.timestamp ? selectedTrackingMilestone.actor : 'Pendiente' }}</dd>
               </div>
             </dl>
-            <button
-              v-if="selectedTrackingMilestone.action && selectedTrackingMilestone.actionLabel"
-              class="primary-action action-button"
-              type="button"
-              :disabled="assignmentActionState.active"
-              @click="selectedTrackingMilestone.action?.()"
-            >
-              {{ selectedTrackingMilestone.actionLabel }}
-            </button>
-            <button v-else class="ghost-button action-button" type="button" @click="flightIncidentOpen = true">
-              Reportar incidencia
-            </button>
             <p v-if="selectedTrackingMilestone.timestamp" class="muted">
               La corrección de este registro se gestiona con Admin / Red Sky.
             </p>
@@ -3861,6 +3754,8 @@ onBeforeUnmount(() => {
       <article v-else-if="currentFlightStep?.id === 'closure' && currentAssignment" class="surface inner-card crew-step-card">
         <span class="eyebrow">{{ currentChecklistStepMeta?.eyebrow }}</span>
         <h3>{{ currentChecklistStepMeta?.title }}</h3>
+        <CrewWorkflowAction v-if="canonicalAction?.type === 'start_preflight'" :action="canonicalAction" :blocked-reason="workflowBlockingReason" :busy="assignmentActionState.active"
+          @execute="executeCanonicalAction" @incident="openIncidentModal" />
         <div v-if="currentChecklistGroup" class="crew-checklist-layout">
           <section class="crew-checklist-master">
             <div class="crew-checklist-progress">
@@ -3950,9 +3845,9 @@ onBeforeUnmount(() => {
                       <small>{{ formatFileSize(getChecklistEvidenceDraft(item.id).file?.size || 0) }}</small>
                     </div>
                     <div class="crew-evidence-preview__actions">
-                      <button class="ghost-button action-button" type="button" @click="openChecklistEvidencePicker(item)">Cambiar foto</button>
+                      <button class="ghost-button action-button" type="button" :disabled="isChecklistReadOnly" @click="openChecklistEvidencePicker(item)">Cambiar foto</button>
                       <button class="ghost-button action-button" type="button" @click="resetChecklistEvidenceDraft(item.id)">Eliminar</button>
-                      <button class="primary-action action-button" type="button" :disabled="assignmentActionState.active || checklistEvidenceUploading[item.id]" @click="uploadCrewChecklistEvidence(item)">
+                      <button class="primary-action action-button" type="button" :disabled="isChecklistReadOnly || assignmentActionState.active || checklistEvidenceUploading[item.id]" @click="uploadCrewChecklistEvidence(item)">
                         {{ checklistEvidenceUploading[item.id] ? 'Subiendo...' : 'Subir evidencia' }}
                       </button>
                     </div>
@@ -3986,17 +3881,22 @@ onBeforeUnmount(() => {
             <div class="crew-checklist-footer">
               <strong>{{ currentChecklistStepMeta?.footer }}</strong>
               <button
-                v-if="currentChecklistSummary.pending === 0 && currentAssignment.workflowStatus === 'report_pending'"
+                v-if="currentChecklistSummary.pending === 0 && currentAssignment.allowedActions?.some((action) => action.type === 'submit_report')"
                 class="primary-action action-button"
                 type="button"
-                :disabled="assignmentActionState.active"
+                :disabled="assignmentActionState.active || !finalReportValid"
                 @click="submitCrewReport({ assignmentId: currentAssignment.id, report: { general_notes: assignmentResponseForm.comment || 'Cierre operativo desde Mi vuelo.' } })"
               >
                 Finalizar operación
               </button>
             </div>
 
-            <div v-if="currentChecklistSummary.pending === 0 && currentAssignment.workflowStatus === 'report_pending'" class="crew-close-form">
+            <div v-if="currentChecklistSummary.pending === 0 && currentAssignment.allowedActions?.some((action) => action.type === 'submit_report')" class="crew-close-form">
+              <label><span>Calificación del servicio</span><select v-model="finalReportForm.service_rating"><option disabled value="">Seleccionar</option><option v-for="rating in 5" :key="rating" :value="rating">{{ rating }}</option></select></label>
+              <label><span>Condición de cabina</span><input v-model="finalReportForm.cabin_condition" maxlength="100" /></label>
+              <label><span>Condición del catering</span><input v-model="finalReportForm.catering_condition" maxlength="100" /></label>
+              <label><span>¿Requiere limpieza?</span><select v-model="finalReportForm.cleaning_required"><option disabled value="">Seleccionar</option><option :value="true">Sí</option><option :value="false">No</option></select></label>
+              <label><span>¿Requiere reposición de insumos?</span><select v-model="finalReportForm.restocking_required"><option disabled value="">Seleccionar</option><option :value="true">Sí</option><option :value="false">No</option></select></label>
               <label>
                 <span>Comentario final</span>
                 <textarea v-model="assignmentResponseForm.comment" rows="3" placeholder="Comentario final opcional"></textarea>
@@ -4047,51 +3947,6 @@ onBeforeUnmount(() => {
         <p v-else class="muted">No hay checklist detallado cargado para esta fase de la operación.</p>
       </article>
 
-      <article v-if="flightIncidentOpen" class="surface inner-card crew-step-card">
-        <div class="section-head">
-          <div>
-            <span class="eyebrow">Incidencias</span>
-            <h3>Reportar incidencia</h3>
-          </div>
-          <button class="ghost-button action-button" type="button" @click="flightIncidentOpen = false">Cerrar</button>
-        </div>
-        <div class="form-grid">
-          <label>
-            <span>Categoria</span>
-            <select v-model="incidentForm.type">
-              <option disabled value="">Selecciona</option>
-              <option v-for="item in incidentTypes" :key="item" :value="item">{{ item }}</option>
-            </select>
-          </label>
-          <label>
-            <span>Prioridad</span>
-            <select v-model="incidentForm.priority">
-              <option disabled value="">Selecciona</option>
-              <option v-for="item in incidentPriorities" :key="item" :value="item">{{ item }}</option>
-            </select>
-          </label>
-          <label>
-            <span>Fase</span>
-            <select v-model="incidentForm.phase">
-              <option>Pre-vuelo</option>
-              <option>Abordaje</option>
-              <option>En vuelo</option>
-              <option>Post-vuelo</option>
-            </select>
-          </label>
-          <label>
-            <span>Evidencia</span>
-            <input type="file" multiple @change="updateField('incident', 'files', $event.target.files)" />
-          </label>
-          <label class="span-2">
-            <span>Descripcion</span>
-            <textarea v-model="incidentForm.description" rows="4" placeholder="Describe lo sucedido"></textarea>
-          </label>
-        </div>
-        <div class="action-row">
-          <button class="primary-action action-button" type="button" :disabled="incidentSubmissionInFlight" @click="createIncident">{{ incidentSubmissionInFlight ? 'Enviando...' : 'Enviar incidencia' }}</button>
-        </div>
-      </article>
     </section>
 
     <section v-else-if="canonicalCrewSection === 'perfil'" class="crew-account-page">
@@ -4223,6 +4078,41 @@ onBeforeUnmount(() => {
       </div>
     </section>
   </div>
+    <CrewIncidentModal v-if="flightIncidentOpen" :busy="incidentSubmissionInFlight" @close="closeIncidentModal">
+        <fieldset class="form-grid" :disabled="incidentSubmissionInFlight" style="border: 0; padding: 0; margin: 0">
+          <label>
+            <span>Categoria</span>
+            <select v-model="incidentForm.type">
+              <option disabled value="">Selecciona</option>
+              <option v-for="item in incidentTypes" :key="item" :value="item">{{ item }}</option>
+            </select>
+          </label>
+          <label>
+            <span>Prioridad</span>
+            <select v-model="incidentForm.priority">
+              <option disabled value="">Selecciona</option>
+              <option v-for="item in incidentPriorities" :key="item" :value="item">{{ item }}</option>
+            </select>
+          </label>
+          <label>
+            <span>Fase</span>
+            <input :value="incidentPhaseLabel" readonly />
+          </label>
+          <label>
+            <span>Evidencia</span>
+            <input type="file" multiple @change="updateField('incident', 'files', $event.target.files)" />
+          </label>
+          <label class="span-2">
+            <span>Descripcion</span>
+            <textarea v-model="incidentForm.description" rows="4" placeholder="Describe lo sucedido"></textarea>
+          </label>
+        </fieldset>
+        <p v-if="incidentModalError" role="alert">{{ incidentModalError }}</p>
+        <div class="action-row">
+          <button class="primary-action action-button" type="button" :disabled="incidentSubmissionInFlight" @click="createIncident">{{ incidentSubmissionInFlight ? 'Enviando...' : 'Enviar incidencia' }}</button>
+        </div>
+    </CrewIncidentModal>
+
 </template>
 
 <style scoped>
@@ -6065,14 +5955,3 @@ onBeforeUnmount(() => {
   }
 }
 </style>
-function clearAssignmentWorkflowCache(operationId = '') {
-  const normalizedOperationId = String(operationId || '').trim()
-  if (normalizedOperationId) {
-    delete assignmentWorkflowCache[normalizedOperationId]
-    return
-  }
-
-  Object.keys(assignmentWorkflowCache).forEach((key) => {
-    delete assignmentWorkflowCache[key]
-  })
-}

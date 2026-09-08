@@ -1981,12 +1981,12 @@ onBeforeUnmount(() => {
   }
 
   .workspace-topbar--operator .workspace-links {
-    overflow-x: auto !important;
+    overflow: visible !important;
   }
 
   .workspace-topbar--operator {
-    overflow-x: auto !important;
-    overflow-y: visible !important;
+    /* El scroll horizontal recorta los submenus absolutos en ambos ejes. */
+    overflow: visible !important;
   }
 }
 @media (max-width: 1180px) {

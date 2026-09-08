@@ -87,6 +87,7 @@ export async function requestWithCandidates(candidates, requestOptions = {}) {
         return await api.download(candidate.path, sharedOptions)
       }
     } catch (error) {
+      if (requestOptions.signal?.aborted || error.name === 'AbortError') throw error
       lastError = error
       const retryStatuses = resolveRetryStatuses(candidate, requestOptions)
       const currentStatus = Number(error?.status || 0)

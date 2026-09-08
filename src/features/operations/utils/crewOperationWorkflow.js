@@ -63,16 +63,9 @@ const TRACKING_EVENT_DEFINITIONS = [
   {
     id: 'aircraft-ready',
     code: 'aircraft_ready',
-    title: 'Aeronave lista',
-    statuses: ['cabina_lista', 'cabin_ready'],
-    titleIncludes: ['aeronave lista', 'cabina lista'],
-  },
-  {
-    id: 'catering-received',
-    code: 'catering_received',
-    title: 'Catering recibido',
-    statuses: ['cabina_lista', 'cabin_ready'],
-    titleIncludes: ['catering'],
+    title: 'Aeronave y catering listos',
+    statuses: ['cabina_lista'],
+    titleIncludes: [],
   },
   {
     id: 'passengers-arrived',
@@ -106,12 +99,12 @@ const TRACKING_EVENT_DEFINITIONS = [
     id: 'passengers-disembarked',
     code: 'passengers_disembarked',
     title: 'Pasajeros desembarcaron',
-    statuses: ['postflight_pending', 'report_pending', 'crew_completed'],
-    titleIncludes: ['desembar', 'postvuelo'],
+    statuses: ['postflight_pending'],
+    titleIncludes: ['desembar'],
   },
 ]
 
-const WORKFLOW_STEP_ORDER = ['validation', 'preparation', 'checklist', 'tracking', 'closure']
+const WORKFLOW_STEP_ORDER = ['validation', 'preparation', 'arrival', 'checklist', 'tracking', 'closure']
 
 function normalizeChecklistState(value = '') {
   const normalized = normalizeToken(value)
@@ -644,7 +637,9 @@ function buildTrackingMilestones(entity = {}) {
       statuses: definition.statuses,
       titleIncludes: definition.titleIncludes,
     })
+    const arrivalEvidence = definition.code === 'airport_arrival' ? entity.canonicalWorkflow?.checkin : null
     const timestamp =
+      arrivalEvidence?.recorded_at ||
       trackingEvent?.recorded_at ||
       trackingEvent?.created_at ||
       trackingEvent?.updated_at ||
@@ -655,10 +650,11 @@ function buildTrackingMilestones(entity = {}) {
     const normalizedEventStatus = normalizeToken(trackingEvent?.status || '')
     const source = trackingEvent || entry
     const hasPersistedRecord = Boolean(
-      (trackingEvent && normalizedEventStatus === 'completed' && timestamp)
+      (arrivalEvidence?.recorded_at)
+      || (trackingEvent && normalizedEventStatus === 'completed' && timestamp)
       || (!trackingEvent && entry && timestamp),
     )
-    const actorName = resolveActorName(source, crewName)
+    const actorName = arrivalEvidence?.actor_name || resolveActorName(source, crewName)
 
     return {
       id: definition.id,
@@ -710,8 +706,18 @@ function buildWorkflowSteps(entity = {}, groups = [], tracking = null) {
   const validationComplete = assignmentStatus === 'confirmed'
   const preparationComplete = Boolean(preparationGroup?.summary?.isComplete)
   const preflightComplete = Boolean(preflightGroup?.summary?.isComplete)
+  const arrivalComplete = tracking?.items?.find((item) => item.code === 'airport_arrival')?.status === 'completed'
   const trackingComplete = Boolean(tracking?.summary?.isComplete)
   const postflightComplete = Boolean(postflightGroup?.summary?.isComplete)
+  const canonicalStep = entity.currentStep || entity.canonicalWorkflow?.current_step || ''
+  const canonicalCurrentId = {
+    preparation: 'preparation',
+    airport_arrival: 'arrival',
+    preflight: 'checklist',
+    tracking: 'tracking',
+    postflight: 'closure',
+    closure: 'closure',
+  }[canonicalStep] || ''
 
   const baseSteps = [
     {
@@ -725,6 +731,12 @@ function buildWorkflowSteps(entity = {}, groups = [], tracking = null) {
       label: humanizeChecklistType('preparation'),
       complete: preparationComplete,
       failed: (preparationGroup?.summary?.failed ?? 0) > 0,
+    },
+    {
+      id: 'arrival',
+      label: 'Llegada al aeropuerto',
+      complete: arrivalComplete,
+      failed: false,
     },
     {
       id: 'checklist',
@@ -760,7 +772,7 @@ function buildWorkflowSteps(entity = {}, groups = [], tracking = null) {
     } else if (rawComplete) {
       status = 'completed'
       state = 'Completado'
-    } else if (!currentId) {
+    } else if (!currentId && (!canonicalCurrentId || canonicalCurrentId === step.id)) {
       currentId = step.id
       status = step.failed ? 'pending' : 'current'
       state = step.failed ? 'Falla reportada' : 'Actual'
@@ -787,6 +799,10 @@ function buildWorkflowSteps(entity = {}, groups = [], tracking = null) {
 
   if (!currentId && steps.every((step) => step.complete)) {
     currentId = 'closure'
+  }
+
+  if (canonicalCurrentId && steps.some((step) => step.id === canonicalCurrentId && !step.complete)) {
+    currentId = canonicalCurrentId
   }
 
   return {
@@ -855,6 +871,8 @@ function deriveOperationStatusLabelFromWorkflow({ assignmentStatus = '', workflo
   switch (workflow?.currentId) {
     case 'preparation':
       return 'Preparación'
+    case 'arrival':
+      return 'Llegada al aeropuerto'
     case 'checklist':
       return 'Checklist pre-vuelo'
     case 'tracking':
@@ -889,12 +907,17 @@ export function buildCrewOperationWorkflowSnapshot(entity = {}) {
     assignmentStatusLabel: assignmentStatusLabel(assignmentStatus),
     operationStatusLabel: deriveOperationStatusLabelFromWorkflow({ assignmentStatus, workflow }),
     workflowStatus: resolveWorkflowStatus(entity),
+    currentStep: entity.currentStep || entity.canonicalWorkflow?.current_step || '',
+    currentPhase: entity.currentPhase || entity.canonicalWorkflow?.current_phase || '',
+    nextAction: entity.nextAction || entity.canonicalWorkflow?.next_action || null,
     checklistGroups,
     checklistGroupsByType: new Map(checklistGroups.map((group) => [group.type, group])),
     tracking,
     workflow,
     workflowStepOrder: WORKFLOW_STEP_ORDER,
     consistencyWarnings,
+    workflowInconsistent: Boolean(entity.canonicalWorkflow?.workflow_inconsistent),
+    blockingReason: entity.allowedActions?.length ? '' : entity.canonicalWorkflow?.blocking_reason || '',
     latestActivityAt: latestActivityAt(entity, checklistGroups, tracking),
   }
 }

@@ -28,7 +28,8 @@
 .operator-route-loading-overlay {
   position: fixed;
   inset: 7.4rem 1.25rem 1.25rem;
-  z-index: 3200;
+  /* La carga de una seccion debe quedar debajo de TopNav (z-index: 999). */
+  z-index: 900;
   display: grid;
   place-items: center;
   padding: 1.5rem;

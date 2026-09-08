@@ -245,6 +245,7 @@ function shouldTraceOperationalRequest(path = '', debugTag = '') {
   const normalizedPath = String(path || '').trim().toLowerCase()
   const normalizedTag = String(debugTag || '').trim().toLowerCase()
 
+  if (import.meta.env.DEV && normalizedTag === 'crew_workflow') return true
   return [
     '/admin/fleet/aircraft',
     '/admin/aeronaves',
@@ -266,6 +267,10 @@ function logAircraftRequest(_label, _details = {}) {
 
 function logOperationalRequest(label, details = {}) {
   if (typeof console === 'undefined') return
+  if (import.meta.env.DEV && details.tag === 'CREW_WORKFLOW') {
+    console.info(`[CREW_WORKFLOW] ${label}`, details)
+    return
+  }
   if (label === 'response') {
     //console.info(`[ops-request-debug] ${label}`, details)
     return
@@ -620,6 +625,7 @@ export async function apiRequest(path, options = {}) {
         })
       }
 
+      if (externalSignal?.aborted) throw createAbortError()
       lastError = error
 
       const matchedIndex = candidates.findIndex(
