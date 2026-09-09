@@ -533,10 +533,25 @@ function extractTrackingEvents(entity = {}) {
   })
 }
 
+function normalizeEvidenceFiles(value) {
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value)
+    } catch {
+      return []
+    }
+  }
+  return Array.isArray(value)
+    ? value.filter((file) => file && typeof file === 'object' && !Array.isArray(file))
+    : []
+}
+
 function normalizeChecklistItem(item = {}, checklistType = 'general', index = 0, crewName = '') {
   const status = normalizeChecklistState(item.status)
   const actorName = resolveActorName(item)
   return {
+    ...item,
+    evidence_files: normalizeEvidenceFiles(item.evidence_files ?? item.evidenceFiles),
     id: item.id || item.code || item.label || item.name || `${checklistType}-${index}`,
     title: item.label || item.description || item.name || item.code || 'Checklist sin nombre',
     category: item.category || 'general',

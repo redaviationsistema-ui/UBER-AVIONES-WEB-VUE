@@ -363,7 +363,8 @@ export async function saveAvailabilityRange({
 
   const response = await requestWithCandidates(getSaveCandidates(scope, payload, crewId))
 
-  if (audit) {
+  // Crew availability POST already persists its audit log.
+  if (audit && scope === 'admin') {
     try {
       await requestWithCandidates(
         getAuditCandidates(

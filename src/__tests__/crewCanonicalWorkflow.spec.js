@@ -122,3 +122,17 @@ describe('canonical crew workflow', () => {
     expect(buildCrewOperationWorkflowSnapshot(normalized(payload)).workflow.steps.every((step) => step.completed)).toBe(true)
   })
 })
+
+
+describe('checklist evidence normalization', () => {
+  const evidence = [{ storage_disk: 's3', file_path: 'crew/cabin.jpg', file_url: 'https://example.test/cabin.jpg' }]
+  it.each([undefined, null, [], '', 'invalid json', '{}', 'null'])('normalizes empty or invalid evidence %j to an array', (value) => {
+    const snapshot = buildCrewOperationWorkflowSnapshot({ checklists: [{ type: 'postflight', items: [{ id: 7, evidence_files: value }] }] })
+    expect(snapshot.checklistGroups[0].items[0].evidence_files).toEqual([])
+  })
+  it.each([evidence, JSON.stringify(evidence)])('preserves evidence and existing item metadata', (value) => {
+    const item = { id: 7, key: 'cabin', label: 'Cabina', status: 'completed', notes: 'Nota', completed_at: '2026-09-08', required: true, metadata: { source: 'backend' }, allowed_actions: [], evidence_files: value }
+    const snapshot = buildCrewOperationWorkflowSnapshot({ checklists: [{ type: 'postflight', items: [item] }] })
+    expect(snapshot.checklistGroups[0].items[0]).toMatchObject({ ...item, evidence_files: evidence })
+  })
+})

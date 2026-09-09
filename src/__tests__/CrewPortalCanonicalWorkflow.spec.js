@@ -61,6 +61,9 @@ describe('Mi vuelo canonical integration', () => {
     const final = payload()
     final.crew_status = 'report_pending'
     final.checklists = ['preparation', 'preflight', 'postflight'].map((type) => group(type, true))
+    for (const [type, codes] of [['preflight', ['catering_received', 'baggage_secured']], ['postflight', ['cabin_condition']]]) {
+      final.checklists.find((entry) => entry.type === type).items = codes.map((code) => ({ id: code, code, label: code, status: 'completed', is_required: true, evidence_files: [{ storage_disk: 's3', file_path: `crew/${code}.jpg` }] }))
+    }
     final.timeline = ['crew_checkin', 'cabina_lista', 'boarding', 'pasajeros_recibidos', 'in_flight', 'landed', 'postflight_pending'].map((status) => ({ status, created_at: '2026-09-07T10:00:00Z' }))
     final.allowed_actions = [{ type: 'submit_report', label: 'Enviar reporte final' }]
     request.mockImplementation(async ([candidate]) => {

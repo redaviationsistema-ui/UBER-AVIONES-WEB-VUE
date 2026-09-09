@@ -875,7 +875,8 @@ const postflightChecklistGroup = computed(() => getChecklistGroupByType('postfli
 const workflowStepsById = computed(() => new Map((currentAssignmentSnapshot.value?.workflow?.steps || []).map((step) => [step.id, step])))
 const preparationCompleted = computed(() => workflowStepsById.value.get('preparation')?.status === 'completed')
 const checklistCompleted = computed(() => workflowStepsById.value.get('checklist')?.status === 'completed')
-const postflightChecklistCompleted = computed(() => workflowStepsById.value.get('closure')?.status === 'completed')
+const postflightChecklistCompleted = computed(() => workflowStepsById.value.get('closure')?.status === 'completed'
+  && flightEvidenceSummary.value.completed === flightEvidenceSummary.value.total)
 const trackingCompleted = computed(() => workflowStepsById.value.get('tracking')?.status === 'completed')
 
 const flightFlowState = computed(() =>
@@ -1165,7 +1166,9 @@ const currentChecklistStepMeta = computed(() => {
       title: 'Checklist post-vuelo',
       footer: currentChecklistSummary.value.pending
         ? `Faltan ${currentChecklistSummary.value.pending} elementos`
-        : 'Checklist post-vuelo completado ✓',
+        : flightEvidenceSummary.value.completed < flightEvidenceSummary.value.total
+          ? 'Faltan evidencias para completar el post-vuelo'
+          : 'Checklist post-vuelo completado ✓',
       cta: isChecklistReadOnly.value
         ? 'Volver a seguimiento'
         : currentAssignment.value?.allowedActions?.some((action) => action.type === 'submit_report')
@@ -1184,7 +1187,7 @@ const currentChecklistEvidenceItems = computed(() => {
   }
 
   if (currentFlightStep.value?.id === 'closure') {
-    return flightEvidenceItems.value.filter((item) => item.id === 'cabina-final')
+    return flightEvidenceItems.value
   }
 
   return []
@@ -1719,7 +1722,7 @@ async function refreshAssignmentWorkflow(operationId) {
   if (index < 0) return
   // Remove stale permissions while the new canonical snapshot is in flight.
   assignments.value[index] = applyCanonicalCrewWorkflow(assignments.value[index], {
-    ...assignments.value[index].canonicalWorkflow, allowed_actions: [], editable_checklists: [],
+    ...assignments.value[index].canonicalWorkflow, allowed_actions: [], editable_checklists: [], editable_evidence: [],
   })
   try {
     const workflow = await fetchCrewOperationWorkflow(operationId, { force: true })
@@ -1728,7 +1731,7 @@ async function refreshAssignmentWorkflow(operationId) {
     selectedTrackingMilestoneId.value = ''
   } catch (error) {
     assignments.value[index] = applyCanonicalCrewWorkflow(assignments.value[index], {
-      ...assignments.value[index].canonicalWorkflow, allowed_actions: [], editable_checklists: [],
+      ...assignments.value[index].canonicalWorkflow, allowed_actions: [], editable_checklists: [], editable_evidence: [],
       blocking_reason: 'No se pudo actualizar el flujo. Vuelve a cargar la operación.',
     })
     throw error
@@ -2397,9 +2400,15 @@ function setChecklistEvidenceInputRef(evidenceId = '', element = null) {
   delete checklistEvidenceInputRefs[evidenceId]
 }
 
+function canUploadChecklistEvidence(item) {
+  if (!item?.canUpload) return false
+  const workflow = currentAssignment.value?.canonicalWorkflow
+  if (Array.isArray(workflow?.editable_evidence)) return workflow.editable_evidence.includes(item.code)
+  return Boolean(workflow?.editable_checklists?.includes(item.checklistType))
+}
+
 function openChecklistEvidencePicker(item) {
-  if (isChecklistReadOnly.value) return
-  if (!item?.id || isChecklistReadOnly.value) return
+  if (!canUploadChecklistEvidence(item)) return
   const input = checklistEvidenceInputRefs[item.id]
   if (!input) return
   input.value = ''
@@ -2419,7 +2428,7 @@ function validateChecklistEvidenceFile(file = null) {
 }
 
 function handleChecklistEvidenceSelected(item, fileList) {
-  if (!item?.id) return
+  if (!canUploadChecklistEvidence(item)) return
 
   const draft = getChecklistEvidenceDraft(item.id)
   const file = Array.from(fileList || [])[0] || null
@@ -2437,7 +2446,7 @@ function handleChecklistEvidenceSelected(item, fileList) {
 }
 
 async function uploadCrewChecklistEvidence(item) {
-  if (isChecklistReadOnly.value) return
+  if (!canUploadChecklistEvidence(item)) return
   const assignment = currentAssignment.value
   if (!assignment || !item?.id || !item?.checklistItemId || !item?.checklistType) return
 
@@ -2471,13 +2480,13 @@ async function uploadCrewChecklistEvidence(item) {
     })
 
     resetChecklistEvidenceDraft(item.id)
+    await refreshAssignmentWorkflow(assignment.operationId || assignment.id)
     closeAssignmentActionState()
     void showAssignmentActionSuccess({
       title: 'Evidencia cargada',
       detail: `${item.label} ya quedó guardada en AWS.`,
       duration: 1000,
     })
-    await refreshAssignmentWorkflow(assignment.operationId || assignment.id)
   } catch (errorUpload) {
     closeAssignmentActionState()
     draft.error = normalizeApiError(errorUpload, 'La evidencia no pudo subirse.')
@@ -3556,19 +3565,21 @@ onBeforeUnmount(() => {
                     <p class="muted">{{ item.detail }}</p>
                   </div>
                   <div class="crew-evidence-card__side">
-                    <span class="badge">{{ item.status }}</span>
+                    <span class="badge">{{ getChecklistEvidenceDraft(item.id).file ? 'Pendiente de subir' : item.status }}</span>
                     <small v-if="item.meta">{{ item.meta }}</small>
                     <input
                       :ref="(element) => setChecklistEvidenceInputRef(item.id, element)"
                       type="file"
                       accept="image/*,.jpg,.jpeg,.png,.webp"
                       class="crew-evidence-input"
+                      :disabled="!canUploadChecklistEvidence(item)"
                       @change="handleChecklistEvidenceSelected(item, $event.target.files)"
                     />
                     <button
-                      v-if="!isChecklistReadOnly"
+                      v-if="canUploadChecklistEvidence(item)"
                       class="ghost-button action-button"
                       type="button"
+                      :disabled="!canUploadChecklistEvidence(item) || checklistEvidenceUploading[item.id]"
                       @click="openChecklistEvidencePicker(item)"
                     >
                       {{ item.status === 'Evidencia cargada' ? 'Actualizar evidencia' : 'Agregar evidencia' }}
@@ -3583,10 +3594,10 @@ onBeforeUnmount(() => {
                       <strong>{{ getChecklistEvidenceDraft(item.id).file?.name }}</strong>
                       <small>{{ formatFileSize(getChecklistEvidenceDraft(item.id).file?.size || 0) }}</small>
                     </div>
-                    <div v-if="!isChecklistReadOnly" class="crew-evidence-preview__actions">
-                      <button class="ghost-button action-button" type="button" :disabled="isChecklistReadOnly" @click="openChecklistEvidencePicker(item)">Cambiar foto</button>
+                    <div v-if="canUploadChecklistEvidence(item)" class="crew-evidence-preview__actions">
+                      <button class="ghost-button action-button" type="button" :disabled="!canUploadChecklistEvidence(item)" @click="openChecklistEvidencePicker(item)">Cambiar foto</button>
                       <button class="ghost-button action-button" type="button" @click="resetChecklistEvidenceDraft(item.id)">Eliminar</button>
-                      <button class="primary-action action-button" type="button" :disabled="isChecklistReadOnly || assignmentActionState.active || checklistEvidenceUploading[item.id]" @click="uploadCrewChecklistEvidence(item)">
+                      <button class="primary-action action-button" type="button" :disabled="!canUploadChecklistEvidence(item) || assignmentActionState.active || checklistEvidenceUploading[item.id]" @click="uploadCrewChecklistEvidence(item)">
                         {{ checklistEvidenceUploading[item.id] ? 'Subiendo...' : 'Subir evidencia' }}
                       </button>
                     </div>
@@ -3806,35 +3817,36 @@ onBeforeUnmount(() => {
               </article>
             </div>
 
-            <div v-if="currentChecklistEvidenceItems.length" class="crew-checklist-progress">
+            <div v-if="currentChecklistEvidenceItems.length" class="crew-checklist-progress crew-evidence-section">
               <div>
-                <strong>Evidencia final</strong>
-                <small>{{ currentChecklistEvidenceItems.filter((item) => item.status === 'Evidencia cargada').length }}/{{ currentChecklistEvidenceItems.length }}</small>
+                <strong>Evidencias para el cierre</strong>
+                <small aria-live="polite">{{ currentChecklistEvidenceItems.filter((item) => item.status === 'Evidencia cargada').length }}/{{ currentChecklistEvidenceItems.length }}</small>
               </div>
               <div class="crew-evidence-grid crew-evidence-grid--embedded">
-                <article v-for="item in currentChecklistEvidenceItems" :key="item.id" class="crew-evidence-card">
-                  <div>
+                <article v-for="item in currentChecklistEvidenceItems" :key="item.id" class="crew-evidence-card" :aria-busy="Boolean(checklistEvidenceUploading[item.id])">
+                  <div class="crew-evidence-card__heading">
                     <strong>{{ item.label }}</strong>
-                    <p class="muted">{{ item.detail }}</p>
+                    <span class="badge">{{ getChecklistEvidenceDraft(item.id).file ? 'Pendiente de subir' : item.status }}</span>
                   </div>
-                  <div class="crew-evidence-card__side">
-                    <span class="badge">{{ item.status }}</span>
-                    <small v-if="item.meta">{{ item.meta }}</small>
-                    <input
-                      :ref="(element) => setChecklistEvidenceInputRef(item.id, element)"
-                      type="file"
-                      accept="image/*,.jpg,.jpeg,.png,.webp"
-                      class="crew-evidence-input"
-                      @change="handleChecklistEvidenceSelected(item, $event.target.files)"
-                    />
-                    <button
-                      class="ghost-button action-button"
-                      type="button"
-                      @click="openChecklistEvidencePicker(item)"
-                    >
-                      {{ item.status === 'Evidencia cargada' ? 'Actualizar evidencia' : 'Agregar evidencia' }}
-                    </button>
-                  </div>
+                  <p class="muted">{{ item.detail }}</p>
+                  <small v-if="item.meta">{{ item.meta }}</small>
+                  <input
+                    :ref="(element) => setChecklistEvidenceInputRef(item.id, element)"
+                    type="file"
+                    accept="image/*,.jpg,.jpeg,.png,.webp"
+                    class="crew-evidence-input"
+                    :disabled="!canUploadChecklistEvidence(item) || checklistEvidenceUploading[item.id]"
+                    @change="handleChecklistEvidenceSelected(item, $event.target.files)"
+                  />
+                  <button
+                    v-if="!getChecklistEvidenceDraft(item.id).file"
+                    class="ghost-button action-button"
+                    type="button"
+                    :disabled="!canUploadChecklistEvidence(item) || checklistEvidenceUploading[item.id]"
+                    @click="openChecklistEvidencePicker(item)"
+                  >
+                    {{ item.status === 'Evidencia cargada' ? 'Actualizar evidencia' : 'Agregar evidencia' }}
+                  </button>
                   <div v-if="getChecklistEvidenceDraft(item.id).error" class="crew-evidence-feedback crew-evidence-feedback--error">
                     {{ getChecklistEvidenceDraft(item.id).error }}
                   </div>
@@ -3845,9 +3857,9 @@ onBeforeUnmount(() => {
                       <small>{{ formatFileSize(getChecklistEvidenceDraft(item.id).file?.size || 0) }}</small>
                     </div>
                     <div class="crew-evidence-preview__actions">
-                      <button class="ghost-button action-button" type="button" :disabled="isChecklistReadOnly" @click="openChecklistEvidencePicker(item)">Cambiar foto</button>
-                      <button class="ghost-button action-button" type="button" @click="resetChecklistEvidenceDraft(item.id)">Eliminar</button>
-                      <button class="primary-action action-button" type="button" :disabled="isChecklistReadOnly || assignmentActionState.active || checklistEvidenceUploading[item.id]" @click="uploadCrewChecklistEvidence(item)">
+                      <button class="ghost-button action-button" type="button" :disabled="!canUploadChecklistEvidence(item) || checklistEvidenceUploading[item.id]" @click="openChecklistEvidencePicker(item)">Cambiar foto</button>
+                      <button class="ghost-button action-button" type="button" :disabled="checklistEvidenceUploading[item.id]" @click="resetChecklistEvidenceDraft(item.id)">Eliminar</button>
+                      <button class="primary-action action-button" type="button" :disabled="!canUploadChecklistEvidence(item) || assignmentActionState.active || checklistEvidenceUploading[item.id]" @click="uploadCrewChecklistEvidence(item)">
                         {{ checklistEvidenceUploading[item.id] ? 'Subiendo...' : 'Subir evidencia' }}
                       </button>
                     </div>
@@ -3878,13 +3890,16 @@ onBeforeUnmount(() => {
               </div>
             </div>
 
+            <p v-if="flightEvidenceSummary.completed < flightEvidenceSummary.total" role="status" class="crew-evidence-feedback">
+              Debes subir las 3 evidencias (Catering, Equipaje y Cabina final) antes de completar el checklist post-vuelo.
+            </p>
             <div class="crew-checklist-footer">
               <strong>{{ currentChecklistStepMeta?.footer }}</strong>
               <button
                 v-if="currentChecklistSummary.pending === 0 && currentAssignment.allowedActions?.some((action) => action.type === 'submit_report')"
                 class="primary-action action-button"
                 type="button"
-                :disabled="assignmentActionState.active || !finalReportValid"
+                :disabled="assignmentActionState.active || !finalReportValid || flightEvidenceSummary.completed < flightEvidenceSummary.total"
                 @click="submitCrewReport({ assignmentId: currentAssignment.id, report: { general_notes: assignmentResponseForm.comment || 'Cierre operativo desde Mi vuelo.' } })"
               >
                 Finalizar operación
@@ -5954,4 +5969,88 @@ onBeforeUnmount(() => {
     opacity: 1;
   }
 }
+/* Closure evidence stays in normal flow at every viewport width. */
+.crew-evidence-section,
+.crew-evidence-section .crew-evidence-grid,
+.crew-evidence-section .crew-evidence-card,
+.crew-evidence-section .crew-evidence-card > *,
+.crew-evidence-section .crew-evidence-preview > * {
+  min-width: 0;
+}
+
+.crew-evidence-section .crew-evidence-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.25rem;
+}
+
+.crew-evidence-section .crew-evidence-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: 0.75rem;
+  background: #fff;
+  overflow-wrap: anywhere;
+}
+
+.crew-evidence-section .crew-evidence-card__heading {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.crew-evidence-section .crew-evidence-card p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.crew-evidence-section .crew-evidence-preview {
+  grid-template-columns: minmax(0, 10rem) minmax(0, 1fr);
+  align-items: start;
+}
+
+.crew-evidence-section .crew-evidence-preview img {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+}
+
+.crew-evidence-section .crew-evidence-preview__actions {
+  grid-column: 1 / -1;
+  gap: 0.75rem;
+}
+
+.crew-evidence-section .action-button {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+}
+
+.crew-evidence-section > div:first-child strong {
+  min-width: 0;
+}
+
+.crew-evidence-section > div:first-child small {
+  flex-shrink: 0;
+}
+
+@media (max-width: 1199px) {
+  .crew-evidence-section .crew-evidence-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .crew-evidence-section .crew-evidence-preview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .crew-evidence-section .crew-evidence-preview__actions {
+    flex-direction: column;
+  }
+
+  .crew-evidence-section .action-button {
+    width: 100%;
+  }
+}
+
 </style>

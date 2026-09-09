@@ -13,7 +13,7 @@ vi.mock('../lib/backendCrud', async (importOriginal) => {
   }
 })
 
-import { fetchAvailableCrewByRange } from '../services/disponibilidadService'
+import { fetchAvailableCrewByRange, saveAvailabilityRange } from '../services/disponibilidadService'
 
 describe('fetchAvailableCrewByRange', () => {
   beforeEach(() => {
@@ -74,5 +74,18 @@ describe('fetchAvailableCrewByRange', () => {
         base: 'MMJC',
       }),
     ).resolves.toEqual([])
+  })
+})
+
+
+describe('crew availability save', () => {
+  it('saves once without calling a nonexistent audit endpoint', async () => {
+    requestWithCandidates.mockReset()
+    requestWithCandidates.mockResolvedValue({ availability: [{ id: 12 }] })
+    await saveAvailabilityRange({ scope: 'crew', date: '2026-09-10', statusKey: 'DISPONIBLE', audit: true })
+    expect(requestWithCandidates).toHaveBeenCalledTimes(1)
+    expect(requestWithCandidates).toHaveBeenCalledWith([
+      expect.objectContaining({ method: 'post', path: '/sobrecargo/availability' }),
+    ])
   })
 })
