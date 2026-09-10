@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { api, resolveMediaUrl } from '../../lib/api'
+import AdminClosureEvidence from './AdminClosureEvidence.vue'
 
 const incidents = ref([])
 const isLoading = ref(false)
@@ -419,6 +420,8 @@ onMounted(fetchIncidents)
               <strong v-else>Evidencia AWS no disponible.</strong>
             </article>
           </div>
+
+          <AdminClosureEvidence :operation-id="selectedIncident.crew_operation_id" />
 
           <div class="detail-block">
             <span>Descripcion</span>
