@@ -2248,6 +2248,7 @@ async function loadOperations(options = {}) {
     try {
       const { getAdminReservations } = await loadAdminReservationsModule()
       const nextOperations = await getAdminReservations({
+        allPages: props.section === 'sobrecargos-bitacora',
         timeoutMs: options.timeoutMs || ADMIN_RESERVATIONS_TIMEOUT_MS,
         signal: options.signal,
       })
@@ -2299,6 +2300,7 @@ async function loadReleases(options = {}) {
     try {
       const { getAdminReservations } = await loadAdminReservationsModule()
       const nextOperations = await getAdminReservations({
+        allPages: props.section === 'sobrecargos-bitacora',
         timeoutMs: options.timeoutMs || ADMIN_RESERVATIONS_TIMEOUT_MS,
         signal: options.signal,
       })

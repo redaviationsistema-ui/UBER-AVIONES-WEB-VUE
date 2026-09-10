@@ -213,6 +213,35 @@ const router = createRouter({
       meta: buildAuthenticatedMeta('admin', { hideTopbar: true }),
     },
     {
+      path: '/admin/sobrecargos/bitacora',
+      redirect: { name: 'admin', params: { section: 'sobrecargos-bitacora' } },
+      meta: buildAuthenticatedMeta('admin', { hideTopbar: true }),
+    },
+    {
+      path: '/admin/:section(sobrecargos-bitacora)/:crewId/bitacora',
+      name: 'admin-sobrecargo-bitacora',
+      component: RoleView,
+      meta: buildAuthenticatedMeta('admin', { hideTopbar: true }),
+    },
+    {
+      path: '/admin/:section(incidencias)/operaciones/:operationId/sobrecargos/:crewId',
+      name: 'admin-incidencias-grupo',
+      component: RoleView,
+      meta: buildAuthenticatedMeta('admin', { hideTopbar: true }),
+    },
+    {
+      path: '/admin/:section(incidencias)/:id/evidencias',
+      name: 'admin-incidencias-evidencias',
+      component: RoleView,
+      meta: buildAuthenticatedMeta('admin', { hideTopbar: true }),
+    },
+    {
+      path: '/admin/:section(incidencias)/:id',
+      name: 'admin-incidencias-reporte',
+      component: RoleView,
+      meta: buildAuthenticatedMeta('admin', { hideTopbar: true }),
+    },
+    {
       path: '/admin/:section?',
       name: 'admin',
       component: RoleView,

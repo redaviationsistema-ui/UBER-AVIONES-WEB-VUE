@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { buildCrewOperationWorkflowSnapshot } from '../../../operations/utils/crewOperationWorkflow'
 
 const props = defineProps({
+  stage: { type: String, default: '' },
   operation: { type: Object, default: null },
   formatDateTime: { type: Function, required: true },
 })
@@ -503,6 +504,10 @@ const normalizedStages = computed(() => {
   }))
 })
 
+const visibleStages = computed(() => normalizedStages.value
+  .filter((stage) => !props.stage || stage.type === props.stage)
+  .map((stage) => props.stage === 'tracking' ? { ...stage, items: stage.items.filter((item) => item.isPersisted) } : stage))
+
 const evidenceCards = computed(() => extractEvidenceCards(props.operation || {}))
 const incidents = computed(() => extractIncidents(props.operation || {}))
 
@@ -530,7 +535,7 @@ const operationHeader = computed(() => {
 
 <template>
   <section v-if="operation" class="logbook-view">
-    <header class="operation-head">
+    <header v-if="!stage" class="operation-head">
       <div>
         <p class="eyebrow">Bitácora de la operación</p>
         <h3>{{ operationSnapshot?.folio || operation.folio || `OP-${operation.id}` }}</h3>
@@ -550,10 +555,10 @@ const operationHeader = computed(() => {
 
     <section class="stages-accordion">
       <details
-        v-for="stage in normalizedStages"
+        v-for="stage in visibleStages"
         :key="stage.id"
         class="stage-block"
-        :open="stage.openByDefault"
+        :open="Boolean(props.stage) || stage.openByDefault"
       >
         <summary class="stage-block__head" :data-tone="stage.tone">
           <div class="stage-block__title">
@@ -569,6 +574,7 @@ const operationHeader = computed(() => {
         </summary>
 
         <div v-if="stage.type === 'tracking'" class="timeline-list">
+          <p v-if="!stage.items.length" class="empty-copy">Sin eventos registrados.</p>
           <article
             v-for="item in stage.items"
             :key="item.id"
@@ -623,7 +629,7 @@ const operationHeader = computed(() => {
       </details>
     </section>
 
-    <section class="support-grid">
+    <section v-if="!stage" class="support-grid">
       <article class="support-card">
         <div class="support-card__head">
           <div>

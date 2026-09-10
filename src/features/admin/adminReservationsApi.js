@@ -910,18 +910,23 @@ async function hydrateAdminReservationsWithWorkflow(records = [], options = {}) 
 }
 
 export async function getAdminReservations(options = {}) {
-  const response = await requestWithCandidates(
-    ADMIN_REQUESTS_PATH_CANDIDATES.map((path) => ({
-      method: 'get',
-      path,
-      query: { skip_total: 1 },
-      timeoutMs: options.timeoutMs,
-    })),
-    { signal: options.signal },
-  )
-  const records = pickCollection(response, ['operations', 'operaciones', 'requests', 'solicitudes', 'flight_requests', 'data']).map(
-    buildAdminReservationRecord,
-  )
+  const records = []
+  let page = 1
+  let hasMore
+  do {
+    const response = await requestWithCandidates(
+      ADMIN_REQUESTS_PATH_CANDIDATES.map((path) => ({
+        method: 'get',
+        path,
+        query: { skip_total: 1, ...(options.allPages ? { page, per_page: 100 } : {}) },
+        timeoutMs: options.timeoutMs,
+      })),
+      { signal: options.signal },
+    )
+    records.push(...pickCollection(response, ['operations', 'operaciones', 'requests', 'solicitudes', 'flight_requests', 'data']).map(buildAdminReservationRecord))
+    hasMore = options.allPages && response.pagination?.has_more_pages === true
+    page++
+  } while (hasMore)
   return hydrateAdminReservationsWithWorkflow(records, options)
 }
 

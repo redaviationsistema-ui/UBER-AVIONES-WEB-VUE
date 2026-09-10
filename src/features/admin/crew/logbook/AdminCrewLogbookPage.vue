@@ -1,6 +1,8 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
-import CrewOperationLogbookView from '../operations/CrewOperationLogbookView.vue'
+import { useRoute, useRouter } from 'vue-router'
+import AdminCrewIndividualLogbook from './AdminCrewIndividualLogbook.vue'
+import { resolveMediaUrl } from '../../../../lib/api'
 import { buildCrewOperationWorkflowSnapshot } from '../../../operations/utils/crewOperationWorkflow'
 import { ACTIVE_FLIGHT_STATUSES, resolveOperationFlightStatus } from '../constants/flightStatuses'
 import {
@@ -9,7 +11,12 @@ import {
   operationProviderName,
   summarizePersonName,
 } from '../services/crewOperations.service'
-import { humanizeStatus, normalizeOperationalState, normalizeToken, toneClass } from '../../crew-directory/crewDirectoryShared'
+import {
+  humanizeStatus,
+  normalizeOperationalState,
+  normalizeToken,
+  toneClass,
+} from '../../crew-directory/crewDirectoryShared'
 
 const props = defineProps({
   crewMembers: { type: Array, required: true },
@@ -27,13 +34,27 @@ const filters = reactive({
   dateTo: '',
 })
 
-const selection = reactive({
-  crewId: null,
-  operationId: null,
-})
-
-const operationsVisibleCount = ref(8)
-const allowAutoSelect = ref(true)
+const route = useRoute()
+const router = useRouter()
+const isIndividual = computed(() => Boolean(route.params.crewId))
+const failedAvatar = ref(false)
+const listPath = '/admin/sobrecargos-bitacora'
+const individualPath = (id) => `/admin/sobrecargos-bitacora/${encodeURIComponent(id)}/bitacora`
+const operationIdFor = (operation) =>
+  operation.operationId || operation.raw?.operation?.id || operation.id
+const selectedPhoto = computed(() =>
+  resolveMediaUrl(
+    selectedCrew.value?.raw?.profile?.avatar_url || selectedCrew.value?.raw?.profile?.avatar || '',
+  ),
+)
+const initials = computed(() =>
+  (selectedCrew.value?.displayName || '')
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((name) => name[0])
+    .join('')
+    .toUpperCase(),
+)
 
 function formatDate(value, options = {}) {
   if (!value) return '—'
@@ -86,9 +107,12 @@ function resolveOperationDate(operation = {}) {
 }
 
 function normalizeChecklistState(value = '') {
-  const normalized = String(value || '').trim().toLowerCase()
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase()
   if (['completed', 'correcto', 'ok', 'done', 'completado'].includes(normalized)) return 'completed'
-  if (['not_applicable', 'not applicable', 'na', 'no aplica'].includes(normalized)) return 'not_applicable'
+  if (['not_applicable', 'not applicable', 'na', 'no aplica'].includes(normalized))
+    return 'not_applicable'
   if (['failed', 'issue', 'falla', 'falla reportada'].includes(normalized)) return 'failed'
   return 'pending'
 }
@@ -108,7 +132,9 @@ function operationCrewKey(operation = {}) {
 function operationChecklistSummary(operation = {}) {
   const snapshot = buildCrewOperationWorkflowSnapshot(operation)
   const items = snapshot.checklistGroups.flatMap((group) => group.items || [])
-  const resolved = items.filter((item) => normalizeChecklistState(item?.status) !== 'pending').length
+  const resolved = items.filter(
+    (item) => normalizeChecklistState(item?.status) !== 'pending',
+  ).length
   const pending = items.filter((item) => normalizeChecklistState(item?.status) === 'pending').length
 
   return {
@@ -133,7 +159,12 @@ function matchesDateRange(operation = {}) {
 
 function chipLabelForMemberState(value = '') {
   const normalized = normalizeToken(normalizeOperationalState(value) || value)
-  if (normalized.includes('en vuelo') || normalized.includes('tracking') || normalized.includes('operacion')) return 'En operación'
+  if (
+    normalized.includes('en vuelo') ||
+    normalized.includes('tracking') ||
+    normalized.includes('operacion')
+  )
+    return 'En operación'
   if (normalized.includes('descanso')) return 'Descanso'
   if (normalized.includes('no disponible') || normalized.includes('suspend')) return 'No disponible'
   if (normalized.includes('disponible')) return 'Disponible'
@@ -145,22 +176,30 @@ function operationStatusChip(operation = {}) {
   if (snapshot.workflow?.steps?.every((step) => step.complete)) {
     return { label: snapshot.operationStatusLabel || 'Completada', tone: 'chip-success' }
   }
-  if (snapshot.assignmentStatus === 'cancelled' || normalizeToken(operation.status || operation.workflowStatus || '').includes('cancel')) {
+  if (
+    snapshot.assignmentStatus === 'cancelled' ||
+    normalizeToken(operation.status || operation.workflowStatus || '').includes('cancel')
+  ) {
     return { label: 'Cancelada', tone: 'chip-danger' }
   }
-  if (Number(operation.incidentsCount || 0) > 0) return { label: 'Con incidencia', tone: 'chip-danger' }
+  if (Number(operation.incidentsCount || 0) > 0)
+    return { label: 'Con incidencia', tone: 'chip-danger' }
   if (snapshot.workflow?.currentId && snapshot.workflow.currentId !== 'validation') {
     return { label: snapshot.operationStatusLabel || 'En operación', tone: 'chip-warning' }
   }
   return {
-    label: snapshot.operationStatusLabel || humanizeStatus(operation.status || operation.workflowStatus || 'Programada'),
+    label:
+      snapshot.operationStatusLabel ||
+      humanizeStatus(operation.status || operation.workflowStatus || 'Programada'),
     tone: snapshot.assignmentStatus === 'confirmed' ? 'chip-warning' : 'chip-neutral',
   }
 }
 
 const operationsSorted = computed(() =>
   [...props.operations].sort((left, right) =>
-    String(resolveOperationDate(right) || '').localeCompare(String(resolveOperationDate(left) || '')),
+    String(resolveOperationDate(right) || '').localeCompare(
+      String(resolveOperationDate(left) || ''),
+    ),
   ),
 )
 
@@ -203,16 +242,25 @@ const crewRows = computed(() => {
     )
     const currentState = activeOperation
       ? 'En operación'
-      : chipLabelForMemberState(member.state || member.operationalState || latestOperation?.status || 'Disponible')
-    const latestSnapshot = latestOperation ? buildCrewOperationWorkflowSnapshot(latestOperation) : null
-    const activeSnapshot = activeOperation ? buildCrewOperationWorkflowSnapshot(activeOperation) : null
+      : chipLabelForMemberState(
+          member.state || member.operationalState || latestOperation?.status || 'Disponible',
+        )
+    const latestSnapshot = latestOperation
+      ? buildCrewOperationWorkflowSnapshot(latestOperation)
+      : null
+    const activeSnapshot = activeOperation
+      ? buildCrewOperationWorkflowSnapshot(activeOperation)
+      : null
 
     return {
       ...member,
       key: normalizeCrewKey(member),
       displayName: String(member.name || 'Sobrecargo sin nombre').trim(),
       shortName: summarizePersonName(member.name || '', 'Sin asignar'),
-      base: String(member.base || operationFlightBase(activeOperation || latestOperation || {}) || '—').trim() || '—',
+      base:
+        String(
+          member.base || operationFlightBase(activeOperation || latestOperation || {}) || '—',
+        ).trim() || '—',
       currentState,
       currentFlightLabel:
         activeSnapshot?.route ||
@@ -220,11 +268,18 @@ const crewRows = computed(() => {
         latestSnapshot?.route ||
         latestOperation?.route ||
         '—',
-      lastActivity: latestSnapshot?.latestActivityAt || (latestOperation ? resolveOperationDate(latestOperation) : member.updatedAt || member.createdAt || ''),
+      lastActivity:
+        latestSnapshot?.latestActivityAt ||
+        (latestOperation
+          ? resolveOperationDate(latestOperation)
+          : member.updatedAt || member.createdAt || ''),
       operations,
       operationsCount: operations.length,
       activeCount: operations.filter((operation) => isActiveOperation(operation)).length,
-      incidentsCount: operations.reduce((sum, operation) => sum + Number(operation.incidentsCount || 0), 0),
+      incidentsCount: operations.reduce(
+        (sum, operation) => sum + Number(operation.incidentsCount || 0),
+        0,
+      ),
       checklistPending: checklistMetrics.pending,
     }
   })
@@ -233,12 +288,18 @@ const crewRows = computed(() => {
     if (rows.some((member) => member.key === key)) return
     const latestOperation = operations[0] || null
     const activeOperation = operations.find((operation) => isActiveOperation(operation)) || null
-    const crewName = String(activeOperation?.crew || latestOperation?.crew || 'Sobrecargo asignado').trim()
-    const latestSnapshot = latestOperation ? buildCrewOperationWorkflowSnapshot(latestOperation) : null
-    const activeSnapshot = activeOperation ? buildCrewOperationWorkflowSnapshot(activeOperation) : null
+    const crewName = String(
+      activeOperation?.crew || latestOperation?.crew || 'Sobrecargo asignado',
+    ).trim()
+    const latestSnapshot = latestOperation
+      ? buildCrewOperationWorkflowSnapshot(latestOperation)
+      : null
+    const activeSnapshot = activeOperation
+      ? buildCrewOperationWorkflowSnapshot(activeOperation)
+      : null
 
     rows.push({
-      id: key,
+      id: key.startsWith('id:') ? key.slice(3) : null,
       key,
       displayName: crewName,
       shortName: summarizePersonName(crewName, 'Sin asignar'),
@@ -250,12 +311,20 @@ const crewRows = computed(() => {
         latestSnapshot?.route ||
         latestOperation?.route ||
         '—',
-      lastActivity: latestSnapshot?.latestActivityAt || (latestOperation ? resolveOperationDate(latestOperation) : ''),
+      lastActivity:
+        latestSnapshot?.latestActivityAt ||
+        (latestOperation ? resolveOperationDate(latestOperation) : ''),
       operations,
       operationsCount: operations.length,
       activeCount: operations.filter((operation) => isActiveOperation(operation)).length,
-      incidentsCount: operations.reduce((sum, operation) => sum + Number(operation.incidentsCount || 0), 0),
-      checklistPending: operations.reduce((sum, operation) => sum + operationChecklistSummary(operation).pending, 0),
+      incidentsCount: operations.reduce(
+        (sum, operation) => sum + Number(operation.incidentsCount || 0),
+        0,
+      ),
+      checklistPending: operations.reduce(
+        (sum, operation) => sum + operationChecklistSummary(operation).pending,
+        0,
+      ),
     })
   })
 
@@ -269,10 +338,12 @@ const crewRows = computed(() => {
 
 const statusOptions = computed(() => [
   { value: 'all', label: 'Todos' },
-  ...Array.from(new Set(crewRows.value.map((member) => member.currentState).filter(Boolean))).map((value) => ({
-    value,
-    label: value,
-  })),
+  ...Array.from(new Set(crewRows.value.map((member) => member.currentState).filter(Boolean))).map(
+    (value) => ({
+      value,
+      label: value,
+    }),
+  ),
 ])
 
 const filteredCrewRows = computed(() => {
@@ -281,21 +352,28 @@ const filteredCrewRows = computed(() => {
   return crewRows.value.filter((member) => {
     const visibleOperations = member.operations.filter((operation) => matchesDateRange(operation))
     const hasActiveOperation = visibleOperations.some((operation) => isActiveOperation(operation))
-    const incidentsCount = visibleOperations.reduce((sum, operation) => sum + Number(operation.incidentsCount || 0), 0)
+    const incidentsCount = visibleOperations.reduce(
+      (sum, operation) => sum + Number(operation.incidentsCount || 0),
+      0,
+    )
 
     if (query) {
-      const haystack = normalizeToken([
-        member.displayName,
-        member.base,
-        member.currentState,
-        ...visibleOperations.map((operation) => [
-          operation.id,
-          operation.folio,
-          operation.route,
-          operation.aircraft,
-          operationProviderName(operation),
-        ].join(' ')),
-      ].join(' '))
+      const haystack = normalizeToken(
+        [
+          member.displayName,
+          member.base,
+          member.currentState,
+          ...visibleOperations.map((operation) =>
+            [
+              operation.id,
+              operation.folio,
+              operation.route,
+              operation.aircraft,
+              operationProviderName(operation),
+            ].join(' '),
+          ),
+        ].join(' '),
+      )
 
       if (!haystack.includes(query)) return false
     }
@@ -312,22 +390,24 @@ const filteredCrewRows = computed(() => {
   })
 })
 
-const selectedCrew = computed(() => {
-  const rows = filteredCrewRows.value
-  return rows.find((member) => member.key === selection.crewId) || null
-})
+const selectedCrew = computed(
+  () =>
+    crewRows.value.find(
+      (member) => member.id != null && String(member.id) === String(route.params.crewId),
+    ) || null,
+)
 
 const selectedCrewOperations = computed(() => {
   if (!selectedCrew.value) return []
 
   return selectedCrew.value.operations
-    .filter((operation) => matchesDateRange(operation))
     .map((operation) => {
       const summary = operationChecklistSummary(operation)
       const statusChip = operationStatusChip(operation)
       const snapshot = buildCrewOperationWorkflowSnapshot(operation)
       return {
         ...operation,
+        id: operationIdFor(operation),
         route: snapshot.route || operation.route,
         folio: snapshot.folio || operation.folio,
         latestActivityAt: snapshot.latestActivityAt,
@@ -340,18 +420,23 @@ const selectedCrewOperations = computed(() => {
       const leftActive = left.isActive ? 0 : 1
       const rightActive = right.isActive ? 0 : 1
       if (leftActive !== rightActive) return leftActive - rightActive
-      return String(resolveOperationDate(right) || '').localeCompare(String(resolveOperationDate(left) || ''))
+      return String(resolveOperationDate(right) || '').localeCompare(
+        String(resolveOperationDate(left) || ''),
+      )
     })
 })
 
-const visibleOperations = computed(() => selectedCrewOperations.value.slice(0, operationsVisibleCount.value))
-
-const selectedOperation = computed(() =>
-  selectedCrewOperations.value.find((operation) => String(operation.id) === String(selection.operationId)) || null,
+const selectedOperation = computed(
+  () =>
+    selectedCrewOperations.value.find(
+      (operation) => String(operation.id) === String(route.query.operationId),
+    ) || null,
 )
 
 const summaryCards = computed(() => {
-  const visibleOperations = filteredCrewRows.value.flatMap((member) => member.operations.filter((operation) => matchesDateRange(operation)))
+  const visibleOperations = filteredCrewRows.value.flatMap((member) =>
+    member.operations.filter((operation) => matchesDateRange(operation)),
+  )
   return [
     {
       label: 'Sobrecargos visibles',
@@ -365,71 +450,40 @@ const summaryCards = computed(() => {
     },
     {
       label: 'Checklist pendientes',
-      value: visibleOperations.reduce((sum, operation) => sum + operationChecklistSummary(operation).pending, 0),
+      value: visibleOperations.reduce(
+        (sum, operation) => sum + operationChecklistSummary(operation).pending,
+        0,
+      ),
       detail: 'Items pendientes visibles.',
     },
     {
       label: 'Incidencias abiertas',
-      value: visibleOperations.reduce((sum, operation) => sum + Number(operation.incidentsCount || 0), 0),
+      value: visibleOperations.reduce(
+        (sum, operation) => sum + Number(operation.incidentsCount || 0),
+        0,
+      ),
       detail: 'Incidencias reportadas.',
     },
   ]
 })
 
-function selectCrew(crewKey) {
-  selection.crewId = crewKey
-  selection.operationId = null
-  operationsVisibleCount.value = 8
-}
-
 function selectOperation(operationId) {
-  selection.operationId = operationId
+  router.push({ path: route.path, query: { ...route.query, operationId: String(operationId) } })
 }
-
-function clearSelection() {
-  allowAutoSelect.value = false
-  selection.crewId = null
-  selection.operationId = null
-  operationsVisibleCount.value = 8
-}
-
 watch(
-  filteredCrewRows,
-  (rows) => {
-    if (!rows.length) {
-      selection.crewId = null
-      selection.operationId = null
-      return
-    }
-
-    if (!selection.crewId && allowAutoSelect.value) {
-      selection.crewId = rows[0].key
-      return
-    }
-
-    if (selection.crewId && !rows.some((member) => member.key === selection.crewId)) {
-      selection.crewId = null
-      selection.operationId = null
-    }
+  () => route.params.crewId,
+  () => {
+    failedAvatar.value = false
   },
-  { immediate: true },
 )
-
 watch(
-  selectedCrewOperations,
-  (operations) => {
-    if (!selection.crewId) {
-      selection.operationId = null
-      return
-    }
-
-    if (!operations.length) {
-      selection.operationId = null
-      return
-    }
-
-    if (!operations.some((operation) => String(operation.id) === String(selection.operationId))) {
-      selection.operationId = operations[0].id
+  [selectedCrewOperations, () => route.query.operationId],
+  ([operations, operationId]) => {
+    if (isIndividual.value && !operationId && operations.length) {
+      router.replace({
+        path: route.path,
+        query: { ...route.query, operationId: String(operations[0].id) },
+      })
     }
   },
   { immediate: true },
@@ -438,206 +492,230 @@ watch(
 
 <template>
   <section class="crew-logbook-page">
-    <header class="page-head">
-      <div>
-        <p class="eyebrow">Sobrecargos</p>
-        <h2>Bitácora de Sobrecargos</h2>
-        <p>Consulta el avance operativo, checklist, seguimiento, evidencias e incidencias de cada sobrecargo por operación.</p>
-      </div>
-    </header>
-
-    <section class="kpi-strip">
-      <article v-for="card in summaryCards" :key="card.label" class="kpi-card">
-        <span>{{ card.label }}</span>
-        <strong>{{ card.value }}</strong>
-        <small>{{ card.detail }}</small>
-      </article>
-    </section>
-
-    <section class="filters-bar">
-      <label class="filter filter--search">
-        <span>Buscar</span>
-        <input
-          v-model="filters.searchTerm"
-          type="text"
-          placeholder="Nombre, ruta, matrícula o aeronave"
-          aria-label="Buscar nombre, ruta, matrícula o aeronave"
-        />
-      </label>
-
-      <label class="filter">
-        <span>Estado</span>
-        <select v-model="filters.status">
-          <option v-for="option in statusOptions" :key="option.value" :value="option.value">
-            {{ option.label }}
-          </option>
-        </select>
-      </label>
-
-      <label class="filter">
-        <span>Base</span>
-        <select v-model="filters.base">
-          <option value="all">Todas</option>
-          <option v-for="base in baseOptions.slice(1)" :key="base" :value="base">{{ base }}</option>
-        </select>
-      </label>
-
-      <label class="filter">
-        <span>Operación</span>
-        <select v-model="filters.operationMode">
-          <option value="all">Todas</option>
-          <option value="active">Con operación activa</option>
-          <option value="inactive">Sin operación activa</option>
-        </select>
-      </label>
-
-      <label class="filter">
-        <span>Incidencias</span>
-        <select v-model="filters.incidents">
-          <option value="all">Todas</option>
-          <option value="with">Con incidencias</option>
-          <option value="without">Sin incidencias</option>
-        </select>
-      </label>
-
-      <label class="filter">
-        <span>Desde</span>
-        <input v-model="filters.dateFrom" type="date" />
-      </label>
-
-      <label class="filter">
-        <span>Hasta</span>
-        <input v-model="filters.dateTo" type="date" />
-      </label>
-    </section>
-
-    <section class="crew-table-card">
-      <div class="section-head">
+    <template v-if="!isIndividual">
+      <header class="page-head">
         <div>
           <p class="eyebrow">Sobrecargos</p>
-          <h3>Consulta general</h3>
-        </div>
-        <span class="badge">{{ filteredCrewRows.length }}</span>
-      </div>
-
-      <div class="table-wrap">
-        <table class="crew-table">
-          <thead>
-            <tr>
-              <th>Sobrecargo</th>
-              <th>Base</th>
-              <th>Estado</th>
-              <th>Vuelo actual</th>
-              <th>Última actividad</th>
-              <th>Pendientes</th>
-              <th>Incidencias</th>
-              <th>Acción</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="member in filteredCrewRows"
-              :key="member.key"
-              :class="{ 'is-selected': selectedCrew?.key === member.key }"
-            >
-              <td>
-                <div class="cell-primary">
-                  <strong>{{ member.displayName }}</strong>
-                </div>
-              </td>
-              <td>{{ member.base }}</td>
-              <td>
-                <span class="chip" :class="toneClass(member.currentState)">{{ member.currentState }}</span>
-              </td>
-              <td>{{ member.currentFlightLabel }}</td>
-              <td>{{ formatRelativeActivity(member.lastActivity) }}</td>
-              <td>{{ member.checklistPending }}</td>
-              <td>{{ member.incidentsCount }}</td>
-              <td>
-                <button type="button" class="action-link" @click="selectCrew(member.key)">
-                  {{ member.operationsCount ? 'Ver bitácora' : 'Ver historial' }}
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <p v-if="!filteredCrewRows.length" class="empty-state">No hay sobrecargos visibles con los filtros actuales.</p>
-    </section>
-
-    <section v-if="selectedCrew" class="selected-crew-shell">
-      <header class="selected-crew-head">
-        <button type="button" class="back-link" @click="clearSelection">← Todas las sobrecargos</button>
-        <div class="selected-crew-title">
-          <h3>{{ selectedCrew.displayName }}</h3>
-          <div class="selected-crew-stats">
-            <span><small>Estado</small><strong>{{ selectedCrew.currentState }}</strong></span>
-            <span><small>Base</small><strong>{{ selectedCrew.base }}</strong></span>
-            <span><small>Operaciones</small><strong>{{ selectedCrew.operationsCount }}</strong></span>
-            <span><small>Activas</small><strong>{{ selectedCrew.activeCount }}</strong></span>
-            <span><small>Incidencias</small><strong>{{ selectedCrew.incidentsCount }}</strong></span>
-          </div>
+          <h2>Bitácora de Sobrecargos</h2>
+          <p>
+            Consulta el avance operativo, checklist, seguimiento, evidencias e incidencias de cada
+            sobrecargo por operación.
+          </p>
         </div>
       </header>
 
-      <div class="master-detail-layout">
-        <aside class="operations-panel">
-          <div class="section-head">
-            <div>
-              <p class="eyebrow">Operaciones</p>
-              <h3>{{ selectedCrew.shortName }}</h3>
+      <section class="kpi-strip">
+        <article v-for="card in summaryCards" :key="card.label" class="kpi-card">
+          <span>{{ card.label }}</span>
+          <strong>{{ card.value }}</strong>
+          <small>{{ card.detail }}</small>
+        </article>
+      </section>
+
+      <section class="filters-bar">
+        <label class="filter filter--search">
+          <span>Buscar</span>
+          <input
+            v-model="filters.searchTerm"
+            type="text"
+            placeholder="Nombre, ruta, matrícula o aeronave"
+            aria-label="Buscar nombre, ruta, matrícula o aeronave"
+          />
+        </label>
+
+        <label class="filter">
+          <span>Estado</span>
+          <select v-model="filters.status">
+            <option v-for="option in statusOptions" :key="option.value" :value="option.value">
+              {{ option.label }}
+            </option>
+          </select>
+        </label>
+
+        <label class="filter">
+          <span>Base</span>
+          <select v-model="filters.base">
+            <option value="all">Todas</option>
+            <option v-for="base in baseOptions.slice(1)" :key="base" :value="base">
+              {{ base }}
+            </option>
+          </select>
+        </label>
+
+        <label class="filter">
+          <span>Operación</span>
+          <select v-model="filters.operationMode">
+            <option value="all">Todas</option>
+            <option value="active">Con operación activa</option>
+            <option value="inactive">Sin operación activa</option>
+          </select>
+        </label>
+
+        <label class="filter">
+          <span>Incidencias</span>
+          <select v-model="filters.incidents">
+            <option value="all">Todas</option>
+            <option value="with">Con incidencias</option>
+            <option value="without">Sin incidencias</option>
+          </select>
+        </label>
+
+        <label class="filter">
+          <span>Desde</span>
+          <input v-model="filters.dateFrom" type="date" />
+        </label>
+
+        <label class="filter">
+          <span>Hasta</span>
+          <input v-model="filters.dateTo" type="date" />
+        </label>
+      </section>
+
+      <section class="crew-table-card">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Sobrecargos</p>
+            <h3>Consulta general</h3>
+          </div>
+          <span class="badge">{{ filteredCrewRows.length }}</span>
+        </div>
+
+        <div class="table-wrap">
+          <table class="crew-table">
+            <thead>
+              <tr>
+                <th>Sobrecargo</th>
+                <th>Base</th>
+                <th>Estado</th>
+                <th>Vuelo actual</th>
+                <th>Última actividad</th>
+                <th>Pendientes</th>
+                <th>Incidencias</th>
+                <th>Acción</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="member in filteredCrewRows"
+                :key="member.key"
+                :class="{ 'is-selected': selectedCrew?.key === member.key }"
+              >
+                <td>
+                  <div class="cell-primary">
+                    <strong>{{ member.displayName }}</strong>
+                  </div>
+                </td>
+                <td>{{ member.base }}</td>
+                <td>
+                  <span class="chip" :class="toneClass(member.currentState)">{{
+                    member.currentState
+                  }}</span>
+                </td>
+                <td>{{ member.currentFlightLabel }}</td>
+                <td>{{ formatRelativeActivity(member.lastActivity) }}</td>
+                <td>{{ member.checklistPending }}</td>
+                <td>{{ member.incidentsCount }}</td>
+                <td>
+                  <RouterLink
+                    v-if="member.id != null"
+                    class="action-link"
+                    :to="individualPath(member.id)"
+                  >
+                    {{ member.operationsCount ? 'Ver bitácora' : 'Ver historial' }} </RouterLink
+                  ><span v-else>ID no disponible</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p v-if="!filteredCrewRows.length" class="empty-state">
+          No hay sobrecargos visibles con los filtros actuales.
+        </p>
+      </section>
+    </template>
+    <template v-else>
+      <nav class="logbook-breadcrumb" aria-label="Breadcrumb">
+        <RouterLink :to="listPath">Sobrecargos</RouterLink><span>› Bitácora ›</span
+        ><span>{{ selectedCrew?.displayName || 'Sobrecargo' }}</span>
+      </nav>
+      <header class="page-head">
+        <h2>Bitácora de la sobrecargo</h2>
+        <p>Consulta el checklist, seguimiento y evidencias de cada operación.</p>
+      </header>
+      <RouterLink class="back-link" :to="listPath">← Volver a sobrecargos</RouterLink>
+      <section v-if="selectedCrew" class="selected-crew-shell">
+        <header class="selected-crew-head">
+          <img
+            v-if="selectedPhoto && !failedAvatar"
+            class="crew-avatar"
+            :src="selectedPhoto"
+            :alt="selectedCrew.displayName"
+            @error="failedAvatar = true"
+          />
+          <span v-else class="crew-avatar" aria-hidden="true">{{ initials }}</span>
+          <div class="selected-crew-title">
+            <h3>{{ selectedCrew.displayName }}</h3>
+            <div class="selected-crew-stats">
+              <span
+                ><small>Estado</small><strong>{{ selectedCrew.currentState }}</strong></span
+              >
+              <span
+                ><small>Base</small><strong>{{ selectedCrew.base }}</strong></span
+              >
+              <span
+                ><small>Operaciones</small><strong>{{ selectedCrew.operationsCount }}</strong></span
+              >
+              <span
+                ><small>Activas</small><strong>{{ selectedCrew.activeCount }}</strong></span
+              >
+              <span
+                ><small>Incidencias</small><strong>{{ selectedCrew.incidentsCount }}</strong></span
+              >
             </div>
-            <span class="badge">{{ selectedCrewOperations.length }}</span>
           </div>
-
-          <div v-if="visibleOperations.length" class="operations-list">
-            <button
-              v-for="operation in visibleOperations"
-              :key="operation.id"
-              type="button"
-              class="operation-row"
-              :class="{ 'is-selected': String(selectedOperation?.id) === String(operation.id) }"
-              @click="selectOperation(operation.id)"
-            >
-              <div class="operation-row__head">
-                <strong>{{ operation.folio || `OP-${operation.id}` }}</strong>
-                <span class="chip" :class="operation.statusChip.tone">{{ operation.statusChip.label }}</span>
-              </div>
-              <span>{{ operation.route || '—' }}</span>
-              <span>{{ formatDateTime(operation.departure) }}</span>
-              <span>{{ operation.aircraft || 'Aeronave por definir' }}</span>
-            </button>
-          </div>
-
-          <button
-            v-if="selectedCrewOperations.length > visibleOperations.length"
-            type="button"
-            class="show-more-button"
-            @click="operationsVisibleCount += 8"
-          >
-            Ver más operaciones
-          </button>
-
-          <div v-if="!selectedCrewOperations.length" class="empty-panel">
-            <strong>Sin operaciones registradas</strong>
-            <p>Esta sobrecargo todavía no tiene operaciones asociadas.</p>
-          </div>
-        </aside>
+        </header>
 
         <section class="detail-panel">
-          <CrewOperationLogbookView
+          <AdminCrewIndividualLogbook
+            :key="`${route.params.crewId}-${selectedOperation?.id}`"
+            :crew-id="route.params.crewId"
             v-if="selectedOperation"
             :operation="selectedOperation"
             :format-date-time="formatDateTime"
-          />
+          >
+            <template #operation-selector>
+              <label v-if="selectedCrewOperations.length > 1" class="operation-selector">
+                <span>Operación</span>
+                <select
+                  :value="selectedOperation.id"
+                  @change="selectOperation($event.target.value)"
+                >
+                  <option
+                    v-for="operation in selectedCrewOperations"
+                    :key="operation.id"
+                    :value="operation.id"
+                  >
+                    #{{ operation.id }} — {{ formatDate(operation.departure) }}
+                  </option>
+                </select>
+              </label>
+            </template>
+          </AdminCrewIndividualLogbook>
           <div v-else class="empty-panel">
-            <strong>Cargando operaciones...</strong>
+            <strong>{{
+              route.query.operationId
+                ? 'Operación no disponible para esta sobrecargo'
+                : 'Sin operaciones registradas'
+            }}</strong>
             <p>Selecciona una operación para abrir la bitácora completa.</p>
           </div>
         </section>
-      </div>
-    </section>
+      </section>
+      <p v-else role="status">
+        Sobrecargo no disponible. Si los datos están cargando, espera un momento.
+      </p>
+    </template>
   </section>
 </template>
 
@@ -653,7 +731,6 @@ watch(
 .filters-bar,
 .crew-table-card,
 .selected-crew-shell,
-.operations-panel,
 .detail-panel {
   border: 1px solid rgba(201, 214, 236, 0.78);
   background: rgba(255, 255, 255, 0.98);
@@ -663,7 +740,6 @@ watch(
 .page-head,
 .crew-table-card,
 .selected-crew-shell,
-.operations-panel,
 .detail-panel {
   border-radius: 28px;
 }
@@ -671,7 +747,6 @@ watch(
 .page-head,
 .crew-table-card,
 .selected-crew-shell,
-.operations-panel,
 .detail-panel {
   padding: 1.15rem;
 }
@@ -732,7 +807,10 @@ watch(
 
 .filters-bar {
   display: grid;
-  grid-template-columns: minmax(250px, 2fr) repeat(4, minmax(130px, 1fr)) repeat(2, minmax(140px, 0.9fr));
+  grid-template-columns: minmax(250px, 2fr) repeat(4, minmax(130px, 1fr)) repeat(
+      2,
+      minmax(140px, 0.9fr)
+    );
   gap: 0.75rem;
   padding: 0.9rem 1rem;
   border-radius: 22px;
@@ -763,8 +841,7 @@ watch(
 }
 
 .section-head,
-.selected-crew-head,
-.operation-row__head {
+.selected-crew-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -868,16 +945,14 @@ watch(
 }
 
 .action-link,
-.back-link,
-.show-more-button {
+.back-link {
   border: 0;
   background: transparent;
   font-weight: 800;
   cursor: pointer;
 }
 
-.action-link,
-.show-more-button {
+.action-link {
   color: #32599a;
 }
 
@@ -916,43 +991,12 @@ watch(
   color: #6e84ab;
 }
 
-.master-detail-layout {
-  display: grid;
-  grid-template-columns: minmax(280px, 30%) minmax(0, 70%);
-  gap: 1rem;
-}
-
-.operations-panel,
 .detail-panel {
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
   display: grid;
   gap: 0.9rem;
   align-content: start;
-}
-
-.operations-list {
-  display: grid;
-  gap: 0.7rem;
-}
-
-.operation-row {
-  display: grid;
-  gap: 0.28rem;
-  padding: 0.95rem;
-  border-radius: 18px;
-  border: 1px solid rgba(205, 218, 240, 0.84);
-  background: rgba(255, 255, 255, 0.98);
-  text-align: left;
-  cursor: pointer;
-}
-
-.operation-row.is-selected {
-  border-color: rgba(118, 151, 219, 0.62);
-  background: rgba(244, 248, 255, 0.98);
-  box-shadow: inset 0 0 0 1px rgba(118, 151, 219, 0.12);
-}
-
-.operation-row span {
-  color: #6b81a4;
 }
 
 .empty-panel {
@@ -967,10 +1011,6 @@ watch(
 @media (max-width: 1180px) {
   .filters-bar {
     grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-
-  .master-detail-layout {
-    grid-template-columns: 1fr;
   }
 }
 
@@ -991,8 +1031,7 @@ watch(
   }
 
   .selected-crew-head,
-  .section-head,
-  .operation-row__head {
+  .section-head {
     display: grid;
   }
 
@@ -1000,5 +1039,42 @@ watch(
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+.logbook-breadcrumb {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.crew-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  object-fit: cover;
+  display: grid;
+  place-items: center;
+  background: #eef4fb;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+a.action-link,
+a.back-link {
+  text-decoration: none;
+  display: inline-block;
+}
+.operation-selector {
+  display: grid;
+  gap: 0.35rem;
+  width: min(100%, 22rem);
+  margin-bottom: 1rem;
+}
+.operation-selector select {
+  width: 100%;
+  min-width: 0;
+  padding: 0.65rem;
+  border: 1px solid #c9d6ec;
+  border-radius: 12px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
 }
 </style>

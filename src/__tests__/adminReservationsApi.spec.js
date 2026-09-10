@@ -439,3 +439,17 @@ describe('adminReservationsApi', () => {
     })
   })
 })
+
+it('loads every requests page only when explicitly requested for the logbook', async () => {
+  api.get.mockReset()
+  api.get.mockImplementation(async (path, options) => {
+    if (path.includes('/admin/requests')) {
+      const second = options.query.page === 2
+      return { requests: [{ id: second ? 302 : 278, operation: { id: second ? 46 : 52 }, crew_id: 8 }], pagination: { has_more_pages: !second } }
+    }
+    return { operation_id: path.includes('/46/') ? 46 : 52, checklists: [], timeline: [] }
+  })
+  const operations = await getAdminReservations({ allPages: true })
+  expect(operations.map((item) => Number(item.operationId))).toEqual([52, 46])
+  expect(api.get.mock.calls.filter(([path]) => path.includes('/admin/requests'))).toHaveLength(2)
+})

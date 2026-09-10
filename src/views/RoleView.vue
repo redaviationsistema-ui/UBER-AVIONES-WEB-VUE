@@ -14,6 +14,10 @@ const routeToRole = {
   operador: 'operator',
   crew: 'crew',
   admin: 'admin',
+  'admin-sobrecargo-bitacora': 'admin',
+  'admin-incidencias-grupo': 'admin',
+  'admin-incidencias-reporte': 'admin',
+  'admin-incidencias-evidencias': 'admin',
 }
 
 const activeRole = computed(() => routeToRole[route.name] ?? 'client')

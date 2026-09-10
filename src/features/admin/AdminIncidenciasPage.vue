@@ -1,11 +1,29 @@
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { api, resolveMediaUrl } from '../../lib/api'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { useRoute } from 'vue-router'
+import { api } from '../../lib/api'
+import {
+  incidentLabels as labels,
+  groupIncidents,
+  incidentGroupKey,
+  formatIncidentFlightDate,
+  loadIncidentFlights,
+} from './adminIncidentGroups'
 import AdminClosureEvidence from './AdminClosureEvidence.vue'
 
 const incidents = ref([])
 const isLoading = ref(false)
-const selectedIncidentId = ref(null)
+const route = useRoute()
+const isGroup = computed(() => route.name === 'admin-incidencias-grupo')
+const isDetail = computed(() => Boolean(route.params.id) || isGroup.value)
+const flights = ref({})
+const flightError = ref('')
+const flightLoading = ref(false)
+const isEvidence = computed(() => route.name === 'admin-incidencias-evidencias')
+const evidence = ref(null)
+const error = ref('')
+const saving = ref(false)
+const reportPath = (id) => `/admin/incidencias/${encodeURIComponent(id)}`
 const statusFilter = ref('all')
 const priorityFilter = ref('all')
 const providerFilter = ref('all')
@@ -15,35 +33,28 @@ const updateDrafts = reactive({})
 
 const statuses = ['open', 'in_review', 'resolved', 'closed']
 const priorities = ['baja', 'media', 'alta', 'critica']
-const labels = {
-  catering: 'Catering',
-  cabina: 'Cabina',
-  cliente: 'Cliente',
-  seguridad: 'Seguridad',
-  horario: 'Horario',
-  coordinacion: 'Coordinacion',
-  otro: 'Otro',
-  baja: 'Baja',
-  media: 'Media',
-  alta: 'Alta',
-  critica: 'Critica',
-  open: 'Abierta',
-  in_review: 'En revision',
-  resolved: 'Resuelta',
-  closed: 'Cerrada',
-}
+
 
 const filteredIncidents = computed(() => {
   const query = searchQuery.value.trim().toLowerCase()
 
   return incidents.value
     .filter((incident) => statusFilter.value === 'all' || incident.status === statusFilter.value)
-    .filter((incident) => priorityFilter.value === 'all' || incident.priority === priorityFilter.value)
-    .filter((incident) => providerFilter.value === 'all' || resolveProviderKey(incident) === providerFilter.value)
-    .filter((incident) => crewFilter.value === 'all' || resolveCrewKey(incident) === crewFilter.value)
+    .filter(
+      (incident) => priorityFilter.value === 'all' || incident.priority === priorityFilter.value,
+    )
+    .filter(
+      (incident) =>
+        providerFilter.value === 'all' || resolveProviderKey(incident) === providerFilter.value,
+    )
+    .filter(
+      (incident) => crewFilter.value === 'all' || resolveCrewKey(incident) === crewFilter.value,
+    )
     .filter((incident) => {
       if (!query) return true
       return [
+        flightFor(incident),
+        incident.operation_departure_datetime,
         incident.id,
         incident.crew_operation_id,
         incident.operation_route,
@@ -67,32 +78,57 @@ const filteredIncidents = computed(() => {
 })
 
 const providerOptions = computed(() =>
-  [...new Map(
-    incidents.value
-      .map((incident) => {
-        const key = resolveProviderKey(incident)
-        return key ? [key, { key, label: resolveProviderLabel(incident) }] : null
-      })
-      .filter(Boolean),
-  ).values()].sort((left, right) => left.label.localeCompare(right.label, 'es')),
+  [
+    ...new Map(
+      incidents.value
+        .map((incident) => {
+          const key = resolveProviderKey(incident)
+          return key ? [key, { key, label: resolveProviderLabel(incident) }] : null
+        })
+        .filter(Boolean),
+    ).values(),
+  ].sort((left, right) => left.label.localeCompare(right.label, 'es')),
 )
 
 const crewOptions = computed(() =>
-  [...new Map(
-    incidents.value
-      .map((incident) => {
-        const key = resolveCrewKey(incident)
-        return key ? [key, { key, label: resolveCrewLabel(incident) }] : null
-      })
-      .filter(Boolean),
-  ).values()].sort((left, right) => left.label.localeCompare(right.label, 'es')),
+  [
+    ...new Map(
+      incidents.value
+        .map((incident) => {
+          const key = resolveCrewKey(incident)
+          return key ? [key, { key, label: resolveCrewLabel(incident) }] : null
+        })
+        .filter(Boolean),
+    ).values(),
+  ].sort((left, right) => left.label.localeCompare(right.label, 'es')),
 )
 
-const selectedIncident = computed(
+const groups = computed(() => groupIncidents(filteredIncidents.value))
+const selectedGroup = computed(
   () =>
-    filteredIncidents.value.find((incident) => incident.id === selectedIncidentId.value) ||
-    filteredIncidents.value[0] ||
-    null,
+    groupIncidents(incidents.value).find(
+      (group) =>
+        group.key ===
+        JSON.stringify([String(route.params.operationId), String(route.params.crewId)]),
+    ) || null,
+)
+function groupPath(incident) {
+  const [operationId, crewId] = JSON.parse(incidentGroupKey(incident))
+  return `/admin/incidencias/operaciones/${encodeURIComponent(operationId)}/sobrecargos/${encodeURIComponent(crewId)}`
+}
+function flightFor(incident) {
+  return flights.value[incident.crew_operation_id]?.flight || 'N/D'
+}
+function dateFor(incident) {
+  return formatIncidentFlightDate(
+    incident.operation_departure_datetime ||
+      flights.value[incident.crew_operation_id]?.departure ||
+      incident.created_at,
+  )
+}
+
+const selectedIncident = computed(
+  () => incidents.value.find((incident) => String(incident.id) === String(route.params.id)) || null,
 )
 
 const summary = computed(() => ({
@@ -101,21 +137,6 @@ const summary = computed(() => ({
   inReview: incidents.value.filter((item) => item.status === 'in_review').length,
   closed: incidents.value.filter((item) => item.status === 'closed').length,
 }))
-
-watch(
-  filteredIncidents,
-  (items) => {
-    if (!items.length) {
-      selectedIncidentId.value = null
-      return
-    }
-
-    if (!items.some((incident) => incident.id === selectedIncidentId.value)) {
-      selectedIncidentId.value = items[0].id
-    }
-  },
-  { immediate: true },
-)
 
 function labelFor(value = '') {
   return labels[value] || value || 'Sin dato'
@@ -154,40 +175,10 @@ function resolveCrewKey(incident = {}) {
 }
 
 function resolveCrewLabel(incident = {}) {
-  return String(incident.crew_name || '').trim() || (incident.crew_id ? `Sobrecargo #${incident.crew_id}` : 'Sobrecargo por definir')
-}
-
-function normalizedIncidentFiles(incident = {}) {
-  return (incident.files || [])
-    .map((file, index) => {
-      const filePath = String(file?.file_path || '').trim()
-      const fileUrl = resolveMediaUrl(file?.file_url || file?.url || '')
-      const name =
-        file?.original_name ||
-        file?.file_name ||
-        file?.name ||
-        filePath ||
-        `Evidencia ${index + 1}`
-
-      return {
-        id: file?.id || `incident-file-${index}`,
-        name,
-        fileUrl,
-        fileType: String(file?.file_type || file?.mime_type || '').trim().toLowerCase(),
-      }
-    })
-    .filter((file) => file.fileUrl)
-}
-
-function incidentFileKind(file = {}) {
-  const fileUrl = String(file.fileUrl || '').toLowerCase()
-  const fileName = String(file.name || '').toLowerCase()
-  const mimeType = String(file.fileType || '').toLowerCase()
-
-  if (mimeType === 'application/pdf' || fileUrl.endsWith('.pdf') || fileName.endsWith('.pdf')) return 'pdf'
-  if (mimeType.startsWith('image/') || /\.(png|jpg|jpeg|webp|gif|bmp|svg)(\?|$)/i.test(fileUrl || fileName)) return 'image'
-
-  return 'other'
+  return (
+    String(incident.crew_name || '').trim() ||
+    (incident.crew_id ? `Sobrecargo #${incident.crew_id}` : 'Sobrecargo por definir')
+  )
 }
 
 function draftFor(incident) {
@@ -204,29 +195,49 @@ function draftFor(incident) {
 }
 
 async function fetchIncidents() {
+  if (isLoading.value) return
   isLoading.value = true
+  error.value = ''
   try {
     const response = await api.get('/crew-operation-incidents')
     incidents.value = response.incidents || response.data || []
+    flightError.value = ''
+    flightLoading.value = true
+    try {
+      flights.value = await loadIncidentFlights(incidents.value)
+    } catch {
+      flightError.value = 'No se pudieron actualizar los datos de vuelo. Intenta actualizar.'
+    } finally {
+      flightLoading.value = false
+    }
+  } catch {
+    error.value = 'No se pudieron cargar los reportes. Intenta actualizar.'
   } finally {
     isLoading.value = false
   }
 }
 
 async function updateIncident(incident, status = '') {
-  if (!incident) return
-  const draft = draftFor(incident)
-  const response = await api.put(`/crew-operation-incidents/${incident.id}`, {
-    status: status || draft.status,
-    admin_response: draft.admin_response,
-  })
-  const updated = response.incident
-  incidents.value = incidents.value.map((item) => (item.id === updated.id ? updated : item))
-  updateDrafts[incident.id] = {
-    status: updated.status || 'open',
-    admin_response: updated.admin_response || '',
+  if (!incident || saving.value) return
+  saving.value = true
+  error.value = ''
+  try {
+    const draft = draftFor(incident)
+    const response = await api.put(`/crew-operation-incidents/${incident.id}`, {
+      status: status || draft.status,
+      admin_response: draft.admin_response,
+    })
+    const updated = response.incident
+    incidents.value = incidents.value.map((item) => (item.id === updated.id ? updated : item))
+    updateDrafts[incident.id] = {
+      status: updated.status || 'open',
+      admin_response: updated.admin_response || '',
+    }
+  } catch {
+    error.value = 'No se pudo actualizar el reporte. Intenta nuevamente.'
+  } finally {
+    saving.value = false
   }
-  selectedIncidentId.value = updated.id
 }
 
 onMounted(fetchIncidents)
@@ -245,7 +256,7 @@ onMounted(fetchIncidents)
       </button>
     </div>
 
-    <section class="summary-strip">
+    <section v-if="!isDetail" class="summary-strip">
       <article>
         <span>Total</span>
         <strong>{{ summary.total }}</strong>
@@ -264,23 +275,31 @@ onMounted(fetchIncidents)
       </article>
     </section>
 
-    <section class="filters-bar">
+    <section v-if="!isDetail" class="filters-bar">
       <label>
         <span>Buscar</span>
-        <input v-model="searchQuery" type="search" placeholder="Operacion, sobrecargo, categoria..." />
+        <input
+          v-model="searchQuery"
+          type="search"
+          placeholder="Operacion, sobrecargo, categoria..."
+        />
       </label>
       <label>
         <span>Estado</span>
         <select v-model="statusFilter">
           <option value="all">Todos</option>
-          <option v-for="status in statuses" :key="status" :value="status">{{ labelFor(status) }}</option>
+          <option v-for="status in statuses" :key="status" :value="status">
+            {{ labelFor(status) }}
+          </option>
         </select>
       </label>
       <label>
         <span>Prioridad</span>
         <select v-model="priorityFilter">
           <option value="all">Todas</option>
-          <option v-for="priority in priorities" :key="priority" :value="priority">{{ labelFor(priority) }}</option>
+          <option v-for="priority in priorities" :key="priority" :value="priority">
+            {{ labelFor(priority) }}
+          </option>
         </select>
       </label>
       <label>
@@ -303,10 +322,38 @@ onMounted(fetchIncidents)
       </label>
     </section>
 
+    <p v-if="flightError && (!isDetail || isGroup)" role="alert">{{ flightError }}</p>
+    <p v-if="error" role="alert">{{ error }}</p>
+    <template v-if="isDetail && !isGroup">
+      <nav class="button-row" aria-label="Breadcrumb">
+        <RouterLink to="/admin/incidencias">Listado de incidencias</RouterLink>
+        <template v-if="selectedIncident">
+          <span>/</span>
+          <RouterLink :to="groupPath(selectedIncident)">Reportes del vuelo</RouterLink>
+        </template>
+        <span>/</span
+        ><RouterLink :to="reportPath(route.params.id)">Reporte #{{ route.params.id }}</RouterLink>
+        <template v-if="isEvidence"><span>/</span><span>Evidencias</span></template>
+      </nav>
+      <nav class="button-row incident-tabs" aria-label="Vistas del reporte">
+        <RouterLink
+          :to="reportPath(route.params.id)"
+          :aria-current="!isEvidence ? 'page' : undefined"
+          :class="{ active: !isEvidence }"
+          >Reporte</RouterLink
+        >
+        <RouterLink
+          :to="`${reportPath(route.params.id)}/evidencias`"
+          :aria-current="isEvidence ? 'page' : undefined"
+          :class="{ active: isEvidence }"
+          >Evidencias</RouterLink
+        >
+      </nav>
+    </template>
     <section class="incidents-workspace">
-      <article class="incident-table-card">
+      <article v-if="!isDetail" class="incident-table-card">
         <div class="table-head">
-          <strong>{{ filteredIncidents.length }} visibles</strong>
+          <strong>{{ groups.length }} vuelos / operaciones visibles</strong>
           <small>{{ incidents.length }} reportes cargados</small>
         </div>
 
@@ -314,35 +361,42 @@ onMounted(fetchIncidents)
           <table>
             <thead>
               <tr>
-                <th>Categoria</th>
-                <th>Prioridad</th>
-                <th>Estado</th>
+                <th>Vuelo</th>
+                <th>Fecha</th>
+                <th>Operación</th>
                 <th>Ruta</th>
                 <th>Empresa</th>
                 <th>Sobrecargo</th>
-                <th>Descripcion</th>
+                <th>Reportes</th>
+                <th>Abiertas</th>
+                <th>En revisión</th>
+                <th>Cerradas</th>
+                <th>Acceso</th>
               </tr>
             </thead>
             <tbody>
-              <tr
-                v-for="incident in filteredIncidents"
-                :key="incident.id"
-                :class="{ selected: selectedIncident?.id === incident.id }"
-                @click="selectedIncidentId = incident.id"
-              >
-                <td>{{ labelFor(incident.category) }}</td>
-                <td><span class="pill">{{ labelFor(incident.priority) }}</span></td>
-                <td><span class="pill pill-status">{{ labelFor(incident.status) }}</span></td>
-                <td>{{ incident.operation_route || `Operacion #${incident.crew_operation_id}` }}</td>
-                <td>{{
-                  incident.crew_provider_company_name ||
-                  incident.crew_provider_name ||
-                  incident.provider_company_name ||
-                  incident.provider_name ||
-                  'Proveedor por definir'
-                }}</td>
-                <td>{{ incident.crew_name || `Sobrecargo #${incident.crew_id}` }}</td>
-                <td class="description-cell">{{ incident.description }}</td>
+              <tr v-for="group in groups" :key="group.key">
+                <td>{{ flightLoading ? 'Cargando…' : flightFor(group.incident) }}</td>
+                <td class="flight-date">{{ dateFor(group.incident) }}</td>
+                <td>
+                  {{
+                    group.incident.crew_operation_id
+                      ? `#${group.incident.crew_operation_id}`
+                      : 'N/D'
+                  }}
+                </td>
+                <td>{{ group.incident.operation_route || 'Ruta por definir' }}</td>
+                <td>{{ resolveProviderLabel(group.incident) }}</td>
+                <td>{{ resolveCrewLabel(group.incident) }}</td>
+                <td>{{ group.reports.length }} reportes</td>
+                <td>{{ group.open }} abiertas</td>
+                <td>{{ group.inReview }} en revisión</td>
+                <td>{{ group.closed }} cerradas</td>
+                <td>
+                  <RouterLink class="report-access group-access" :to="groupPath(group.incident)"
+                    >Ver reportes</RouterLink
+                  >
+                </td>
               </tr>
             </tbody>
           </table>
@@ -354,11 +408,78 @@ onMounted(fetchIncidents)
         </div>
       </article>
 
-      <aside class="detail-panel">
+      <article v-else-if="isGroup" class="detail-panel">
+        <RouterLink to="/admin/incidencias">← Listado de incidencias</RouterLink>
+        <template v-if="selectedGroup">
+          <h3>Reportes del vuelo</h3>
+          <div class="detail-grid group-details">
+            <article>
+              <span>Vuelo</span
+              ><strong>{{
+                flightLoading ? 'Cargando…' : flightFor(selectedGroup.incident)
+              }}</strong>
+            </article>
+            <article>
+              <span>Fecha</span><strong>{{ dateFor(selectedGroup.incident) }}</strong>
+            </article>
+            <article>
+              <span>Operación</span
+              ><strong>#{{ selectedGroup.incident.crew_operation_id || 'N/D' }}</strong>
+            </article>
+            <article>
+              <span>Ruta</span
+              ><strong>{{ selectedGroup.incident.operation_route || 'Ruta por definir' }}</strong>
+            </article>
+            <article>
+              <span>Empresa</span
+              ><strong>{{ resolveProviderLabel(selectedGroup.incident) }}</strong>
+            </article>
+            <article>
+              <span>Sobrecargo</span><strong>{{ resolveCrewLabel(selectedGroup.incident) }}</strong>
+            </article>
+          </div>
+          <strong>Total reportes: {{ selectedGroup.reports.length }}</strong>
+          <article
+            v-for="incident in selectedGroup.reports"
+            :key="incident.id"
+            class="detail-block flight-report"
+          >
+            <h3>Reporte #{{ incident.id }}</h3>
+            <div>Categoría: {{ labelFor(incident.category) }}</div>
+            <div>Prioridad: {{ labelFor(incident.priority) }}</div>
+            <div>Estado: {{ labelFor(incident.status) }}</div>
+            <p>Descripción: {{ incident.description }}</p>
+            <div class="access-actions">
+              <RouterLink class="report-access" :to="reportPath(incident.id)">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M6 3h8l4 4v14H6z M14 3v5h4 M9 12h6 M9 16h6" /></svg
+                >Ver reporte
+              </RouterLink>
+              <RouterLink class="evidence-access" :to="`${reportPath(incident.id)}/evidencias`">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M3 3h18v18H3z M3 17l6-6 4 4 3-3 5 5" />
+                  <circle cx="16" cy="8" r="1" /></svg
+                >Evidencias
+              </RouterLink>
+            </div>
+          </article>
+        </template>
+        <p v-else>
+          {{
+            isLoading ? 'Cargando reportes…' : 'No hay reportes para esta operación y sobrecargo.'
+          }}
+        </p>
+      </article>
+
+      <article v-else class="detail-panel">
         <template v-if="selectedIncident">
           <div class="detail-head">
             <div>
-              <span class="eyebrow">Reporte #{{ selectedIncident.id }}</span>
+              <span class="eyebrow"
+                >{{ isEvidence ? 'Evidencias del reporte' : 'REPORTE' }} #{{
+                  selectedIncident.id
+                }}</span
+              >
               <h3>{{ labelFor(selectedIncident.category) }}</h3>
             </div>
             <span class="pill pill-status">{{ labelFor(selectedIncident.status) }}</span>
@@ -385,89 +506,107 @@ onMounted(fetchIncidents)
             </article>
             <article>
               <span>Sobrecargo</span>
-              <strong>{{ selectedIncident.crew_name || `Sobrecargo #${selectedIncident.crew_id}` }}</strong>
+              <strong>{{
+                selectedIncident.crew_name || `Sobrecargo #${selectedIncident.crew_id}`
+              }}</strong>
             </article>
             <article>
               <span>Prioridad</span>
               <strong>{{ labelFor(selectedIncident.priority) }}</strong>
             </article>
-            <article>
-              <span>Evidencia</span>
-              <div class="incident-evidence" v-if="normalizedIncidentFiles(selectedIncident).length">
-                <article
-                  v-for="file in normalizedIncidentFiles(selectedIncident)"
-                  :key="file.id"
-                  class="incident-evidence__item"
-                >
-                  <img
-                    v-if="file.fileUrl && incidentFileKind(file) === 'image'"
-                    :src="file.fileUrl"
-                    :alt="file.name"
-                    class="incident-evidence__preview"
-                  />
-                  <strong>{{ file.name }}</strong>
-                  <a
-                    v-if="file.fileUrl"
-                    class="incident-evidence__link"
-                    :href="file.fileUrl"
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    Ver archivo
-                  </a>
-                </article>
-              </div>
-              <strong v-else>Evidencia AWS no disponible.</strong>
-            </article>
           </div>
 
-          <AdminClosureEvidence :operation-id="selectedIncident.crew_operation_id" />
+          <AdminClosureEvidence
+            ref="evidence"
+            :operation-id="selectedIncident.crew_operation_id"
+            :compact="!isEvidence"
+            :hide-refresh="isEvidence"
+          />
+          <RouterLink
+            v-if="!isEvidence"
+            class="evidence-access"
+            :to="`${reportPath(selectedIncident.id)}/evidencias`"
+            >Ver evidencias</RouterLink
+          >
 
-          <div class="detail-block">
-            <span>Descripcion</span>
-            <p>{{ selectedIncident.description }}</p>
-          </div>
+          <template v-if="!isEvidence">
+            <div class="detail-block">
+              <span>Descripcion</span>
+              <p>{{ selectedIncident.description }}</p>
+            </div>
 
-          <div class="detail-block">
-            <span>Respuesta actual</span>
-            <p>{{ selectedIncident.admin_response || 'Pendiente' }}</p>
-          </div>
+            <div class="detail-block">
+              <span>Respuesta actual</span>
+              <p>{{ selectedIncident.admin_response || 'Pendiente' }}</p>
+            </div>
 
-          <label>
-            <span>Estado</span>
-            <select v-model="draftFor(selectedIncident).status">
-              <option v-for="status in statuses" :key="status" :value="status">
-                {{ labelFor(status) }}
-              </option>
-            </select>
-          </label>
+            <label>
+              <span>Estado</span>
+              <select v-model="draftFor(selectedIncident).status">
+                <option v-for="status in statuses" :key="status" :value="status">
+                  {{ labelFor(status) }}
+                </option>
+              </select>
+            </label>
 
-          <label>
-            <span>Respuesta del Admin</span>
-            <textarea v-model="draftFor(selectedIncident).admin_response" rows="5"></textarea>
-          </label>
+            <label>
+              <span>Respuesta del Admin</span>
+              <textarea v-model="draftFor(selectedIncident).admin_response" rows="5"></textarea>
+            </label>
 
-          <div class="button-row">
-            <button type="button" class="ghost-button" @click="updateIncident(selectedIncident)">
-              Responder
-            </button>
-            <button type="button" class="ghost-button" @click="updateIncident(selectedIncident, 'in_review')">
-              En revision
-            </button>
-            <button type="button" class="ghost-button" @click="updateIncident(selectedIncident, 'resolved')">
-              Resolver
-            </button>
-            <button type="button" class="primary-action" @click="updateIncident(selectedIncident, 'closed')">
-              Cerrar
-            </button>
+            <fieldset class="button-row" :disabled="saving">
+              <button type="button" class="ghost-button" @click="updateIncident(selectedIncident)">
+                Responder
+              </button>
+              <button
+                type="button"
+                class="ghost-button"
+                @click="updateIncident(selectedIncident, 'in_review')"
+              >
+                En revision
+              </button>
+              <button
+                type="button"
+                class="ghost-button"
+                @click="updateIncident(selectedIncident, 'resolved')"
+              >
+                Resolver
+              </button>
+              <button
+                type="button"
+                class="primary-action"
+                @click="updateIncident(selectedIncident, 'closed')"
+              >
+                Cerrar
+              </button>
+            </fieldset>
+          </template>
+          <div v-else class="evidence-footer">
+            <RouterLink :to="reportPath(selectedIncident.id)">← Volver al reporte</RouterLink>
+            <div class="button-row">
+              <button
+                class="ghost-button"
+                :disabled="evidence?.loading"
+                @click="evidence?.refresh()"
+              >
+                Actualizar evidencias
+              </button>
+              <button
+                class="primary-action"
+                :disabled="saving"
+                @click="updateIncident(selectedIncident, 'resolved')"
+              >
+                Resolver reporte
+              </button>
+            </div>
           </div>
         </template>
 
         <div v-else class="empty-state">
-          <strong>Sin seleccion</strong>
-          <p>Selecciona una incidencia de la bandeja para responderla.</p>
+          <strong>{{ isLoading ? 'Cargando reporte…' : 'Reporte no disponible' }}</strong>
+          <p v-if="!isLoading">No se encontró el reporte #{{ route.params.id }}.</p>
         </div>
-      </aside>
+      </article>
     </section>
   </section>
 </template>
@@ -585,7 +724,7 @@ textarea {
 }
 
 .incidents-workspace {
-  grid-template-columns: minmax(0, 1.45fr) minmax(340px, 0.75fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
 }
 
@@ -625,12 +764,7 @@ thead th {
   text-transform: uppercase;
 }
 
-tbody tr {
-  cursor: pointer;
-}
-
-tbody tr:hover,
-tbody tr.selected {
+tbody tr:hover {
   background: #fff3d8;
 }
 
@@ -660,8 +794,7 @@ tbody tr.selected {
 }
 
 .detail-panel {
-  position: sticky;
-  top: 1rem;
+  min-width: 0;
 }
 
 .detail-grid {
@@ -679,36 +812,6 @@ tbody tr.selected {
 .detail-grid strong,
 .detail-block p {
   overflow-wrap: anywhere;
-}
-
-.incident-evidence {
-  display: grid;
-  gap: 0.75rem;
-}
-
-.incident-evidence__item {
-  display: grid;
-  gap: 0.45rem;
-}
-
-.incident-evidence__preview {
-  width: 100%;
-  max-width: 220px;
-  border-radius: 12px;
-  border: 1px solid #eee6da;
-  object-fit: cover;
-}
-
-.incident-evidence__link {
-  color: #0f766e;
-  font-size: 0.85rem;
-  font-weight: 700;
-  text-decoration: none;
-}
-
-.incident-evidence__link:hover,
-.incident-evidence__link:focus-visible {
-  text-decoration: underline;
 }
 
 .button-row {
@@ -758,5 +861,63 @@ tbody tr.selected {
   .detail-grid {
     grid-template-columns: 1fr;
   }
+}
+.access-actions {
+  display: flex;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
+.report-access,
+.evidence-access,
+.incident-tabs a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid #173b65;
+  border-radius: 10px;
+  color: #173b65;
+  background: white;
+  text-decoration: none;
+  font-weight: 700;
+}
+.report-access,
+.incident-tabs a.active {
+  background: #173b65;
+  color: white;
+}
+.access-actions svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+}
+.evidence-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+fieldset.button-row {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+.flight-date,
+.group-access {
+  white-space: nowrap;
+}
+.flight-report h3 {
+  margin: 0;
+}
+.group-details strong {
+  display: block;
 }
 </style>

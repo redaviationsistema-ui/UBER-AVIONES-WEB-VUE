@@ -42,8 +42,25 @@ describe('admin router policy', () => {
     const crewAvailabilityRoute = router.resolve('/admin/sobrecargos/disponibilidad')
     const crewOperationsRoute = router.resolve('/admin/sobrecargos/operaciones')
     const crewInFlightRoute = router.resolve('/admin/sobrecargos/en-vuelo')
+    const logbookRoute = router.resolve('/admin/sobrecargos-bitacora/8/bitacora?operationId=46&tab=preflight')
+    expect(logbookRoute.name).toBe('admin-sobrecargo-bitacora')
+    expect(logbookRoute.params).toMatchObject({ section: 'sobrecargos-bitacora', crewId: '8' })
+    expect(logbookRoute.meta.requiresAdmin).toBe(true)
+    const groupRoute = router.resolve('/admin/incidencias/operaciones/46/sobrecargos/8')
+    expect(groupRoute.name).toBe('admin-incidencias-grupo')
+    expect(groupRoute.params).toMatchObject({ section: 'incidencias', operationId: '46', crewId: '8' })
+    expect(groupRoute.meta.requiresAdmin).toBe(true)
     const crewIncidentsRoute = router.resolve('/admin/sobrecargos/incidencias')
 
+    for (const id of [15, 16, 17]) {
+      for (const suffix of ['', '/evidencias']) {
+        const route = router.resolve(`/admin/incidencias/${id}${suffix}`)
+        expect(route.params).toMatchObject({ section: 'incidencias', id: String(id) })
+        expect(route.meta.requiresAdmin).toBe(true)
+        expect(route.meta.requiresAuth).toBe(true)
+        expect(route.meta.role).toBe('admin')
+      }
+    }
     expect(adminRoute.meta.requiresAuth).toBe(true)
     expect(adminRoute.meta.requiresAdmin).toBe(true)
     expect(adminRoute.meta.role).toBe('admin')
