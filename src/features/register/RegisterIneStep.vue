@@ -132,19 +132,27 @@ const flowSteps = computed(() => [
   {
     number: 4,
     label: 'Validar rostro',
-    complete: ['pending_backend_validation', 'approved', 'rejected'].includes(
+    complete: ['pending', 'pending_backend_validation', 'approved', 'rejected'].includes(
       String(props.form.identityVerificationStatus || '').trim(),
     ),
   },
   {
     number: 5,
     label: 'Mostrar resultado',
-    complete: ['approved', 'rejected'].includes(String(props.form.identityVerificationStatus || '').trim()),
+    complete: ['pending', 'approved', 'rejected'].includes(String(props.form.identityVerificationStatus || '').trim()),
   },
 ])
 
 const responseState = computed(() => {
   const status = String(props.form.identityVerificationStatus || '').trim()
+
+  if (status === 'pending') {
+    return {
+      label: 'Identidad pendiente',
+      detail: props.form.identityVerificationMessage || 'La captura no equivale a identidad aprobada.',
+      tone: 'pending-review',
+    }
+  }
 
   if (status === 'approved') {
     return {
@@ -827,6 +835,7 @@ function resetBiometricCapture(message = '') {
     identityVerificationStatus: '',
     identityVerificationMessage: message,
     identityVerified: false,
+    captureAccepted: false,
     faceDetected: false,
     faceMatchScore: null,
     livenessScore: null,
@@ -856,7 +865,8 @@ function applyBiometricValidationResult(result = {}, file, previewUrl) {
     selfiePreviewUrl: previewUrl,
     identityVerificationStatus: result.identityVerificationStatus || '',
     identityVerificationMessage: result.message || '',
-    identityVerified: Boolean(result.identityVerified),
+    identityVerified: false,
+    captureAccepted: Boolean(result.captureAccepted),
     faceDetected: Boolean(result.faceDetected),
     faceMatchScore: null,
     livenessScore: null,
@@ -904,9 +914,9 @@ async function validateCapturedSelfie(file, previewUrl) {
 
     applyBiometricValidationResult(result, file, previewUrl)
     verificationMessage.value = result.message || ''
-    cameraStatus.value = result.identityVerified
+    cameraStatus.value = result.captureAccepted
       ? 'Rostro validado correctamente.'
-      : 'La selfie fue analizada pero no quedo aprobada.'
+      : 'La captura no cumple la calidad requerida.'
   } catch (error) {
     const rejectionMessage =
       error?.status === 401
@@ -917,6 +927,7 @@ async function validateCapturedSelfie(file, previewUrl) {
       {
         message: rejectionMessage,
         identityVerified: false,
+    captureAccepted: false,
         identityVerificationStatus: 'rejected',
         biometricProvider: 'aws_rekognition',
         biometricTemplateType: 'selfie-photo',
@@ -1013,6 +1024,7 @@ async function captureBiometricSelfie() {
       identityVerificationStatus: 'pending_backend_validation',
       identityVerificationMessage: 'Selfie capturada. Validando rostro...',
       identityVerified: false,
+    captureAccepted: false,
       faceDetected: false,
       faceMatchScore: null,
       livenessScore: null,

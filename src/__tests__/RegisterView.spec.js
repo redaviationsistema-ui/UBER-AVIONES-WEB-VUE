@@ -81,4 +81,48 @@ describe('RegisterView', () => {
     expect(pushMock).not.toHaveBeenCalled()
     expect(clearAuthMock).not.toHaveBeenCalled()
   })
+  it('completes client registration with a pending identity and no approval claim', async () => {
+    registerMock.mockReset()
+    pushMock.mockClear()
+    clearAuthMock.mockClear()
+    registerMock.mockResolvedValue({
+      success: true,
+      user_created: true,
+      identity: { status: 'pending' },
+      user: { role: 'client', identity_verified: false },
+    })
+    const wrapper = mount(RegisterView, {
+      global: { stubs: { BrandLogo: { template: '<div />' } } },
+    })
+    wrapper.vm.form.role = 'client'
+    await flushPromises()
+    Object.assign(wrapper.vm.form, {
+      name: 'Cliente Prueba', phone: '5555555555', birthDate: '1990-01-01',
+      nationality: 'Mexicana', documentNumber: 'ABC123456',
+      ineFront: new File(['front'], 'front.jpg', { type: 'image/jpeg' }),
+      ineBack: new File(['back'], 'back.jpg', { type: 'image/jpeg' }),
+      identificationUploadStatus: 'saved', identificationDocumentId: 'doc-123',
+      selfieFile: new File(['selfie'], 'selfie.jpg', { type: 'image/jpeg' }),
+      selfiePreviewUrl: 'blob:selfie', faceDetected: true, captureAccepted: true,
+      identityVerificationStatus: 'pending', identityVerified: false,
+      email: 'client@example.test', password: 'Password123!', passwordConfirmation: 'Password123!',
+    })
+    wrapper.vm.currentStep = 1
+    await flushPromises()
+    await wrapper.find('.wizard-actions .primary-button').trigger('click')
+    await flushPromises()
+    expect(wrapper.vm.currentStep).toBe(2)
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(registerMock).toHaveBeenCalledOnce()
+    const [payload, options] = registerMock.mock.calls[0]
+    expect(options.path).toBe('/auth/register')
+    expect(payload.has('identity_verified')).toBe(false)
+    expect(payload.has('face_match_score')).toBe(false)
+    expect(wrapper.text()).toContain('Cuenta creada. Identidad pendiente de revisión.')
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+    expect(pushMock).toHaveBeenCalledWith({ name: 'login-cliente' })
+    wrapper.unmount()
+  })
+
 })

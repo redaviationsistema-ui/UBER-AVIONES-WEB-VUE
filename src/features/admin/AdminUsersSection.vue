@@ -87,6 +87,10 @@ const selectedUserDetail = ref(null)
 const biometricImageLoading = ref(false)
 const biometricImageError = ref(false)
 const identityImageErrors = ref({})
+const identityReviewSubmitting = ref(false)
+const identityReviewReason = ref('')
+const crewReviewSubmitting = ref(false)
+const crewReviewReason = ref('')
 const biometricLightboxOpen = ref(false)
 const paymentDetailOpen = ref(false)
 const selectedPaymentDetail = ref(null)
@@ -1419,6 +1423,43 @@ function isClientUser(user = {}) {
   return normalizeRoleKey(user?.role) === 'client'
 }
 
+function identityReviewState(detail = {}) {
+  return String(getNestedValue(detail, [
+    'user.identity_verification_status',
+    'user.raw.identity_verification_status',
+    'user.raw.identityVerificationStatus',
+  ]) || 'pending').trim().toLowerCase()
+}
+
+function identityReviewLabel(detail = {}) {
+  const state = identityReviewState(detail)
+  if (state === 'approved') return 'Aprobada'
+  if (state === 'rejected') return 'Rechazada'
+  return 'Pendiente'
+}
+
+function identityReviewTone(detail = {}) {
+  const state = identityReviewState(detail)
+  if (state === 'approved') return 'status-pill-success'
+  if (state === 'rejected') return 'status-pill-danger'
+  return 'status-pill-warn'
+}
+
+function crewApplication(detail = {}) {
+  return getNestedValue(detail, ['user.profile.tax_data.crew_application']) || {}
+}
+
+function crewReviewState(detail = {}) {
+  return String(crewApplication(detail).status || '').trim().toLowerCase()
+}
+
+function crewReviewLabel(detail = {}) {
+  const state = crewReviewState(detail)
+  if (state === 'approved') return 'Aprobada'
+  if (state === 'rejected') return 'Rechazada'
+  return 'Pendiente'
+}
+
 function closeDetailModal() {
   detailOpen.value = false
   detailLoading.value = false
@@ -1427,6 +1468,10 @@ function closeDetailModal() {
   biometricImageLoading.value = false
   biometricImageError.value = false
   identityImageErrors.value = {}
+  identityReviewSubmitting.value = false
+  identityReviewReason.value = ''
+  crewReviewSubmitting.value = false
+  crewReviewReason.value = ''
   biometricLightboxOpen.value = false
 }
 
@@ -1504,6 +1549,78 @@ async function retryIdentityImageLoad(item) {
   } catch (error) {
     identityImageErrors.value = { ...identityImageErrors.value, [item.key]: true }
     detailError.value = error.message || 'No fue posible refrescar el documento.'
+  }
+}
+
+async function reviewIdentity(status) {
+  const userId = selectedUserDetail.value?.user?.id
+  if (!userId || identityReviewSubmitting.value) return
+
+  const reason = identityReviewReason.value.trim()
+  if (status === 'rejected' && !reason) {
+    detailError.value = 'Indica el motivo de rechazo antes de continuar.'
+    return
+  }
+
+  identityReviewSubmitting.value = true
+  detailError.value = ''
+  try {
+    await requestWithCandidates([
+      {
+        method: 'post',
+        path: `/admin/users/${userId}/identity-review`,
+        body: { status, ...(status === 'rejected' ? { reason } : {}) },
+      },
+    ])
+    const detailedUser = await fetchUserDetail(userId)
+    selectedUserDetail.value = { user: detailedUser, provider: detailedUser.provider }
+    identityReviewReason.value = ''
+    await refreshCurrentUserSource()
+    ui.pushToast({
+      tone: 'success',
+      title: status === 'approved' ? 'Identidad aprobada' : 'Identidad rechazada',
+      message: 'La decisión fue confirmada por el backend.',
+    })
+  } catch (error) {
+    detailError.value = error.message || 'El backend no confirmó la revisión de identidad.'
+  } finally {
+    identityReviewSubmitting.value = false
+  }
+}
+
+async function reviewCrewApplication(status) {
+  const userId = selectedUserDetail.value?.user?.id
+  if (!userId || crewReviewSubmitting.value) return
+
+  const reason = crewReviewReason.value.trim()
+  if (status === 'rejected' && !reason) {
+    detailError.value = 'Indica el motivo de rechazo de la candidatura antes de continuar.'
+    return
+  }
+
+  crewReviewSubmitting.value = true
+  detailError.value = ''
+  try {
+    await requestWithCandidates([
+      {
+        method: 'post',
+        path: `/admin/users/${userId}/crew-review`,
+        body: { status, ...(status === 'rejected' ? { reason } : {}) },
+      },
+    ])
+    const detailedUser = await fetchUserDetail(userId)
+    selectedUserDetail.value = { user: detailedUser, provider: detailedUser.provider }
+    crewReviewReason.value = ''
+    await refreshCurrentUserSource()
+    ui.pushToast({
+      tone: 'success',
+      title: status === 'approved' ? 'Candidatura aprobada' : 'Candidatura rechazada',
+      message: 'La decisión fue confirmada por el backend.',
+    })
+  } catch (error) {
+    detailError.value = error.message || 'El backend no confirmó la revisión de candidatura.'
+  } finally {
+    crewReviewSubmitting.value = false
   }
 }
 
@@ -2729,7 +2846,9 @@ function auditUser(user) {
             <section class="detail-section">
               <div class="detail-section-head">
                 <h4>Identidad e INE</h4>
-                <span class="status-pill">Expediente</span>
+                <span class="status-pill" :class="identityReviewTone(selectedUserDetail)">
+                  Identidad {{ identityReviewLabel(selectedUserDetail) }}
+                </span>
               </div>
               <div class="detail-grid">
                 <article v-for="row in identityDetailRows(selectedUserDetail)" :key="row.label" class="detail-card">
@@ -2737,6 +2856,41 @@ function auditUser(user) {
                   <strong>{{ row.value }}</strong>
                 </article>
               </div>
+              <div v-if="identityReviewState(selectedUserDetail) === 'pending'" class="detail-review-actions">
+                <label class="field">
+                  <span>Motivo de rechazo</span>
+                  <textarea
+                    v-model="identityReviewReason"
+                    rows="3"
+                    placeholder="Obligatorio solo al rechazar"
+                    :disabled="identityReviewSubmitting"
+                  ></textarea>
+                </label>
+                <div class="inline-actions">
+                  <button
+                    type="button"
+                    class="admin-btn admin-btn-secondary"
+                    data-testid="approve-identity"
+                    :disabled="identityReviewSubmitting"
+                    @click="reviewIdentity('approved')"
+                  >
+                    {{ identityReviewSubmitting ? 'Guardando...' : 'Aprobar identidad' }}
+                  </button>
+                  <button
+                    type="button"
+                    class="admin-btn admin-btn-danger"
+                    data-testid="reject-identity"
+                    :disabled="identityReviewSubmitting"
+                    @click="reviewIdentity('rejected')"
+                  >
+                    Rechazar identidad
+                  </button>
+                </div>
+              </div>
+              <p v-else-if="identityReviewState(selectedUserDetail) === 'rejected'" class="detail-note field-error">
+                La identidad fue rechazada. {{ getNestedValue(selectedUserDetail, ['user.profile.tax_data.identity_review.rejection_reason']) || '' }}
+              </p>
+              <p v-else class="detail-note">La identidad fue aprobada por administración.</p>
               <div v-if="resolveOfficialIdentificationAccess(selectedUserDetail).viewUrl" class="detail-list">
                 <article class="detail-list-row detail-list-row-document">
                   <div>
@@ -2863,6 +3017,53 @@ function auditUser(user) {
                   </p>
                 </div>
               </div>
+            </section>
+
+            <section v-if="crewReviewState(selectedUserDetail)" class="detail-section">
+              <div class="detail-section-head">
+                <h4>Candidatura de sobrecargo</h4>
+                <span class="status-pill" :class="crewReviewState(selectedUserDetail) === 'approved' ? 'status-pill-success' : crewReviewState(selectedUserDetail) === 'rejected' ? 'status-pill-danger' : 'status-pill-warn'">
+                  {{ crewReviewLabel(selectedUserDetail) }}
+                </span>
+              </div>
+              <p class="detail-note">
+                Licencia: {{ crewApplication(selectedUserDetail).license_number || 'Sin número registrado' }}.
+              </p>
+              <div v-if="crewReviewState(selectedUserDetail) === 'pending'" class="detail-review-actions">
+                <label class="field">
+                  <span>Motivo de rechazo</span>
+                  <textarea
+                    v-model="crewReviewReason"
+                    rows="3"
+                    placeholder="Obligatorio solo al rechazar"
+                    :disabled="crewReviewSubmitting"
+                  ></textarea>
+                </label>
+                <div class="inline-actions">
+                  <button
+                    type="button"
+                    class="admin-btn admin-btn-secondary"
+                    data-testid="approve-crew-application"
+                    :disabled="crewReviewSubmitting"
+                    @click="reviewCrewApplication('approved')"
+                  >
+                    {{ crewReviewSubmitting ? 'Guardando...' : 'Aprobar candidatura' }}
+                  </button>
+                  <button
+                    type="button"
+                    class="admin-btn admin-btn-danger"
+                    data-testid="reject-crew-application"
+                    :disabled="crewReviewSubmitting"
+                    @click="reviewCrewApplication('rejected')"
+                  >
+                    Rechazar candidatura
+                  </button>
+                </div>
+              </div>
+              <p v-else-if="crewReviewState(selectedUserDetail) === 'rejected'" class="detail-note field-error">
+                La candidatura fue rechazada. {{ crewApplication(selectedUserDetail).rejection_reason || '' }}
+              </p>
+              <p v-else class="detail-note">La candidatura fue aprobada y el rol operacional quedó activo.</p>
             </section>
 
             <section v-if="selectedUserDetail?.provider" class="detail-section">

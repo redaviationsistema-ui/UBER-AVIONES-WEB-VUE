@@ -164,4 +164,62 @@ describe('AdminUsersSection biometric state', () => {
 
     wrapper.unmount()
   })
+
+  it('approves a pending identity through the dedicated endpoint and refreshes its status', async () => {
+    const user = biometricUser(96, { identity_verification_status: 'pending' })
+    requestWithCandidates
+      .mockResolvedValueOnce({ user: detailUser(96, { identity_verification_status: 'pending' }) })
+      .mockResolvedValueOnce({ status: 'approved' })
+      .mockResolvedValueOnce({ user: detailUser(96, { identity_verification_status: 'approved' }) })
+    const wrapper = mountUsers([user])
+
+    await openDetail(wrapper)
+    await wrapper.get('[data-testid="approve-identity"]').trigger('click')
+
+    await vi.waitFor(() => expect(wrapper.text()).toContain('Identidad Aprobada'))
+    expect(requestWithCandidates).toHaveBeenCalledWith([
+      expect.objectContaining({
+        method: 'post',
+        path: '/admin/users/96/identity-review',
+        body: { status: 'approved' },
+      }),
+    ])
+    expect(wrapper.find('[data-testid="approve-identity"]').exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
+  it('approves a pending crew application through the dedicated endpoint', async () => {
+    const crewApplication = { status: 'pending', license_number: '12345678-12' }
+    requestWithCandidates
+      .mockResolvedValueOnce({
+        user: detailUser(97, {
+          identity_verification_status: 'approved',
+          profile: { tax_data: { crew_application: crewApplication } },
+        }),
+      })
+      .mockResolvedValueOnce({ status: 'approved' })
+      .mockResolvedValueOnce({
+        user: detailUser(97, {
+          identity_verification_status: 'approved',
+          profile: { tax_data: { crew_application: { ...crewApplication, status: 'approved' } } },
+        }),
+      })
+    const wrapper = mountUsers([biometricUser(97)])
+
+    await openDetail(wrapper)
+    await wrapper.get('[data-testid="approve-crew-application"]').trigger('click')
+
+    await vi.waitFor(() => expect(wrapper.text()).toContain('Candidatura de sobrecargo'))
+    expect(requestWithCandidates).toHaveBeenCalledWith([
+      expect.objectContaining({
+        method: 'post',
+        path: '/admin/users/97/crew-review',
+        body: { status: 'approved' },
+      }),
+    ])
+    expect(wrapper.find('[data-testid="approve-crew-application"]').exists()).toBe(false)
+
+    wrapper.unmount()
+  })
 })

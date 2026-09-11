@@ -56,14 +56,12 @@ let preferredClientTripsPath = ''
 const CLIENT_TRIP_SHOW_PATHS = CLIENT_TRIPS_PATHS.filter((path) => path.includes('/flight-requests'))
 const CLIENT_FLIGHT_BRIEF_PATHS = ['/client/flight-requests/:id/flight-brief']
 const CLIENT_RESERVATION_SHOW_PATHS = [
-  ...new Set(['/cliente/reservas/:id', '/client/reservations/:id', '/cliente/historial/:id'].filter(Boolean)),
+  ...new Set(['/cliente/reservas/:id'].filter(Boolean)),
 ]
 const CLIENT_RESERVATION_PAYMENT_AVAILABILITY_PATHS = [
   ...new Set(
     [
       '/cliente/reservas/:id/payment-availability',
-      '/cliente/solicitudes/:id/payment-availability',
-      '/client/reservations/:id/payment-availability',
     ].filter(Boolean),
   ),
 ]

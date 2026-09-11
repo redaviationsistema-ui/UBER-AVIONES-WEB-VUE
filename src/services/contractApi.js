@@ -29,9 +29,6 @@ const CONTRACT_GENERATE_PATHS = [
       configuredGeneratePath,
       '/cliente/reservas/:id/contrato/docusign',
       '/client/reservations/:id/contract/docusign',
-      '/cliente/reservas/:id/contrato/firmar',
-      '/client/reservations/:id/contract/sign',
-      '/contracts/generate-and-send',
     ].filter(Boolean),
   ),
 ]
@@ -108,19 +105,28 @@ export function buildContractResultUrl({ contractId = '', reservationId = '', fl
 
 function resolveReservationIdForRoute(payload = {}) {
   return String(
-    payload?.reservation_id || payload?.booking_id || payload?.id || payload?.reservation || '',
+    payload?.reservation_id || payload?.booking_id || payload?.reservation?.id || '',
   ).trim()
 }
 
 export async function generateAndSendContract(payload = {}, options = {}) {
   const reservationId = resolveReservationIdForRoute(payload)
+  if (!reservationId) throw new Error('No encontramos el reservation_id para generar el contrato.')
+  const requestPayload = {
+    reservation_id: reservationId,
+    flight_request_id: payload.flight_request_id,
+    return_url: payload.return_url,
+    callback_url: payload.callback_url,
+    return_path: payload.return_path,
+    regenerate: payload.regenerate ?? false,
+  }
   let lastError = null
 
   for (const path of CONTRACT_GENERATE_PATHS) {
     try {
       const resolvedPath =
         path.includes(':id') && reservationId ? replaceRouteParam(path, reservationId) : path
-      return await api.post(resolvedPath, payload, options)
+      return await api.post(resolvedPath, requestPayload, options)
     } catch (error) {
       lastError = error
 

@@ -98,6 +98,7 @@ const form = reactive({
   identityVerificationStatus: '',
   identityVerificationMessage: '',
   identityVerified: false,
+  captureAccepted: false,
   faceDetected: false,
   faceMatchScore: null,
   livenessScore: null,
@@ -204,6 +205,7 @@ function setFile(field, event) {
   form.identityVerificationStatus = ''
   form.identityVerificationMessage = ''
   form.identityVerified = false
+  form.captureAccepted = false
   form.faceDetected = false
   form.faceMatchScore = null
   form.livenessScore = null
@@ -245,6 +247,7 @@ function setFormField(field, value) {
     form.identityVerificationStatus = ''
     form.identityVerificationMessage = ''
     form.identityVerified = false
+    form.captureAccepted = false
     form.faceDetected = false
     form.faceMatchScore = null
     form.livenessScore = null
@@ -267,6 +270,7 @@ function setFormField(field, value) {
     form.identityVerificationStatus = ''
     form.identityVerificationMessage = ''
     form.identityVerified = false
+    form.captureAccepted = false
     form.faceDetected = false
     form.faceMatchScore = null
     form.livenessScore = null
@@ -485,8 +489,8 @@ async function validateCurrentStep() {
       const biometricCaptureReady =
         Boolean(form.selfieFile) &&
         Boolean(form.selfiePreviewUrl) &&
-        String(form.identityVerificationStatus || '').trim() === 'approved' &&
-        Boolean(form.identityVerified)
+        Boolean(form.faceDetected) &&
+        Boolean(form.captureAccepted)
 
       if (form.identityValidationRequired && !biometricCaptureReady) {
         errorMessage.value =
@@ -693,31 +697,6 @@ function buildRegistrationPayload() {
     license_document_status: form.documentStatus,
   }
 
-  if (!isCrewRole.value && !isProviderRole.value) {
-    Object.assign(baseFields, {
-      identity_verification_status: form.identityVerificationStatus,
-      identity_verification_message: form.identityVerificationMessage,
-      identity_verified: form.identityVerified,
-      face_detected: form.faceDetected,
-      face_match_score: form.faceMatchScore,
-      liveness_score: form.livenessScore,
-      image_storage_score: form.imageStorageScore,
-      biometric_image_saved: form.biometricImageSaved,
-      biometric_captured_at: form.biometricCapturedAt,
-      biometric_provider: form.biometricProvider || 'camera_capture',
-      biometric_template_type: form.biometricTemplateType || 'selfie-photo',
-      biometric_version: 'v1',
-      faces_count: form.facesCount,
-      face_confidence: form.faceConfidence,
-      quality_brightness: form.qualityBrightness,
-      quality_sharpness: form.qualitySharpness,
-      pose_yaw: form.poseYaw,
-      pose_pitch: form.posePitch,
-      pose_roll: form.poseRoll,
-      face_occluded: form.faceOccluded,
-    })
-  }
-
   Object.entries(baseFields).forEach(([key, value]) => appendFormValue(formData, key, value))
 
   if (isCrewRole.value) {
@@ -759,21 +738,29 @@ async function submit() {
   try {
     const payload = buildRegistrationPayload()
     logRegistrationPayload(payload)
-    const registerPath = form.role === 'provider' ? '/provider/register' : '/auth/register'
+    const registerPath = form.role === 'provider'
+      ? '/provider/register'
+      : form.role === 'sobrecargo' ? '/crew/register' : '/auth/register'
     const response = await auth.register(payload, {
       intendedRole: form.role,
       path: registerPath,
     })
     const providerStatus = String(response?.provider_status || '').trim().toLowerCase()
+    const identityStatus = response?.identity?.status || response?.user?.identity_verification_status
+    const identityMessage = identityStatus === 'approved'
+      ? 'Cuenta creada. Identidad aprobada.'
+      : identityStatus === 'rejected'
+        ? 'Cuenta creada. Identidad rechazada; requiere revisión.'
+        : 'Cuenta creada. Identidad pendiente de revisión.'
 
     successMessage.value =
       form.role === 'client'
-        ? 'Usuario cliente creado. Redirigiendo al acceso de clientes.'
+        ? identityMessage
         : form.role === 'provider'
           ? providerStatus === 'pending_validation'
             ? 'Proveedor creado correctamente. Redirigiendo al acceso de clientes.'
             : 'Operador creado correctamente. Redirigiendo al acceso de clientes.'
-          : 'Sobrecargo creado correctamente. Redirigiendo al acceso de clientes.'
+          : 'Cuenta creada. Solicitud de sobrecargo pendiente de autorización.'
 
     auth.clearAuth()
     router.push({ name: 'login-cliente' })

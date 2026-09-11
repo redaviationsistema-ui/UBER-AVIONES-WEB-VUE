@@ -1,0 +1,978 @@
+{
+    "environment": "production",
+    "read_only": true,
+    "historical_visible_password_count": 1,
+    "table_counts": {
+        "users": 13,
+        "providers": 6,
+        "aircraft": 21,
+        "flight_requests": 2,
+        "quotes": 2,
+        "reservations": 2,
+        "reservation_contracts": 2,
+        "payments": 14,
+        "operations": 2
+    },
+    "operation_duplicate_request_groups": 0,
+    "foreign_keys": [
+        {
+            "constraint_name": "access_payments_billing_plan_id_foreign",
+            "child_table": "access_payments",
+            "parent_table": "plans",
+            "definition": "FOREIGN KEY (billing_plan_id) REFERENCES plans(id) ON DELETE RESTRICT",
+            "on_delete": "RESTRICT"
+        },
+        {
+            "constraint_name": "access_payments_user_id_foreign",
+            "child_table": "access_payments",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "aircraft_base_airport_id_foreign",
+            "child_table": "aircraft",
+            "parent_table": "airports",
+            "definition": "FOREIGN KEY (base_airport_id) REFERENCES airports(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "aircraft_provider_id_foreign",
+            "child_table": "aircraft",
+            "parent_table": "providers",
+            "definition": "FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "aircraft_availability_aircraft_id_foreign",
+            "child_table": "aircraft_availability",
+            "parent_table": "aircraft",
+            "definition": "FOREIGN KEY (aircraft_id) REFERENCES aircraft(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "aircraft_availability_blocks_aircraft_id_foreign",
+            "child_table": "aircraft_availability_blocks",
+            "parent_table": "aircraft",
+            "definition": "FOREIGN KEY (aircraft_id) REFERENCES aircraft(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "aircraft_availability_blocks_flight_request_id_foreign",
+            "child_table": "aircraft_availability_blocks",
+            "parent_table": "flight_requests",
+            "definition": "FOREIGN KEY (flight_request_id) REFERENCES flight_requests(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "aircraft_availability_blocks_quote_id_foreign",
+            "child_table": "aircraft_availability_blocks",
+            "parent_table": "quotes",
+            "definition": "FOREIGN KEY (quote_id) REFERENCES quotes(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "aircraft_availability_blocks_reservation_id_foreign",
+            "child_table": "aircraft_availability_blocks",
+            "parent_table": "reservations",
+            "definition": "FOREIGN KEY (reservation_id) REFERENCES reservations(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "aircraft_availability_blocks_user_id_foreign",
+            "child_table": "aircraft_availability_blocks",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "aircraft_billing_payments_aircraft_id_foreign",
+            "child_table": "aircraft_billing_payments",
+            "parent_table": "aircraft",
+            "definition": "FOREIGN KEY (aircraft_id) REFERENCES aircraft(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "aircraft_billing_payments_billing_plan_id_foreign",
+            "child_table": "aircraft_billing_payments",
+            "parent_table": "plans",
+            "definition": "FOREIGN KEY (billing_plan_id) REFERENCES plans(id) ON DELETE RESTRICT",
+            "on_delete": "RESTRICT"
+        },
+        {
+            "constraint_name": "aircraft_billing_payments_provider_id_foreign",
+            "child_table": "aircraft_billing_payments",
+            "parent_table": "providers",
+            "definition": "FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "aircraft_checklist_items_checklist_id_foreign",
+            "child_table": "aircraft_checklist_items",
+            "parent_table": "aircraft_checklists",
+            "definition": "FOREIGN KEY (checklist_id) REFERENCES aircraft_checklists(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "aircraft_checklists_aircraft_id_foreign",
+            "child_table": "aircraft_checklists",
+            "parent_table": "aircraft",
+            "definition": "FOREIGN KEY (aircraft_id) REFERENCES aircraft(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "aircraft_checklists_created_by_foreign",
+            "child_table": "aircraft_checklists",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "aircraft_checklists_updated_by_foreign",
+            "child_table": "aircraft_checklists",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "aircraft_documents_aircraft_id_foreign",
+            "child_table": "aircraft_documents",
+            "parent_table": "aircraft",
+            "definition": "FOREIGN KEY (aircraft_id) REFERENCES aircraft(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "aircraft_documents_provider_id_foreign",
+            "child_table": "aircraft_documents",
+            "parent_table": "providers",
+            "definition": "FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "aircraft_images_aircraft_id_foreign",
+            "child_table": "aircraft_images",
+            "parent_table": "aircraft",
+            "definition": "FOREIGN KEY (aircraft_id) REFERENCES aircraft(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "aircraft_performance_profiles_aircraft_id_foreign",
+            "child_table": "aircraft_performance_profiles",
+            "parent_table": "aircraft",
+            "definition": "FOREIGN KEY (aircraft_id) REFERENCES aircraft(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "aircraft_subscriptions_aircraft_id_foreign",
+            "child_table": "aircraft_subscriptions",
+            "parent_table": "aircraft",
+            "definition": "FOREIGN KEY (aircraft_id) REFERENCES aircraft(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "aircraft_subscriptions_plan_id_foreign",
+            "child_table": "aircraft_subscriptions",
+            "parent_table": "plans",
+            "definition": "FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE RESTRICT",
+            "on_delete": "RESTRICT"
+        },
+        {
+            "constraint_name": "aircraft_subscriptions_user_id_foreign",
+            "child_table": "aircraft_subscriptions",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "airport_expense_rules_aircraft_id_foreign",
+            "child_table": "airport_expense_rules",
+            "parent_table": "aircraft",
+            "definition": "FOREIGN KEY (aircraft_id) REFERENCES aircraft(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "anti_broker_flags_flight_request_id_foreign",
+            "child_table": "anti_broker_flags",
+            "parent_table": "flight_requests",
+            "definition": "FOREIGN KEY (flight_request_id) REFERENCES flight_requests(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "anti_broker_flags_message_id_foreign",
+            "child_table": "anti_broker_flags",
+            "parent_table": "chat_messages",
+            "definition": "FOREIGN KEY (message_id) REFERENCES chat_messages(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "anti_broker_flags_user_id_foreign",
+            "child_table": "anti_broker_flags",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "api_tokens_user_id_foreign",
+            "child_table": "api_tokens",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "attachments_user_id_foreign",
+            "child_table": "attachments",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "audit_logs_admin_user_id_foreign",
+            "child_table": "audit_logs",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (admin_user_id) REFERENCES users(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "audit_logs_user_id_foreign",
+            "child_table": "audit_logs",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "chat_messages_chat_id_foreign",
+            "child_table": "chat_messages",
+            "parent_table": "protected_chats",
+            "definition": "FOREIGN KEY (chat_id) REFERENCES protected_chats(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "chat_messages_sender_id_foreign",
+            "child_table": "chat_messages",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "checklist_items_checklist_id_foreign",
+            "child_table": "checklist_items",
+            "parent_table": "checklists",
+            "definition": "FOREIGN KEY (checklist_id) REFERENCES checklists(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "checklist_items_completed_by_foreign",
+            "child_table": "checklist_items",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (completed_by) REFERENCES users(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "checklists_operation_id_foreign",
+            "child_table": "checklists",
+            "parent_table": "operations",
+            "definition": "FOREIGN KEY (operation_id) REFERENCES operations(id) ON DELETE RESTRICT",
+            "on_delete": "RESTRICT"
+        },
+        {
+            "constraint_name": "checklists_sobrecargo_user_id_foreign",
+            "child_table": "checklists",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (sobrecargo_user_id) REFERENCES users(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "commissions_provider_id_foreign",
+            "child_table": "commissions",
+            "parent_table": "providers",
+            "definition": "FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "commissions_reservation_id_foreign",
+            "child_table": "commissions",
+            "parent_table": "reservations",
+            "definition": "FOREIGN KEY (reservation_id) REFERENCES reservations(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "company_documents_provider_id_foreign",
+            "child_table": "company_documents",
+            "parent_table": "providers",
+            "definition": "FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "crew_operation_incident_files_incident_id_foreign",
+            "child_table": "crew_operation_incident_files",
+            "parent_table": "crew_operation_incidents",
+            "definition": "FOREIGN KEY (incident_id) REFERENCES crew_operation_incidents(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "crew_operation_incidents_crew_id_foreign",
+            "child_table": "crew_operation_incidents",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (crew_id) REFERENCES users(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "crew_operation_incidents_crew_operation_id_foreign",
+            "child_table": "crew_operation_incidents",
+            "parent_table": "operations",
+            "definition": "FOREIGN KEY (crew_operation_id) REFERENCES operations(id) ON DELETE RESTRICT",
+            "on_delete": "RESTRICT"
+        },
+        {
+            "constraint_name": "crew_operation_incidents_provider_timeline_id_foreign",
+            "child_table": "crew_operation_incidents",
+            "parent_table": "operation_timeline",
+            "definition": "FOREIGN KEY (provider_timeline_id) REFERENCES operation_timeline(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "crew_operation_incidents_reported_by_foreign",
+            "child_table": "crew_operation_incidents",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (reported_by) REFERENCES users(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "demos_user_id_foreign",
+            "child_table": "demos",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "favorite_aircraft_aircraft_id_foreign",
+            "child_table": "favorite_aircraft",
+            "parent_table": "aircraft",
+            "definition": "FOREIGN KEY (aircraft_id) REFERENCES aircraft(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "favorite_aircraft_user_id_foreign",
+            "child_table": "favorite_aircraft",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "flight_membership_benefit_ledger_flight_id_foreign",
+            "child_table": "flight_membership_benefit_ledger",
+            "parent_table": "flight_requests",
+            "definition": "FOREIGN KEY (flight_id) REFERENCES flight_requests(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "flight_membership_benefit_ledger_flight_membership_id_foreign",
+            "child_table": "flight_membership_benefit_ledger",
+            "parent_table": "flight_memberships",
+            "definition": "FOREIGN KEY (flight_membership_id) REFERENCES flight_memberships(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "flight_membership_benefit_ledger_flight_membership_period_id_fo",
+            "child_table": "flight_membership_benefit_ledger",
+            "parent_table": "flight_membership_periods",
+            "definition": "FOREIGN KEY (flight_membership_period_id) REFERENCES flight_membership_periods(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "flight_membership_benefit_ledger_quote_id_foreign",
+            "child_table": "flight_membership_benefit_ledger",
+            "parent_table": "quotes",
+            "definition": "FOREIGN KEY (quote_id) REFERENCES quotes(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "flight_membership_benefit_ledger_reservation_id_foreign",
+            "child_table": "flight_membership_benefit_ledger",
+            "parent_table": "reservations",
+            "definition": "FOREIGN KEY (reservation_id) REFERENCES reservations(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "flight_membership_benefit_ledger_reversed_entry_id_foreign",
+            "child_table": "flight_membership_benefit_ledger",
+            "parent_table": "flight_membership_benefit_ledger",
+            "definition": "FOREIGN KEY (reversed_entry_id) REFERENCES flight_membership_benefit_ledger(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "flight_membership_periods_flight_membership_id_foreign",
+            "child_table": "flight_membership_periods",
+            "parent_table": "flight_memberships",
+            "definition": "FOREIGN KEY (flight_membership_id) REFERENCES flight_memberships(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "flight_memberships_plan_id_foreign",
+            "child_table": "flight_memberships",
+            "parent_table": "flight_membership_plans",
+            "definition": "FOREIGN KEY (plan_id) REFERENCES flight_membership_plans(id) ON DELETE RESTRICT",
+            "on_delete": "RESTRICT"
+        },
+        {
+            "constraint_name": "flight_memberships_user_id_foreign",
+            "child_table": "flight_memberships",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "flight_request_legs_destination_airport_id_foreign",
+            "child_table": "flight_request_legs",
+            "parent_table": "airports",
+            "definition": "FOREIGN KEY (destination_airport_id) REFERENCES airports(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "flight_request_legs_flight_request_id_foreign",
+            "child_table": "flight_request_legs",
+            "parent_table": "flight_requests",
+            "definition": "FOREIGN KEY (flight_request_id) REFERENCES flight_requests(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "flight_request_legs_origin_airport_id_foreign",
+            "child_table": "flight_request_legs",
+            "parent_table": "airports",
+            "definition": "FOREIGN KEY (origin_airport_id) REFERENCES airports(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "flight_requests_assigned_aircraft_id_foreign",
+            "child_table": "flight_requests",
+            "parent_table": "aircraft",
+            "definition": "FOREIGN KEY (assigned_aircraft_id) REFERENCES aircraft(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "flight_requests_assigned_provider_id_foreign",
+            "child_table": "flight_requests",
+            "parent_table": "providers",
+            "definition": "FOREIGN KEY (assigned_provider_id) REFERENCES providers(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "flight_requests_client_id_foreign",
+            "child_table": "flight_requests",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (client_id) REFERENCES users(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "flight_requests_destination_airport_id_foreign",
+            "child_table": "flight_requests",
+            "parent_table": "airports",
+            "definition": "FOREIGN KEY (destination_airport_id) REFERENCES airports(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "flight_requests_origin_airport_id_foreign",
+            "child_table": "flight_requests",
+            "parent_table": "airports",
+            "definition": "FOREIGN KEY (origin_airport_id) REFERENCES airports(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "idempotency_keys_user_id_foreign",
+            "child_table": "idempotency_keys",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "identity_verifications_user_id_foreign",
+            "child_table": "identity_verifications",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "login_attempts_user_id_foreign",
+            "child_table": "login_attempts",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "notifications_provider_id_foreign",
+            "child_table": "notifications",
+            "parent_table": "providers",
+            "definition": "FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "notifications_user_id_foreign",
+            "child_table": "notifications",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "operation_timeline_created_by_foreign",
+            "child_table": "operation_timeline",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "operation_timeline_operation_id_foreign",
+            "child_table": "operation_timeline",
+            "parent_table": "operations",
+            "definition": "FOREIGN KEY (operation_id) REFERENCES operations(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "operations_aircraft_id_foreign",
+            "child_table": "operations",
+            "parent_table": "aircraft",
+            "definition": "FOREIGN KEY (aircraft_id) REFERENCES aircraft(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "operations_crew_administratively_closed_by_foreign",
+            "child_table": "operations",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (crew_administratively_closed_by) REFERENCES users(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "operations_flight_request_id_foreign",
+            "child_table": "operations",
+            "parent_table": "flight_requests",
+            "definition": "FOREIGN KEY (flight_request_id) REFERENCES flight_requests(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "operations_provider_id_foreign",
+            "child_table": "operations",
+            "parent_table": "providers",
+            "definition": "FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "operations_sobrecargo_user_id_foreign",
+            "child_table": "operations",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (sobrecargo_user_id) REFERENCES users(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "payment_methods_user_id_foreign",
+            "child_table": "payment_methods",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "payments_flight_request_id_foreign",
+            "child_table": "payments",
+            "parent_table": "flight_requests",
+            "definition": "FOREIGN KEY (flight_request_id) REFERENCES flight_requests(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "payments_payment_method_id_foreign",
+            "child_table": "payments",
+            "parent_table": "payment_methods",
+            "definition": "FOREIGN KEY (payment_method_id) REFERENCES payment_methods(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "payments_reservation_id_foreign",
+            "child_table": "payments",
+            "parent_table": "reservations",
+            "definition": "FOREIGN KEY (reservation_id) REFERENCES reservations(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "payments_subscription_id_foreign",
+            "child_table": "payments",
+            "parent_table": "subscriptions",
+            "definition": "FOREIGN KEY (subscription_id) REFERENCES subscriptions(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "payments_user_id_foreign",
+            "child_table": "payments",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "payouts_commission_id_foreign",
+            "child_table": "payouts",
+            "parent_table": "commissions",
+            "definition": "FOREIGN KEY (commission_id) REFERENCES commissions(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "payouts_provider_id_foreign",
+            "child_table": "payouts",
+            "parent_table": "providers",
+            "definition": "FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "profiles_base_airport_id_foreign",
+            "child_table": "profiles",
+            "parent_table": "airports",
+            "definition": "FOREIGN KEY (base_airport_id) REFERENCES airports(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "profiles_user_id_foreign",
+            "child_table": "profiles",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "protected_chats_admin_id_foreign",
+            "child_table": "protected_chats",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (admin_id) REFERENCES users(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "protected_chats_client_id_foreign",
+            "child_table": "protected_chats",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (client_id) REFERENCES users(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "protected_chats_flight_request_id_foreign",
+            "child_table": "protected_chats",
+            "parent_table": "flight_requests",
+            "definition": "FOREIGN KEY (flight_request_id) REFERENCES flight_requests(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "protected_chats_provider_id_foreign",
+            "child_table": "protected_chats",
+            "parent_table": "providers",
+            "definition": "FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "providers_admin_changes_requested_by_foreign",
+            "child_table": "providers",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (admin_changes_requested_by) REFERENCES users(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "providers_admin_rejected_by_foreign",
+            "child_table": "providers",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (admin_rejected_by) REFERENCES users(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "providers_admin_validated_by_foreign",
+            "child_table": "providers",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (admin_validated_by) REFERENCES users(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "providers_changes_requested_by_foreign",
+            "child_table": "providers",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (changes_requested_by) REFERENCES users(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "providers_rejected_by_foreign",
+            "child_table": "providers",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (rejected_by) REFERENCES users(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "providers_user_id_foreign",
+            "child_table": "providers",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "providers_validated_by_foreign",
+            "child_table": "providers",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (validated_by) REFERENCES users(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "quote_items_quote_id_foreign",
+            "child_table": "quote_items",
+            "parent_table": "quotes",
+            "definition": "FOREIGN KEY (quote_id) REFERENCES quotes(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "quotes_aircraft_id_foreign",
+            "child_table": "quotes",
+            "parent_table": "aircraft",
+            "definition": "FOREIGN KEY (aircraft_id) REFERENCES aircraft(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "quotes_flight_request_id_foreign",
+            "child_table": "quotes",
+            "parent_table": "flight_requests",
+            "definition": "FOREIGN KEY (flight_request_id) REFERENCES flight_requests(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "quotes_provider_id_foreign",
+            "child_table": "quotes",
+            "parent_table": "providers",
+            "definition": "FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "request_matches_aircraft_id_foreign",
+            "child_table": "request_matches",
+            "parent_table": "aircraft",
+            "definition": "FOREIGN KEY (aircraft_id) REFERENCES aircraft(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "request_matches_flight_request_id_foreign",
+            "child_table": "request_matches",
+            "parent_table": "flight_requests",
+            "definition": "FOREIGN KEY (flight_request_id) REFERENCES flight_requests(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "request_matches_provider_id_foreign",
+            "child_table": "request_matches",
+            "parent_table": "providers",
+            "definition": "FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "reservation_contracts_reservation_id_foreign",
+            "child_table": "reservation_contracts",
+            "parent_table": "reservations",
+            "definition": "FOREIGN KEY (reservation_id) REFERENCES reservations(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "reservation_contracts_signed_by_user_id_foreign",
+            "child_table": "reservation_contracts",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (signed_by_user_id) REFERENCES users(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "reservation_legs_destination_airport_id_foreign",
+            "child_table": "reservation_legs",
+            "parent_table": "airports",
+            "definition": "FOREIGN KEY (destination_airport_id) REFERENCES airports(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "reservation_legs_origin_airport_id_foreign",
+            "child_table": "reservation_legs",
+            "parent_table": "airports",
+            "definition": "FOREIGN KEY (origin_airport_id) REFERENCES airports(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "reservation_legs_reservation_id_foreign",
+            "child_table": "reservation_legs",
+            "parent_table": "reservations",
+            "definition": "FOREIGN KEY (reservation_id) REFERENCES reservations(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "reservations_aircraft_id_foreign",
+            "child_table": "reservations",
+            "parent_table": "aircraft",
+            "definition": "FOREIGN KEY (aircraft_id) REFERENCES aircraft(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "reservations_client_id_foreign",
+            "child_table": "reservations",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (client_id) REFERENCES users(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "reservations_flight_request_id_foreign",
+            "child_table": "reservations",
+            "parent_table": "flight_requests",
+            "definition": "FOREIGN KEY (flight_request_id) REFERENCES flight_requests(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "reservations_provider_id_foreign",
+            "child_table": "reservations",
+            "parent_table": "providers",
+            "definition": "FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "reservations_quote_id_foreign",
+            "child_table": "reservations",
+            "parent_table": "quotes",
+            "definition": "FOREIGN KEY (quote_id) REFERENCES quotes(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "service_reviews_reservation_id_foreign",
+            "child_table": "service_reviews",
+            "parent_table": "reservations",
+            "definition": "FOREIGN KEY (reservation_id) REFERENCES reservations(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "service_reviews_user_id_foreign",
+            "child_table": "service_reviews",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "sobrecargo_assignments_assigned_by_foreign",
+            "child_table": "sobrecargo_assignments",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (assigned_by) REFERENCES users(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "sobrecargo_assignments_operation_id_foreign",
+            "child_table": "sobrecargo_assignments",
+            "parent_table": "operations",
+            "definition": "FOREIGN KEY (operation_id) REFERENCES operations(id) ON DELETE RESTRICT",
+            "on_delete": "RESTRICT"
+        },
+        {
+            "constraint_name": "sobrecargo_assignments_sobrecargo_user_id_foreign",
+            "child_table": "sobrecargo_assignments",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (sobrecargo_user_id) REFERENCES users(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "sobrecargo_disponibilidades_aprobado_por_foreign",
+            "child_table": "sobrecargo_disponibilidades",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (aprobado_por) REFERENCES users(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "sobrecargo_disponibilidades_created_by_foreign",
+            "child_table": "sobrecargo_disponibilidades",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "sobrecargo_disponibilidades_estatus_id_foreign",
+            "child_table": "sobrecargo_disponibilidades",
+            "parent_table": "catalogo_disponibilidad_estatus",
+            "definition": "FOREIGN KEY (estatus_id) REFERENCES catalogo_disponibilidad_estatus(id) ON DELETE RESTRICT",
+            "on_delete": "RESTRICT"
+        },
+        {
+            "constraint_name": "sobrecargo_disponibilidades_operacion_id_foreign",
+            "child_table": "sobrecargo_disponibilidades",
+            "parent_table": "operations",
+            "definition": "FOREIGN KEY (operacion_id) REFERENCES operations(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "sobrecargo_disponibilidades_sobrecargo_id_foreign",
+            "child_table": "sobrecargo_disponibilidades",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (sobrecargo_id) REFERENCES users(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "sobrecargo_disponibilidades_updated_by_foreign",
+            "child_table": "sobrecargo_disponibilidades",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "subscriptions_plan_id_foreign",
+            "child_table": "subscriptions",
+            "parent_table": "plans",
+            "definition": "FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "subscriptions_user_id_foreign",
+            "child_table": "subscriptions",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "support_ticket_messages_support_ticket_id_foreign",
+            "child_table": "support_ticket_messages",
+            "parent_table": "support_tickets",
+            "definition": "FOREIGN KEY (support_ticket_id) REFERENCES support_tickets(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "support_ticket_messages_user_id_foreign",
+            "child_table": "support_ticket_messages",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "support_tickets_user_id_foreign",
+            "child_table": "support_tickets",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "user_devices_user_id_foreign",
+            "child_table": "user_devices",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "user_roles_role_id_foreign",
+            "child_table": "user_roles",
+            "parent_table": "roles",
+            "definition": "FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "user_roles_user_id_foreign",
+            "child_table": "user_roles",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        },
+        {
+            "constraint_name": "users_provider_id_foreign",
+            "child_table": "users",
+            "parent_table": "providers",
+            "definition": "FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE SET NULL",
+            "on_delete": "SET NULL"
+        },
+        {
+            "constraint_name": "verification_codes_user_id_foreign",
+            "child_table": "verification_codes",
+            "parent_table": "users",
+            "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+            "on_delete": "CASCADE"
+        }
+    ]
+}

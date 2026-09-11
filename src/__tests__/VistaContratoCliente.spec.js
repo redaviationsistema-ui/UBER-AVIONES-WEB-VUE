@@ -64,6 +64,8 @@ describe('VistaContratoCliente', () => {
 
     const emittedPayload = wrapper.emitted('confirm')?.[0]?.[0]
 
+    expect(emittedPayload.reservation_id).toBe('res-25')
+    expect(emittedPayload.flight_request_id).toBe('fr-161')
     expect(emittedPayload.full_contract_html).toContain('Contrato backend')
     expect(emittedPayload.full_contract_html).toContain('/sig_cliente/')
     expect(emittedPayload.full_contract_text).toBe('Contrato backend en texto plano')
