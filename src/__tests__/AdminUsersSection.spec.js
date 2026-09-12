@@ -223,3 +223,15 @@ describe('AdminUsersSection biometric state', () => {
     wrapper.unmount()
   })
 })
+
+
+it('does not render recoverable passwords from legacy user payloads', async () => {
+  const wrapper = mountUsers([biometricUser(99, {
+    temporary_password_visible: 'legacy-visible-secret',
+    password: 'legacy-password-secret',
+  })])
+  await wrapper.setProps({ scope: 'all', hideRolePanel: false })
+  expect(wrapper.text()).not.toContain('legacy-visible-secret')
+  expect(wrapper.text()).not.toContain('legacy-password-secret')
+  expect(wrapper.text()).toContain('Enlace de recuperación')
+})

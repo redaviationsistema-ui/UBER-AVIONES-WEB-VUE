@@ -487,20 +487,12 @@ function normalizeUserRecord(user = {}, index = 0) {
     user.subscription ||
     access.subscription ||
     null
-  const password =
-    user.password ||
-    user.temporary_password_visible ||
-    user.temporary_password ||
-    user.plain_password ||
-    user.generated_password ||
-    user.raw_password ||
-    ''
+
 
   return {
     id: user.id ?? Date.now() + index,
     name: user.name || user.full_name || '',
     email: user.email || '',
-    password,
     phone: user.phone || user.phone_number || '',
     role: normalizeRoleKey(primaryRole || 'client'),
     provider_id: user.provider_id || user.proveedor_id || provider?.id || resolveProviderIdForUser(user) || '',
@@ -1937,9 +1929,7 @@ async function submitUserForm() {
       tone: 'success',
       title: drawerMode.value === 'edit' ? 'Usuario actualizado' : 'Usuario creado',
       message:
-        drawerMode.value === 'create' && response.temporary_password
-          ? `El usuario ya quedo creado. Password temporal: ${response.temporary_password}`
-          : 'El cambio ya quedo persistido en backend.',
+        response.message || 'El cambio ya quedó guardado.',
     })
   } catch (error) {
     const normalizedError = normalizeBackendUserError(error)
@@ -2080,8 +2070,8 @@ async function resetPassword(user) {
 
     ui.pushToast({
       tone: 'success',
-      title: 'Password reiniciado',
-      message: `Nuevo password temporal para ${user.name}: ${response.temporary_password}`,
+      title: 'Enlace de recuperación enviado',
+      message: response.message || `Enviamos las instrucciones al correo de ${user.name}.`,
     })
   } catch (error) {
     ui.pushToast({
@@ -2573,7 +2563,7 @@ function auditUser(user) {
         <div class="table-row table-head-row">
           <span>Usuario</span>
           <span>Correo</span>
-          <span>Contrasena</span>
+          <span>Recuperación</span>
           <span>Rol</span>
           <span>Estado</span>
           <span>Acceso comercial</span>
@@ -2590,7 +2580,7 @@ function auditUser(user) {
           </div>
 
           <span class="email-cell">{{ user.email }}</span>
-          <span class="password-cell">{{ user.password || 'No disponible' }}</span>
+          <span class="password-cell">Enlace de recuperación</span>
           <span>{{ formatRoleName(user.role) }}</span>
           <span>
             <span
@@ -2719,7 +2709,7 @@ function auditUser(user) {
 
             <label v-if="drawerMode === 'create'" class="field">
               <span>Password temporal</span>
-              <input v-model="userForm.password" type="text" placeholder="Opcional. Si lo dejas vacio se genera uno." />
+              <input v-model="userForm.password" type="password" autocomplete="new-password" placeholder="Opcional. Si lo dejas vacío se envía un enlace." />
               <small v-if="userFormErrors.password" class="field-error">{{ userFormErrors.password }}</small>
             </label>
 

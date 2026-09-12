@@ -104,9 +104,6 @@ async function handleAssign(operationId) {
     operationId,
     crewId: Number(payload.sobrecargo_user_id || 0),
     presentationTime: payload.presentation_time || '',
-    presentationPlace: payload.presentation_place || '',
-    presentationPlaceType: controller.getDraft(operationId).presentationPlaceType,
-    presentationPlaceDetail: controller.getDraft(operationId).presentationPlaceDetail,
     note: controller.getDraft(operationId).note || '',
     onSuccess: ({ title, message } = {}) => {
       controller.clearAssignmentError(operationId)
@@ -116,7 +113,6 @@ async function handleAssign(operationId) {
         crewId: payload.sobrecargo_user_id,
         crewOperationalState: 'pending_crew_response',
         briefingTime: payload.presentation_time || '',
-        presentationPlace: payload.presentation_place || '',
         crewAssignment: {
           status: 'pending_confirmation',
           rawStatus: 'pending_confirmation',

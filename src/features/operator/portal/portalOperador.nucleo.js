@@ -11639,6 +11639,7 @@ async function releaseAvailability(id) {
 }
 
 async function updateRequestStatus(id, status) {
+  if (requestStatusUpdate.requestId !== null) return
   const request = findOperatorRequestByIdentifier(requests.value, id)
   const action = status === 'Aceptada' ? 'accept' : 'reject'
   const backendStatus = resolveOperatorDecisionState(request, status)

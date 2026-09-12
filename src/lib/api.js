@@ -17,9 +17,6 @@ const RAW_FALLBACK_BACKEND_ORIGIN = String(import.meta.env.VITE_FALLBACK_BACKEND
 )
 const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS || 60000)
 const DOCUSIGN_TIMEOUT_MS = Number(import.meta.env.VITE_DOCUSIGN_TIMEOUT_MS || 120000)
-const API_CREDENTIALS_MODE = String(import.meta.env.VITE_API_CREDENTIALS_MODE || 'same-origin')
-  .trim()
-  .toLowerCase()
 const API_USE_DEV_PROXY = String(import.meta.env.VITE_USE_DEV_API_PROXY || 'true')
   .trim()
   .toLowerCase() === 'true'
@@ -304,24 +301,8 @@ function buildHeaders(customHeaders = {}) {
   return headers
 }
 
-function resolveCredentialsMode(options = {}) {
-  if (typeof options.credentials === 'string' && options.credentials.trim()) {
-    return options.credentials
-  }
-
-  if (options.withCredentials === true) {
-    return 'include'
-  }
-
-  if (options.withCredentials === false) {
-    return 'omit'
-  }
-
-  if (['omit', 'same-origin', 'include'].includes(API_CREDENTIALS_MODE)) {
-    return API_CREDENTIALS_MODE
-  }
-
-  return 'same-origin'
+function resolveCredentialsMode() {
+  return 'omit'
 }
 
 function canUseSessionStorage() {

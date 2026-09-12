@@ -1,0 +1,88 @@
+[
+    {
+        "scenario": "same-provider",
+        "database": "uberaviones_phase1_concurrency_test_20260912",
+        "environment": "testing",
+        "overlap": [
+            {
+                "pid": 13840,
+                "wait_event_type": "Lock",
+                "blockers": "{13837}"
+            },
+            {
+                "pid": 13841,
+                "wait_event_type": "Lock",
+                "blockers": "{13840}"
+            }
+        ],
+        "responses": [
+            {
+                "pid": 13838,
+                "status": 200,
+                "operation_id": 1,
+                "error": null
+            },
+            {
+                "pid": 13839,
+                "status": 200,
+                "operation_id": 1,
+                "error": null
+            }
+        ],
+        "retry": {
+            "pid": 13842,
+            "status": 200,
+            "operation_id": 1,
+            "error": null
+        },
+        "operations": 1,
+        "timeline": 1,
+        "passed": true,
+        "artifacts": "\/var\/folders\/bb\/nwrrpxtj58jfdzk7mh1tm7w80000gn\/T\/accept-1c0ff95410"
+    },
+    {
+        "scenario": "two-providers",
+        "database": "uberaviones_phase1_concurrency_test_20260912",
+        "environment": "testing",
+        "overlap": [
+            {
+                "pid": 13846,
+                "wait_event_type": "Lock",
+                "blockers": "{13837}"
+            },
+            {
+                "pid": 13847,
+                "wait_event_type": "Lock",
+                "blockers": "{13846}"
+            }
+        ],
+        "responses": [
+            {
+                "pid": 13844,
+                "status": 200,
+                "operation_id": 2,
+                "error": null
+            },
+            {
+                "pid": 13845,
+                "status": 409,
+                "operation_id": null,
+                "error": {
+                    "success": false,
+                    "code": "CONFLICT",
+                    "message": "La solicitud ya tiene otro proveedor asignado."
+                }
+            }
+        ],
+        "retry": {
+            "pid": 13851,
+            "status": 200,
+            "operation_id": 2,
+            "error": null
+        },
+        "operations": 1,
+        "timeline": 1,
+        "passed": true,
+        "artifacts": "\/var\/folders\/bb\/nwrrpxtj58jfdzk7mh1tm7w80000gn\/T\/accept-cc0dc7024f"
+    }
+]

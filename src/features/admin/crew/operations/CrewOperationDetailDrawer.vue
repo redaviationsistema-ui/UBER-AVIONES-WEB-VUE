@@ -1,6 +1,5 @@
 <script setup>
 import { computed } from 'vue'
-import PresentationPlaceFields from './PresentationPlaceFields.vue'
 
 const props = defineProps({
   operation: { type: Object, default: null },
@@ -420,16 +419,10 @@ const hasOperationChecklistGroups = computed(() => operationChecklistGroups.valu
           <small class="muted">Se calcula automaticamente desde la salida real del vuelo.</small>
         </label>
 
-        <PresentationPlaceFields
-          class="field field--full"
-          :type-value="draft.presentationPlaceType"
-          :detail-value="draft.presentationPlaceDetail"
-          :disabled="!canAssign"
-          :type-error="assignmentError.includes('tipo') ? assignmentError : ''"
-          :detail-error="assignmentError.includes('detalle') ? assignmentError : ''"
-          @update:type-value="$emit('update-draft', operation.id, 'presentationPlaceType', $event)"
-          @update:detail-value="$emit('update-draft', operation.id, 'presentationPlaceDetail', $event)"
-        />
+        <div class="field field--full">
+          <span>Punto de presentacion</span>
+          <strong>{{ operation.presentationPlace || 'Por definir' }}</strong>
+        </div>
 
         <label class="field field--full">
           <span>Nota operativa</span>

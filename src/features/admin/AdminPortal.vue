@@ -2787,9 +2787,6 @@ async function assignCrewToOperation({
   crewId,
   note,
   presentationTime,
-  presentationPlace,
-  presentationPlaceType,
-  presentationPlaceDetail,
   onSuccess,
   onError,
   onComplete,
@@ -2854,12 +2851,6 @@ async function assignCrewToOperation({
     }
 
     const nextPresentationTime = String(presentationTime || operation.briefingTime || '').trim()
-    const nextPresentationPlace = String(
-      presentationPlace ||
-        operation.presentationPlace ||
-        operation.origin ||
-        [presentationPlaceType, presentationPlaceDetail].filter(Boolean).join(' · '),
-    ).trim()
     const nextOperationalNote = String(note || '').trim()
 
     const payload = {
@@ -2871,7 +2862,6 @@ async function assignCrewToOperation({
       crew_name: member.name,
       note: nextOperationalNote || undefined,
       presentation_time: nextPresentationTime || undefined,
-      presentation_place: nextPresentationPlace || undefined,
     }
 
     let dedicatedAssignmentResponse = null
@@ -2884,7 +2874,6 @@ async function assignCrewToOperation({
       crew_name: member.name,
       crew_status: 'pending_crew_response',
       presentation_time: nextPresentationTime || undefined,
-      presentation_place: nextPresentationPlace || undefined,
       notes: nextOperationalNote ? `${operation.notes || ''} · ${nextOperationalNote}`.replace(/^ · /, '') : operation.notes,
     }
 
@@ -2908,7 +2897,6 @@ async function assignCrewToOperation({
       crewId: member.id,
       crewOperationalState: 'pending_crew_response',
       briefingTime: nextPresentationTime || '',
-      presentationPlace: nextPresentationPlace || '',
       notes: persistentAssignmentPatch.notes,
     })
 
@@ -2954,7 +2942,6 @@ async function assignCrewToOperation({
               dedicatedAssignmentResponse?.crew_status ||
               'en_operacion',
             briefingTime: nextPresentationTime || item.briefingTime,
-            presentationPlace: nextPresentationPlace || item.presentationPlace || item.origin || '',
             status: visibleWorkflowStage || item.status,
             workflowStatus: visibleWorkflowStage || item.workflowStatus,
             notes: nextOperationalNote ? `${item.notes || ''} · ${nextOperationalNote}`.replace(/^ · /, '') : item.notes,

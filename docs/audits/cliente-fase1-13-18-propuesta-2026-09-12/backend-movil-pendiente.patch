@@ -1,0 +1,782 @@
+--- a/BACKEND UBER AVIONES/app/Servicios/Privacidad/ClientPublicRepresentation.php
++++ b/BACKEND UBER AVIONES/app/Servicios/Privacidad/ClientPublicRepresentation.php
+@@ -0,0 +1,34 @@
++<?php
++namespace App\Servicios\Privacidad;
++
++final class ClientPublicRepresentation
++{
++    public const PROVIDER_FIELDS = ['id', 'name', 'company_name', 'commercial_name'];
++    public const AIRCRAFT_FIELDS = [
++        'id', 'provider_id', 'model', 'manufacturer', 'category', 'model_year', 'registration',
++        'capacity', 'base_airport', 'base_airport_id', 'base_airport_data', 'range_km', 'speed_kmh',
++        'coverage', 'amenities', 'hourly_rate', 'airport_expenses_usd', 'minimum_hours', 'minimum_route_price',
++        'climb_descent_minutes', 'climb_descent_source', 'repositioning_fee', 'overnight_fee', 'currency',
++        'status', 'is_active', 'operational_status', 'images', 'image_url', 'main_image', 'main_image_url',
++        'provider', 'name', 'type', 'photo', 'photos', 'image', 'seats', 'range', 'speed', 'description',
++    ];
++
++    public static function sanitize(array $value, string $key = ''): array
++    {
++        // A payment's scalar provider (e.g. stripe) never reaches this method.
++        if (! array_is_list($value)) {
++            if (in_array($key, ['provider', 'proveedor', 'operator', 'operador', 'assigned_provider'], true)
++                || (isset($value['commercial_name'], $value['user_id'], $value['approval_status']))) {
++                $value = array_intersect_key($value, array_flip(self::PROVIDER_FIELDS));
++            } elseif (isset($value['model'], $value['registration']) && (isset($value['capacity']) || isset($value['provider_id']))) {
++                $value = array_intersect_key($value, array_flip(self::AIRCRAFT_FIELDS));
++            } elseif (in_array($key, ['sobrecargo', 'crew', 'captain', 'provider_user', 'operator_user', 'internal_user'], true)) {
++                $value = array_intersect_key($value, array_flip(['id', 'name', 'avatar_url']));
++            }
++        }
++        foreach ($value as $field => $item) {
++            if (is_array($item)) $value[$field] = self::sanitize($item, is_string($field) ? $field : $key);
++        }
++        return $value;
++    }
++}
+--- a/BACKEND UBER AVIONES/app/Http/Intermediarios/ApiResponsePrivacy.php
++++ b/BACKEND UBER AVIONES/app/Http/Intermediarios/ApiResponsePrivacy.php
+@@ -0,0 +1,36 @@
++<?php
++namespace App\Http\Intermediarios;
++use App\Servicios\Privacidad\ClientPublicRepresentation;
++use Closure;
++use Illuminate\Http\Request;
++use Symfony\Component\HttpFoundation\JsonResponse;
++
++class ApiResponsePrivacy
++{
++    public function handle(Request $request, Closure $next)
++    {
++        $response = $next($request);
++        if (! $response instanceof JsonResponse || ! $request->is('api/*')) return $response;
++        $data = json_decode($response->getContent(), true);
++        if (! is_array($data)) return $response;
++        $data = $this->removeRecoverablePasswords($data);
++        if ($request->is('api/v1/cliente/*', 'api/v1/client/*', 'api/v1/public/aircraft-preview')
++            || ($request->user()?->hasRole('client') && ! $request->user()?->hasRole('admin'))) {
++            $data = ClientPublicRepresentation::sanitize($data);
++        }
++        $response->setData($data);
++        return $response;
++    }
++
++    private function removeRecoverablePasswords(array $data): array
++    {
++        foreach ($data as $key => $value) {
++            if (in_array($key, ['password', 'temporary_password_visible', 'temporary_password', 'plain_password', 'generated_password', 'raw_password'], true)) {
++                unset($data[$key]);
++            } elseif (is_array($value)) {
++                $data[$key] = $this->removeRecoverablePasswords($value);
++            }
++        }
++        return $data;
++    }
++}
+--- a/BACKEND UBER AVIONES/bootstrap/app.php
++++ b/BACKEND UBER AVIONES/bootstrap/app.php
+@@ -61,9 +61,9 @@
+ 
+         if ($origin !== '' && $allowedOrigins->contains($origin)) {
+             $response->headers->set('Access-Control-Allow-Origin', $origin);
+-            $response->headers->set('Access-Control-Allow-Credentials', 'true');
++            $response->headers->remove('Access-Control-Allow-Credentials');
+             $response->headers->set('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+-            $response->headers->set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept');
++            $response->headers->set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Idempotency-Key');
+             $response->headers->set('Vary', 'Origin');
+         }
+ 
+@@ -118,6 +118,7 @@
+         EnviarRecordatoriosOperativosSobrecargoComando::class,
+     ])
+     ->withMiddleware(function (Middleware $middleware): void {
++        $middleware->append(\App\Http\Intermediarios\ApiResponsePrivacy::class);
+         $middleware->append(CorsIntermediario::class);
+         $middleware->append(HandleCors::class);
+ 
+--- a/BACKEND UBER AVIONES/app/Modelos/Usuario.php
++++ b/BACKEND UBER AVIONES/app/Modelos/Usuario.php
+@@ -60,7 +60,6 @@
+         'name',
+         'email',
+         'password',
+-        'temporary_password_visible',
+         'phone',
+         'role',
+         'operational_role',
+@@ -85,7 +84,13 @@
+         'biometric_selfie_uploaded_at',
+     ];
+ 
++    public function setTemporaryPasswordVisibleAttribute($value): void
++    {
++        throw new \LogicException('Recoverable password storage is disabled. Use password reset.');
++    }
++
+     protected $hidden = [
++        'temporary_password_visible',
+         'password',
+         'remember_token',
+     ];
+--- a/BACKEND UBER AVIONES/app/Http/Controladores/RedAviation/AdminControlador.php
++++ b/BACKEND UBER AVIONES/app/Http/Controladores/RedAviation/AdminControlador.php
+@@ -872,7 +872,6 @@
+             'name' => $data['name'],
+             'email' => $data['email'],
+             'password' => Hash::make($plainPassword),
+-            'temporary_password_visible' => $plainPassword,
+             'phone' => $data['phone'] ?? null,
+             'provider_id' => $data['provider_id'] ?? null,
+             'status' => $data['status'] ?? 'active',
+@@ -880,6 +879,9 @@
+ 
+         $this->syncUserRoles($user, $data['role']);
+         $this->ensureProviderRecord($user, $data);
++        if (empty($data['password'])) {
++            \Illuminate\Support\Facades\Password::broker()->sendResetLink(['email' => $user->email]);
++        }
+         $this->writeAudit($request, 'admin_user_created', 'admin_users', sprintf(
+             'Admin creo al usuario %s con rol %s.',
+             $user->email,
+@@ -905,7 +907,7 @@
+                     'activeSuscripcion.plan:id,name,code,billing_cycle',
+                 ])
+             ),
+-            'temporary_password' => $plainPassword,
++            'message' => 'Usuario creado. Puede establecer su contraseña mediante el enlace de recuperación.',
+         ], 201);
+     }
+ 
+@@ -982,6 +984,7 @@
+             ], 409);
+         }
+ 
++        \App\Servicios\Reservas\CommercialHistoryGuard::user($user->id);
+         $email = $user->email;
+         $user->delete();
+ 
+@@ -1228,22 +1231,12 @@
+ 
+     public function resetUserPassword(Request $request, Usuario $user)
+     {
+-        $plainPassword = Str::password(12);
+-        $user->forceFill([
+-            'password' => Hash::make($plainPassword),
+-            'temporary_password_visible' => $plainPassword,
+-        ])->save();
+-
+-        $this->writeAudit($request, 'admin_user_password_reset', 'admin_users', sprintf(
+-            'Admin reinicio la contrasena del usuario %s.',
+-            $user->email
+-        ));
+-
+-        return $this->ok([
+-            'message' => 'Contrasena reiniciada correctamente.',
+-            'temporary_password' => $plainPassword,
+-            'user' => $user->fresh(['roles', 'profile', 'provider', 'demo', 'activeSuscripcion.plan']),
+-        ]);
++        $status = \Illuminate\Support\Facades\Password::broker()->sendResetLink(['email' => $user->email]);
++        if ($status !== \Illuminate\Support\Facades\Password::RESET_LINK_SENT) {
++            return response()->json(['success' => false, 'message' => __($status)], 422);
++        }
++        $this->writeAudit($request, 'admin_user_password_reset_link', 'admin_users', 'Enlace de recuperación solicitado.');
++        return $this->ok(['message' => 'Enviamos un enlace de recuperación al correo del usuario.']);
+     }
+ 
+     public function operators()
+@@ -3615,7 +3608,6 @@
+             'name' => $user->name,
+             'email' => $user->email,
+             'phone' => $user->phone,
+-            'temporary_password_visible' => $user->temporary_password_visible,
+             'created_at' => $user->created_at,
+             'role' => $user->role,
+             'operational_role' => $user->operational_role,
+--- a/BACKEND UBER AVIONES/app/Http/Intermediarios/TokenApiIntermediario.php
++++ b/BACKEND UBER AVIONES/app/Http/Intermediarios/TokenApiIntermediario.php
+@@ -11,7 +11,7 @@
+ {
+     public function handle(Request $request, Closure $next): Response
+     {
+-        $plainToken = $request->bearerToken() ?: $request->cookie($this->authCookieName());
++        $plainToken = $request->bearerToken();
+ 
+         if (! $plainToken) {
+             return $this->unauthenticated();
+--- a/BACKEND UBER AVIONES/app/Http/Controladores/RedAviation/ClienteControlador.php
++++ b/BACKEND UBER AVIONES/app/Http/Controladores/RedAviation/ClienteControlador.php
+@@ -1331,7 +1331,7 @@
+             return $request->user()->fresh(['activeSuscripcion', 'demo', 'roles']);
+         }
+ 
+-        $plainToken = $request->bearerToken() ?: $request->cookie((string) env('AUTH_TOKEN_COOKIE', 'red_aviation_session'));
++        $plainToken = $request->bearerToken();
+ 
+         if (! $plainToken) {
+             return null;
+--- a/BACKEND UBER AVIONES/app/Http/Controladores/AutenticacionControlador.php
++++ b/BACKEND UBER AVIONES/app/Http/Controladores/AutenticacionControlador.php
+@@ -823,7 +823,7 @@
+ 
+     public function logout(Request $request)
+     {
+-        $plainToken = $request->bearerToken() ?: $request->cookie($this->authCookieName());
++        $plainToken = $request->bearerToken();
+ 
+         if ($plainToken) {
+             TokenApi::where('token', hash('sha256', $plainToken))->delete();
+@@ -1035,17 +1035,7 @@
+             'token' => $plainToken,
+             'token_type' => 'Bearer',
+             ...$extra,
+-        ], $status)->cookie(
+-            $this->authCookieName(),
+-            $plainToken,
+-            $this->authCookieLifetimeMinutes(),
+-            '/',
+-            env('SESSION_DOMAIN'),
+-            $this->shouldUseSecureCookies($request),
+-            true,
+-            false,
+-            $this->authCookieSameSite($request)
+-        );
++        ], $status)->withoutCookie($this->authCookieName());
+     }
+ 
+     private function loadAuthUser(Usuario $user): Usuario
+--- a/BACKEND UBER AVIONES/config/cors.php
++++ b/BACKEND UBER AVIONES/config/cors.php
+@@ -27,11 +27,11 @@
+ 
+     'allowed_origins_patterns' => [],
+ 
+-    'allowed_headers' => ['*'],
++    'allowed_headers' => ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Idempotency-Key'],
+ 
+     'exposed_headers' => [],
+ 
+     'max_age' => (int) env('CORS_MAX_AGE', 600),
+ 
+-    'supports_credentials' => true,
++    'supports_credentials' => false,
+ ];
+--- a/BACKEND UBER AVIONES/app/Http/Intermediarios/CorsIntermediario.php
++++ b/BACKEND UBER AVIONES/app/Http/Intermediarios/CorsIntermediario.php
+@@ -13,16 +13,19 @@
+         $origin = $request->headers->get('Origin');
+         $allowOrigin = $this->resolveAllowedOrigin($origin);
+ 
++        if ($origin && ! $allowOrigin) {
++            return response()->json(['success' => false, 'message' => 'Origin not allowed.'], 403);
++        }
++
+         $headers = [
+             'Access-Control-Allow-Methods' => 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+-            'Access-Control-Allow-Headers' => 'Content-Type, Authorization, X-Requested-With, Accept',
++            'Access-Control-Allow-Headers' => 'Content-Type, Authorization, X-Requested-With, Accept, Idempotency-Key',
+             'Access-Control-Max-Age' => (string) env('CORS_MAX_AGE', 600),
+             'Vary' => 'Origin',
+         ];
+ 
+         if ($allowOrigin) {
+             $headers['Access-Control-Allow-Origin'] = $allowOrigin;
+-            $headers['Access-Control-Allow-Credentials'] = 'true';
+         }
+ 
+         if ($request->getMethod() === 'OPTIONS') {
+@@ -44,20 +47,7 @@
+             return null;
+         }
+ 
+-        $allowedOrigins = collect(explode(',', (string) env('CORS_ALLOWED_ORIGINS', '')))
+-            ->map(fn ($item) => trim($item))
+-            ->filter()
+-            ->values();
+-
+-        if ($allowedOrigins->isEmpty()) {
+-            $allowedOrigins = collect([
+-                'http://localhost:5173',
+-                'http://127.0.0.1:5173',
+-                'https://redskyg.com',
+-                'https://www.redskyg.com',
+-                rtrim((string) env('APP_URL', ''), '/'),
+-            ])->filter()->values();
+-        }
++        $allowedOrigins = collect(config('cors.allowed_origins', []))->reject(fn ($origin) => $origin === '*');
+ 
+         return $allowedOrigins->contains($origin) ? $origin : null;
+     }
+--- a/BACKEND UBER AVIONES/app/Http/Controladores/LegacyClientRoutesControlador.php
++++ b/BACKEND UBER AVIONES/app/Http/Controladores/LegacyClientRoutesControlador.php
+@@ -0,0 +1,10 @@
++<?php
++namespace App\Http\Controladores;
++class LegacyClientRoutesControlador extends ControladorBase
++{
++    public function retired()
++    {
++        return response()->json(['success' => false, 'code' => 'LEGACY_CLIENT_ROUTE_RETIRED',
++            'message' => 'Ruta retirada. Usa /api/v1/client/flight-requests para solicitudes.'], 410);
++    }
++}
+--- a/BACKEND UBER AVIONES/routes/api_v1_cliente.php
++++ b/BACKEND UBER AVIONES/routes/api_v1_cliente.php
+@@ -29,9 +29,9 @@
+     Route::post('/suscripcion/cancelar', [SuscripcionControlador::class, 'cancel']);
+ 
+     Route::post('/buscar-vuelo', [AeronaveControlador::class, 'search']);
+-    Route::apiResource('solicitudes', SolicitudVueloControlador::class)
+-        ->parameters(['solicitudes' => 'flightRequest'])
+-        ->only(['index', 'store', 'show']);
++    Route::get('/solicitudes', [\App\Http\Controladores\LegacyClientRoutesControlador::class, 'retired']);
++    Route::post('/solicitudes', [\App\Http\Controladores\LegacyClientRoutesControlador::class, 'retired']);
++    Route::get('/solicitudes/{flightRequest}', [\App\Http\Controladores\LegacyClientRoutesControlador::class, 'retired']);
+ 
+     Route::get('/cotizaciones', [CotizacionControlador::class, 'index']);
+     Route::get('/cotizaciones/{quote}', [CotizacionControlador::class, 'show']);
+--- a/2Movilskyg/lib/core/cliente_api.dart
++++ b/2Movilskyg/lib/core/cliente_api.dart
+@@ -419,7 +419,6 @@
+ 
+     for (final path in const [
+       '/client/flight-requests',
+-      '/cliente/solicitudes',
+     ]) {
+       try {
+         final data = await get(path, authenticated: true);
+@@ -570,7 +569,7 @@
+     Map<String, dynamic> extraBody = const {},
+   }) {
+     return postFirstAvailable(
+-      const ['/client/flight-requests', '/cliente/solicitudes'],
++      const ['/client/flight-requests'],
+       authenticated: true,
+       body: {
+         'origin': origin,
+@@ -600,7 +599,7 @@
+     Map<String, dynamic> payload,
+   ) {
+     return postFirstAvailable(
+-      const ['/client/flight-requests', '/cliente/solicitudes'],
++      const ['/client/flight-requests'],
+       authenticated: true,
+       body: payload,
+     );
+--- a/BACKEND UBER AVIONES/app/Servicios/Reservas/ProviderAcceptanceService.php
++++ b/BACKEND UBER AVIONES/app/Servicios/Reservas/ProviderAcceptanceService.php
+@@ -0,0 +1,50 @@
++<?php
++namespace App\Servicios\Reservas;
++use App\Modelos\{SolicitudVuelo, Operacion};
++use Illuminate\Support\Facades\DB;
++
++class ProviderAcceptanceService
++{
++    public function accept(int $requestId, int $providerId, int $actorId, bool $createOperation): ?Operacion
++    {
++        return DB::transaction(function () use ($requestId, $providerId, $actorId, $createOperation) {
++            $flight = SolicitudVuelo::query()->lockForUpdate()->findOrFail($requestId);
++            $match = $flight->matches()->where('provider_id', $providerId)->lockForUpdate()->first();
++            abort_unless($match, 403, 'No puedes responder esta solicitud.');
++            abort_if($flight->assigned_provider_id && (int) $flight->assigned_provider_id !== $providerId, 409, 'La solicitud ya tiene otro proveedor asignado.');
++            abort_if(in_array(strtolower((string) $flight->status), ['cancelled', 'canceled', 'cancelada', 'completed', 'finalizada', 'expired'], true), 409, 'La solicitud ya no permite aceptación.');
++            abort_unless(in_array($match->status, ['pending', 'sent_to_provider', 'accepted'], true), 409, 'La propuesta ya no permite aceptación.');
++            $operation = Operacion::where('flight_request_id', $flight->id)->lockForUpdate()->first();
++            abort_if($operation && (int) $operation->provider_id !== $providerId, 409, 'La operación ya pertenece a otro proveedor.');
++            if ($operation) return $operation->load('timeline');
++
++            if ($match->status !== 'accepted') {
++                $match->loadMissing('aircraft');
++                abort_unless($match->aircraft_id, 409, 'La propuesta no tiene aeronave.');
++                $match->update(['status' => 'accepted', 'accepted_at' => now(), 'rejected_at' => null]);
++                $flight->update([
++                    ...(! $createOperation ? ['status' => 'matched'] : []),
++                    'workflow_status' => 'aceptada', 'assigned_provider_id' => $providerId,
++                    'assigned_aircraft_id' => $match->aircraft_id, 'assigned_aircraft_model' => $match->aircraft?->model,
++                    'visibility_payload' => [
++                        ...($flight->visibility_payload ?? []), 'selected_provider_id' => $providerId,
++                        'selected_aircraft_id' => $match->aircraft_id, 'aircraft_model' => $match->aircraft?->model,
++                        'aircraft_category' => $match->aircraft?->category, 'aircraft_capacity' => $match->aircraft?->capacity,
++                    ],
++                ]);
++            }
++            if (! $createOperation) return null;
++            $operation = Operacion::create([
++                'flight_request_id' => $flight->id, 'provider_id' => $providerId,
++                'aircraft_id' => $match->aircraft_id, 'status' => 'confirmada',
++            ]);
++            $operation->timeline()->create([
++                'status' => 'confirmada', 'title' => 'Operador asignado',
++                'description' => 'La operacion fue aceptada por un operador verificado.', 'created_by' => $actorId,
++            ]);
++            $chat = $flight->chatsProtegidos()->first();
++            if ($chat && ! $chat->provider_id) $chat->update(['provider_id' => $providerId]);
++            return $operation->load('timeline');
++        });
++    }
++}
+--- a/BACKEND UBER AVIONES/app/Http/Controladores/RedAviation/OperadorControlador.php
++++ b/BACKEND UBER AVIONES/app/Http/Controladores/RedAviation/OperadorControlador.php
+@@ -382,50 +382,9 @@
+     {
+         $providerId = $this->resolvedProviderIdOrAbort($request);
+         $this->ensureOperationalProviderAccess($request);
+-        $match = $flightRequest->matches()->where('provider_id', $providerId)->firstOrFail();
+-        $match->loadMissing('aircraft');
+-
+-        $match->update([
+-            'status' => 'accepted',
+-            'accepted_at' => now(),
+-        ]);
+-
+-        $visibilityPayload = $flightRequest->visibility_payload ?? [];
+-        $flightRequest->update([
+-            'workflow_status' => 'aceptada',
+-            'assigned_provider_id' => $providerId,
+-            'assigned_aircraft_id' => $match->aircraft_id,
+-            'assigned_aircraft_model' => $match->aircraft?->model,
+-            'visibility_payload' => [
+-                ...$visibilityPayload,
+-                'selected_provider_id' => $providerId,
+-                'selected_aircraft_id' => $match->aircraft_id,
+-                'aircraft_model' => $match->aircraft?->model,
+-                'aircraft_category' => $match->aircraft?->category,
+-                'aircraft_capacity' => $match->aircraft?->capacity,
+-            ],
+-        ]);
+-
+-        $operacion = Operacion::create([
+-            'flight_request_id' => $flightRequest->id,
+-            'provider_id' => $providerId,
+-            'aircraft_id' => $match->aircraft_id,
+-            'status' => 'confirmada',
+-        ]);
+-
+-        $operacion->timeline()->create([
+-            'status' => 'confirmada',
+-            'title' => 'Operador asignado',
+-            'description' => 'La operacion fue aceptada por un operador verificado.',
+-            'created_by' => $request->user()->id,
+-        ]);
+-
+-        $chat = $flightRequest->chatsProtegidos()->first();
+-        if ($chat && ! $chat->provider_id) {
+-            $chat->update(['provider_id' => $providerId]);
+-        }
+-
+-        return $this->ok(['operation' => $operacion->load('timeline')]);
++        $operation = app(\App\Servicios\Reservas\ProviderAcceptanceService::class)
++            ->accept($flightRequest->id, $providerId, $request->user()->id, true);
++        return $this->ok(['operation' => $operation]);
+     }
+ 
+     public function reject(Request $request, SolicitudVuelo $flightRequest)
+--- a/BACKEND UBER AVIONES/app/Http/Controladores/ProveedorControlador.php
++++ b/BACKEND UBER AVIONES/app/Http/Controladores/ProveedorControlador.php
+@@ -499,38 +499,8 @@
+     {
+         $providerId = $this->resolvedProviderIdOrAbort($request, 404);
+         $this->ensureOperationalAccess($request);
+-        abort_unless(
+-            (int) $flightRequest->assigned_provider_id === (int) $providerId
+-            || $flightRequest->matches()->where('provider_id', $providerId)
+-                ->whereIn('status', ['pending', 'sent_to_provider', 'accepted'])->exists(),
+-            403, 'No puedes responder esta solicitud.'
+-        );
+-
+-        $match = $flightRequest->matches()->where('provider_id', $providerId)->first();
+-        $match?->loadMissing('aircraft');
+-
+-        $flightRequest->matches()->where('provider_id', $providerId)->update([
+-            'status' => 'accepted',
+-            'accepted_at' => now(),
+-            'rejected_at' => null,
+-        ]);
+-        $visibilityPayload = $flightRequest->visibility_payload ?? [];
+-        $flightRequest->update([
+-            'status' => 'matched',
+-            'workflow_status' => 'aceptada',
+-            'assigned_provider_id' => $providerId,
+-            'assigned_aircraft_id' => $match?->aircraft_id,
+-            'assigned_aircraft_model' => $match?->aircraft?->model,
+-            'visibility_payload' => [
+-                ...$visibilityPayload,
+-                'selected_provider_id' => $providerId,
+-                'selected_aircraft_id' => $match?->aircraft_id,
+-                'aircraft_model' => $match?->aircraft?->model,
+-                'aircraft_category' => $match?->aircraft?->category,
+-                'aircraft_capacity' => $match?->aircraft?->capacity,
+-            ],
+-        ]);
+-
++        app(\App\Servicios\Reservas\ProviderAcceptanceService::class)
++            ->accept($flightRequest->id, $providerId, $request->user()->id, false);
+         return $this->ok(['message' => 'Solicitud aceptada para cotizar.']);
+     }
+ 
+--- a/BACKEND UBER AVIONES/database/migrations/2026_09_12_120000_preserve_client_commercial_history.php
++++ b/BACKEND UBER AVIONES/database/migrations/2026_09_12_120000_preserve_client_commercial_history.php
+@@ -0,0 +1,31 @@
++<?php
++use Illuminate\Database\Migrations\Migration;
++use Illuminate\Database\Schema\Blueprint;
++use Illuminate\Support\Facades\{DB, Schema};
++return new class extends Migration {
++    private function links(): array {
++        return [
++            ['reservations', 'client_id', 'users'], ['reservations', 'provider_id', 'providers'],
++            ['reservations', 'aircraft_id', 'aircraft'], ['reservations', 'flight_request_id', 'flight_requests'],
++            ['reservations', 'quote_id', 'quotes'], ['reservation_contracts', 'reservation_id', 'reservations'],
++            ['operations', 'flight_request_id', 'flight_requests'], ['quotes', 'flight_request_id', 'flight_requests'],
++            ['flight_requests', 'client_id', 'users'], ['providers', 'user_id', 'users'], ['aircraft', 'provider_id', 'providers'],
++        ];
++    }
++    public function up(): void {
++        if (DB::table('operations')->whereNotNull('flight_request_id')->groupBy('flight_request_id')->havingRaw('COUNT(*) > 1')->exists()) {
++            throw new RuntimeException('Duplicate operation links: review history manually; migration does not clean data.');
++        }
++        foreach ($this->links() as [$child, $column, $parent]) {
++            Schema::table($child, function (Blueprint $table) use ($column, $parent) {
++                $table->dropForeign([$column]);
++                $table->foreign($column)->references('id')->on($parent)->restrictOnDelete();
++            });
++        }
++        Schema::table('operations', fn (Blueprint $table) => $table->unique('flight_request_id', 'operations_flight_request_unique'));
++    }
++    public function down(): void {
++        // Restoring cascades would silently re-enable historical data loss.
++        throw new RuntimeException('Historical protection requires an explicitly reviewed rollback.');
++    }
++};
+--- a/BACKEND UBER AVIONES/app/Servicios/Reservas/CommercialHistoryGuard.php
++++ b/BACKEND UBER AVIONES/app/Servicios/Reservas/CommercialHistoryGuard.php
+@@ -0,0 +1,20 @@
++<?php
++namespace App\Servicios\Reservas;
++use Illuminate\Support\Facades\DB;
++class CommercialHistoryGuard
++{
++    public static function user(int $id): void
++    {
++        abort_if(DB::table('flight_requests')->where('client_id', $id)->exists()
++            || DB::table('providers')->where('user_id', $id)->exists()
++            || DB::table('reservations')->where('client_id', $id)->exists(), 409,
++            'El usuario tiene historial comercial. Desactiva su acceso para conservarlo.');
++    }
++    public static function aircraft(int $id): void
++    {
++        abort_if(DB::table('reservations')->where('aircraft_id', $id)->exists()
++            || DB::table('quotes')->where('aircraft_id', $id)->exists()
++            || DB::table('operations')->where('aircraft_id', $id)->exists(), 409,
++            'La aeronave tiene historial comercial. Desactívala para conservarlo.');
++    }
++}
+--- a/BACKEND UBER AVIONES/app/Http/Controladores/AeronaveControlador.php
++++ b/BACKEND UBER AVIONES/app/Http/Controladores/AeronaveControlador.php
+@@ -205,6 +205,7 @@
+     public function destroy(Request $request, Aeronave $aircraft)
+     {
+         $this->authorizeProveedorAeronave($request, $aircraft);
++        \App\Servicios\Reservas\CommercialHistoryGuard::aircraft($aircraft->id);
+         $aircraft->delete();
+ 
+         return $this->ok(['message' => 'Aeronave eliminada.']);
+--- a/BACKEND UBER AVIONES/tests/Feature/ClientPhaseOneHardeningTest.php
++++ b/BACKEND UBER AVIONES/tests/Feature/ClientPhaseOneHardeningTest.php
+@@ -0,0 +1,194 @@
++<?php
++namespace Tests\Feature;
++use App\Modelos\{Aeronave, Proveedor, Reserva, SolicitudVuelo, TokenApi, Usuario, ContratoReserva, Operacion};
++use Illuminate\Foundation\Testing\RefreshDatabase;
++use Illuminate\Support\Facades\{DB, Hash, Notification, Password};
++use Tests\TestCase;
++class ClientPhaseOneHardeningTest extends TestCase
++{
++    use RefreshDatabase;
++
++    public function test_client_provider_serialization_is_public_and_admin_provider_is_unchanged(): void
++    {
++        $c = $this->createContext();
++        $c['provider']->update(['rfc' => 'PRIVATE-RFC', 'company_email' => 'private@example.test', 'admin_notes' => 'PRIVATE-NOTES']);
++        DB::table('users')->where('id', $c['provider']->user_id)->update(['temporary_password_visible' => 'HISTORICAL-SECRET']);
++        $c['aircraft']->update(['dispatch_notes' => 'PRIVATE-DISPATCH', 'security_notes' => 'PRIVATE-SECURITY']);
++        foreach (['/api/v1/cliente/reservas', '/api/v1/cliente/reservas/'.$c['reservation']->id] as $path) {
++            $r = $this->withToken($c['token'])->getJson($path)->assertOk();
++            foreach (['PRIVATE-RFC','private@example.test','PRIVATE-NOTES','HISTORICAL-SECRET','PRIVATE-DISPATCH','PRIVATE-SECURITY','temporary_password_visible'] as $secret) {
++                $this->assertStringNotContainsString($secret, $r->getContent());
++            }
++        }
++        $r = $this->withToken($c['token'])->getJson('/api/v1/cliente/reservas/'.$c['reservation']->id)->assertOk();
++        $this->assertSame(['id','company_name','commercial_name'], array_keys($r->json('reservation.provider')));
++        $this->assertSame('PRIVATE-RFC', $c['provider']->fresh()->rfc);
++        $this->assertSame('HISTORICAL-SECRET', DB::table('users')->where('id', $c['provider']->user_id)->value('temporary_password_visible'));
++    }
++
++    public function test_admin_creation_and_reset_use_hash_and_existing_one_time_broker(): void
++    {
++        Notification::fake();
++        $admin = Usuario::factory()->create(['role' => 'admin', 'status' => 'active']);
++        $r = $this->withToken(TokenApi::issue($admin))->postJson('/api/v1/admin/users', [
++            'name' => 'New Provider', 'email' => 'new-provider@example.test', 'role' => 'provider',
++        ])->assertCreated();
++        $user = Usuario::where('email', 'new-provider@example.test')->firstOrFail();
++        $this->assertNull(DB::table('users')->where('id', $user->id)->value('temporary_password_visible'));
++        $this->assertNotSame('', $user->password);
++        $this->assertNotSame('unknown', password_get_info($user->password)['algoName']);
++        $this->assertStringNotContainsString('temporary_password', $r->getContent());
++        Notification::assertSentTo($user, \App\Notifications\Auth\ResetPasswordNotification::class);
++        $before = $user->password;
++        $this->travel(2)->minutes();
++        $this->postJson('/api/v1/admin/users/'.$user->id.'/reset-password')->assertOk();
++        $this->assertSame($before, $user->fresh()->password);
++        $token = Password::broker()->createToken($user);
++        $body=['email'=>$user->email,'token'=>$token,'password'=>'NewPassword123!','password_confirmation'=>'NewPassword123!'];
++        $this->postJson('/api/v1/auth/reset-password', $body)->assertOk();
++        $this->assertTrue(Hash::check('NewPassword123!', $user->fresh()->password));
++        $this->postJson('/api/v1/auth/reset-password', $body)->assertStatus(422);
++    }
++
++    public function test_visible_password_cannot_be_written_via_model(): void
++    {
++        $user = Usuario::factory()->create();
++        $this->expectException(\LogicException::class);
++        $user->forceFill(['temporary_password_visible'=>'not-persistable'])->save();
++    }
++
++    public function test_cookie_is_not_authentication_and_bearer_still_works(): void
++    {
++        $user = Usuario::factory()->create(['role'=>'client','status'=>'active']);
++        $token=TokenApi::issue($user);
++        $this->withUnencryptedCookie('red_aviation_session', $token)
++            ->putJson('/api/v1/cliente/perfil', ['name'=>'CSRF attempt'])->assertUnauthorized();
++        $this->assertNotSame('CSRF attempt', $user->fresh()->name);
++        $this->withToken($token)->putJson('/api/v1/cliente/perfil', ['name'=>'Bearer update'])->assertOk();
++        $this->assertSame('Bearer update', $user->fresh()->name);
++    }
++
++    public function test_cors_allows_explicit_origin_and_idempotency_header_only(): void
++    {
++        config(['cors.allowed_origins'=>['https://allowed.example']]);
++        $this->withHeaders(['Origin'=>'https://allowed.example','Access-Control-Request-Method'=>'POST','Access-Control-Request-Headers'=>'authorization,idempotency-key'])
++            ->options('/api/v1/cliente/reservas')->assertStatus(204)
++            ->assertHeader('Access-Control-Allow-Origin', 'https://allowed.example')
++            ->assertHeaderMissing('Access-Control-Allow-Credentials');
++        $r=$this->options('/api/v1/cliente/reservas');
++        $this->assertStringContainsString('Idempotency-Key', $r->headers->get('Access-Control-Allow-Headers'));
++        $this->withHeader('Origin','https://evil.example')->options('/api/v1/cliente/reservas')->assertForbidden()->assertHeaderMissing('Access-Control-Allow-Origin');
++    }
++
++    public function test_legacy_request_routes_are_gone_without_creating_requests(): void
++    {
++        $c=$this->createContext();
++        $this->withToken($c['token'])->getJson('/api/v1/cliente/solicitudes')->assertGone();
++        $this->postJson('/api/v1/cliente/solicitudes',[])->assertGone();
++        $this->getJson('/api/v1/cliente/solicitudes/'.$c['flightRequest']->id)->assertGone();
++        $this->assertDatabaseCount('flight_requests',1);
++        $this->getJson('/api/v1/client/flight-requests/'.$c['flightRequest']->id)->assertOk();
++    }
++
++    public function test_acceptance_is_exclusive_and_keeps_quotation_step_separate(): void
++    {
++        $c=$this->createContext();
++        $flight=$c['flightRequest'];
++        $flight->matches()->create(['provider_id'=>$c['provider']->id,'aircraft_id'=>$c['aircraft']->id,'status'=>'pending']);
++        $service=app(\App\Servicios\Reservas\ProviderAcceptanceService::class);
++        $this->assertNull($service->accept($flight->id,$c['provider']->id,$c['provider']->user_id,false));
++        $this->assertNull($service->accept($flight->id,$c['provider']->id,$c['provider']->user_id,false));
++        $this->assertDatabaseCount('operations',0);
++        $one=$service->accept($flight->id,$c['provider']->id,$c['provider']->user_id,true);
++        $two=$service->accept($flight->id,$c['provider']->id,$c['provider']->user_id,true);
++        $this->assertSame($one->id,$two->id);
++        $this->assertDatabaseCount('operations',1);
++        $this->assertDatabaseCount('operation_timeline',1);
++        $other=Proveedor::factory()->create();
++        $flight->matches()->create(['provider_id'=>$other->id,'aircraft_id'=>$c['aircraft']->id,'status'=>'pending']);
++        try { $service->accept($flight->id,$other->id,$other->user_id,true); $this->fail('Must reject reassignment'); }
++        catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) { $this->assertSame(409,$e->getStatusCode()); }
++        $this->assertSame($c['provider']->id,$flight->fresh()->assigned_provider_id);
++        $this->assertDatabaseCount('operations',1);
++    }
++
++    public function test_rejected_match_never_creates_operation(): void
++    {
++        $c=$this->createContext();
++        $c['flightRequest']->matches()->create(['provider_id'=>$c['provider']->id,'aircraft_id'=>$c['aircraft']->id,'status'=>'rejected']);
++        try { app(\App\Servicios\Reservas\ProviderAcceptanceService::class)->accept($c['flightRequest']->id,$c['provider']->id,$c['provider']->user_id,true); $this->fail('Must reject'); }
++        catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) { $this->assertSame(409,$e->getStatusCode()); }
++        $this->assertDatabaseCount('operations',0);
++    }
++
++    public function test_database_preserves_reservation_and_contract_when_parents_are_deleted(): void
++    {
++        $c=$this->createContext();
++        ContratoReserva::create(['reservation_id'=>$c['reservation']->id,'contract_code'=>'HISTORY','status'=>'generated']);
++        foreach ([$c['user'],$c['provider'],$c['aircraft'],$c['flightRequest'],$c['reservation']] as $parent) {
++            try { DB::transaction(fn ()=>$parent->delete()); $this->fail('Delete must be restricted'); }
++            catch (\Illuminate\Database\QueryException $e) { $this->assertNotEmpty($e->getMessage()); }
++            $this->assertDatabaseCount('reservations',1);
++            $this->assertDatabaseCount('reservation_contracts',1);
++        }
++    }
++
++    private function createContext(): array
++    {
++        $client = Usuario::factory()->create(['role' => Usuario::ROLE_CLIENT, 'status' => 'active']);
++        $providerUser = Usuario::factory()->create(['role' => Usuario::ROLE_PROVIDER, 'status' => 'active']);
++        $provider = Proveedor::query()->create([
++            'user_id' => $providerUser->id,
++            'company_name' => 'Canonical Routing Provider',
++            'commercial_name' => 'Canonical Routing Provider',
++            'approval_status' => 'approved',
++        ]);
++        $aircraft = Aeronave::query()->create([
++            'provider_id' => $provider->id,
++            'model' => 'Citation Routing',
++            'registration' => 'XA-'.strtoupper(substr(uniqid(), -7)),
++            'capacity' => 6,
++            'base_airport' => 'MMMX',
++            'range_km' => 2500,
++            'speed_kmh' => 700,
++            'hourly_rate' => 5000,
++            'status' => 'active',
++            'currency' => 'USD',
++        ]);
++        $flightRequest = SolicitudVuelo::query()->create([
++            'client_id' => $client->id,
++            'origin' => 'MMMX',
++            'destination' => 'MMTO',
++            'departure_datetime' => now()->addDays(5),
++            'passengers' => 2,
++            'trip_type' => 'one_way',
++            'assigned_provider_id' => $provider->id,
++            'assigned_aircraft_id' => $aircraft->id,
++            'final_price' => 15000,
++            'currency' => 'USD',
++            'status' => 'reserved',
++        ]);
++        $reservation = Reserva::query()->forceCreate([
++            'id' => 900001,
++            'client_id' => $client->id,
++            'provider_id' => $provider->id,
++            'aircraft_id' => $aircraft->id,
++            'flight_request_id' => $flightRequest->id,
++            'reservation_code' => 'PV-ROUTING-'.$flightRequest->id,
++            'status' => 'pending_payment',
++            'total_amount' => 15000,
++            'currency' => 'USD',
++        ]);
++
++        $token = TokenApi::issue($client, 'test-canonical-routing');
++
++        return [
++            'user' => $client,
++            'token' => $token,
++            'reservation' => $reservation,
++            'provider' => $provider,
++            'aircraft' => $aircraft,
++            'flightRequest' => $flightRequest,
++        ];
++    }
++}

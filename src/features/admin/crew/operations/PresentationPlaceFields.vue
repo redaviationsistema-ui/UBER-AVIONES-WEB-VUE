@@ -5,7 +5,7 @@ defineProps({
   disabled: { type: Boolean, default: false },
   typeError: { type: String, default: '' },
   detailError: { type: String, default: '' },
-  placeTypes: { type: Array, default: () => ['FBO', 'Base', 'Aeropuerto', 'Hangar', 'Otro'] },
+  placeTypes: { type: Array, default: () => [] },
 })
 
 defineEmits(['update:typeValue', 'update:detailValue'])
@@ -15,14 +15,14 @@ defineEmits(['update:typeValue', 'update:detailValue'])
   <div class="presentation-fields">
     <label class="field" :class="{ 'field--error': typeError }">
       <span>Tipo de lugar</span>
-      <select
+      <input
         :value="typeValue"
+        type="text"
         :disabled="disabled"
-        @change="$emit('update:typeValue', $event.target.value)"
-      >
-        <option value="">Selecciona</option>
-        <option v-for="item in placeTypes" :key="item" :value="item">{{ item }}</option>
-      </select>
+        placeholder="Escriba el punto de presentación"
+        autocomplete="off"
+        @input="$emit('update:typeValue', $event.target.value)"
+      />
       <small v-if="typeError" class="inline-error">{{ typeError }}</small>
     </label>
 

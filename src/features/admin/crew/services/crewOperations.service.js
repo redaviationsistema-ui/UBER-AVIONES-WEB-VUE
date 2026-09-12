@@ -92,10 +92,15 @@ export function operationPresentationPlace(operation = {}) {
   const raw = operation?.raw && typeof operation.raw === 'object' ? operation.raw : {}
   const visibilityPayload =
     raw.visibility_payload && typeof raw.visibility_payload === 'object' ? raw.visibility_payload : {}
+  const providerRelease =
+    visibilityPayload.provider_operational_release && typeof visibilityPayload.provider_operational_release === 'object'
+      ? visibilityPayload.provider_operational_release
+      : {}
   const briefing = raw.briefing && typeof raw.briefing === 'object' ? raw.briefing : {}
 
   return String(
-    operation.presentationPlace ||
+    providerRelease.fbo ||
+      operation.presentationPlace ||
       raw.presentation_place ||
       raw.presentation_location ||
       visibilityPayload.presentation_place ||
@@ -108,21 +113,15 @@ export function operationPresentationPlace(operation = {}) {
 export function buildPresentationPlaceValue(type = '', detail = '', fallback = '') {
   const resolvedType = String(type || '').trim()
   const resolvedDetail = String(detail || '').trim()
-  const combined = [resolvedType, resolvedDetail].filter(Boolean).join(' · ')
-
-  return combined || String(fallback || '').trim()
+  return resolvedType || resolvedDetail || String(fallback || '').trim()
 }
 
 export function resolvePresentationPlaceDraft(operation = {}) {
   const storedValue = operationPresentationPlace(operation)
-  const segments = storedValue.split('·').map((segment) => segment.trim()).filter(Boolean)
-  const firstSegment = segments[0] || ''
-  const type = PRESENTATION_PLACE_TYPES.includes(firstSegment) ? firstSegment : ''
-  const detail = type ? segments.slice(1).join(' · ') : storedValue
 
   return {
-    presentationPlaceType: type,
-    presentationPlaceDetail: detail,
+    presentationPlaceType: storedValue,
+    presentationPlaceDetail: '',
   }
 }
 
@@ -391,11 +390,6 @@ export function buildNormalizedCrewMember(member = {}, linkedOperation = null) {
 
 export function buildCrewAssignmentPayload({ operation = {}, member = {}, draft = {} } = {}) {
   const presentationTime = String(draft.presentationTime || operationPresentationTime(operation) || '').trim()
-  const presentationPlace = buildPresentationPlaceValue(
-    draft.presentationPlaceType,
-    draft.presentationPlaceDetail,
-    operationPresentationPlace(operation) || operation.origin || '',
-  )
   const note = String(draft.note || '').trim()
 
   return {
@@ -407,7 +401,6 @@ export function buildCrewAssignmentPayload({ operation = {}, member = {}, draft 
     crew_name: member.name,
     note: note || undefined,
     presentation_time: presentationTime || undefined,
-    presentation_place: presentationPlace || undefined,
   }
 }
 
